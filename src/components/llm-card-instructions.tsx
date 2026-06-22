@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { copyText } from "@/lib/clipboard";
 
 const prompt = `Generate a Banki study-card import as one valid JSON object.
 
@@ -38,12 +39,12 @@ Rules:
 Save the result as a UTF-8 file ending in .banki.json.`;
 
 export function LlmCardInstructions() {
-  const [copied, setCopied] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle");
 
   async function copyPrompt() {
-    await navigator.clipboard.writeText(prompt);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 2_000);
+    const copied = await copyText(prompt);
+    setCopyStatus(copied ? "copied" : "error");
+    window.setTimeout(() => setCopyStatus("idle"), 2_000);
   }
 
   return <section className="llm-card-instructions panel" aria-labelledby="card-prompt-title">
@@ -51,8 +52,8 @@ export function LlmCardInstructions() {
       <p className="eyebrow">Card generation</p>
       <h2 id="card-prompt-title">Prompt an LLM, import the result.</h2>
       <p>Copy these instructions into any LLM, add your source material and learning goals, then import the generated <code>.banki.json</code> file from the dashboard.</p>
-      <button className="button secondary" onClick={() => void copyPrompt()}>{copied ? "Instructions copied" : "Copy LLM instructions"}</button>
-      <span className="instruction-status" role="status" aria-live="polite">{copied ? "Ready to paste into an LLM." : "Version 1 · JSON · up to 10,000 cards"}</span>
+      <button className="button secondary" onClick={() => void copyPrompt()}>{copyStatus === "copied" ? "Instructions copied" : "Copy LLM instructions"}</button>
+      <span className={`instruction-status${copyStatus === "error" ? " form-error" : ""}`} role="status" aria-live="polite">{copyStatus === "copied" ? "Ready to paste into an LLM." : copyStatus === "error" ? "Copy failed. Select the prompt and copy it manually." : "Version 1 · JSON · up to 10,000 cards"}</span>
     </div>
     <div className="prompt-sheet">
       <div className="prompt-sheet-header"><span>banki-card-prompt.txt</span><span>UTF-8</span></div>

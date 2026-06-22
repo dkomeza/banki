@@ -21,3 +21,13 @@ export function cleanTex(tex: string) {
 export function containsMath(input: string) {
   return /\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]|[∑√∞≤≥≠≈∫∂∇πθαβγ]/.test(input);
 }
+
+export function mathInputPreview(input: string) {
+  return input
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+    .replace(/\n/g, "<br>");
+}

@@ -1,9 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { MathRenderer } from "@/components/math-renderer";
+import { MathCheatsheet } from "@/components/math-cheatsheet";
+import { insertMathTemplate } from "@/lib/math-input";
+import { mathInputPreview } from "@/lib/math";
 
 type StudyCard = { id: string; frontHtml: string; backHtml: string; reps: number; due: number };
 type StudyMode = "classic" | "written";
@@ -25,8 +28,21 @@ export function StudySession({ initialCards, planId, gradingEnabled }: { initial
   const [mode, setMode] = useState<StudyMode>("classic");
   const [answer, setAnswer] = useState("");
   const [grade, setGrade] = useState<GradeResult | null>(null);
+  const answerRef = useRef<HTMLTextAreaElement>(null);
   const router = useRouter();
   const card = cards[0];
+
+  function insertMath(template: string) {
+    const textarea = answerRef.current;
+    const start = textarea?.selectionStart ?? answer.length;
+    const end = textarea?.selectionEnd ?? start;
+    const next = insertMathTemplate(answer, start, end, template);
+    setAnswer(next.value);
+    requestAnimationFrame(() => {
+      answerRef.current?.focus();
+      answerRef.current?.setSelectionRange(next.selectionStart, next.selectionEnd);
+    });
+  }
 
   async function rate(rating: number) {
     if (!card || busy) return;
@@ -78,7 +94,9 @@ export function StudySession({ initialCards, planId, gradingEnabled }: { initial
       {mode === "written" && !revealed ? (
         <form className="written-answer" onSubmit={(event) => { event.preventDefault(); void submitAnswer(); }}>
           <label htmlFor="study-answer">Your answer</label>
-          <textarea id="study-answer" rows={4} maxLength={8000} autoFocus value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder="Explain the answer in your own words…" />
+          <textarea ref={answerRef} id="study-answer" rows={4} maxLength={8000} autoFocus value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder="Explain the answer in your own words… Use \\(…\\) for math." />
+          <MathCheatsheet onInsert={insertMath} />
+          {answer.trim() && <section className="answer-preview" aria-live="polite"><span>Preview</span><MathRenderer html={mathInputPreview(answer)} /></section>}
           <button className="reveal-button" disabled={grading || !answer.trim()} type="submit">{grading ? "Grading…" : "Grade answer"}</button>
         </form>
       ) : !revealed ? <button className="reveal-button" onClick={() => setRevealed(true)}>Show answer <kbd>Space</kbd></button> : (

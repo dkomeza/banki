@@ -141,6 +141,21 @@ textarea { resize: vertical; line-height: 1.45; font-family: "IBM Plex Mono", mo
 .reveal-button:disabled { opacity: .55; cursor: not-allowed; }
 .written-answer { display: grid; margin-top: 18px; }
 .written-answer textarea { min-height: 112px; background: rgba(255,255,255,.75); font-family: inherit; font-size: 16px; }
+.math-cheatsheet { margin-top: 9px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.62); }
+.math-cheatsheet summary { padding: 10px 12px; color: var(--blue); cursor: pointer; font-size: 13px; font-weight: 700; }
+.math-cheatsheet summary span { margin-left: 6px; color: var(--muted); font: 10px "IBM Plex Mono", monospace; letter-spacing: .08em; text-transform: uppercase; }
+.math-cheatsheet-body { padding: 2px 12px 13px; border-top: 1px solid var(--line); }
+.math-cheatsheet-body > p { margin: 10px 0; color: var(--muted); font-size: 13px; }
+.math-cheatsheet-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.math-cheatsheet-grid button { min-width: 0; display: grid; gap: 4px; padding: 8px; text-align: left; color: var(--ink); background: white; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+.math-cheatsheet-grid button:hover { border-color: var(--blue); background: var(--blue-pale); }
+.math-cheatsheet-grid span { color: var(--muted); font-size: 10px; font-weight: 700; }
+.math-cheatsheet-grid code { overflow: hidden; text-overflow: ellipsis; font-size: 11px; white-space: nowrap; }
+.math-cheatsheet-note code { margin-right: 5px; color: var(--ink); }
+.answer-preview { min-height: 74px; margin-top: 9px; padding: 11px 13px; border-left: 3px solid var(--blue); background: white; }
+.answer-preview > span { color: var(--muted); font: 10px "IBM Plex Mono", monospace; letter-spacing: .1em; text-transform: uppercase; }
+.answer-preview .card-content { margin-top: 8px; font-size: 15px; }
+.answer-preview .card-content p { margin: 0; }
 .grade-feedback { margin-top: 18px; padding: 17px 19px; border: 1px solid var(--line); border-left-width: 4px; border-radius: 8px; background: white; }
 .grade-feedback strong { font-family: "Sora", sans-serif; }
 .grade-feedback p { margin: 5px 0 2px; }
@@ -234,6 +249,7 @@ kbd { margin-left: 10px; padding: 3px 6px; border: 1px solid currentColor; borde
   .rating-grid { grid-template-columns: 1fr 1fr; }
   .study-shell { width: calc(100% - 24px); }
   .study-card { min-height: 390px; padding: 30px 20px; }
+  .math-cheatsheet-grid { grid-template-columns: 1fr 1fr; }
   .stat-strip { grid-template-columns: 1fr; }
   .stat-strip div { border-right: 0; border-bottom: 1px solid var(--line); }
   .settings-list > div, .settings-action { align-items: start; flex-direction: column; gap: 14px; }
