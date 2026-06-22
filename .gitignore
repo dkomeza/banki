@@ -1,0 +1,12 @@
+node_modules
+.next
+data
+public/media
+public/mathjax
+coverage
+*.db
+*.db-shm
+*.db-wal
+*.tsbuildinfo
+.env*
+!.env.example

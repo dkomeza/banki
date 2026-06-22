@@ -1,0 +1,50 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { gradeAnswer, plainText, resolveGradingConfig } from "./answer-grader";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  delete process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_GRADING_MODEL;
+  delete process.env.OPENROUTER_API_KEY;
+  delete process.env.OPENROUTER_GRADING_MODEL;
+});
+
+describe("answer grader", () => {
+  it("converts card HTML into compact plain text", () => {
+    expect(plainText("<p>Mass &amp; <strong>energy</strong></p><script>ignore()</script>")).toBe("Mass &amp; energy");
+  });
+
+  it("returns a structured grade from the Responses API", async () => {
+    process.env.OPENAI_API_KEY = "test-key";
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      output: [{ content: [{ type: "output_text", text: JSON.stringify({ rating: 3, feedback: "Correct, but missing one detail." }) }] }],
+    }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(gradeAnswer({ promptHtml: "Question", expectedAnswerHtml: "Reference", learnerAnswer: "Response" }))
+      .resolves.toEqual({ rating: 3, feedback: "Correct, but missing one detail." });
+    expect(fetchMock).toHaveBeenCalledWith("https://api.openai.com/v1/responses", expect.objectContaining({ method: "POST" }));
+  });
+
+  it("requires a server API key", async () => {
+    await expect(gradeAnswer({ promptHtml: "Q", expectedAnswerHtml: "A", learnerAnswer: "A" }))
+      .rejects.toThrow("Settings");
+  });
+
+  it("prefers saved grading settings over environment fallbacks", () => {
+    process.env.OPENAI_API_KEY = "environment-key";
+    process.env.OPENAI_GRADING_MODEL = "environment-model";
+    expect(resolveGradingConfig({ gradingEnabled: false, openaiApiKey: "saved-key", openaiModel: "saved-model" }))
+      .toEqual({ enabled: false, provider: "openai", apiKey: "saved-key", model: "saved-model", endpoint: "https://api.openai.com/v1/responses" });
+  });
+
+  it("uses the OpenRouter Responses endpoint and provider key", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      output: [{ content: [{ type: "output_text", text: JSON.stringify({ rating: 4, feedback: "Complete." }) }] }],
+    }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const config = resolveGradingConfig({ gradingProvider: "openrouter", openrouterApiKey: "router-key", openaiModel: "anthropic/claude-sonnet-4.6" });
+    await gradeAnswer({ promptHtml: "Q", expectedAnswerHtml: "A", learnerAnswer: "A", config });
+    expect(fetchMock).toHaveBeenCalledWith("https://openrouter.ai/api/v1/responses", expect.objectContaining({ headers: expect.objectContaining({ authorization: "Bearer router-key", "x-openrouter-title": "Banki" }) }));
+  });
+});

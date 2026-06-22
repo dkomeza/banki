@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://banki.local/schemas/study-card-format-v1.json",
+  "title": "Banki study-card import",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "deck", "cards"],
+  "properties": {
+    "version": { "const": 1 },
+    "deck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 120, "pattern": "\\S" },
+        "description": { "type": "string", "maxLength": 2000 }
+      }
+    },
+    "cards": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["front", "back"],
+        "properties": {
+          "front": { "type": "string", "minLength": 1, "maxLength": 100000, "pattern": "\\S" },
+          "back": { "type": "string", "minLength": 1, "maxLength": 100000, "pattern": "\\S" },
+          "tags": {
+            "type": "array",
+            "maxItems": 40,
+            "items": { "type": "string", "minLength": 1, "maxLength": 50, "pattern": "\\S" }
+          }
+        }
+      }
+    }
+  }
+}

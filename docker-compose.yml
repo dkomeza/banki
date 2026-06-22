@@ -1,0 +1,17 @@
+services:
+  banki:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_PATH: /app/data/banki.db
+      MEDIA_DIR: /app/public/media
+      NEXT_PUBLIC_TIMEZONE: Europe/Warsaw
+    volumes:
+      - banki-data:/app/data
+      - banki-media:/app/public/media
+    restart: unless-stopped
+
+volumes:
+  banki-data:
+  banki-media:
