@@ -33,7 +33,9 @@ describe("answer grader", () => {
     await expect(gradeAnswer({ promptHtml: "Question", expectedAnswerHtml: "Reference", learnerAnswer: "Response" }))
       .resolves.toEqual({ rating: 3, feedback: "Correct, but missing one detail." });
     expect(fetchMock).toHaveBeenCalledWith("https://api.openai.com/v1/responses", expect.objectContaining({ method: "POST" }));
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ stream: true });
+    const request = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(request).toMatchObject({ stream: true });
+    expect(request.instructions).toContain("same language as the learner's answer");
   });
 
   it("streams progress before the final grade", async () => {
