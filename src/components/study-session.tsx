@@ -11,6 +11,8 @@ import { mathInputPreview } from "@/lib/math";
 type StudyCard = { id: string; frontHtml: string; backHtml: string; reps: number; due: number };
 type StudyMode = "classic" | "written";
 type GradeResult = { rating: 1 | 2 | 3 | 4; feedback: string };
+type GradingStatus = "connecting" | "thinking" | "verifying";
+const gradingLabels: Record<GradingStatus, string> = { connecting: "Connecting to grader…", thinking: "Thinking…", verifying: "Verifying solution…" };
 const ratings = [
   { value: 1, label: "Again", key: "1", hint: "Forgot" },
   { value: 2, label: "Hard", key: "2", hint: "Barely recalled" },
@@ -24,6 +26,8 @@ export function StudySession({ initialCards, planId, gradingEnabled }: { initial
   const [shownAt, setShownAt] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
   const [grading, setGrading] = useState(false);
+  const [gradingStatus, setGradingStatus] = useState<GradingStatus | null>(null);
+  const [partialFeedback, setPartialFeedback] = useState("");
   const [error, setError] = useState("");
   const [mode, setMode] = useState<StudyMode>("classic");
   const [answer, setAnswer] = useState("");
@@ -55,15 +59,51 @@ export function StudySession({ initialCards, planId, gradingEnabled }: { initial
 
   async function submitAnswer() {
     if (!card || grading || !answer.trim()) return;
-    setGrading(true); setError("");
+    setGrading(true); setGradingStatus("connecting"); setPartialFeedback(""); setError("");
     try {
       const response = await fetch("/api/grade-answer", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cardId: card.id, answer }) });
-      const data = await response.json();
-      if (!response.ok) { setError(data.error ?? "The answer could not be graded."); return; }
-      setGrade(data); setRevealed(true);
-    } catch {
-      setError("The grading service could not be reached.");
-    } finally { setGrading(false); }
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        setError(data?.error ?? "The answer could not be graded.");
+        return;
+      }
+      if (!response.body) throw new Error("The grading service returned an empty stream.");
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let rawOutput = "";
+      let receivedResult = false;
+      while (true) {
+        const { done, value } = await reader.read();
+        buffer += decoder.decode(value, { stream: !done }).replace(/\r\n/g, "\n");
+        const blocks = buffer.split("\n\n");
+        buffer = blocks.pop() ?? "";
+        for (const block of blocks) {
+          const eventName = block.split("\n").find((line) => line.startsWith("event:"))?.slice(6).trim();
+          const encoded = block.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trimStart()).join("\n");
+          if (!encoded) continue;
+          const event = JSON.parse(encoded);
+          if (eventName === "status") setGradingStatus(event.status);
+          if (eventName === "delta") {
+            rawOutput += event.delta;
+            const match = rawOutput.match(/"feedback"\s*:\s*"((?:\\.|[^"\\])*)/s);
+            if (match) {
+              try { setPartialFeedback(JSON.parse(`"${match[1]}"`)); } catch { /* Wait for the rest of an escape sequence. */ }
+            }
+          }
+          if (eventName === "result") {
+            receivedResult = true;
+            setGrade(event.grade);
+            setRevealed(true);
+          }
+          if (eventName === "error") throw new Error(event.error ?? "The answer could not be graded.");
+        }
+        if (done) break;
+      }
+      if (!receivedResult) throw new Error("The grading stream ended before a result arrived.");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "The grading service could not be reached.");
+    } finally { setGrading(false); setGradingStatus(null); setPartialFeedback(""); }
   }
 
   useEffect(() => {
@@ -97,6 +137,7 @@ export function StudySession({ initialCards, planId, gradingEnabled }: { initial
           <textarea ref={answerRef} id="study-answer" rows={4} maxLength={8000} autoFocus value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder="Explain the answer in your own words… Use $…$ for math." />
           <MathCheatsheet onInsert={insertMath} />
           {answer.trim() && <section className="answer-preview" aria-live="polite"><span>Preview</span><MathRenderer html={mathInputPreview(answer)} /></section>}
+          {grading && gradingStatus && <section className="grading-progress" aria-live="polite" aria-atomic="true"><span className="grading-spinner" aria-hidden="true" /><div><strong>{gradingLabels[gradingStatus]}</strong>{partialFeedback && <p>{partialFeedback}</p>}</div></section>}
           <button className="reveal-button" disabled={grading || !answer.trim()} type="submit">{grading ? "Grading…" : "Grade answer"}</button>
         </form>
       ) : !revealed ? <button className="reveal-button" onClick={() => setRevealed(true)}>Show answer <kbd>Space</kbd></button> : (

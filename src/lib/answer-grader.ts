@@ -5,6 +5,11 @@ export type AnswerGrade = {
   feedback: string;
 };
 
+export type GradeStreamEvent =
+  | { type: "status"; status: "connecting" | "thinking" | "verifying" }
+  | { type: "delta"; delta: string }
+  | { type: "result"; grade: AnswerGrade };
+
 export type GradingProvider = "openai" | "openrouter";
 export type GradingConfig = { enabled: boolean; provider: GradingProvider; apiKey: string | null; model: string; endpoint: string };
 
@@ -61,20 +66,57 @@ function outputText(response: unknown) {
   return "";
 }
 
-export async function gradeAnswer(input: {
+function parseGrade(text: string): AnswerGrade {
+  let parsed: unknown;
+  try { parsed = JSON.parse(text); } catch { throw new Error("The grading service returned an unreadable result."); }
+  if (!parsed || typeof parsed !== "object") throw new Error("The grading service returned an invalid result.");
+  const { rating, feedback } = parsed as { rating?: unknown; feedback?: unknown };
+  if (![1, 2, 3, 4].includes(rating as number) || typeof feedback !== "string" || !feedback.trim()) {
+    throw new Error("The grading service returned an invalid result.");
+  }
+  return { rating: rating as AnswerGrade["rating"], feedback: feedback.trim().slice(0, 600) };
+}
+
+async function* responseEvents(response: Response) {
+  if (!response.body) throw new Error("The grading service returned an empty stream.");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done }).replace(/\r\n/g, "\n");
+      const blocks = buffer.split("\n\n");
+      buffer = blocks.pop() ?? "";
+      for (const block of blocks) {
+        const data = block.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trimStart()).join("\n");
+        if (!data || data === "[DONE]") continue;
+        try { yield JSON.parse(data) as Record<string, unknown>; } catch { /* Ignore provider keepalive/non-JSON events. */ }
+      }
+      if (done) break;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+export async function* streamGradeAnswer(input: {
   promptHtml: string;
   expectedAnswerHtml: string;
   learnerAnswer: string;
   config?: GradingConfig;
-}): Promise<AnswerGrade> {
+  signal?: AbortSignal;
+}): AsyncGenerator<GradeStreamEvent> {
   const grading = input.config ?? resolveGradingConfig();
   if (!grading.enabled || !grading.apiKey) throw new Error("LLM grading is not configured. Add an API key in Settings.");
 
+  yield { type: "status", status: "connecting" };
   const controller = new AbortController();
+  const abortFromCaller = () => controller.abort();
+  input.signal?.addEventListener("abort", abortFromCaller, { once: true });
   const timeout = setTimeout(() => controller.abort(), 30_000);
-  let response: Response;
   try {
-    response = await fetch(grading.endpoint, {
+    const response = await fetch(grading.endpoint, {
       method: "POST",
       signal: controller.signal,
       headers: {
@@ -97,23 +139,51 @@ export async function gradeAnswer(input: {
           learnerAnswer: input.learnerAnswer,
         }),
         text: { format: { type: "json_schema", name: "answer_grade", strict: true, schema } },
+        stream: true,
       }),
     });
+
+    if (!response.ok) {
+      const requestId = response.headers.get("x-request-id");
+      throw new Error(`The grading service returned ${response.status}${requestId ? ` (request ${requestId})` : ""}.`);
+    }
+
+    yield { type: "status", status: "thinking" };
+    let text = "";
+    let isVerifying = false;
+    let completedResponse: unknown;
+    for await (const event of responseEvents(response)) {
+      const type = event.type;
+      if (type === "response.output_text.delta" && typeof event.delta === "string") {
+        if (!isVerifying) {
+          isVerifying = true;
+          yield { type: "status", status: "verifying" };
+        }
+        text += event.delta;
+        yield { type: "delta", delta: event.delta };
+      } else if (type === "response.completed") {
+        completedResponse = event.response;
+      } else if (type === "response.failed" || type === "error") {
+        const error = (event.error && typeof event.error === "object") ? event.error as { message?: unknown } : undefined;
+        throw new Error(typeof error?.message === "string" ? error.message : "The grading service could not complete the request.");
+      }
+    }
+    if (!text && completedResponse) text = outputText(completedResponse);
+    yield { type: "result", grade: parseGrade(text) };
   } finally {
     clearTimeout(timeout);
+    input.signal?.removeEventListener("abort", abortFromCaller);
   }
+}
 
-  if (!response.ok) {
-    const requestId = response.headers.get("x-request-id");
-    throw new Error(`The grading service returned ${response.status}${requestId ? ` (request ${requestId})` : ""}.`);
+export async function gradeAnswer(input: {
+  promptHtml: string;
+  expectedAnswerHtml: string;
+  learnerAnswer: string;
+  config?: GradingConfig;
+}): Promise<AnswerGrade> {
+  for await (const event of streamGradeAnswer(input)) {
+    if (event.type === "result") return event.grade;
   }
-  const raw = await response.json();
-  let parsed: unknown;
-  try { parsed = JSON.parse(outputText(raw)); } catch { throw new Error("The grading service returned an unreadable result."); }
-  if (!parsed || typeof parsed !== "object") throw new Error("The grading service returned an invalid result.");
-  const { rating, feedback } = parsed as { rating?: unknown; feedback?: unknown };
-  if (![1, 2, 3, 4].includes(rating as number) || typeof feedback !== "string" || !feedback.trim()) {
-    throw new Error("The grading service returned an invalid result.");
-  }
-  return { rating: rating as AnswerGrade["rating"], feedback: feedback.trim().slice(0, 600) };
+  throw new Error("The grading service returned an invalid result.");
 }

@@ -195,6 +195,11 @@ textarea { resize: vertical; line-height: 1.45; font-family: "IBM Plex Mono", mo
 .reveal-button:disabled { opacity: .55; cursor: not-allowed; }
 .written-answer { display: grid; margin-top: 18px; }
 .written-answer textarea { min-height: 112px; background: var(--surface-wash); font-family: inherit; font-size: 16px; }
+.grading-progress { display: flex; align-items: flex-start; gap: 12px; margin-top: 16px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-raised); }
+.grading-progress strong { font-family: "Sora", sans-serif; font-size: 14px; }
+.grading-progress p { margin: 5px 0 0; color: var(--muted); }
+.grading-spinner { width: 16px; height: 16px; margin-top: 2px; flex: 0 0 auto; border: 2px solid var(--line); border-top-color: var(--blue); border-radius: 50%; animation: grading-spin .8s linear infinite; }
+@keyframes grading-spin { to { transform: rotate(360deg); } }
 .math-cheatsheet { margin-top: 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-wash); }
 .math-cheatsheet summary { padding: 10px 12px; color: var(--blue); cursor: pointer; font-size: 13px; font-weight: 700; }
 .math-cheatsheet summary span { margin-left: 6px; color: var(--muted); font: 10px "IBM Plex Mono", monospace; letter-spacing: .08em; text-transform: uppercase; }

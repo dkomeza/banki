@@ -1,5 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { gradeAnswer, plainText, resolveGradingConfig } from "./answer-grader";
+import { gradeAnswer, plainText, resolveGradingConfig, streamGradeAnswer } from "./answer-grader";
+
+function streamingResponse(grade: { rating: number; feedback: string }) {
+  const output = JSON.stringify(grade);
+  const split = output.indexOf('"feedback"') + 15;
+  return new Response([
+    { type: "response.created" },
+    { type: "response.output_text.delta", delta: output.slice(0, split) },
+    { type: "response.output_text.delta", delta: output.slice(split) },
+    { type: "response.completed", response: {} },
+  ].map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(""), { status: 200, headers: { "content-type": "text/event-stream" } });
+}
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -16,14 +27,22 @@ describe("answer grader", () => {
 
   it("returns a structured grade from the Responses API", async () => {
     process.env.OPENAI_API_KEY = "test-key";
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      output: [{ content: [{ type: "output_text", text: JSON.stringify({ rating: 3, feedback: "Correct, but missing one detail." }) }] }],
-    }), { status: 200 }));
+    const fetchMock = vi.fn().mockResolvedValue(streamingResponse({ rating: 3, feedback: "Correct, but missing one detail." }));
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(gradeAnswer({ promptHtml: "Question", expectedAnswerHtml: "Reference", learnerAnswer: "Response" }))
       .resolves.toEqual({ rating: 3, feedback: "Correct, but missing one detail." });
     expect(fetchMock).toHaveBeenCalledWith("https://api.openai.com/v1/responses", expect.objectContaining({ method: "POST" }));
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ stream: true });
+  });
+
+  it("streams progress before the final grade", async () => {
+    process.env.OPENAI_API_KEY = "test-key";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(streamingResponse({ rating: 4, feedback: "Complete." })));
+    const events = [];
+    for await (const event of streamGradeAnswer({ promptHtml: "Q", expectedAnswerHtml: "A", learnerAnswer: "A" })) events.push(event);
+    expect(events.map((event) => event.type)).toEqual(["status", "status", "status", "delta", "delta", "result"]);
+    expect(events.at(-1)).toEqual({ type: "result", grade: { rating: 4, feedback: "Complete." } });
   });
 
   it("requires a server API key", async () => {
@@ -39,9 +58,7 @@ describe("answer grader", () => {
   });
 
   it("uses the OpenRouter Responses endpoint and provider key", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      output: [{ content: [{ type: "output_text", text: JSON.stringify({ rating: 4, feedback: "Complete." }) }] }],
-    }), { status: 200 }));
+    const fetchMock = vi.fn().mockResolvedValue(streamingResponse({ rating: 4, feedback: "Complete." }));
     vi.stubGlobal("fetch", fetchMock);
     const config = resolveGradingConfig({ gradingProvider: "openrouter", openrouterApiKey: "router-key", openaiModel: "anthropic/claude-sonnet-4.6" });
     await gradeAnswer({ promptHtml: "Q", expectedAnswerHtml: "A", learnerAnswer: "A", config });
