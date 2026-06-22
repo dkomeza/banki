@@ -8,7 +8,13 @@ describe("math markup", () => {
 
   it("recognizes TeX and unicode math", () => {
     expect(containsMath("Solve \\(x+1=0\\)")).toBe(true);
+    expect(containsMath("Solve $x+1=0$")).toBe(true);
+    expect(containsMath("Evaluate $$\\sum_i x_i$$")).toBe(true);
     expect(containsMath("∑ αᵢ ≤ ∞")).toBe(true);
+  });
+
+  it("does not treat an unmatched currency symbol as math", () => {
+    expect(containsMath("It costs $5")).toBe(false);
   });
 
   it("neutralizes unsafe TeX commands", () => {

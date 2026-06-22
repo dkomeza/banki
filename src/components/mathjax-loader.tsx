@@ -1,18 +1,20 @@
 "use client";
 
 import { useEffect } from "react";
+import { waitForMathJaxStartup, type MathJaxRuntime } from "@/lib/mathjax";
 
 export function MathJaxLoader() {
   useEffect(() => {
-    const globalWindow = window as Window & { MathJax?: Record<string, unknown> };
+    const globalWindow = window as Window & { MathJax?: MathJaxRuntime & Record<string, unknown> };
     if (window.MathJax?.typesetPromise) {
       window.dispatchEvent(new Event("banki:mathjax-ready"));
       return;
     }
+    if (document.querySelector('script[data-banki-mathjax="true"]')) return;
     globalWindow.MathJax = {
       tex: {
-        inlineMath: [["\\(", "\\)"]],
-        displayMath: [["\\[", "\\]"]],
+        inlineMath: [["\\(", "\\)"], ["$", "$"]],
+        displayMath: [["\\[", "\\]"], ["$$", "$$"]],
         packages: { "[+]": ["mhchem"] },
         processEscapes: true,
       },
@@ -24,7 +26,11 @@ export function MathJaxLoader() {
     script.src = "/mathjax/tex-mml-chtml.js";
     script.async = true;
     script.dataset.bankiMathjax = "true";
-    script.onload = () => window.dispatchEvent(new Event("banki:mathjax-ready"));
+    script.onload = () => {
+      void waitForMathJaxStartup(globalWindow.MathJax)
+        .then(() => window.dispatchEvent(new Event("banki:mathjax-ready")))
+        .catch(() => window.dispatchEvent(new Event("banki:mathjax-error")));
+    };
     script.onerror = () => window.dispatchEvent(new Event("banki:mathjax-error"));
     document.head.appendChild(script);
   }, []);

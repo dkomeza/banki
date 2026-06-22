@@ -30,7 +30,7 @@ Rules:
 - Every card requires non-empty front and back strings. tags is optional.
 - Do not add fields not shown above.
 - Use double quotes, no trailing commas, and valid JSON escaping.
-- For inline LaTeX use \\(...\\); for display LaTeX use \\[...\\]. Escape every LaTeX backslash as \\\\ in the JSON file.
+- For inline LaTeX use $...$; for display LaTeX use $$...$$. Escape every LaTeX backslash as \\\\ in the JSON file.
 - Safe basic HTML is allowed, but prefer plain text when formatting adds no value.
 - Make every card self-contained and test one recall target.
 - Keep answers concise and avoid duplicate or near-duplicate cards.

@@ -19,7 +19,7 @@ export function cleanTex(tex: string) {
 }
 
 export function containsMath(input: string) {
-  return /\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]|[∑√∞≤≥≠≈∫∂∇πθαβγ]/.test(input);
+  return /\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]|\$\$[\s\S]*?\$\$|(?:^|[^\\$])\$(?!\$)[^\n$]+?\$(?!\$)|[∑√∞≤≥≠≈∫∂∇πθαβγ]/.test(input);
 }
 
 export function mathInputPreview(input: string) {

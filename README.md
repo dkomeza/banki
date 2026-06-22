@@ -28,7 +28,7 @@ Docker Compose persists the database and media in named volumes.
 - `.apkg` import for legacy `collection.anki2`/`collection.anki21` and modern zstd/protobuf `collection.anki21b` packages.
 - Versioned `.banki.json` import for fast, atomic import of LLM-generated cards. See the [study-card format](docs/STUDY_CARD_FORMAT.md).
 - Basic, reversed, conditional, and cloze template materialization with imported scheduling intentionally reset.
-- Local MathJax 3 rendering for `\(...\)`, `\[...\]`, AMS expressions, `mhchem`, legacy Anki math tags, and Unicode math symbols.
+- Local MathJax 3 rendering for `$...$`, `$$...$$`, `\(...\)`, `\[...\]`, AMS expressions, `mhchem`, legacy Anki math tags, and Unicode math symbols.
 - Responsive keyboard and touch study flow, basic card creation, forecasts, and local statistics.
 - Optional written-answer mode with server-side LLM grading and learner-confirmed FSRS ratings.
 

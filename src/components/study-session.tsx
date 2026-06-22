@@ -94,7 +94,7 @@ export function StudySession({ initialCards, planId, gradingEnabled }: { initial
       {mode === "written" && !revealed ? (
         <form className="written-answer" onSubmit={(event) => { event.preventDefault(); void submitAnswer(); }}>
           <label htmlFor="study-answer">Your answer</label>
-          <textarea ref={answerRef} id="study-answer" rows={4} maxLength={8000} autoFocus value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder="Explain the answer in your own words… Use \\(…\\) for math." />
+          <textarea ref={answerRef} id="study-answer" rows={4} maxLength={8000} autoFocus value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder="Explain the answer in your own words… Use $…$ for math." />
           <MathCheatsheet onInsert={insertMath} />
           {answer.trim() && <section className="answer-preview" aria-live="polite"><span>Preview</span><MathRenderer html={mathInputPreview(answer)} /></section>}
           <button className="reveal-button" disabled={grading || !answer.trim()} type="submit">{grading ? "Grading…" : "Grade answer"}</button>
