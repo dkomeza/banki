@@ -2,6 +2,8 @@ const UNSAFE_TEX = /\\(?:input|include|write|openout|read|catcode|def|newcommand
 
 export function normalizeMathMarkup(input: string) {
   return input
+    .replace(/<anki-mathjax\b([^>]*)>([\s\S]*?)<\/anki-mathjax>/gi, (_all, attributes, tex) =>
+      /\bblock(?:\s*=\s*["']?(?:true|1)["']?)?/i.test(attributes) ? `\\[${tex}\\]` : `\\(${tex}\\)`)
     .replace(/\[\$\$\]([\s\S]*?)\[\/\$\$\]/g, (_, tex) => `\\[${cleanTex(tex)}\\]`)
     .replace(/\[\$\]([\s\S]*?)\[\/\$\]/g, (_, tex) => `\\(${cleanTex(tex)}\\)`)
     .replace(/\[latex\]([\s\S]*?)\[\/latex\]/gi, (_, tex) => {
@@ -11,7 +13,11 @@ export function normalizeMathMarkup(input: string) {
         .replace(/\\begin\{math\}/g, "")
         .replace(/\\end\{math\}/g, "");
       return `\\[${cleaned}\\]`;
-    });
+    })
+    .replace(/\\\(([\s\S]*?)\\\)/g, (_, tex) => `\\(${cleanTex(tex)}\\)`)
+    .replace(/\\\[([\s\S]*?)\\\]/g, (_, tex) => `\\[${cleanTex(tex)}\\]`)
+    .replace(/\$\$([\s\S]*?)\$\$/g, (_, tex) => `$$${cleanTex(tex)}$$`)
+    .replace(/(^|[^\\$])\$(?!\$)([^\n$]+?)\$(?!\$)/g, (_, prefix, tex) => `${prefix}$${cleanTex(tex)}$`);
 }
 
 export function cleanTex(tex: string) {

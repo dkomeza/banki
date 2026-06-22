@@ -6,6 +6,11 @@ describe("math markup", () => {
     expect(normalizeMathMarkup("A [$]x^2[/$] and [$$]\\sum_i x_i[/$$]")).toBe("A \\(x^2\\) and \\[\\sum_i x_i\\]");
   });
 
+  it("converts Anki MathJax elements used by newer exports", () => {
+    expect(normalizeMathMarkup('<anki-mathjax>x^2</anki-mathjax> <anki-mathjax block="true">\\sum_i x_i</anki-mathjax>'))
+      .toBe("\\(x^2\\) \\[\\sum_i x_i\\]");
+  });
+
   it("recognizes TeX and unicode math", () => {
     expect(containsMath("Solve \\(x+1=0\\)")).toBe(true);
     expect(containsMath("Solve $x+1=0$")).toBe(true);
@@ -20,6 +25,7 @@ describe("math markup", () => {
   it("neutralizes unsafe TeX commands", () => {
     expect(cleanTex("\\input{/etc/passwd}")).toContain("unsupported command");
     expect(cleanTex("\\sqrt{x}")).toBe("\\sqrt{x}");
+    expect(normalizeMathMarkup("\\(\\input{/etc/passwd}\\)")).toContain("unsupported command");
   });
 
   it("creates an HTML-safe preview while preserving line breaks", () => {
