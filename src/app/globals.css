@@ -157,7 +157,9 @@ textarea { resize: vertical; line-height: 1.45; font-family: "IBM Plex Mono", mo
 .plan-form { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; margin-top: 25px; }
 .plan-form .button, .plan-form .form-error { grid-column: 1 / -1; }
 .card-row { min-height: 57px; padding: 12px 0; border-bottom: 1px solid var(--subtle-line); display: flex; justify-content: space-between; gap: 12px; align-items: center; overflow: hidden; }
-.card-row > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-row-math { min-width: 0; flex: 1; overflow: hidden; }
+.card-row-math .card-content { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-row-math mjx-container { margin: 0 !important; }
 .card-row small { color: var(--muted); flex-shrink: 0; }
 .card-sample .text-link { display: inline-block; margin-top: 18px; }
 
