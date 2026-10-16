@@ -2,7 +2,7 @@
 
 ### Issue tracker
 
-Issues live in Linear (team BAN, project "Banki") via the Linear MCP; ask before creating any. See `docs/agents/issue-tracker.md`.
+Issues live in Linear (team BAN, project "Banki") via the `linear-banki` MCP (`mcp__linear-banki__*`); ask before creating any. See `docs/agents/issue-tracker.md`.
 
 ### Domain docs
 

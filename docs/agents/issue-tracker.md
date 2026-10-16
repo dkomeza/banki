@@ -1,6 +1,6 @@
 # Issue tracker: Linear
 
-Issues and specs for this repo live in Linear: workspace `banki-group`, team `Banki-group` (key `BAN`), project "Banki". Use the Linear MCP tools (`mcp__claude_ai_Linear__*`) for all operations. Issue identifiers look like `BAN-123`.
+Issues and specs for this repo live in Linear: workspace `banki-group`, team `Banki` (key `BAN`), project "Banki". Use the `linear-banki` MCP server (`mcp__linear-banki__*`) for all operations, not the generic claude.ai Linear connector (`mcp__claude_ai_Linear__*`). Issue identifiers look like `BAN-123`.
 
 **Ask before creating, closing, or relabelling issues.** This is a solo project and Linear is just a progress log: no automations, cycles, or integrations.
 
