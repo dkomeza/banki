@@ -1,0 +1,3 @@
+# CodeMirror 6 source editing over a WYSIWYG editor
+
+The card and answer editor is CodeMirror 6 editing the Markdown source directly, with live-preview decorations (math and formatting render in place whenever the cursor is outside them), the same approach Obsidian uses. Cards are stored as Markdown with LaTeX. ProseMirror-based editors (TipTap, Milkdown) parse that into a document tree and write it back out on every save, which silently rewrites markers, escaping and spacing. CodeMirror never re-serializes, so what the User wrote is what gets stored. We build the live-preview layer ourselves on `@codemirror/lang-markdown` and KaTeX instead of adopting an existing package, because the maintained ones are pre-1.0, single-maintainer, or use MathJax instead of KaTeX.

@@ -1,13 +1,20 @@
 # Issue tracker: Linear
 
-Issues and specs for this repo live in Linear: workspace `banki-group`, team `Banki-group` (key `BAN`), project "Banki". Use the Linear MCP tools (`mcp__claude_ai_Linear__*`) for all operations. Issue identifiers look like `BAN-123`.
+Issues and specs for this repo live in Linear: workspace `banki-group`, team `Banki` (key `BAN`), project "Banki". Use the `linear-banki` MCP server (`mcp__linear-banki__*`) for all operations, not the generic claude.ai Linear connector (`mcp__claude_ai_Linear__*`). Issue identifiers look like `BAN-123`.
 
 **Ask before creating, closing, or relabelling issues.** This is a solo project and Linear is just a progress log: no automations, cycles, or integrations.
 
+Linear is the source of truth for requirements (there's no manifest in the repo). The project document **"Banki — Overview"** (https://linear.app/banki-group/document/banki-overview-de9b92093f2e) gives the big picture; read it before working on any issue. Each issue holds the detailed requirements for its own piece.
+
+## Structure
+
+- **Milestones `M1 · …` to `M10 · …`** split the MVP into areas, in build order. Every MVP issue belongs to one.
+- **`Later: …` issues** with no milestone are post-MVP.
+
 ## Conventions
 
-- **Create an issue**: `save_issue` with team `BAN`, project "Banki", a title, a markdown description, and one of the existing labels (`Bug`, `Feature`, `Improvement`, `Chore`). New issues start in `Backlog` (or `Todo` if they're ready to work on).
-- **Read an issue**: `get_issue` with the `BAN-123` identifier, plus `list_comments` for the discussion.
+- **Create an issue**: `save_issue` with team `BAN`, project "Banki", the milestone it belongs to, a title, a markdown description, and one of the existing labels (`Bug`, `Feature`, `Improvement`, `Chore`). New issues start in `Backlog` (or `Todo` if they're ready to work on).
+- **Read an issue**: `get_issue` with the `BAN-123` identifier, plus `list_comments` for the discussion. Also read the overview doc, and skim the other issues in the same milestone for context.
 - **List issues**: `list_issues` filtered to project "Banki", with state/label filters as needed.
 - **Comment**: `save_comment` on the issue.
 - **Status**: Backlog → Todo → In Progress → Done / Canceled. Change it with `save_issue`.
