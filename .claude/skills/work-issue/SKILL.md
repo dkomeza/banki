@@ -13,9 +13,9 @@ Paths used below:
 
 ## 0. Clean up merged work
 
-For each worktree under `../banki-worktrees/` (`git worktree list`), check its PR with `gh pr view <branch> --json state`. When it is `MERGED`: `git worktree remove <path>` and `git branch -D <branch>`. Then `git checkout main && git pull` in the main checkout.
+For each worktree under `../banki-worktrees/` (`git worktree list`), check its PR with `gh pr view <branch> --json state,headRefOid`. Remove it only when the state is `MERGED` **and** the local branch tip (`git rev-parse <branch>`) equals `headRefOid`: `git worktree remove <path>` and `git branch -D <branch>`. A tip that differs means local commits that never reached the PR: leave that worktree and tell the user. Then `git checkout main && git pull` in the main checkout.
 
-Done when no worktree with a merged PR is left and `main` is up to date.
+Done when every merged worktree is removed or reported, and `main` is up to date.
 
 ## 1. Load the issue
 
@@ -55,7 +55,7 @@ Resume the implementer (SendMessage to its ID) with the confirmed findings and a
 
 ## 7. Open the PR
 
-Push `<branch>`. Write the body with the `pr` skill, then append:
+Push with `git push -u origin <branch>`. Write the body with the `pr` skill, then append:
 
 ```markdown
 ## Review notes
@@ -63,17 +63,16 @@ Push `<branch>`. Write the body with the `pr` skill, then append:
 - <dismissed finding> - <one-line reason>
 ```
 
-(or "None dismissed."). Title: a conventional commit with the issue ID, e.g. `feat: walking skeleton with typed health check (BAN-74)`; it becomes the squash commit. Open it with `gh pr create --base main`. The branch name links it to Linear.
+(or "None dismissed."). Title: a conventional commit with the issue ID, e.g. `feat: walking skeleton with typed health check (BAN-74)`; it becomes the squash commit. Open it with `gh pr create --base main --head <branch>` (you are on `main`, and `--head` defaults to the current branch). The branch name links it to Linear.
 
 ## 8. CodeRabbit
 
-Run at most **2 rounds**. Each round:
+CodeRabbit (the merge gate) and Codex (advisory) both review every push automatically. CodeRabbit's plan allows **1 review per hour**, so every push costs an hour of review capacity. Run at most **2 rounds**. Each round:
 
-1. Comment `@coderabbitai review` on the PR (the repo has under 10 stars, so reviews only start on request).
-2. Wait with Monitor until CodeRabbit has posted a review whose `commit_id` is the PR's head SHA (`gh api repos/{owner}/{repo}/pulls/<n>/reviews`). If its comment says a rate limit was hit, tell the user and stop.
-3. Triage its unresolved comments as in step 5. Spec questions go to the user.
-4. Resume the implementer with the confirmed ones, verify green, and push **once**: every push dismisses CodeRabbit's approval and costs a review.
-5. Reply in the thread of each dismissed comment with the reason, so the user sees it.
+1. Wait with a background `until` loop until CodeRabbit has posted a review whose `commit_id` is the PR's head SHA (`gh api repos/{owner}/{repo}/pulls/<n>/reviews`). Comment `@coderabbitai review` only if no review has started within a few minutes. If CodeRabbit says the review limit was hit, tell the user and stop.
+2. Triage the unresolved inline comments from both CodeRabbit and Codex as in step 5. Spec questions go to the user.
+3. Resume the implementer with the confirmed ones, verify green, and push **once**: every push dismisses CodeRabbit's approval and costs a review.
+4. Reply in the thread of each dismissed comment with the reason, so the user sees it.
 
 The round loop ends when CodeRabbit approves. Your CodeRabbit commands are `review` and `full review`. Overrides (`resolve`, `approve`, `ignore`, `pause`) belong to the user, since they bypass the merge gate.
 
