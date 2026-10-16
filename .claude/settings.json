@@ -1,0 +1,5 @@
+{
+  "permissions": {
+    "additionalDirectories": ["../banki-worktrees"]
+  }
+}
