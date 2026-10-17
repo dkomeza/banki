@@ -1,6 +1,6 @@
 ---
 name: work-issue
-description: Take a Linear issue (BAN-N) from spec to an open PR - grill, implement in a worktree, adversarial review, CodeRabbit. Use when starting work on an issue.
+description: Take a Linear issue (BAN-N) from spec to an open PR - grill, implement in a worktree, adversarial review, the PR review gate. Use when starting work on an issue.
 argument-hint: BAN-N
 ---
 
@@ -65,15 +65,20 @@ Push with `git push -u origin <branch>`. Write the body with the `pr` skill, the
 
 (or "None dismissed."). Title: a conventional commit with the issue ID, e.g. `feat: walking skeleton with typed health check (BAN-74)`; it becomes the squash commit. Open it with `gh pr create --base main --head <branch>` (you are on `main`, and `--head` defaults to the current branch). The branch name links it to Linear.
 
-## 8. CodeRabbit
+## 8. PR review
 
-CodeRabbit (the merge gate) and Codex (advisory) both review every push automatically. CodeRabbit's plan allows **1 review per hour**, so every push costs an hour of review capacity. Run at most **2 rounds**. Each round:
+Every push to the PR is reviewed by two bots:
 
-1. Wait with a background `until` loop until CodeRabbit has posted a review whose `commit_id` is the PR's head SHA (`gh api repos/{owner}/{repo}/pulls/<n>/reviews`). Comment `@coderabbitai review` only if no review has started within a few minutes. If CodeRabbit says the review limit was hit, tell the user and stop.
-2. Triage the unresolved inline comments from both CodeRabbit and Codex as in step 5. Spec questions go to the user.
-3. Resume the implementer with the confirmed ones, verify green, and push **once**: every push dismisses CodeRabbit's approval and costs a review.
-4. Reply in the thread of each dismissed comment with the reason, so the user sees it.
+- **Claude review** (the merge gate): the `claude-review` check (`.github/workflows/claude-review.yml`). It reviews the whole PR fresh at the head commit, posts inline comments for new findings, and keeps one summary comment (marked `<!-- claude-review -->`) listing every finding as `new`, `open` or `fixed`. The check fails while a blocker or major finding is open.
+- **Codex** (advisory): inline comments only.
 
-The round loop ends when CodeRabbit approves. Your CodeRabbit commands are `review` and `full review`. Overrides (`resolve`, `approve`, `ignore`, `pause`) belong to the user, since they bypass the merge gate.
+Run at most **2 rounds**. Each round:
 
-**Checkpoint 2.** Hand over to the user with the PR link and the state: approved, or what's still open after 2 rounds. The user merges. Linear moves the issue to `Done`, and the next run's step 0 removes the worktree.
+1. Wait with a background `until` loop until the `claude-review` check has finished on the PR's head SHA (`gh pr checks <n>`), and Codex has reviewed it (a review from `chatgpt-codex-connector[bot]` whose `commit_id` is the head SHA, or its 👍 reaction on the PR).
+2. Triage the `new` and `open` findings from the summary comment, and Codex's new inline comments, as in step 5. Spec questions go to the user.
+3. Resume the implementer with the confirmed ones, verify green, and push **once**: every push re-runs both reviews.
+4. Reply in the thread of each dismissed finding with the reason. The gate weighs replies as arguments on its next run, but only the user can override it.
+
+The round loop ends when `claude-review` passes and Codex has nothing new worth fixing.
+
+**Checkpoint 2.** Hand over to the user with the PR link and the state: gate passing, or what's still open after 2 rounds (a dismissed blocker the gate won't accept needs the user's admin bypass). The user merges. Linear moves the issue to `Done`, and the next run's step 0 removes the worktree.
