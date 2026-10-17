@@ -1,0 +1,47 @@
+# Self-hosted Banki behind one origin (ADR-0002): `web` serves the SPA and
+# proxies /api to `api`. Only `web` is reachable from the host.
+# See "Running with Docker" in the README.
+
+# A fixed project name keeps the volume `banki_banki-data` whatever the clone's
+# directory is called.
+name: banki
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    image: banki-api
+    restart: unless-stopped
+    volumes:
+      - banki-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    image: banki-web
+    restart: unless-stopped
+    ports:
+      - ${BANKI_PORT:-8080}:8080
+    depends_on:
+      api:
+        condition: service_healthy
+    read_only: true
+    # Caddy's config and data dirs: with the admin API off and no TLS it keeps
+    # nothing worth persisting there. A tmpfs is root-owned unless told
+    # otherwise, and Caddy runs as uid 1000.
+    tmpfs:
+      - /tmp
+      - /config:uid=1000,gid=1000
+      - /data:uid=1000,gid=1000
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+volumes:
+  banki-data:
