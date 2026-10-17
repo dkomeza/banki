@@ -58,7 +58,7 @@ The data directory holds everything Banki stores:
 └── uploads/      uploaded files (nothing uses it yet)
 ```
 
-On startup the API creates whatever is missing, then applies any migrations the database doesn't have yet before it accepts requests. An empty or unreadable `auth-secret` fails startup; delete it to generate a new one, which signs out every device.
+On startup the API creates whatever is missing, then applies any migrations the database doesn't have yet before it accepts requests. An `auth-secret` that is empty, shorter than 32 characters or unreadable fails startup; delete it to generate a new one, which signs out every device.
 
 To back up Banki, stop the API first and then copy the whole directory, or take an atomic snapshot of the filesystem it lives on. Copying it while the API runs can catch `banki.db` and `banki.db-wal` at different moments and give a backup that doesn't match either. A backup includes `auth-secret`, so keep it as private as the installation itself.
 
