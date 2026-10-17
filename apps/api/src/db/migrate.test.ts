@@ -33,9 +33,13 @@ const addMigration = (tag: string, statements: string, when?: number): number =>
   return created;
 };
 
+/** The tables migrations created, leaving out SQLite's and Drizzle's own. */
 const tables = () =>
   opened.db
-    .values<[string]>(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'note'`)
+    .values<[string]>(
+      sql`SELECT name FROM sqlite_master WHERE type = 'table'
+          AND name NOT LIKE 'sqlite_%' AND name != '__drizzle_migrations' ORDER BY name`,
+    )
     .map(([name]) => name);
 
 beforeEach(() => {
@@ -72,12 +76,14 @@ test("a failing migration applies nothing and throws", () => {
   expect(applyMigrations(opened.db, folder)).toEqual(["0000_baseline", "0001_note", "0002_broken"]);
 });
 
-test("a migration older than the latest applied one fails startup instead of being skipped", () => {
+test("a migration older than the latest applied one fails startup before anything is applied", () => {
   const later = addMigration("0002_later", "SELECT 1;");
   applyMigrations(opened.db, folder);
 
-  // A branch merged after 0002 was applied brings a migration generated before it.
+  // A merge after 0002 was applied brings a migration generated before it (0001)
+  // alongside a newer one (0003) that would otherwise be applied.
   addMigration("0001_note", "CREATE TABLE note (id integer PRIMARY KEY);", later - 500);
+  addMigration("0003_tag", "CREATE TABLE tag (id integer PRIMARY KEY);", later + 1000);
 
   expect(() => applyMigrations(opened.db, folder)).toThrow(
     /0001_note.*older than the latest applied migration/s,

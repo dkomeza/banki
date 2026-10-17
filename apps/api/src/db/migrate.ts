@@ -37,20 +37,20 @@ function recordedMigrations(db: Database): Set<number> {
  *
  * Drizzle only applies migrations created after the latest one recorded, so a
  * migration with an older timestamp (one that arrived through a merge after a
- * newer one was applied) would be skipped for good. That throws instead.
+ * newer one was applied) would be skipped for good. That throws instead, before
+ * anything is applied, so a failed boot leaves the database as it was.
  */
 export function applyMigrations(db: Database, folder = migrationsFolder): string[] {
-  const before = recordedMigrations(db);
-  migrate(db, { migrationsFolder: folder });
-  const after = recordedMigrations(db);
-
   const journal = Journal.parse(
     JSON.parse(readFileSync(join(folder, "meta", "_journal.json"), "utf8")),
   );
+  const recorded = recordedMigrations(db);
+  const pending = journal.entries.filter((entry) => !recorded.has(entry.when));
 
-  const skipped = journal.entries.filter((entry) => !after.has(entry.when));
-  if (skipped.length > 0) {
-    const tags = skipped.map((entry) => entry.tag).join(", ");
+  const latestRecorded = Math.max(...recorded);
+  const unreachable = pending.filter((entry) => entry.when <= latestRecorded);
+  if (unreachable.length > 0) {
+    const tags = unreachable.map((entry) => entry.tag).join(", ");
     throw new Error(
       `Migrations not applied: ${tags}. Each one's timestamp is older than the latest ` +
         `applied migration, and migrations only run in timestamp order, so it would never ` +
@@ -58,5 +58,6 @@ export function applyMigrations(db: Database, folder = migrationsFolder): string
     );
   }
 
-  return journal.entries.filter((entry) => !before.has(entry.when)).map((entry) => entry.tag);
+  migrate(db, { migrationsFolder: folder });
+  return pending.map((entry) => entry.tag);
 }
