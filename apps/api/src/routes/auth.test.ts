@@ -230,6 +230,13 @@ describe("deny by default", () => {
     ["POST", "/api/auth/update-user"],
     ["POST", "/api/auth/sign-up/email"],
     ["GET", "/api/auth/list-sessions"],
+    // A public path with a method that isn't public is unknown too.
+    ["GET", "/api/auth/sign-in/email"],
+    ["GET", "/api/auth/sign-out"],
+    ["POST", "/api/auth/get-session"],
+    ["PUT", "/api/setup"],
+    ["DELETE", "/api/setup"],
+    ["POST", "/api/health"],
   ])("%s %s answers 401 unauthorized when signed out", async (method, path) => {
     const app = await setUpApp();
 
@@ -260,6 +267,27 @@ describe("deny by default", () => {
 
     expect(res.status).toBe(404);
     expect(ApiError.parse(await res.json()).error.code).toBe("not_found");
+  });
+
+  test.each(["/api/health", "/api/setup", "/api/auth/get-session", "/api/me"])(
+    "HEAD %s answers 401 when signed out",
+    async (path) => {
+      const app = await setUpApp();
+
+      expect((await app.request(path, { method: "HEAD" })).status).toBe(401);
+    },
+  );
+
+  test("POST to Setup, sign-in and sign-out stays public", async () => {
+    const app = await setUpApp();
+
+    const setup = await post(app, "/api/setup", { token: "t", email: EMAIL, password: "12345678" });
+    const signInRes = await signIn(app, { password: "not the password" });
+    const signOut = await post(app, "/api/auth/sign-out", {});
+
+    expect(setup.status).toBe(409);
+    expect(await signInRes.json()).toMatchObject({ code: "INVALID_EMAIL_OR_PASSWORD" });
+    expect(signOut.status).toBe(200);
   });
 
   test("health, Setup status and get-session stay public", async () => {

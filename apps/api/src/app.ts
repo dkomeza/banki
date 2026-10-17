@@ -8,7 +8,7 @@ import { openDatabase } from "./db/database";
 import { applyMigrations } from "./db/migrate";
 import { internalError, notFound } from "./http/errors";
 import { createRateLimiter } from "./http/rate-limit";
-import { requireSignedIn } from "./http/require-signed-in";
+import { type PublicRoutes, requireSignedIn } from "./http/require-signed-in";
 import { createHealthRepository } from "./repositories/health";
 import { createUserRepository } from "./repositories/user";
 import { authRoutes } from "./routes/auth";
@@ -16,13 +16,17 @@ import { healthRoutes } from "./routes/health";
 import { meRoutes } from "./routes/me";
 import { setupRoutes } from "./routes/setup";
 
-/** The `/api` paths anyone may call without being signed in. */
-const PUBLIC_PATHS: ReadonlySet<string> = new Set([
-  "/api/health",
-  "/api/setup",
-  "/api/auth/sign-in/email",
-  "/api/auth/sign-out",
-  "/api/auth/get-session",
+/**
+ * The `/api` requests anyone may make without being signed in. HEAD isn't
+ * among them: nothing needs it, so it is denied like any other method.
+ */
+const PUBLIC_ROUTES: PublicRoutes = new Set([
+  "GET /api/health",
+  "GET /api/setup",
+  "POST /api/setup",
+  "POST /api/auth/sign-in/email",
+  "POST /api/auth/sign-out",
+  "GET /api/auth/get-session",
 ]);
 
 /**
@@ -67,7 +71,7 @@ export function createApp(config: Config) {
       }),
     )
     // Also covers `/api` itself.
-    .use("/api/*", requireSignedIn({ auth, publicPaths: PUBLIC_PATHS }))
+    .use("/api/*", requireSignedIn({ auth, publicRoutes: PUBLIC_ROUTES }))
     .route("/api/health", healthRoutes({ health }))
     .route("/api/setup", setupRoutes({ auth, users, setupToken, limiter: setupLimiter }))
     .route("/api/auth", authRoutes({ auth, config }))

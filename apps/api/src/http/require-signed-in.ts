@@ -5,21 +5,25 @@ import { apiError } from "./errors";
 /** What a protected route knows about the signed-in User. */
 export type SignedInEnv = { Variables: { user: { id: string; email: string } } };
 
+/** The requests anyone may make without being signed in, as `"METHOD /path"`. */
+export type PublicRoutes = ReadonlySet<string>;
+
 /**
  * Deny by default: answers 401 `unauthorized` unless the request is signed
- * in, except on `publicPaths`. A signed-in request carries its User on to the
+ * in, except for `publicRoutes`, matched by method and exact path. Any other
+ * method on a public path is as unknown as any other path. A signed-in request carries its User on to the
  * route as `c.var.user`, and gets back any cookie better-auth set while
  * sliding the expiry forward.
  */
 export function requireSignedIn({
   auth,
-  publicPaths,
+  publicRoutes,
 }: {
   auth: Auth;
-  publicPaths: ReadonlySet<string>;
+  publicRoutes: PublicRoutes;
 }): MiddlewareHandler<SignedInEnv> {
   return async (c, next) => {
-    if (publicPaths.has(c.req.path)) return next();
+    if (publicRoutes.has(`${c.req.method} ${c.req.path}`)) return next();
 
     const { headers, response: signedIn } = await auth.api.getSession({
       headers: c.req.raw.headers,

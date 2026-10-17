@@ -129,13 +129,13 @@ describe("unmatched paths", () => {
     });
   });
 
-  test("a known path with the wrong method answers 404 not_found", async () => {
+  test("a known path with the wrong method is unknown, so 401 when signed out", async () => {
     const { app } = boot();
 
     const res = await app.request("/api/health", { method: "DELETE" });
 
-    expect(res.status).toBe(404);
-    expect(ApiError.parse(await res.json()).error.code).toBe("not_found");
+    expect(res.status).toBe(401);
+    expect(ApiError.parse(await res.json()).error.code).toBe("unauthorized");
   });
 });
 
