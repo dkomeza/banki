@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { authClient } from "@/lib/auth-client";
 import { healthQueryOptions, healthStatusLine } from "@/lib/health";
 import { meQueryOptions } from "@/lib/me";
-import { sessionQueryOptions } from "@/lib/session";
+import { signedInQueryOptions } from "@/lib/signed-in";
 
 export const Route = createFileRoute("/")({
   component: Home,
@@ -23,7 +23,7 @@ function Home() {
     try {
       await authClient.signOut();
     } finally {
-      queryClient.setQueryData(sessionQueryOptions.queryKey, null);
+      queryClient.setQueryData(signedInQueryOptions.queryKey, null);
       queryClient.removeQueries({ queryKey: meQueryOptions.queryKey });
       setSigningOut(false);
       await navigate({ to: "/login" });

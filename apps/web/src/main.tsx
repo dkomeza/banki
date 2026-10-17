@@ -5,7 +5,7 @@ import { createRoot } from "react-dom/client";
 import { setUnauthorizedHandler } from "./lib/api";
 import { createQueryClient } from "./lib/query";
 import { loginHref } from "./lib/redirect";
-import { checkSignedIn } from "./lib/session";
+import { checkSignedIn } from "./lib/signed-in";
 import { createUnauthorizedHandler } from "./lib/unauthorized";
 import { routeTree } from "./routeTree.gen";
 import "./index.css";

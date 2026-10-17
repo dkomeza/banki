@@ -6,7 +6,7 @@ import { AuthCard, FormError } from "@/components/auth-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { checkSignedIn, setupStatusQueryOptions } from "@/lib/session";
+import { checkSignedIn, setupStatusQueryOptions } from "@/lib/signed-in";
 import { type SetupOutcome, submitSetup, tryAgainIn } from "@/lib/setup";
 
 export const Route = createFileRoute("/setup")({

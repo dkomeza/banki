@@ -18,8 +18,8 @@ export const setupStatusQueryOptions = queryOptions({
 });
 
 /** The signed-in User, or `null` when this browser is signed out. */
-export const sessionQueryOptions = queryOptions({
-  queryKey: ["session"],
+export const signedInQueryOptions = queryOptions({
+  queryKey: ["signed-in"],
   queryFn: async () => {
     const { data, error } = await authClient.getSession();
     if (error) throw new ApiRequestError(error.status, error.message);
@@ -30,4 +30,4 @@ export const sessionQueryOptions = queryOptions({
 
 /** Asks the API again whether this browser is signed in, updating the cache. */
 export const checkSignedIn = async (queryClient: QueryClient) =>
-  (await queryClient.fetchQuery({ ...sessionQueryOptions, staleTime: 0 })) !== null;
+  (await queryClient.fetchQuery({ ...signedInQueryOptions, staleTime: 0 })) !== null;

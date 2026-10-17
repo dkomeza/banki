@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { authClient } from "@/lib/auth-client";
 import { safeRedirect } from "@/lib/redirect";
-import { checkSignedIn } from "@/lib/session";
+import { checkSignedIn } from "@/lib/signed-in";
 import { retryAfter, tryAgainIn } from "@/lib/setup";
 
 export const Route = createFileRoute("/login")({

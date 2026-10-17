@@ -2,7 +2,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { Outlet, createRootRouteWithContext, redirect, useRouter } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { guardRedirect } from "@/lib/guard";
-import { sessionQueryOptions, setupStatusQueryOptions } from "@/lib/session";
+import { signedInQueryOptions, setupStatusQueryOptions } from "@/lib/signed-in";
 
 export type RouterContext = { queryClient: QueryClient };
 
@@ -10,7 +10,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
   // The route guard: Setup first, then signing in (see guardRedirect).
   beforeLoad: async ({ context: { queryClient }, location }) => {
     const { setUp } = await queryClient.ensureQueryData(setupStatusQueryOptions);
-    const signedIn = setUp && (await queryClient.ensureQueryData(sessionQueryOptions)) !== null;
+    const signedIn = setUp && (await queryClient.ensureQueryData(signedInQueryOptions)) !== null;
     const search: Record<string, unknown> = location.search;
     const target = guardRedirect({
       pathname: location.pathname,

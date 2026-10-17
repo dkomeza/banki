@@ -124,7 +124,7 @@ describe("signing in", () => {
 });
 
 /** Moves every auth session's last refresh `ageMs` into the past. */
-const ageSessions = (ageMs: number) => {
+const ageAuthSessions = (ageMs: number) => {
   const sqlite = new SQLite(join(dataDir(), "banki.db"));
   sqlite.run("UPDATE auth_session SET expires_at = ?, updated_at = ?", [
     Date.now() + 30 * DAY_MS - ageMs,
@@ -145,7 +145,7 @@ describe("staying signed in", () => {
     const app = booted.app;
     // Setup's auth session is the only one.
     const cookie = await setUp(booted);
-    ageSessions(2 * DAY_MS);
+    ageAuthSessions(2 * DAY_MS);
 
     const res = await get(app, "/api/me", cookie);
 
@@ -159,7 +159,7 @@ describe("staying signed in", () => {
     const app = booted.app;
     // Setup's auth session is the only one.
     const cookie = await setUp(booted);
-    ageSessions(DAY_MS / 2);
+    ageAuthSessions(DAY_MS / 2);
     const before = expiry();
 
     const res = await get(app, "/api/me", cookie);
@@ -174,7 +174,7 @@ describe("staying signed in", () => {
     const app = booted.app;
     // Setup's auth session is the only one.
     const cookie = await setUp(booted);
-    ageSessions(31 * DAY_MS);
+    ageAuthSessions(31 * DAY_MS);
 
     expect((await get(app, "/api/me", cookie)).status).toBe(401);
   });
