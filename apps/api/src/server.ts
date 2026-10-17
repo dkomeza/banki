@@ -1,7 +1,7 @@
 import { getLogger } from "@logtape/logtape";
 import { createApp } from "./app";
 import { type Config, ConfigError, parseConfig } from "./config";
-import { configureLogging } from "./logging";
+import { configureLogging, SETUP_ANNOUNCEMENT_CATEGORY } from "./logging";
 
 // The API process: parse the environment, configure logging, boot the app,
 // serve it, and shut down cleanly on SIGTERM/SIGINT. Startup failures exit 1.
@@ -29,10 +29,13 @@ function start() {
     logger.info("Migrations applied {migrations}", { migrations: booted.appliedMigrations });
     if (booted.setupToken !== undefined) {
       const setupToken = booted.setupToken.value;
-      logger.warning("Banki isn't set up yet. To set it up, open {setupUrl}", {
-        setupUrl: `${config.origin}/setup?token=${setupToken}`,
-        setupToken,
-      });
+      getLogger(SETUP_ANNOUNCEMENT_CATEGORY).warning(
+        "Banki isn't set up yet. To set it up, open {setupUrl}",
+        {
+          setupUrl: `${config.origin}/setup?token=${setupToken}`,
+          setupToken,
+        },
+      );
     }
     const server = Bun.serve({ port: config.port, fetch: booted.app.fetch });
     logger.info("Listening {port}", { port: server.port });

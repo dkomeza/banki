@@ -57,6 +57,24 @@ const jsonLines = (text: string) =>
     .filter((line) => line !== "")
     .map((line) => JsonRecord.parse(JSON.parse(line)));
 
+/** Starts the server once against `dataDir` and returns the Setup records it logged. */
+const setupLogs = async (dataDir: string, env: Record<string, string> = {}) => {
+  const port = freePort();
+  const server = startServer({
+    DATA_DIR: dataDir,
+    PORT: String(port),
+    ORIGIN: "https://banki.example.com/",
+    ...env,
+  });
+  await waitForHealth(port);
+  server.kill("SIGTERM");
+  await server.exited;
+  // Warnings go to stderr.
+  return jsonLines(await new Response(server.stderr).text()).filter(
+    (record) => "setupToken" in record.properties,
+  );
+};
+
 describe("the server process", () => {
   test("serves health, logs its lifecycle and exits 0 on SIGTERM", async () => {
     const dataDir = join(tempDir, "data");
@@ -105,18 +123,9 @@ describe("the server process", () => {
   test("logs a fresh Setup token and a link to Setup on ORIGIN at every start", async () => {
     const dataDir = join(tempDir, "data");
     const setupLog = async () => {
-      const port = freePort();
-      const server = startServer({
-        DATA_DIR: dataDir,
-        PORT: String(port),
-        ORIGIN: "https://banki.example.com/",
-      });
-      await waitForHealth(port);
-      server.kill("SIGTERM");
-      await server.exited;
-      // Warnings go to stderr.
-      const records = jsonLines(await new Response(server.stderr).text());
-      const record = records.find((r) => r.level === "WARN");
+      const [record, ...others] = await setupLogs(dataDir);
+      expect(others).toEqual([]);
+      expect(record?.level).toBe("WARN");
       return z.object({ setupUrl: z.string(), setupToken: z.string() }).parse(record?.properties);
     };
 
@@ -127,6 +136,15 @@ describe("the server process", () => {
     expect(first.setupUrl).toBe(`https://banki.example.com/setup?token=${first.setupToken}`);
     expect(second.setupToken).not.toBe(first.setupToken);
   });
+
+  test.each(["error", "warning"])(
+    "logs the Setup token exactly once even with LOG_LEVEL=%s",
+    async (level) => {
+      const records = await setupLogs(join(tempDir, "data"), { LOG_LEVEL: level });
+
+      expect(records.map((record) => record.level)).toEqual(["WARN"]);
+    },
+  );
 
   test("exits 1 with a prettified message on invalid config", async () => {
     const server = startServer({
