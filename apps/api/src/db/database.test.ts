@@ -43,3 +43,30 @@ test("applies its defaults again when an existing database is reopened", () => {
     [[5000]],
   ]);
 });
+
+test("waits for another process's lock when switching a fresh database to WAL", async () => {
+  const dataDir = join(tempDir, "locked");
+  // Another process creates banki.db in SQLite's default journal mode and holds
+  // an exclusive lock on it for a moment, as a server still shutting down might.
+  const holder = Bun.spawn(
+    [
+      "bun",
+      "-e",
+      `const { Database } = require("bun:sqlite");
+       require("node:fs").mkdirSync(process.argv[1], { recursive: true });
+       const db = new Database(process.argv[1] + "/banki.db");
+       db.run("BEGIN EXCLUSIVE");
+       console.log("locked");
+       Bun.sleepSync(300);
+       db.run("COMMIT");`,
+      dataDir,
+    ],
+    { stdout: "pipe" },
+  );
+  const reader = holder.stdout.getReader();
+  await reader.read();
+
+  const second = openDatabase(dataDir);
+  second.close();
+  expect(await holder.exited).toBe(0);
+});

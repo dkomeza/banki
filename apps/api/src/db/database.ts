@@ -21,9 +21,16 @@ export function openDatabase(dataDir: string): OpenedDatabase {
   mkdirSync(join(dataDir, "uploads"), { recursive: true });
 
   const sqlite = new SQLite(join(dataDir, "banki.db"), { create: true, strict: true });
-  sqlite.run("PRAGMA journal_mode = WAL");
-  sqlite.run("PRAGMA foreign_keys = ON");
-  sqlite.run("PRAGMA busy_timeout = 5000");
-
-  return { db: drizzle({ client: sqlite, schema }), close: () => sqlite.close() };
+  try {
+    // The timeout goes first: switching to WAL takes a lock, and another process
+    // (a dev restart, an old container still shutting down) may briefly hold one.
+    sqlite.run("PRAGMA busy_timeout = 5000");
+    sqlite.run("PRAGMA journal_mode = WAL");
+    sqlite.run("PRAGMA foreign_keys = ON");
+    return { db: drizzle({ client: sqlite, schema }), close: () => sqlite.close() };
+  } catch (error) {
+    // e.g. banki.db exists but isn't a SQLite database.
+    sqlite.close();
+    throw error;
+  }
 }
