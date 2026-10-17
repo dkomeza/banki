@@ -27,6 +27,13 @@ function start() {
     logger.info("API starting {dataDir}", { dataDir: config.dataDir });
     booted = createApp(config);
     logger.info("Migrations applied {migrations}", { migrations: booted.appliedMigrations });
+    if (booted.setupToken !== undefined) {
+      const setupToken = booted.setupToken.value;
+      logger.warning("Banki isn't set up yet. To set it up, open {setupUrl}", {
+        setupUrl: `${config.origin}/setup?token=${setupToken}`,
+        setupToken,
+      });
+    }
     const server = Bun.serve({ port: config.port, fetch: booted.app.fetch });
     logger.info("Listening {port}", { port: server.port });
     return { server, close: booted.close };

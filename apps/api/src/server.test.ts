@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HealthResponse } from "@banki/shared";
@@ -70,9 +70,10 @@ describe("the server process", () => {
     expect(await server.exited).toBe(0);
 
     const records = jsonLines(await new Response(server.stdout).text());
+    const migrations = ["0000_baseline", "0001_auth"];
     expect(records.map(({ level, message, properties }) => [level, message, properties])).toEqual([
       ["INFO", `API starting "${dataDir}"`, { dataDir }],
-      ["INFO", 'Migrations applied ["0000_baseline"]', { migrations: ["0000_baseline"] }],
+      ["INFO", `Migrations applied ${JSON.stringify(migrations)}`, { migrations }],
       ["INFO", `Listening ${port}`, { port }],
       ["INFO", 'Shutting down "SIGTERM"', { signal: "SIGTERM" }],
     ]);
@@ -101,14 +102,60 @@ describe("the server process", () => {
     });
   });
 
+  test("logs a fresh Setup token and a link to Setup on ORIGIN at every start", async () => {
+    const dataDir = join(tempDir, "data");
+    const setupLog = async () => {
+      const port = freePort();
+      const server = startServer({
+        DATA_DIR: dataDir,
+        PORT: String(port),
+        ORIGIN: "https://banki.example.com/",
+      });
+      await waitForHealth(port);
+      server.kill("SIGTERM");
+      await server.exited;
+      // Warnings go to stderr.
+      const records = jsonLines(await new Response(server.stderr).text());
+      const record = records.find((r) => r.level === "WARN");
+      return z.object({ setupUrl: z.string(), setupToken: z.string() }).parse(record?.properties);
+    };
+
+    const first = await setupLog();
+    const second = await setupLog();
+
+    expect(first.setupToken).toMatch(/^[\w-]{43}$/);
+    expect(first.setupUrl).toBe(`https://banki.example.com/setup?token=${first.setupToken}`);
+    expect(second.setupToken).not.toBe(first.setupToken);
+  });
+
   test("exits 1 with a prettified message on invalid config", async () => {
-    const server = startServer({ DATA_DIR: tempDir, PORT: "http", LOG_FORMAT: "xml" });
+    const server = startServer({
+      DATA_DIR: tempDir,
+      PORT: "http",
+      LOG_FORMAT: "xml",
+      ORIGIN: "https://banki.example.com/banki",
+    });
 
     expect(await server.exited).toBe(1);
     const stderr = await new Response(server.stderr).text();
     expect(stderr).toContain("Invalid configuration:");
     expect(stderr).toContain("→ at PORT");
     expect(stderr).toContain("→ at LOG_FORMAT");
+    expect(stderr).toContain("→ at ORIGIN");
+  });
+
+  test("exits 1 and logs why when the auth secret is empty", async () => {
+    const dataDir = join(tempDir, "data");
+    mkdirSync(dataDir);
+    writeFileSync(join(dataDir, "auth-secret"), "");
+    const server = startServer({ DATA_DIR: dataDir, PORT: String(freePort()) });
+
+    expect(await server.exited).toBe(1);
+    const failure = jsonLines(await new Response(server.stderr).text()).find(
+      (record) => record.level === "ERROR",
+    );
+    expect(failure?.message).toStartWith("API failed to start");
+    expect(JSON.stringify(failure?.properties)).toContain("is empty");
   });
 
   test("exits 1 and logs why when the data directory can't be created", async () => {

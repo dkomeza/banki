@@ -33,6 +33,12 @@ const addMigration = (tag: string, statements: string, when?: number): number =>
   return created;
 };
 
+/** The committed migrations, in order. */
+const COMMITTED = ["0000_baseline", "0001_auth"];
+
+/** The tables the committed migrations create. */
+const COMMITTED_TABLES = ["auth_account", "auth_session", "auth_verification", "user"];
+
 /** The tables migrations created, leaving out SQLite's and Drizzle's own. */
 const tables = () =>
   opened.db
@@ -55,38 +61,39 @@ afterEach(() => {
 });
 
 test("a restart applies only the migrations added since the last boot", () => {
-  expect(applyMigrations(opened.db, folder)).toEqual(["0000_baseline"]);
+  expect(applyMigrations(opened.db, folder)).toEqual(COMMITTED);
 
-  addMigration("0001_note", "CREATE TABLE note (id integer PRIMARY KEY);");
+  addMigration("0100_note", "CREATE TABLE note (id integer PRIMARY KEY);");
 
-  expect(applyMigrations(opened.db, folder)).toEqual(["0001_note"]);
-  expect(tables()).toEqual(["note"]);
+  expect(applyMigrations(opened.db, folder)).toEqual(["0100_note"]);
+  expect(tables()).toEqual([...COMMITTED_TABLES, "note"].toSorted());
   expect(applyMigrations(opened.db, folder)).toEqual([]);
 });
 
 test("a failing migration applies nothing and throws", () => {
-  addMigration("0001_note", "CREATE TABLE note (id integer PRIMARY KEY);");
-  addMigration("0002_broken", "THIS IS NOT SQL;");
+  addMigration("0100_note", "CREATE TABLE note (id integer PRIMARY KEY);");
+  addMigration("0101_broken", "THIS IS NOT SQL;");
 
   expect(() => applyMigrations(opened.db, folder)).toThrow();
   expect(tables()).toEqual([]);
 
   // Once the broken migration is fixed, every one of them is still pending.
-  writeFileSync(join(folder, "0002_broken.sql"), "SELECT 1;");
-  expect(applyMigrations(opened.db, folder)).toEqual(["0000_baseline", "0001_note", "0002_broken"]);
+  writeFileSync(join(folder, "0101_broken.sql"), "SELECT 1;");
+  expect(applyMigrations(opened.db, folder)).toEqual([...COMMITTED, "0100_note", "0101_broken"]);
 });
 
 test("a migration older than the latest applied one fails startup before anything is applied", () => {
-  const later = addMigration("0002_later", "SELECT 1;");
+  const later = addMigration("0102_later", "SELECT 1;");
   applyMigrations(opened.db, folder);
+  const before = tables();
 
-  // A merge after 0002 was applied brings a migration generated before it (0001)
-  // alongside a newer one (0003) that would otherwise be applied.
-  addMigration("0001_note", "CREATE TABLE note (id integer PRIMARY KEY);", later - 500);
-  addMigration("0003_tag", "CREATE TABLE tag (id integer PRIMARY KEY);", later + 1000);
+  // A merge after 0102 was applied brings a migration generated before it (0101)
+  // alongside a newer one (0103) that would otherwise be applied.
+  addMigration("0101_note", "CREATE TABLE note (id integer PRIMARY KEY);", later - 500);
+  addMigration("0103_tag", "CREATE TABLE tag (id integer PRIMARY KEY);", later + 1000);
 
   expect(() => applyMigrations(opened.db, folder)).toThrow(
-    /0001_note.*older than the latest applied migration/s,
+    /0101_note.*older than the latest applied migration/s,
   );
-  expect(tables()).toEqual([]);
+  expect(tables()).toEqual(before);
 });
