@@ -33,9 +33,12 @@ async function errorCode(res: Response): Promise<string | undefined> {
  * under `/api/auth` falls through to the JSON 404.
  */
 export function authRoutes({ auth, config }: { auth: Auth; config: Pick<Config, "origin"> }) {
-  const handle = async (c: Context) => {
+  /** Passes the request to better-auth, logging a refusal over its origin. */
+  const forward = async (c: Context) => {
     const res = await auth.handler(c.req.raw);
-    if (res.status === 403 && ORIGIN_ERROR_CODES.has((await errorCode(res)) ?? "")) {
+    const refusedOrigin =
+      res.status === 403 && ORIGIN_ERROR_CODES.has((await errorCode(res)) ?? "");
+    if (refusedOrigin) {
       const requestOrigin = c.req.header("origin") ?? c.req.header("referer") ?? "none";
       logger.warning(
         "Refused {method} {path} from origin {requestOrigin}, which isn't Banki's ORIGIN {origin}. " +
@@ -43,16 +46,19 @@ export function authRoutes({ auth, config }: { auth: Auth; config: Pick<Config, 
         { method: c.req.method, path: c.req.path, requestOrigin, origin: config.origin },
       );
     }
-    return res;
+    return { res, refusedOrigin };
   };
+  const handle = async (c: Context) => (await forward(c)).res;
 
   return new Hono()
     .post("/sign-in/email", async (c) => {
-      const res = await handle(c);
-      if (res.status === 401) {
-        logger.warning("Failed sign-in from {ip}", { ip: clientIp(c) ?? "unknown" });
-      } else if (res.status === 429) {
-        logger.warning("Sign-in rate limited for {ip}", { ip: clientIp(c) ?? "unknown" });
+      const { res, refusedOrigin } = await forward(c);
+      const ip = clientIp(c) ?? "unknown";
+      if (res.status === 429) {
+        logger.warning("Sign-in rate limited for {ip}", { ip });
+      } else if (!res.ok && !refusedOrigin) {
+        // A wrong Email or Password (401), or one better-auth refuses outright (400).
+        logger.warning("Failed sign-in from {ip} ({status})", { ip, status: res.status });
       }
       return res;
     })

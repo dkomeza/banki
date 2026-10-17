@@ -68,8 +68,41 @@ describe("signing in", () => {
 
     expect(warnings()).toContainEqual({
       category: "banki.auth",
-      properties: { ip: "203.0.113.20" },
+      properties: { ip: "203.0.113.20", status: 401 },
     });
+  });
+
+  test.each([
+    ["an Email that isn't one", { email: "not-an-email" }],
+    ["a Password over 128 characters", { password: "x".repeat(129) }],
+  ])("logs a sign-in refused for %s at warning with the client IP", async (_, attempt) => {
+    const app = await setUpApp();
+
+    const res = await signIn(app, { ...attempt, ip: "203.0.113.21" });
+
+    expect(res.status).toBe(400);
+    expect(warnings()).toContainEqual({
+      category: "banki.auth",
+      properties: { ip: "203.0.113.21", status: 400 },
+    });
+  });
+
+  test("logs a rate-limited or wrong-origin sign-in on its own line, not as a failed sign-in", async () => {
+    const app = await setUpApp();
+    const ip = freshIp();
+    for (let i = 0; i < 5; i++) await signIn(app, { password: "not the password", ip });
+    records.length = 0;
+
+    await signIn(app, { ip });
+    await signIn(app, { headers: { origin: "http://evil.example" } });
+
+    const messages = records
+      .filter((record) => record.level === "warning")
+      .map((record) => String(record.rawMessage));
+    expect(messages).toEqual([
+      expect.stringMatching(/^Sign-in rate limited/),
+      expect.stringMatching(/^Refused/),
+    ]);
   });
 
   test("the 6th attempt in a minute from one IP gets 429", async () => {
