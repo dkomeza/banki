@@ -11,22 +11,26 @@ let tempDir: string;
 let folder: string;
 let opened: OpenedDatabase;
 
-/** Adds a migration to the copied folder the way drizzle-kit would: a SQL file and a journal entry. */
-const addMigration = (tag: string, statements: string) => {
+/**
+ * Adds a migration to the copied folder the way drizzle-kit would: a SQL file and a
+ * journal entry, created a second after the last one unless `when` says otherwise.
+ */
+const addMigration = (tag: string, statements: string, when?: number): number => {
   writeFileSync(join(folder, `${tag}.sql`), statements);
   const journalPath = join(folder, "meta", "_journal.json");
   const journal = z
     .looseObject({ entries: z.array(z.looseObject({ when: z.number() })) })
     .parse(JSON.parse(readFileSync(journalPath, "utf8")));
-  const last = journal.entries.at(-1);
+  const created = when ?? (journal.entries.at(-1)?.when ?? 0) + 1000;
   journal.entries.push({
     idx: journal.entries.length,
     version: "6",
-    when: (last?.when ?? 0) + 1000,
+    when: created,
     tag,
     breakpoints: true,
   });
   writeFileSync(journalPath, JSON.stringify(journal));
+  return created;
 };
 
 const tables = () =>
@@ -66,4 +70,17 @@ test("a failing migration applies nothing and throws", () => {
   // Once the broken migration is fixed, every one of them is still pending.
   writeFileSync(join(folder, "0002_broken.sql"), "SELECT 1;");
   expect(applyMigrations(opened.db, folder)).toEqual(["0000_baseline", "0001_note", "0002_broken"]);
+});
+
+test("a migration older than the latest applied one fails startup instead of being skipped", () => {
+  const later = addMigration("0002_later", "SELECT 1;");
+  applyMigrations(opened.db, folder);
+
+  // A branch merged after 0002 was applied brings a migration generated before it.
+  addMigration("0001_note", "CREATE TABLE note (id integer PRIMARY KEY);", later - 500);
+
+  expect(() => applyMigrations(opened.db, folder)).toThrow(
+    /0001_note.*older than the latest applied migration/s,
+  );
+  expect(tables()).toEqual([]);
 });

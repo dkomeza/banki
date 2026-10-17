@@ -34,6 +34,10 @@ function recordedMigrations(db: Database): Set<number> {
 /**
  * Applies every migration the database doesn't have yet, in one transaction,
  * and returns the tags of the ones it applied (`[]` when it was up to date).
+ *
+ * Drizzle only applies migrations created after the latest one recorded, so a
+ * migration with an older timestamp (one that arrived through a merge after a
+ * newer one was applied) would be skipped for good. That throws instead.
  */
 export function applyMigrations(db: Database, folder = migrationsFolder): string[] {
   const before = recordedMigrations(db);
@@ -43,7 +47,16 @@ export function applyMigrations(db: Database, folder = migrationsFolder): string
   const journal = Journal.parse(
     JSON.parse(readFileSync(join(folder, "meta", "_journal.json"), "utf8")),
   );
-  return journal.entries
-    .filter((entry) => after.has(entry.when) && !before.has(entry.when))
-    .map((entry) => entry.tag);
+
+  const skipped = journal.entries.filter((entry) => !after.has(entry.when));
+  if (skipped.length > 0) {
+    const tags = skipped.map((entry) => entry.tag).join(", ");
+    throw new Error(
+      `Migrations not applied: ${tags}. Each one's timestamp is older than the latest ` +
+        `applied migration, and migrations only run in timestamp order, so it would never ` +
+        `run. Regenerate it on top of the current migrations.`,
+    );
+  }
+
+  return journal.entries.filter((entry) => !before.has(entry.when)).map((entry) => entry.tag);
 }
