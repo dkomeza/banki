@@ -2,7 +2,7 @@
 
 Issues and specs for this repo live in Linear: workspace `banki-group`, team `Banki` (key `BAN`), project "Banki". Use the `linear-banki` MCP server (`mcp__linear-banki__*`) for all operations, not the generic claude.ai Linear connector (`mcp__claude_ai_Linear__*`). Issue identifiers look like `BAN-123`.
 
-**Ask before creating, closing, or relabelling issues.** This is a solo project and Linear is just a progress log: no automations, cycles, or integrations.
+**Ask before creating, closing, or relabelling issues.** This is a solo project and Linear is just a progress log: no automations or cycles. The one integration is GitHub: a branch named after the issue's `gitBranchName` links its PR to the issue, and merging the PR moves the issue to `Done`.
 
 Linear is the source of truth for requirements (there's no manifest in the repo). The project document **"Banki — Overview"** (https://linear.app/banki-group/document/banki-overview-de9b92093f2e) gives the big picture; read it before working on any issue. Each issue holds the detailed requirements for its own piece.
 
