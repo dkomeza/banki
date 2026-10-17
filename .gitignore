@@ -6,3 +6,9 @@ dist/
 .env.*
 !.env.example
 .DS_Store
+
+# The API's data directory in dev, and SQLite files wherever they end up.
+.data/
+*.db
+*.db-wal
+*.db-shm
