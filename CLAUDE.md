@@ -10,4 +10,4 @@ Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agent
 
 ### Working on an issue
 
-Use the `work-issue` skill (`/work-issue BAN-N`): grill, implement in a worktree under `../banki-worktrees/`, adversarial review, PR, CodeRabbit.
+Use the `work-issue` skill (`/work-issue BAN-N`): grill, implement in a worktree under `../banki-worktrees/`, adversarial review, PR, `claude-review` gate.
