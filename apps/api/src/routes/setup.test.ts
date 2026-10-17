@@ -1,9 +1,11 @@
+import { Database as SQLite } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
+import { join } from "node:path";
 import { ApiError, MeResponse, SetupStatus } from "@banki/shared";
 import { bootApps, cookiesFrom, EMAIL, freshIp, get, PASSWORD, post, setUp } from "../testing/app";
 import { captureLogs } from "../testing/logs";
 
-const { boot } = bootApps();
+const { boot, dataDir } = bootApps();
 const records = captureLogs();
 
 const errorCode = async (res: Response) => ApiError.parse(await res.json()).error.code;
@@ -35,6 +37,37 @@ describe("POST /api/setup", () => {
     const me = await get(booted.app, "/api/me", cookiesFrom(res));
     expect(me.status).toBe(200);
     expect(MeResponse.parse(await me.json())).toEqual({ email: EMAIL });
+  });
+
+  test("still answers 204, with no cookie, when signing in afterwards fails", async () => {
+    const booted = boot();
+    const sqlite = new SQLite(join(dataDir(), "banki.db"));
+    sqlite.run(
+      "CREATE TRIGGER no_sign_in BEFORE INSERT ON auth_session BEGIN SELECT RAISE(ABORT, 'no'); END",
+    );
+
+    const res = await post(booted.app, "/api/setup", {
+      token: booted.setupToken?.value,
+      email: EMAIL,
+      password: PASSWORD,
+    });
+
+    expect(res.status).toBe(204);
+    expect(res.headers.getSetCookie()).toEqual([]);
+    expect(records).toContainEqual(
+      expect.objectContaining({ level: "error", category: ["banki", "setup"] }),
+    );
+    // Setup is done, so the User signs in the usual way.
+    sqlite.run("DROP TRIGGER no_sign_in");
+    sqlite.close();
+    expect(SetupStatus.parse(await (await get(booted.app, "/api/setup")).json())).toEqual({
+      setUp: true,
+    });
+    const signIn = await post(booted.app, "/api/auth/sign-in/email", {
+      email: EMAIL,
+      password: PASSWORD,
+    });
+    expect(signIn.status).toBe(200);
   });
 
   test("stores the Email trimmed and lowercased", async () => {

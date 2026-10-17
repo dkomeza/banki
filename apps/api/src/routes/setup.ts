@@ -70,14 +70,20 @@ export function setupRoutes({
         setupToken.discard();
         logger.info("Setup done");
 
-        // Signing in the usual way sets the same cookie a sign-in would.
-        const { headers } = await auth.api.signInEmail({
-          body: { email, password },
-          headers: c.req.raw.headers,
-          returnHeaders: true,
-        });
-        for (const cookie of headers.getSetCookie())
-          c.header("set-cookie", cookie, { append: true });
+        // Signing in the usual way sets the same cookie a sign-in would. Setup
+        // is done either way: if this fails, the User just signs in next.
+        try {
+          const { headers } = await auth.api.signInEmail({
+            body: { email, password },
+            headers: c.req.raw.headers,
+            returnHeaders: true,
+          });
+          for (const cookie of headers.getSetCookie()) {
+            c.header("set-cookie", cookie, { append: true });
+          }
+        } catch (error) {
+          logger.error("Setup is done, but signing in after it failed", { error });
+        }
         return c.body(null, 204);
       },
     );
