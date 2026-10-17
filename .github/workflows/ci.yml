@@ -32,6 +32,13 @@ jobs:
       - run: bun run typecheck
       - run: bun run lint
       - run: bun run format:check
+      - run: bun run --cwd apps/api db:generate
+      # A schema change committed without its migration makes db:generate write one.
+      # intent-to-add lists new migration files in the diff along with the journal change.
+      - name: Fail if the schema has changes without a migration
+        run: |
+          git add --intent-to-add apps/api/drizzle
+          git diff --exit-code
 
   test:
     name: test
