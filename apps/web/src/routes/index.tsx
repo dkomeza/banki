@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { authClient } from "@/lib/auth-client";
 import { healthQueryOptions, healthStatusLine } from "@/lib/health";
 import { meQueryOptions } from "@/lib/me";
+import { signOut } from "@/lib/sign-out";
 import { signedInQueryOptions } from "@/lib/signed-in";
 
 export const Route = createFileRoute("/")({
@@ -17,17 +18,21 @@ function Home() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [signingOut, setSigningOut] = useState(false);
+  const [signOutFailed, setSignOutFailed] = useState(false);
 
-  const signOut = async () => {
+  const onSignOut = async () => {
     setSigningOut(true);
-    try {
-      await authClient.signOut();
-    } finally {
-      queryClient.setQueryData(signedInQueryOptions.queryKey, null);
-      queryClient.removeQueries({ queryKey: meQueryOptions.queryKey });
-      setSigningOut(false);
-      await navigate({ to: "/login" });
-    }
+    setSignOutFailed(false);
+    const ok = await signOut(
+      () => authClient.signOut(),
+      async () => {
+        queryClient.setQueryData(signedInQueryOptions.queryKey, null);
+        queryClient.removeQueries({ queryKey: meQueryOptions.queryKey });
+        await navigate({ to: "/login" });
+      },
+    );
+    setSigningOut(false);
+    setSignOutFailed(!ok);
   };
 
   return (
@@ -40,9 +45,14 @@ function Home() {
         {me.status === "success" && <>Signed in as {me.data.email}</>}
         {me.status === "error" && "Couldn't load who is signed in."}
       </p>
-      <Button variant="outline" disabled={signingOut} onClick={() => void signOut()}>
+      <Button variant="outline" disabled={signingOut} onClick={() => void onSignOut()}>
         Sign out
       </Button>
+      {signOutFailed && (
+        <p className="text-sm text-destructive" role="alert">
+          Couldn't sign out. Try again.
+        </p>
+      )}
     </main>
   );
 }
