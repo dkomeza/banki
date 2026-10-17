@@ -12,9 +12,13 @@
     "lint": "oxlint --type-aware --deny-warnings",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
-    "test": "bun run --workspaces test"
+    "test": "bun run --workspaces test",
+    "smoke:docker": "bun scripts/docker-smoke.ts",
+    "docker:buildx": "docker buildx build --platform linux/amd64,linux/arm64 --output type=cacheonly --file apps/api/Dockerfile . && docker buildx build --platform linux/amd64,linux/arm64 --output type=cacheonly --file apps/web/Dockerfile ."
   },
   "devDependencies": {
+    "@banki/shared": "workspace:*",
+    "@types/bun": "1.4.3",
     "oxfmt": "0.73.0",
     "oxlint": "1.88.0",
     "oxlint-tsgolint": "7.0.2004",
