@@ -4,20 +4,39 @@
 	admin off
 	persist_config off
 	auto_https off
-	# HTTP/2 and HTTP/3 need TLS, which this server never has.
 	servers {
+		# HTTP/2 and HTTP/3 need TLS, which this server never has.
 		protocols h1
+		# The User's own reverse proxies (BANKI_TRUSTED_PROXIES, space-separated
+		# IPs or CIDRs), whose X-Forwarded-For Caddy believes, so {client_ip} is
+		# the real client rather than the proxy. Unset, no one is trusted and
+		# {client_ip} is the connection's address.
+		trusted_proxies static {$BANKI_TRUSTED_PROXIES}
+		# Reads X-Forwarded-For right to left, skipping trusted hops, so a
+		# client can't pick its own IP by sending the header itself.
+		trusted_proxies_strict
 	}
 }
 
 :8080 {
 	encode zstd gzip
 
+	# On every response. The full CSP and HSTS come with BAN-8.
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy same-origin
+		Content-Security-Policy "frame-ancestors 'none'"
+	}
+
 	# The API owns every path under /api, including its 404s, so these never
 	# reach the SPA fallback. The prefix is kept: the API's routes include it.
 	@api path /api /api/*
 	handle @api {
-		reverse_proxy api:3000
+		reverse_proxy api:3000 {
+			# Exactly one value: the client's IP. The API trusts it for rate
+			# limits and logs, since only this container can reach the API.
+			header_up X-Forwarded-For {client_ip}
+		}
 	}
 
 	# Vite names these by content hash, so they never change. A missing one is a

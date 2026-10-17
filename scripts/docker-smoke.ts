@@ -1,12 +1,14 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { constants, tmpdir } from "node:os";
 import { join } from "node:path";
-import { ApiError, HealthResponse } from "@banki/shared";
+import { ApiError, HealthResponse, MeResponse, SetupStatus } from "@banki/shared";
 
 // Proves the Docker deployment end to end: builds both images for this
 // machine's platform, starts the stack under a throwaway Compose project (so
 // its volume is throwaway too) on a free host port, and checks it through the
-// web container's port only, the way a User's browser reaches it. The images
+// web container's port only, the way a User's browser reaches it: the app,
+// Setup, signing in and out, the client IP Caddy forwards, a restart and the
+// reset-password CLI. The images
 // get per-run tags, so a User's own `banki-api` and `banki-web` are left alone.
 // The stack, its volume and those images are always torn down, even when a
 // check fails or the run is interrupted.
@@ -18,7 +20,9 @@ const root = join(import.meta.dir, "..");
 const project = `banki-smoke-${process.pid}-${Date.now().toString(36)}`;
 const port = freePort();
 const origin = `http://127.0.0.1:${port}`;
-const env = { ...process.env, BANKI_PORT: String(port) };
+// The stack's ORIGIN is the address this script reaches it at, as a User sets
+// BANKI_ORIGIN to the address they open Banki at.
+const env = { ...process.env, BANKI_PORT: String(port), BANKI_ORIGIN: origin };
 
 // compose.yaml names the images `banki-api` and `banki-web`, the tags a User
 // deploys. A second Compose file gives this run's images their own tags, so the
@@ -31,6 +35,14 @@ writeFileSync(
 );
 
 const IMMUTABLE = "public, max-age=31536000, immutable";
+const EMAIL = "smoke@example.com";
+const PASSWORD = "smoke-test-password";
+const NEW_PASSWORD = "smoke-test-password-reset";
+const SECURITY_HEADERS = {
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "same-origin",
+  "content-security-policy": "frame-ancestors 'none'",
+};
 const HEALTH_TIMEOUT_MS = 60_000;
 
 class SmokeFailure extends Error {
@@ -76,6 +88,10 @@ const readAll = async (stream: unknown) =>
 type RunOptions = {
   /** Capture stdout and stderr instead of printing them. */
   capture?: boolean;
+  /** Written to the command's stdin. */
+  input?: string;
+  /** Extra environment variables for this command only. */
+  extraEnv?: Record<string, string>;
   /** Resolve with a non-zero exit code instead of failing the run. */
   allowFailure?: boolean;
   /** Teardown runs even after an interrupt, and an interrupt doesn't kill it. */
@@ -85,13 +101,19 @@ type RunOptions = {
 /** Runs a command from the repo root; an interrupt kills it unless it is teardown. */
 async function exec(
   cmd: string[],
-  { capture = false, allowFailure = false, teardown = false }: RunOptions = {},
+  {
+    capture = false,
+    input,
+    extraEnv = {},
+    allowFailure = false,
+    teardown = false,
+  }: RunOptions = {},
 ): Promise<{ exitCode: number; stdout: string }> {
   if (!teardown) interrupt.signal.throwIfAborted();
   const proc = Bun.spawn(cmd, {
     cwd: root,
-    env,
-    stdin: "ignore",
+    env: { ...env, ...extraEnv },
+    stdin: input === undefined ? "ignore" : new TextEncoder().encode(input),
     stdout: capture ? "pipe" : "inherit",
     stderr: capture ? "pipe" : "inherit",
     signal: teardown ? undefined : interrupt.signal,
@@ -128,7 +150,7 @@ const compose = (args: string[], options?: RunOptions) =>
 /** Runs `docker compose`, capturing its output instead of printing it. */
 const composeOutput = async (args: string[]) => (await compose(args, { capture: true })).stdout;
 
-/** The API container's JSON log records, oldest first. */
+/** The API container's JSON log records (stdout and stderr), oldest first. */
 async function apiLogRecords(): Promise<Array<{ message: string; properties: unknown }>> {
   const text = await composeOutput(["logs", "--no-color", "--no-log-prefix", "api"]);
   return text
@@ -145,12 +167,49 @@ async function apiLogRecords(): Promise<Array<{ message: string; properties: unk
     );
 }
 
-async function get(path: string): Promise<Response> {
+async function get(path: string, cookie?: string): Promise<Response> {
   try {
-    return await fetch(`${origin}${path}`, { signal: interrupt.signal });
+    return await fetch(`${origin}${path}`, {
+      headers: cookie === undefined ? {} : { cookie },
+      signal: interrupt.signal,
+    });
   } catch (error) {
     throw new SmokeFailure(`GET ${path} failed: ${String(error)}`);
   }
+}
+
+/** POSTs JSON the way the web app does: from ORIGIN, with any cookie. */
+async function post(
+  path: string,
+  body: unknown,
+  { cookie, headers = {} }: { cookie?: string; headers?: Record<string, string> } = {},
+): Promise<Response> {
+  try {
+    return await fetch(`${origin}${path}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        origin,
+        ...(cookie === undefined ? {} : { cookie }),
+        ...headers,
+      },
+      body: JSON.stringify(body),
+      signal: interrupt.signal,
+    });
+  } catch (error) {
+    throw new SmokeFailure(`POST ${path} failed: ${String(error)}`);
+  }
+}
+
+/** The `name=value` part of each cookie a response sets, as a Cookie header. */
+const cookiesFrom = (res: Response) =>
+  res.headers
+    .getSetCookie()
+    .map((cookie) => cookie.split(";")[0])
+    .join("; ");
+
+function expectStatus(res: Response, expected: number, what: string) {
+  check(res.status === expected, `${what} answered HTTP ${res.status}, expected ${expected}`);
 }
 
 /** Polls /api/health through the web port until it reports healthy. */
@@ -192,9 +251,10 @@ async function checkHealth() {
   );
 }
 
-async function checkApiNotFound() {
-  const res = await get("/api/does-not-exist");
-  check(res.status === 404, `GET /api/does-not-exist answered HTTP ${res.status}, expected 404`);
+/** An unknown /api path is the API's JSON 401 when signed out, and its JSON 404 when signed in. */
+async function checkApiError(cookie: string | undefined, status: number, code: string) {
+  const res = await get("/api/does-not-exist", cookie);
+  expectStatus(res, status, "GET /api/does-not-exist");
   const type = res.headers.get("content-type") ?? "";
   check(
     type.startsWith("application/json"),
@@ -203,8 +263,8 @@ async function checkApiNotFound() {
   const body: unknown = await res.json();
   const parsed = ApiError.safeParse(body);
   check(
-    parsed.success && parsed.data.error.code === "not_found",
-    `GET /api/does-not-exist body ${JSON.stringify(body)} isn't the API's not_found error`,
+    parsed.success && parsed.data.error.code === code,
+    `GET /api/does-not-exist body ${JSON.stringify(body)} isn't the API's ${code} error`,
   );
 }
 
@@ -228,6 +288,139 @@ async function checkNonRoot(service: "api" | "web") {
   return uid;
 }
 
+async function checkSecurityHeaders(path: string) {
+  const res = await get(path);
+  await res.arrayBuffer();
+  for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
+    const actual = res.headers.get(name);
+    check(
+      actual === value,
+      `GET ${path} has ${name} ${JSON.stringify(actual)}, expected ${JSON.stringify(value)}`,
+    );
+  }
+}
+
+async function setupStatus(): Promise<boolean> {
+  const res = await get("/api/setup");
+  expectStatus(res, 200, "GET /api/setup");
+  return SetupStatus.parse(await res.json()).setUp;
+}
+
+async function checkSignedOutBeforeSetup() {
+  expectStatus(await get("/api/me"), 401, "GET /api/me signed out");
+  check(!(await setupStatus()), "GET /api/setup says Banki is set up before Setup");
+}
+
+/** A string property of a log record's properties, if it has one. */
+function stringProperty(properties: unknown, name: string): string | undefined {
+  if (typeof properties !== "object" || properties === null) return undefined;
+  const value: unknown = Object.entries(properties).find(([key]) => key === name)?.[1];
+  return typeof value === "string" ? value : undefined;
+}
+
+/** The Setup token the API logged on its latest start. */
+async function setupTokenFromLogs(): Promise<string> {
+  const logged = (await apiLogRecords())
+    .map(({ properties }) => ({
+      token: stringProperty(properties, "setupToken"),
+      url: stringProperty(properties, "setupUrl"),
+    }))
+    .filter((record) => record.token !== undefined)
+    .at(-1);
+  check(logged?.token !== undefined, "`docker compose logs api` shows no Setup token");
+  check(
+    logged.url === `${origin}/setup?token=${logged.token}`,
+    `the logged Setup link ${logged.url} isn't on ORIGIN ${origin}`,
+  );
+  return logged.token;
+}
+
+/** Does Setup through the web port, returning the signed-in cookie. */
+async function checkSetup(token: string): Promise<string> {
+  const wrong = await post("/api/setup", { token: "wrong", email: EMAIL, password: PASSWORD });
+  expectStatus(wrong, 403, "POST /api/setup with a wrong token");
+  const right = await post("/api/setup", { token, email: EMAIL, password: PASSWORD });
+  expectStatus(right, 204, "POST /api/setup with the logged token");
+  const cookie = cookiesFrom(right);
+  check(cookie !== "", "POST /api/setup set no cookie");
+  return cookie;
+}
+
+async function checkMe(cookie: string) {
+  const res = await get("/api/me", cookie);
+  expectStatus(res, 200, "GET /api/me signed in");
+  const me = MeResponse.parse(await res.json());
+  check(me.email === EMAIL, `GET /api/me answered ${me.email}, expected ${EMAIL}`);
+}
+
+async function checkSignOut(cookie: string) {
+  expectStatus(await post("/api/auth/sign-out", {}, { cookie }), 200, "POST /api/auth/sign-out");
+  expectStatus(await get("/api/me", cookie), 401, "GET /api/me after signing out");
+}
+
+/** Signs in through the web port, returning the cookie. */
+async function signIn(password: string, expected: number, headers?: Record<string, string>) {
+  const res = await post("/api/auth/sign-in/email", { email: EMAIL, password }, { headers });
+  expectStatus(
+    res,
+    expected,
+    `signing in with ${password === "wrong-password" ? "a wrong" : "the"} Password`,
+  );
+  return cookiesFrom(res);
+}
+
+/** The client IP the API logged for the latest failed sign-in. */
+async function lastFailedSignInIp(): Promise<string> {
+  const failed = (await apiLogRecords()).filter((record) =>
+    record.message.startsWith("Failed sign-in"),
+  );
+  const ip = stringProperty(failed.at(-1)?.properties, "ip");
+  check(ip !== undefined, "the API logged no IP for a failed sign-in");
+  return ip;
+}
+
+/**
+ * Caddy sends the API a single-value X-Forwarded-For holding the client IP:
+ * one a client makes up is ignored, unless it comes from a proxy listed in
+ * BANKI_TRUSTED_PROXIES.
+ */
+async function checkClientIp() {
+  await signIn("wrong-password", 401, { "x-forwarded-for": "203.0.113.7" });
+  const ip = await lastFailedSignInIp();
+  check(ip !== "203.0.113.7", "the API believed an X-Forwarded-For a client made up");
+  check(!ip.includes(","), `the API got a multi-value X-Forwarded-For: ${ip}`);
+  pass(`a made-up X-Forwarded-For is ignored; the API sees the client as ${ip}`);
+
+  // Trust the address this script connects from, as a User's own proxy.
+  await compose(["up", "--detach", "--no-deps", "--wait", "web"], {
+    extraEnv: { BANKI_TRUSTED_PROXIES: ip },
+  });
+  await signIn("wrong-password", 401, { "x-forwarded-for": "203.0.113.7" });
+  const forwarded = await lastFailedSignInIp();
+  check(
+    forwarded === "203.0.113.7",
+    `with BANKI_TRUSTED_PROXIES=${ip} the API saw ${forwarded}, expected 203.0.113.7`,
+  );
+  pass("with BANKI_TRUSTED_PROXIES set, a trusted proxy's X-Forwarded-For is honoured");
+
+  await compose(["up", "--detach", "--no-deps", "--wait", "web"]);
+}
+
+async function checkResetPassword(oldCookie: string) {
+  const { stdout } = await compose(
+    ["exec", "-T", "api", "bun", "run", "banki", "reset-password", "--password-stdin"],
+    { capture: true, input: `${NEW_PASSWORD}\n` },
+  );
+  check(stdout.includes(EMAIL), `reset-password didn't print the Email: ${stdout}`);
+  expectStatus(
+    await get("/api/me", oldCookie),
+    401,
+    "GET /api/me with a cookie from before the reset",
+  );
+  await signIn(PASSWORD, 401);
+  await checkMe(await signIn(NEW_PASSWORD, 200));
+}
+
 async function checkSurvivesRestart() {
   await compose(["restart"]);
   await waitForHealth();
@@ -244,6 +437,9 @@ async function checkSurvivesRestart() {
     JSON.stringify(migrations[1]?.properties) === JSON.stringify({ migrations: [] }),
     `the second boot applied migrations (${migrations[1]?.message}), so the database didn't persist`,
   );
+  check(await setupStatus(), "GET /api/setup says Banki isn't set up after the restart");
+  const again = await post("/api/setup", { token: "any", email: EMAIL, password: PASSWORD });
+  expectStatus(again, 409, "POST /api/setup after the restart");
 }
 
 async function checkCleanStop() {
@@ -274,10 +470,33 @@ async function run() {
   pass("/some/client/route falls back to the SPA");
   await checkHealth();
   pass("/api/health passes the HealthResponse contract and reports healthy");
-  await checkApiNotFound();
-  pass("/api/does-not-exist returns the API's JSON 404");
+  await checkApiError(undefined, 401, "unauthorized");
+  pass("/api/does-not-exist returns the API's JSON 401 when signed out");
   const asset = await checkImmutableAsset(html);
   pass(`${asset} is served immutable`);
+  for (const path of ["/", "/api/health", "/api/does-not-exist", asset]) {
+    await checkSecurityHeaders(path);
+  }
+  pass("every response has the three security headers");
+
+  step("Setting up and signing in");
+  await checkSignedOutBeforeSetup();
+  pass("before Setup, /api/me answers 401 and /api/setup says setUp: false");
+  const token = await setupTokenFromLogs();
+  pass("the Setup token and link are in `docker compose logs api`");
+  const setupCookie = await checkSetup(token);
+  pass("a wrong Setup token gets 403, the logged one 204 and a cookie");
+  await checkMe(setupCookie);
+  pass("/api/me answers the Email when signed in");
+  await checkSignOut(setupCookie);
+  pass("after signing out, the old cookie gets 401");
+  const cookie = await signIn(PASSWORD, 200);
+  await checkMe(cookie);
+  await checkApiError(cookie, 404, "not_found");
+  pass("/api/does-not-exist returns the API's JSON 404 when signed in");
+  await signIn("wrong-password", 401);
+  pass("signing in works with the Password and fails with a wrong one");
+  await checkClientIp();
 
   step("Checking the containers");
   pass(`api runs as uid ${await checkNonRoot("api")}`);
@@ -285,7 +504,11 @@ async function run() {
 
   step("Restarting the stack");
   await checkSurvivesRestart();
-  pass("banki.db survives a restart, and health still passes");
+  pass("banki.db survives a restart, health still passes, and Setup answers 409");
+
+  step("Resetting the Password with the CLI");
+  await checkResetPassword(cookie);
+  pass("reset-password --password-stdin signs out the old cookie, and the new Password works");
 
   step("Stopping the API");
   await checkCleanStop();
