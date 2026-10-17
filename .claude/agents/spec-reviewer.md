@@ -27,6 +27,7 @@ One block per finding, most severe first:
 
 ```markdown
 ### F<n> · <blocker | major | minor> · `path:line`
+
 **Claim:** <what is wrong, in one sentence>
 **Failure scenario:** <the concrete case where this bites: which criterion fails, which input breaks, which ADR is violated>
 ```

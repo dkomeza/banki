@@ -1,0 +1,24 @@
+{
+  "name": "banki",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --parallel --filter './apps/*' dev",
+    "typecheck": "tsc -b",
+    "lint": "oxlint --type-aware --deny-warnings",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check",
+    "test": "bun run --workspaces test"
+  },
+  "devDependencies": {
+    "oxfmt": "0.73.0",
+    "oxlint": "1.88.0",
+    "oxlint-tsgolint": "7.0.2004",
+    "typescript": "7.0.2"
+  },
+  "packageManager": "bun@1.4.3"
+}

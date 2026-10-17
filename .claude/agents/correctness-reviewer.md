@@ -29,6 +29,7 @@ One block per finding, most severe first:
 
 ```markdown
 ### F<n> · <blocker | major | minor> · `path:line`
+
 **Claim:** <what is wrong, in one sentence>
 **Failure scenario:** <concrete inputs or state → the wrong outcome>
 ```
