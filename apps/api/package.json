@@ -6,14 +6,21 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "dev": "bun --hot src/server.ts",
+    "dev": "DATA_DIR=.data LOG_FORMAT=pretty bun --watch src/server.ts",
+    "db:generate": "drizzle-kit generate",
     "test": "bun test"
   },
   "dependencies": {
     "@banki/shared": "workspace:*",
-    "hono": "4.13.13"
+    "@logtape/hono": "2.4.1",
+    "@logtape/logtape": "2.4.1",
+    "@logtape/pretty": "2.4.1",
+    "drizzle-orm": "0.45.4",
+    "hono": "4.13.13",
+    "zod": "4.6.7"
   },
   "devDependencies": {
-    "@types/bun": "1.4.3"
+    "@types/bun": "1.4.3",
+    "drizzle-kit": "0.31.11"
   }
 }

@@ -14,7 +14,44 @@ bun install
 bun run dev
 ```
 
-`dev` starts the API on <http://localhost:3000> (`bun --hot`) and the web app on <http://localhost:5173> (Vite), which proxies `/api` to the API. Open <http://localhost:5173>.
+`dev` starts the API on <http://localhost:3000> (`bun --watch`, restarting on changes) and the web app on <http://localhost:5173> (Vite), which proxies `/api` to the API. Open <http://localhost:5173>.
+
+The API restarts its whole process on a change rather than hot-reloading (`bun --hot`), because startup opens the database, applies migrations and installs signal handlers, and a hot reload would repeat that inside the old process.
+
+In dev the API keeps its data in `apps/api/.data/` and logs in pretty text. Delete that folder to start over with an empty database. It is gitignored, as are all SQLite files.
+
+## API configuration
+
+The API reads these environment variables at startup and exits with code 1, listing what's wrong, if any is invalid. An empty variable counts as unset.
+
+| Variable     | Default | What it sets                                                                                 |
+| ------------ | ------- | -------------------------------------------------------------------------------------------- |
+| `DATA_DIR`   | `/data` | The data directory. A relative path is resolved against the working directory.               |
+| `PORT`       | `3000`  | The port the API listens on, 1 to 65535                                                      |
+| `LOG_FORMAT` | `json`  | `json` for JSON lines, `pretty` for terminal-friendly text                                   |
+| `LOG_LEVEL`  | `info`  | The lowest level logged: `debug`, `info`, `warning` or `error`. Health checks log at `debug` |
+
+The data directory holds everything Banki stores:
+
+```text
+<DATA_DIR>/
+├── banki.db   SQLite database (with banki.db-wal and banki.db-shm beside it while running)
+└── uploads/   uploaded files (nothing uses it yet)
+```
+
+On startup the API creates whatever is missing, then applies any migrations the database doesn't have yet before it accepts requests.
+
+To back up Banki, stop the API first and then copy the whole directory, or take an atomic snapshot of the filesystem it lives on. Copying it while the API runs can catch `banki.db` and `banki.db-wal` at different moments and give a backup that doesn't match either.
+
+## Database migrations
+
+The schema lives in `apps/api/src/db/schema.ts`, and the migrations drizzle-kit generates from it live in `apps/api/drizzle/` (SQL files plus `meta/`, all committed). To change the schema:
+
+1. Edit `apps/api/src/db/schema.ts`.
+2. Run `bun run db:generate` in `apps/api` and commit the new migration with the schema change.
+3. Restart the API, which applies it.
+
+CI runs `db:generate` too and fails if it would change any file, so a schema change without its migration can't be merged.
 
 ## Layout
 

@@ -24,7 +24,9 @@ const respondWith =
 describe("checkHealth", () => {
   test("asks the API's health endpoint", async () => {
     const requests: Request[] = [];
-    const client = createApiClient(respondWith(() => Response.json({ status: "ok" }), requests));
+    const client = createApiClient(
+      respondWith(() => Response.json({ status: "ok", database: "ok" }), requests),
+    );
 
     await checkHealth(client, clock(0, 1));
 
@@ -34,10 +36,13 @@ describe("checkHealth", () => {
   });
 
   test("returns the body with the round trip rounded to whole milliseconds", async () => {
-    const client = createApiClient(respondWith(() => Response.json({ status: "ok" })));
+    const client = createApiClient(
+      respondWith(() => Response.json({ status: "ok", database: "ok" })),
+    );
 
     await expect(checkHealth(client, clock(100.2, 112.7))).resolves.toEqual({
       status: "ok",
+      database: "ok",
       latencyMs: 13,
     });
   });
@@ -65,9 +70,12 @@ describe("healthStatusLine", () => {
   });
 
   test("says the API is up, with the latency, on success", () => {
-    expect(healthStatusLine({ status: "success", data: { status: "ok", latencyMs: 12 } })).toBe(
-      "API is up · 12 ms",
-    );
+    expect(
+      healthStatusLine({
+        status: "success",
+        data: { status: "ok", database: "ok", latencyMs: 12 },
+      }),
+    ).toBe("API is up · 12 ms");
   });
 
   test("says the API is unreachable on any error", () => {

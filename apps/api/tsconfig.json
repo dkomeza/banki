@@ -3,6 +3,10 @@
   "compilerOptions": {
     "types": ["bun"]
   },
-  "include": ["src"],
-  "references": [{ "path": "../../packages/shared" }]
+  "include": ["src", "drizzle.config.ts"],
+  "references": [
+    {
+      "path": "../../packages/shared"
+    }
+  ]
 }
