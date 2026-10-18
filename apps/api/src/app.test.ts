@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ApiError, HealthResponse } from "@banki/shared";
@@ -15,11 +23,13 @@ const configFor = (dataDir: string): Config => ({
   port: 3000,
   logFormat: "json",
   logLevel: "info",
+  origin: "http://localhost:5173",
+  authSecret: undefined,
 });
 
 /** Boots the app the way the server does, against a data directory inside this test's temp dir. */
-const boot = (dataDir = join(tempDir, "data")) => {
-  const booted = createApp(configFor(dataDir));
+const boot = (dataDir = join(tempDir, "data"), overrides: Partial<Config> = {}) => {
+  const booted = createApp({ ...configFor(dataDir), ...overrides });
   opened.push(booted);
   return booted;
 };
@@ -44,6 +54,25 @@ describe("the data directory", () => {
     expect(readdirSync(join(dataDir, "uploads"))).toEqual([]);
   });
 
+  test("gets an auth-secret on the first boot, unless AUTH_SECRET is set", () => {
+    const withFile = join(tempDir, "with-file");
+    const withEnv = join(tempDir, "with-env");
+
+    boot(withFile);
+    boot(withEnv, { authSecret: "s".repeat(32) });
+
+    expect(statSync(join(withFile, "auth-secret")).mode & 0o777).toBe(0o600);
+    expect(existsSync(join(withEnv, "auth-secret"))).toBe(false);
+  });
+
+  test("an empty auth-secret fails the boot", () => {
+    const dataDir = join(tempDir, "data");
+    mkdirSync(dataDir);
+    writeFileSync(join(dataDir, "auth-secret"), "");
+
+    expect(() => boot(dataDir)).toThrow(/auth-secret.*empty/);
+  });
+
   test("is reused as is when it already exists", () => {
     const dataDir = join(tempDir, "data");
     boot(dataDir).close();
@@ -59,7 +88,7 @@ describe("migrations", () => {
     const dataDir = join(tempDir, "data");
 
     const first = boot(dataDir);
-    expect(first.appliedMigrations).toEqual(["0000_baseline"]);
+    expect(first.appliedMigrations).toEqual(["0000_baseline", "0001_auth"]);
     first.close();
 
     expect(boot(dataDir).appliedMigrations).toEqual([]);
@@ -89,7 +118,7 @@ describe("GET /api/health", () => {
 });
 
 describe("unmatched paths", () => {
-  test.each(["/api/nope", "/health", "/"])("%s answers a JSON 404 not_found", async (path) => {
+  test.each(["/health", "/"])("%s answers a JSON 404 not_found", async (path) => {
     const { app } = boot();
 
     const res = await app.request(path);
@@ -100,13 +129,13 @@ describe("unmatched paths", () => {
     });
   });
 
-  test("a known path with the wrong method answers 404 not_found", async () => {
+  test("a known path with the wrong method is unknown, so 401 when signed out", async () => {
     const { app } = boot();
 
     const res = await app.request("/api/health", { method: "DELETE" });
 
-    expect(res.status).toBe(404);
-    expect(ApiError.parse(await res.json()).error.code).toBe("not_found");
+    expect(res.status).toBe(401);
+    expect(ApiError.parse(await res.json()).error.code).toBe("unauthorized");
   });
 });
 
@@ -154,7 +183,7 @@ describe("request logs", () => {
         level: "info",
         method: "POST",
         path: "/api/nope",
-        status: 404,
+        status: 401,
         responseTime: expect.any(Number),
       }),
     ]);

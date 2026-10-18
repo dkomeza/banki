@@ -7,14 +7,19 @@
   },
   "scripts": {
     "dev": "DATA_DIR=.data LOG_FORMAT=pretty bun --watch src/server.ts",
+    "banki": "bun src/cli.ts",
+    "auth:generate": "bunx --bun auth@1.7.7 generate --config better-auth.config.ts --output src/db/auth-schema.ts --yes && oxfmt src/db/auth-schema.ts",
     "db:generate": "drizzle-kit generate",
     "test": "bun test"
   },
   "dependencies": {
     "@banki/shared": "workspace:*",
+    "@clack/prompts": "1.8.1",
     "@logtape/hono": "2.4.1",
     "@logtape/logtape": "2.4.1",
     "@logtape/pretty": "2.4.1",
+    "better-auth": "1.7.7",
+    "citty": "0.2.2",
     "drizzle-orm": "0.45.4",
     "hono": "4.13.13",
     "zod": "4.6.7"

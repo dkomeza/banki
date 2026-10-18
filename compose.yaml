@@ -13,6 +13,12 @@ services:
       dockerfile: apps/api/Dockerfile
     image: banki-api
     restart: unless-stopped
+    environment:
+      # The address the User opens Banki at. Signing in is refused from any
+      # other origin, and cookies are Secure when it is https. See the README.
+      ORIGIN: ${BANKI_ORIGIN:-http://localhost:8080}
+    # No ports: only `web` can reach the API, which is why the API can trust
+    # the X-Forwarded-For that Caddy sends. Never publish the API's port.
     volumes:
       - banki-data:/data
     read_only: true
@@ -27,6 +33,10 @@ services:
       dockerfile: apps/web/Dockerfile
     image: banki-web
     restart: unless-stopped
+    environment:
+      # Space-separated IPs or CIDRs of the User's own reverse proxies, whose
+      # X-Forwarded-For Caddy believes. Unset trusts no one.
+      BANKI_TRUSTED_PROXIES: ${BANKI_TRUSTED_PROXIES:-}
     ports:
       - ${BANKI_PORT:-8080}:8080
     depends_on:

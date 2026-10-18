@@ -14,7 +14,9 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      "/api": "http://localhost:3000",
+      // xfwd sends the API X-Forwarded-For, as Caddy does in Docker, so the
+      // API's rate limits and logs see each client's IP.
+      "/api": { target: "http://localhost:3000", xfwd: true },
     },
   },
 });

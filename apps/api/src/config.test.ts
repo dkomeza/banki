@@ -9,6 +9,8 @@ describe("parseConfig", () => {
       port: 3000,
       logFormat: "json",
       logLevel: "info",
+      origin: "http://localhost:5173",
+      authSecret: undefined,
     });
   });
 
@@ -19,8 +21,17 @@ describe("parseConfig", () => {
         PORT: "8080",
         LOG_FORMAT: "pretty",
         LOG_LEVEL: "debug",
+        ORIGIN: "https://banki.example.com",
+        AUTH_SECRET: "a".repeat(32),
       }),
-    ).toEqual({ dataDir: "/srv/banki", port: 8080, logFormat: "pretty", logLevel: "debug" });
+    ).toEqual({
+      dataDir: "/srv/banki",
+      port: 8080,
+      logFormat: "pretty",
+      logLevel: "debug",
+      origin: "https://banki.example.com",
+      authSecret: "a".repeat(32),
+    });
   });
 
   test("resolves a relative DATA_DIR against the working directory", () => {
@@ -28,9 +39,16 @@ describe("parseConfig", () => {
   });
 
   test("treats an empty variable as unset", () => {
-    expect(parseConfig({ DATA_DIR: "", PORT: "", LOG_FORMAT: "", LOG_LEVEL: "" })).toEqual(
-      parseConfig({}),
-    );
+    expect(
+      parseConfig({
+        DATA_DIR: "",
+        PORT: "",
+        LOG_FORMAT: "",
+        LOG_LEVEL: "",
+        ORIGIN: "",
+        AUTH_SECRET: "",
+      }),
+    ).toEqual(parseConfig({}));
   });
 
   test.each(["0", "65536", "80.5", "abc", "-1"])("rejects PORT=%p", (port) => {
@@ -53,5 +71,40 @@ describe("parseConfig", () => {
     expect(() => parseConfig({ PORT: "abc", LOG_LEVEL: "loud" })).toThrow(
       /✖ Expected a whole number\n {2}→ at PORT[\s\S]*→ at LOG_LEVEL/,
     );
+  });
+
+  describe("ORIGIN", () => {
+    test.each([
+      ["http://localhost:8080", "http://localhost:8080"],
+      ["https://banki.example.com/", "https://banki.example.com"],
+      ["HTTPS://Banki.Example.com:443", "https://banki.example.com"],
+      ["http://192.168.1.10:9000", "http://192.168.1.10:9000"],
+    ])("accepts %p as %p", (value, origin) => {
+      expect(parseConfig({ ORIGIN: value }).origin).toBe(origin);
+    });
+
+    test.each([
+      "localhost:8080",
+      "ftp://banki.example.com",
+      "https://banki.example.com/banki",
+      "https://banki.example.com//",
+      "https://banki.example.com/?x=1",
+      "https://banki.example.com?x=1",
+      "https://banki.example.com/#top",
+      "https://user:pass@banki.example.com",
+      "not a url",
+    ])("rejects ORIGIN=%p", (value) => {
+      expect(() => parseConfig({ ORIGIN: value })).toThrow(/→ at ORIGIN/);
+    });
+  });
+
+  describe("AUTH_SECRET", () => {
+    test("accepts 32 characters", () => {
+      expect(parseConfig({ AUTH_SECRET: "x".repeat(32) }).authSecret).toBe("x".repeat(32));
+    });
+
+    test("rejects anything shorter than 32 characters", () => {
+      expect(() => parseConfig({ AUTH_SECRET: "x".repeat(31) })).toThrow(/→ at AUTH_SECRET/);
+    });
   });
 });

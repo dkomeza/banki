@@ -1,5 +1,6 @@
 import type { AppType } from "@banki/api";
 import { hc } from "hono/client";
+import { type UnauthorizedHandler, handlingUnauthorized } from "./unauthorized";
 
 export type ApiClient = ReturnType<typeof hc<AppType>>;
 
@@ -7,4 +8,16 @@ export type ApiClient = ReturnType<typeof hc<AppType>>;
 export const createApiClient = (fetch?: typeof globalThis.fetch): ApiClient =>
   hc<AppType>("/", { fetch });
 
-export const api = createApiClient();
+let onUnauthorized: UnauthorizedHandler = async () => {};
+
+/** Sets what happens when any call through {@link api} answers 401. */
+export function setUnauthorizedHandler(handler: UnauthorizedHandler) {
+  onUnauthorized = handler;
+}
+
+export const api = createApiClient(
+  handlingUnauthorized(
+    (input, init) => globalThis.fetch(input, init),
+    () => onUnauthorized(),
+  ),
+);

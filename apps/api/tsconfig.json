@@ -3,7 +3,7 @@
   "compilerOptions": {
     "types": ["bun"]
   },
-  "include": ["src", "drizzle.config.ts"],
+  "include": ["src", "drizzle.config.ts", "better-auth.config.ts"],
   "references": [
     {
       "path": "../../packages/shared"

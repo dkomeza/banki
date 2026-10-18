@@ -1,16 +1,39 @@
 import { honoLogger } from "@logtape/hono";
 import { Hono } from "hono";
+import { SIGN_IN_RATE_LIMIT, createAuth } from "./auth/auth";
+import { loadAuthSecret } from "./auth/secret";
+import { type SetupToken, createSetupToken } from "./auth/setup-token";
 import type { Config } from "./config";
 import { openDatabase } from "./db/database";
 import { applyMigrations } from "./db/migrate";
 import { internalError, notFound } from "./http/errors";
+import { createRateLimiter } from "./http/rate-limit";
+import { type PublicRoutes, requireSignedIn } from "./http/require-signed-in";
 import { createHealthRepository } from "./repositories/health";
+import { createUserRepository } from "./repositories/user";
+import { authRoutes } from "./routes/auth";
 import { healthRoutes } from "./routes/health";
+import { meRoutes } from "./routes/me";
+import { setupRoutes } from "./routes/setup";
+
+/**
+ * The `/api` requests anyone may make without being signed in. HEAD isn't
+ * among them: nothing needs it, so it is denied like any other method.
+ */
+const PUBLIC_ROUTES: PublicRoutes = new Set([
+  "GET /api/health",
+  "GET /api/setup",
+  "POST /api/setup",
+  "POST /api/auth/sign-in/email",
+  "POST /api/auth/sign-out",
+  "GET /api/auth/get-session",
+]);
 
 /**
  * Builds the API: prepares the data directory, opens the database, applies
- * pending migrations, then wires repositories into routes. The server and the
- * tests both boot the API through here.
+ * pending migrations, loads the auth secret, then wires repositories into
+ * routes. While no User exists it also makes a fresh Setup token, which the
+ * server announces. The server and the tests both boot the API through here.
  *
  * Only `getLogger` is used inside, so the app logs nothing until the server
  * entry configures LogTape.
@@ -18,14 +41,23 @@ import { healthRoutes } from "./routes/health";
 export function createApp(config: Config) {
   const database = openDatabase(config.dataDir);
   let appliedMigrations: string[];
+  let secret: string;
   try {
     appliedMigrations = applyMigrations(database.db);
+    secret = loadAuthSecret(config);
   } catch (error) {
     database.close();
     throw error;
   }
 
   const health = createHealthRepository(database.db);
+  const users = createUserRepository(database.db);
+  const auth = createAuth({ db: database.db, config, secret });
+  const setupToken: SetupToken | undefined = users.exists() ? undefined : createSetupToken();
+  const setupLimiter = createRateLimiter({
+    max: SIGN_IN_RATE_LIMIT.max,
+    windowMs: SIGN_IN_RATE_LIMIT.windowSeconds * 1000,
+  });
 
   const app = new Hono()
     .use(
@@ -38,11 +70,16 @@ export function createApp(config: Config) {
             : "info",
       }),
     )
-    .route("/api/health", healthRoutes({ health }));
+    // Also covers `/api` itself.
+    .use("/api/*", requireSignedIn({ auth, publicRoutes: PUBLIC_ROUTES }))
+    .route("/api/health", healthRoutes({ health }))
+    .route("/api/setup", setupRoutes({ auth, users, setupToken, limiter: setupLimiter }))
+    .route("/api/auth", authRoutes({ auth, config }))
+    .route("/api/me", meRoutes());
   app.notFound(notFound);
   app.onError(internalError);
 
-  return { app, appliedMigrations, close: database.close };
+  return { app, appliedMigrations, setupToken, close: database.close };
 }
 
 /** The API's routes, for the web app's typed `hc` client. */
