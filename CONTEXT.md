@@ -28,3 +28,11 @@ _Avoid_: onboarding, registration, sign-up
 
 **Setup token**:
 A one-time code that Banki prints to its logs while Setup isn't done, and that Setup asks for. It proves that whoever does Setup can see the server, so a stranger who reaches a fresh installation first can't claim it.
+
+**Preview**:
+A disposable installation of Banki built from one pull request, already set up and holding Seed data, so the change can be tried on any device. It is rebuilt from scratch on every push and removed when the pull request closes. Its User is the only account it has.
+_Avoid_: staging, review app, preview account
+
+**Seed data**:
+The fixed sample content a Preview, or a developer's local copy, starts with: the same on every run, so two builds can be compared screen by screen.
+_Avoid_: fixtures, demo data
