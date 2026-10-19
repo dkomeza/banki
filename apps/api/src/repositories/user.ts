@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import type { Database } from "../db/database";
+import type { Queryable } from "../db/database";
 import { auth_account, auth_session, user } from "../db/schema";
 
 /**
@@ -13,7 +13,7 @@ const CREDENTIAL_PROVIDER = "credential";
 
 export type UserRepository = ReturnType<typeof createUserRepository>;
 
-export function createUserRepository(db: Database) {
+export function createUserRepository(db: Queryable) {
   return {
     /** Whether Setup has created the User. */
     exists(): boolean {
