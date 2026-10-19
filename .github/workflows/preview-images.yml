@@ -2,9 +2,10 @@ name: Preview images
 
 # Builds the api and web images of every push to a same-repo pull request and
 # pushes them to GHCR, where the pull agent on the home server picks them up for
-# the PR's Preview. When the PR closes, every image version it pushed is
-# deleted. Fork and Dependabot PRs never get images: their code would otherwise
-# run on the home server, and their token can't write packages anyway.
+# the PR's Preview. When a PR closes, cleanup deletes the image versions of
+# every closed PR, so whatever an earlier cleanup had to leave behind goes too.
+# Fork and Dependabot PRs never get images: their code would otherwise run on
+# the home server, and their token can't write packages anyway.
 
 on:
   pull_request:
@@ -88,43 +89,73 @@ jobs:
       github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Listing the open PRs needs pull-requests: read, which the workflow's
+    # explicit permissions would otherwise leave out.
+    permissions:
+      packages: write
+      pull-requests: read
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      PR: ${{ github.event.pull_request.number }}
     # actions/delete-package-versions can't select versions by tag, and the API
     # has no tag filter, so this lists every version and filters with jq. The
     # repo has admin access to the packages its workflow first published, which
     # DELETE needs.
+    #
+    # A version is deleted when one of its tags is pr-<M> or pr-<M>-…, PR <M> is
+    # no longer open (this PR included), and every tag it has is a pr-… or sha-…
+    # tag. A version with any other tag, such as a release's, is never touched.
+    #
+    # GHCR refuses to delete a package's last tagged version (HTTP 400). That
+    # version stays until a later cleanup sweeps it, once a newer PR has pushed,
+    # or for good once a release version lives in the same package.
     steps:
-      - name: Delete this PR's image versions
+      - name: Delete closed PRs' image versions
         run: |
           set -euo pipefail
           owner="${GITHUB_REPOSITORY_OWNER,,}"
           errors="$(mktemp)"
+          open_prs="$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls?state=open&per_page=100" --jq '.[].number' | jq -cs .)"
+          echo "Open PRs: $open_prs"
           for pkg in banki-api banki-web; do
             versions="users/$owner/packages/container/$pkg/versions"
             if ! pages="$(gh api --paginate "$versions?per_page=100" 2>"$errors")"; then
-              if grep -q "HTTP 404" "$errors"; then
+              if grep -q "(HTTP 404)" "$errors"; then
                 echo "$pkg: no package, nothing to delete"
                 continue
               fi
               cat "$errors" >&2
               exit 1
             fi
-            # Versions with a tag of exactly pr-<N>, or starting with pr-<N>-,
-            # so pr-1 never matches pr-12's tags. Pages are concatenated arrays.
-            matches="$(jq -rs --arg pr "pr-$PR" '
+            # M is the digits right after pr-, up to the end of the tag or the
+            # next -, so pr-1 is never read from pr-12's tags. Pages arrive as
+            # concatenated arrays.
+            matches="$(jq -rs --argjson open "$open_prs" '
               add // []
               | .[]
-              | select(any((.metadata.container.tags // [])[]; . == $pr or startswith($pr + "-")))
-              | "\(.id)\t\(.metadata.container.tags | join(" "))"
+              | (.metadata.container.tags // []) as $tags
+              | select(
+                  ($tags | length > 0)
+                  and all($tags[]; startswith("pr-") or startswith("sha-"))
+                  and any(
+                    $tags[] | capture("^pr-(?<m>[0-9]+)(-|$)") | .m | tonumber;
+                    . as $m | $open | any(. == $m) | not
+                  )
+                )
+              | "\(.id)\t\($tags | join(" "))"
             ' <<<"$pages")"
             if [ -z "$matches" ]; then
-              echo "$pkg: no versions tagged pr-$PR"
+              echo "$pkg: no versions of closed PRs"
               continue
             fi
             while IFS=$'\t' read -r id tags; do
               echo "$pkg: deleting version $id ($tags)"
-              gh api --method DELETE "$versions/$id" --silent </dev/null
+              if ! gh api --method DELETE "$versions/$id" --silent </dev/null 2>"$errors"; then
+                if grep "(HTTP 400)" "$errors" | grep -q "You cannot delete the last tagged version of a package"; then
+                  echo "$pkg: kept version $id, GHCR won't delete a package's last tagged version"
+                  continue
+                fi
+                cat "$errors" >&2
+                exit 1
+              fi
             done <<<"$matches"
           done

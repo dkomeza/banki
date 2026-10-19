@@ -210,7 +210,7 @@ For Previews, every push to a pull request from a branch of this repo builds bot
 | `sha-<sha>`    | The push of the PR's head commit `<sha>` (the full SHA), which the home server waits for |
 | `pr-<N>-<sha>` | The same push, so every version PR `<N>` ever pushed can be found by its PR              |
 
-When the PR closes, every version tagged `pr-<N>` or `pr-<N>-…` is deleted. Pull requests from forks and Dependabot get no images.
+When a PR closes, cleanup sweeps both packages and deletes every version of every PR that is no longer open: a version with a `pr-<M>` or `pr-<M>-…` tag whose PR `<M>` is closed, and with no tags but `pr-…` and `sha-…` ones. A version with any other tag, such as a release's `v1.0.0` or `latest`, is never touched. GHCR refuses to delete a package's last tagged version, so when a closed PR's version is the only one left, it stays until a later cleanup sweeps it after another PR has pushed, or for good once a release version lives in the same package. Pull requests from forks and Dependabot get no images.
 
 Both packages start out private. Make each one public once, after its first push (on GitHub: the package's **Package settings**, then **Change visibility**), so the home server can pull them without credentials.
 
