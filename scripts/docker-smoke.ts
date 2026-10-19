@@ -8,7 +8,7 @@ import { ApiError, HealthResponse, MeResponse, SetupStatus } from "@banki/shared
 // its volume is throwaway too) on a free host port, and checks it through the
 // web container's port only, the way a User's browser reaches it: the app,
 // Setup, signing in and out, the client IP Caddy forwards, a restart and the
-// reset-password CLI. The images
+// `banki` CLI (reset-password, a refused second setup, and seed). The images
 // get per-run tags, so a User's own `banki-api` and `banki-web` are left alone.
 // The stack, its volume and those images are always torn down, even when a
 // check fails or the run is interrupted.
@@ -108,7 +108,7 @@ async function exec(
     allowFailure = false,
     teardown = false,
   }: RunOptions = {},
-): Promise<{ exitCode: number; stdout: string }> {
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   if (!teardown) interrupt.signal.throwIfAborted();
   const proc = Bun.spawn(cmd, {
     cwd: root,
@@ -127,7 +127,7 @@ async function exec(
     interrupt.signal.throwIfAborted();
     throw new SmokeFailure(`\`${cmd.join(" ")}\` exited with code ${exitCode}\n${stderr}`.trim());
   }
-  return { exitCode, stdout };
+  return { exitCode, stdout, stderr };
 }
 
 /** Runs `docker compose` against this run's project and its image tags. */
@@ -421,6 +421,39 @@ async function checkResetPassword(oldCookie: string) {
   await checkMe(await signIn(NEW_PASSWORD, 200));
 }
 
+/** `banki setup` refuses an installation that is set up, and the User still signs in. */
+async function checkSecondSetupRefused(password: string) {
+  const { exitCode, stderr } = await compose(
+    [
+      "run",
+      "--rm",
+      "-T",
+      "api",
+      "bun",
+      "run",
+      "banki",
+      "setup",
+      "--email",
+      "someone-else@example.com",
+      "--password-stdin",
+    ],
+    { capture: true, input: "someone-elses-password\n", allowFailure: true },
+  );
+  check(exitCode === 1, `a second banki setup exited with code ${exitCode}, expected 1`);
+  check(
+    stderr.includes("already set up"),
+    `a second banki setup didn't say Banki is already set up: ${stderr}`,
+  );
+  await checkMe(await signIn(password, 200));
+}
+
+async function checkSeed() {
+  const { stdout } = await compose(["run", "--rm", "-T", "api", "bun", "run", "banki", "seed"], {
+    capture: true,
+  });
+  check(stdout.includes("Seed data loaded."), `banki seed didn't say it loaded: ${stdout}`);
+}
+
 async function checkSurvivesRestart() {
   await compose(["restart"]);
   await waitForHealth();
@@ -509,6 +542,12 @@ async function run() {
   step("Resetting the Password with the CLI");
   await checkResetPassword(cookie);
   pass("reset-password --password-stdin signs out the old cookie, and the new Password works");
+
+  step("Running banki setup and banki seed with docker compose run");
+  await checkSecondSetupRefused(NEW_PASSWORD);
+  pass("a second banki setup exits 1 with already set up, and signing in still works");
+  await checkSeed();
+  pass("banki seed exits 0 and loads the Seed data");
 
   step("Stopping the API");
   await checkCleanStop();
