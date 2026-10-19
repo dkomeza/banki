@@ -17,5 +17,13 @@
     "typescript/no-floating-promises": "error",
     "typescript/no-misused-promises": "error"
   },
-  "ignorePatterns": ["**/routeTree.gen.ts"]
+  "ignorePatterns": ["**/routeTree.gen.ts"],
+  "overrides": [
+    {
+      "files": ["scripts/ui/*.test.ts"],
+      "rules": {
+        "typescript/no-floating-promises": "off"
+      }
+    }
+  ]
 }

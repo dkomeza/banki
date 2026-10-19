@@ -12,3 +12,6 @@ dist/
 *.db
 *.db-wal
 *.db-shm
+
+# The ui script's throwaway stacks, screenshots and playwright-cli output.
+.ui/
