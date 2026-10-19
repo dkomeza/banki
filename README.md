@@ -5,7 +5,7 @@ A spaced-repetition app built around writing answers and having an LLM grade the
 ## Prerequisites
 
 - [Bun](https://bun.sh) 1.4.3 (pinned in `package.json` under `packageManager`)
-- [Node.js](https://nodejs.org) 24 (pinned in `.node-version`), which runs Vite and Vitest
+- [Node.js](https://nodejs.org) 24 (pinned in `.node-version`), which runs Vite, Vitest and the [`ui` script](#seeing-the-ui-the-ui-script)
 
 ## Getting started
 
@@ -61,6 +61,75 @@ DATA_DIR=.data bun run banki reset-password
 ```
 
 It prints the User's Email, asks for the new Password twice, sets it and signs out every device. `--password-stdin` reads the Password from one line of stdin instead, without asking twice, for scripts. It reads the same configuration as the API (so set `DATA_DIR` the way the API has it) and works while the API runs. For Docker, see [Resetting the Password in Docker](#resetting-the-password-in-docker).
+
+## Seeing the UI: the `ui` script
+
+`bun run ui` starts a throwaway copy of Banki in this worktree and screenshots it, so you, and the `/work-issue` agents, can see the screens a change touches. The copy (the stack) is the API and Vite on free ports, already set up with a local throwaway User (`ui@example.com`), loaded with the [Seed data](#seed-data) and signed in. Its data directory is `.ui/data-<id>/`, never `apps/api/.data/`, so it leaves your own dev data alone, and stacks in several worktrees run side by side. Everything it writes is under `.ui/`, which is gitignored.
+
+It runs on Node (Playwright doesn't support Bun) and drives Playwright's own Chromium, which you install once:
+
+```sh
+npx playwright install chromium
+```
+
+Without it, the script stops and prints that command.
+
+### `ui shoot`
+
+```sh
+bun run ui shoot / /decks/abc
+bun run ui / /decks/abc          # shoot is the default
+```
+
+Starts a fresh stack, opens each route exactly as given, waits until the network is idle and the fonts have loaded, and saves a full-page screenshot at three sizes:
+
+| Viewport  | Size       | Emulates                                      |
+| --------- | ---------- | --------------------------------------------- |
+| `phone`   | 390 × 844  | a touch device (`isMobile`, `hasTouch`) at 2x |
+| `tablet`  | 820 × 1180 | a touch device (`isMobile`, `hasTouch`) at 2x |
+| `desktop` | 1440 × 900 | a desktop browser at 1x                       |
+
+The shots go to `.ui/shots/<agent>/<route>@<viewport>-<theme>.png`. In the file name `/` is `index`, the leading slash goes, other slashes become `_`, and the query string and hash are dropped: `/decks/abc?tab=cards` is `decks_abc@phone-light.png`. Then it stops the stack and deletes its data directory, also when a step fails or you press Ctrl-C. It never touches a stack from `ui up`.
+
+| Flag             | What it does                                                                                     |
+| ---------------- | ------------------------------------------------------------------------------------------------ |
+| `--agent <name>` | The folder under `.ui/shots/`. Defaults to `manual`                                              |
+| `--signed-out`   | Set up and seeded, but not signed in: for `/login`                                               |
+| `--before-setup` | Not set up, no Seed data, and the API waits for Setup: for `/setup` (opened with no Setup token) |
+
+Each viewport is shot in the light theme, and also in the dark one (through `prefers-color-scheme: dark`) once the web app has a dark theme. The switch is in `apps/web/package.json`:
+
+```json
+"banki": { "darkTheme": false }
+```
+
+While it is `false`, dark shots are skipped. The issue that adds the dark theme sets it to `true`.
+
+### `ui up` and `ui down`
+
+For states that only appear after interaction, such as a validation error or a dialog, start a stack that keeps running:
+
+```sh
+bun run ui up                    # set up, seeded and signed in
+bun run ui up --before-setup     # waiting for Setup
+bun run ui down
+```
+
+`up` starts the stack in the background, with the API under `bun --watch` so it restarts when you change its code (Vite reloads the web app as usual), and writes `.ui/stack.json`: the URL, both ports and PIDs, the data directory, the logs, and either `signedInState` (a Playwright storage state of a signed-in browser) or, with `--before-setup`, `setupUrl` (the link to Setup with its Setup token). Running `up` again reuses the stack when it is in the same mode, and fails with a hint to run `ui down` first when it isn't. `down` stops the stack, deletes its data directory and any stray `.ui/data-*` folders left by a run that was killed, and removes `stack.json`; with no stack running it does nothing.
+
+Drive it with [`playwright-cli`](https://github.com/microsoft/playwright-cli), from the worktree's root, so it reads `.playwright/cli.config.json`: headless, on Playwright's Chromium, with its output in `.ui/playwright-cli/`. Give each browser its own session with `-s=`:
+
+```sh
+npx --no-install playwright-cli -s=my-session open
+npx --no-install playwright-cli -s=my-session state-load <signedInState from stack.json>
+npx --no-install playwright-cli -s=my-session goto <url from stack.json>/decks
+npx --no-install playwright-cli -s=my-session resize 390 844
+npx --no-install playwright-cli -s=my-session snapshot
+npx --no-install playwright-cli -s=my-session screenshot --filename=.ui/shots/manual/decks-empty.png
+npx --no-install playwright-cli -s=my-session close
+```
+
+`npx --no-install playwright-cli --help` lists every command (`click`, `fill`, `press`, `set-color-scheme dark` and more).
 
 ## API configuration
 
@@ -240,10 +309,10 @@ better-auth's tables (`user`, `auth_session`, `auth_account`, `auth_verification
 
 Run from the repo root; CI runs the same ones.
 
-| Script                 | What it does                                                   |
-| ---------------------- | -------------------------------------------------------------- |
-| `bun run typecheck`    | `tsc -b` across every workspace                                |
-| `bun run lint`         | oxlint, type-aware, warnings fail                              |
-| `bun run format`       | oxfmt, rewriting files in place                                |
-| `bun run format:check` | oxfmt, failing on unformatted files                            |
-| `bun run test`         | Each workspace's tests: `bun test` (api, shared), Vitest (web) |
+| Script                 | What it does                                                                                              |
+| ---------------------- | --------------------------------------------------------------------------------------------------------- |
+| `bun run typecheck`    | `tsc -b` across every workspace                                                                           |
+| `bun run lint`         | oxlint, type-aware, warnings fail                                                                         |
+| `bun run format`       | oxfmt, rewriting files in place                                                                           |
+| `bun run format:check` | oxfmt, failing on unformatted files                                                                       |
+| `bun run test`         | Each workspace's tests: `bun test` (api, shared), Vitest (web), and the `ui` script's under `node --test` |
