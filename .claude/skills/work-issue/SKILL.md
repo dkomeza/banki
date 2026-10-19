@@ -11,9 +11,11 @@ Paths used below:
 - `<branch>`: the issue's `gitBranchName` from Linear (e.g. `dkomeza/ban-74-walking-skeleton-…`).
 - `<wt>`: the worktree, `../banki-worktrees/<branch without the "dkomeza/" prefix>`, as an absolute path.
 
+A **UI issue** is one whose diff touches `apps/web/` or whose spec has UI criteria. Only a UI issue gets the UI parts below: the implementer's UI check and the `ui-reviewer`. Both use the `ui` script (the README's "Seeing the UI" section), whose stacks and shots live in `<wt>/.ui/`.
+
 ## 0. Clean up merged work
 
-For each worktree under `../banki-worktrees/` (`git worktree list`), check its PR with `gh pr view <branch> --json state,headRefOid`. Remove it only when the state is `MERGED` **and** the local branch tip (`git rev-parse <branch>`) equals `headRefOid`: `git worktree remove <path>` and `git branch -D <branch>`. A tip that differs means local commits that never reached the PR: leave that worktree and tell the user. Then `git checkout main && git pull` in the main checkout.
+For each worktree under `../banki-worktrees/` (`git worktree list`), check its PR with `gh pr view <branch> --json state,headRefOid`. Remove it only when the state is `MERGED` **and** the local branch tip (`git rev-parse <branch>`) equals `headRefOid`: `bun run ui down` in it (stopping any stack left running), then `git worktree remove <path>` and `git branch -D <branch>`. A tip that differs means local commits that never reached the PR: leave that worktree and tell the user. Then `git checkout main && git pull` in the main checkout.
 
 Done when every merged worktree is removed or reported, and `main` is up to date.
 
@@ -31,17 +33,19 @@ Then draft the final spec: the issue's description rewritten to include every re
 
 ## 3. Implement
 
-Spawn the `implementer` agent. Its prompt carries `<wt>` and the approved spec verbatim. Keep its agent ID: you resume it in steps 6 and 8.
+Spawn the `implementer` agent. Its prompt carries `<wt>` and the approved spec verbatim, and says whether this is a UI issue, so it checks its screens. Keep its agent ID: you resume it in steps 6 and 8.
 
-Done when it reports typecheck, lint, format and test green, with its work committed in `<wt>`. Verify that yourself in `<wt>` before moving on.
+Done when it reports typecheck, lint, format and test green, with its work committed in `<wt>`, and on a UI issue lists the routes and states it checked on screen. Verify that yourself in `<wt>` before moving on, then run `bun run ui down` in `<wt>`.
 
 ## 4. Review
 
-Spawn `spec-reviewer` and `correctness-reviewer` in parallel (one message, two Agent calls). Each prompt carries `<wt>`, the base `main`, and the approved spec. Give them nothing from the implementer: its summary frames the code the way its author sees it, and the reviews must stay independent of that.
+Spawn `spec-reviewer` and `correctness-reviewer` in parallel (one message, two Agent calls), and on a UI issue `ui-reviewer` with them (three calls). Each prompt carries `<wt>`, the base `main`, and the approved spec. Give them nothing from the implementer, including its screenshots: its summary frames the code the way its author sees it, and the reviews must stay independent of that.
+
+Done when all of them have reported. Then run `bun run ui down` in `<wt>`.
 
 ## 5. Triage
 
-Give every finding from both reviews a verdict by reading the code it points at:
+Give every finding from the reviews a verdict by reading the code it points at. For a UI finding, open the PNG it cites first, and judge it from what is on screen:
 
 - **Confirmed**: the failure scenario really happens. It goes to the fix list.
 - **Dismissed**: the scenario cannot happen, is out of the spec's scope, or is taste. Record it with a one-line reason for the PR's Review notes.
@@ -51,7 +55,7 @@ Done when every finding has a verdict.
 
 ## 6. Fix
 
-Resume the implementer (SendMessage to its ID) with the confirmed findings and any spec answers. If it is gone (e.g. a new session), spawn a fresh `implementer` with the spec plus the findings. Same done-criterion as step 3. There is no second agent review round: CodeRabbit is the next one.
+Resume the implementer (SendMessage to its ID) with the confirmed findings and any spec answers. If it is gone (e.g. a new session), spawn a fresh `implementer` with the spec plus the findings. Same done-criterion as step 3, including `bun run ui down` in `<wt>` afterwards. There is no second agent review round: CodeRabbit is the next one.
 
 ## 7. Open the PR
 

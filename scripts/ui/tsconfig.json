@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  // Node runs these files as they are, by stripping their types: Node types only,
+  // erasable syntax only, and relative imports name the .ts file.
+  "compilerOptions": {
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "types": ["node"],
+    "erasableSyntaxOnly": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": ["*.ts"]
+}

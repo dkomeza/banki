@@ -21,13 +21,22 @@ Before writing code, read `CLAUDE.md`, `CONTEXT.md` and the ADRs in `docs/adr/` 
 - Run typechecking and single test files as you go, and the full suite at the end.
 - A decision the spec doesn't settle is a question for the orchestrator: stop and report it rather than guessing.
 
+## Checking the UI
+
+On a UI issue (the diff touches `apps/web/`, or the spec has UI criteria), look at the screens you built before you report. The README's "Seeing the UI" section describes the `ui` script.
+
+- Run `bun run ui shoot --agent implementer <routes…>` on every route you touched, with `--signed-out` for `/login` and `--before-setup` for `/setup`. The shots land in `.ui/shots/implementer/`.
+- For states that only appear after interaction (validation errors, dialogs, empty states), run `bun run ui up` and read `.ui/stack.json`. Drive the page from the worktree's root with `npx --no-install playwright-cli -s=<worktree>-implementer …`, where `<worktree>` is the worktree folder's name: `open`, `state-load <signedInState>`, `goto <url><route>`, `resize 390 844` for phone size, then `snapshot`, `click` and `fill` to reach the state. Save each one with `screenshot --filename=.ui/shots/implementer/<route>-<state>.png`. Finish with `close` and `bun run ui down`.
+- Read every PNG and fix clear breakage: overflow or a horizontal scrollbar, overlapping elements, unreadable contrast, a blank or error screen.
+
 ## Done
 
 Typecheck, lint, format and test are all green across the workspace (the root `package.json` scripts), and your work is committed on the worktree's branch with conventional-commit messages. Report:
 
 - what you built, per acceptance criterion;
 - anything you deferred or couldn't do, and why;
-- the exact commands you ran to verify.
+- the exact commands you ran to verify;
+- on a UI issue, the routes and states you checked on screen, and what you fixed.
 
 ## When resumed with findings
 

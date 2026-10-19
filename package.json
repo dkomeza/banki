@@ -12,17 +12,25 @@
     "lint": "oxlint --type-aware --deny-warnings",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
-    "test": "bun run --workspaces test",
+    "test": "bun run --workspaces test && node --test 'scripts/ui/*.test.ts'",
     "smoke:docker": "bun scripts/docker-smoke.ts",
-    "docker:buildx": "docker buildx build --platform linux/amd64,linux/arm64 --output type=cacheonly --file apps/api/Dockerfile . && docker buildx build --platform linux/amd64,linux/arm64 --output type=cacheonly --file apps/web/Dockerfile ."
+    "docker:buildx": "docker buildx build --platform linux/amd64,linux/arm64 --output type=cacheonly --file apps/api/Dockerfile . && docker buildx build --platform linux/amd64,linux/arm64 --output type=cacheonly --file apps/web/Dockerfile .",
+    "ui": "node scripts/ui/main.ts"
   },
   "devDependencies": {
     "@banki/shared": "workspace:*",
+    "@playwright/cli": "0.1.22",
     "@types/bun": "1.4.3",
+    "@types/node": "24.19.2",
     "oxfmt": "0.73.0",
     "oxlint": "1.88.0",
     "oxlint-tsgolint": "7.0.2004",
+    "playwright": "1.64.1",
     "typescript": "7.0.2"
+  },
+  "overrides": {
+    "playwright": "1.64.1",
+    "playwright-core": "1.64.1"
   },
   "packageManager": "bun@1.4.3"
 }
