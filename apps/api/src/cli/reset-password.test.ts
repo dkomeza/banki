@@ -1,28 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { join } from "node:path";
 import { bootApps, cookiesFrom, EMAIL, get, PASSWORD, setUp, signIn } from "../testing/app";
+import { runCli } from "../testing/cli";
 
 // These run the real CLI in a child process, against the data directory of
 // an app booted in this process, the way the CLI runs beside a running API.
 
-const entry = join(import.meta.dir, "..", "cli.ts");
 const { boot, dataDir } = bootApps();
 
 const NEW_PASSWORD = "a brand new passphrase";
 
-async function resetPassword(stdin: string, env: Record<string, string> = {}) {
-  const cli = Bun.spawn(["bun", entry, "reset-password", "--password-stdin"], {
-    env: { PATH: process.env.PATH, DATA_DIR: dataDir(), ...env },
-    stdin: new TextEncoder().encode(stdin),
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  return {
-    exitCode: await cli.exited,
-    stdout: await new Response(cli.stdout).text(),
-    stderr: await new Response(cli.stderr).text(),
-  };
-}
+const resetPassword = (stdin: string, env: Record<string, string> = {}) =>
+  runCli(["reset-password", "--password-stdin"], { dataDir: dataDir(), stdin, env });
 
 describe("banki reset-password --password-stdin", () => {
   test("sets the new Password, signs out every device and prints the Email", async () => {
