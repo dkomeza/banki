@@ -1,0 +1,25 @@
+// oxlint-disable-next-line no-unused-vars -- for the first entry with a path; none yet.
+import { SEED_IDS } from "../../apps/api/src/seed/seed-ids.ts";
+
+// The route manifest: how the `ui` script shoots each route of the web app's
+// route tree, keyed by its full path as apps/web/src/routeTree.gen.ts names it.
+// A route with no entry is shot signed in, at its own path.
+//
+// - `path`: the one concrete path to shoot a route with params (`$…`) at, built
+//   from the Seed data's fixed IDs, such as
+//   `"/decks/$deckId": { path: \`/decks/${SEED_IDS.deck}\` }`. A route with
+//   params needs one: `ui compare` fails without it.
+// - `mode`: `signed-out` (set up and seeded, not signed in) or `before-setup`
+//   (not set up yet).
+//
+// An issue that adds a routed screen with params or a sign-in mode adds its
+// entry here, with any fixed ID it needs in SEED_IDS.
+
+export type RouteEntry = { path?: string; mode?: "signed-out" | "before-setup" };
+
+export type RouteManifest = Readonly<Record<string, RouteEntry>>;
+
+export const ROUTES: RouteManifest = {
+  "/login": { mode: "signed-out" },
+  "/setup": { mode: "before-setup" },
+};

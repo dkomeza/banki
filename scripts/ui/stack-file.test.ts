@@ -7,6 +7,7 @@ import {
   parseStackFile,
   parseStackProcesses,
   type StackFile,
+  stackRoot,
 } from "./stack-file.ts";
 
 const signedIn: StackFile = {
@@ -97,10 +98,37 @@ describe("parseStackProcesses", () => {
     assert.deepEqual(parseStackProcesses('{"api":101}'), { api: 101 });
   });
 
+  test("reads back the root the stack ran", () => {
+    assert.deepEqual(
+      parseStackProcesses('{"api":101,"root":"/w/banki-worktrees/.base-0123456789ab"}'),
+      {
+        api: 101,
+        root: "/w/banki-worktrees/.base-0123456789ab",
+      },
+    );
+    assert.deepEqual(parseStackProcesses('{"api":101,"root":7}'), { api: 101 });
+  });
+
   test("ignores anything that isn't a process group ID", () => {
     assert.deepEqual(parseStackProcesses('{"api":"101","web":-1}'), {});
     assert.deepEqual(parseStackProcesses("{"), {});
     assert.deepEqual(parseStackProcesses("null"), {});
+  });
+});
+
+describe("stackRoot", () => {
+  test("is the recorded root when it is this worktree or a base worktree", () => {
+    assert.equal(stackRoot({ root: "/w/a" }, "/w/a"), "/w/a");
+    assert.equal(
+      stackRoot({ root: "/w/banki-worktrees/.base-0123456789ab" }, "/w/a"),
+      "/w/banki-worktrees/.base-0123456789ab",
+    );
+  });
+
+  test("is this worktree when nothing, or anything else, is recorded", () => {
+    assert.equal(stackRoot({}, "/w/a"), "/w/a");
+    assert.equal(stackRoot({ root: "/w/b" }, "/w/a"), "/w/a");
+    assert.equal(stackRoot({ root: "/w/.base-x" }, "/w/a"), "/w/a");
   });
 });
 
