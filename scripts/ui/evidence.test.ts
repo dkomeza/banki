@@ -274,6 +274,12 @@ Unchanged: \`/\`, \`/setup\`
   });
 });
 
+/** The note of a fallback whose base failed with `reason`. */
+const note = (reason: string) =>
+  renderFragment(fallbackEvidence({ base: "b", reason, routes: [], pathOf, themes: [...light] }), [
+    ...light,
+  ]).split("\n")[1];
+
 describe("fallbackEvidence", () => {
   test("shows every route after only, in route-tree order, under a note", () => {
     const evidence = fallbackEvidence({
@@ -286,7 +292,7 @@ describe("fallbackEvidence", () => {
     const fragment = renderFragment(evidence, [...light]);
     assert.ok(
       fragment.startsWith(
-        "<!-- ui-shots -->\nNo before shots: the base `0123456789ab` couldn't start (banki seed exited with code 1:). After only.\n\n#### /\n\n| | After |\n",
+        "<!-- ui-shots -->\nNo before shots: the base `0123456789ab` couldn't start (banki seed exited with code 1: error: unknown command seed). After only.\n\n#### /\n\n| | After |\n",
       ),
       fragment,
     );
@@ -302,6 +308,23 @@ describe("fallbackEvidence", () => {
         "login@tablet-light-after.png",
         "login@desktop-light-after.png",
       ],
+    );
+  });
+
+  test("the note's reason is one line, without colours, and short", () => {
+    assert.equal(
+      note(
+        "banki setup exited with code 1:\n\u001b[90mUsage\u001b[39m\n\nUnknown command \u001b[36msetup\u001b[39m\n",
+      ),
+      "No before shots: the base `b` couldn't start (banki setup exited with code 1: Unknown command setup). After only.",
+    );
+    assert.equal(
+      note("git merge-base HEAD origin/main failed: fatal: Not a valid object name origin/main"),
+      "No before shots: the base `b` couldn't start (git merge-base HEAD origin/main failed: fatal: Not a valid object name origin/main). After only.",
+    );
+    assert.equal(
+      note("x".repeat(500))?.length,
+      "No before shots: the base `b` couldn't start (). After only.".length + 200,
     );
   });
 

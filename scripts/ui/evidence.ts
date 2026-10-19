@@ -210,7 +210,16 @@ const list = (routes: readonly string[]) => routes.map((route) => `\`${route}\``
 
 /** A failure's message as one short line for the note. */
 const oneLine = (reason: string) => {
-  const line = (reason.trim().split("\n", 1)[0] ?? "").replaceAll(/\s+/g, " ").trim();
+  const lines = reason
+    // oxlint-disable-next-line no-control-regex -- ANSI colour codes, from a CLI's output.
+    .replaceAll(/\u001b\[[0-9;]*m/g, "")
+    .split("\n")
+    .map((line) => line.replaceAll(/\s+/g, " ").trim())
+    .filter((line) => line !== "");
+  let line = lines[0] ?? "";
+  // "banki setup exited with code 1:" followed by its output: its last line says why.
+  const last = lines.at(-1);
+  if (line.endsWith(":") && last !== undefined && lines.length > 1) line = `${line} ${last}`;
   return line.length > 200 ? `${line.slice(0, 199)}…` : line;
 };
 
