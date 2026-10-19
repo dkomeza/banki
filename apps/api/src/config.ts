@@ -19,6 +19,8 @@ export type Config = {
   origin: string;
   /** Overrides the secret in `<dataDir>/auth-secret` when set. */
   authSecret: string | undefined;
+  /** The commit the API was built from, reported by `/api/health`; `"dev"` outside a CI-built image. */
+  commit: string;
 };
 
 /** Thrown by {@link parseConfig}; its message lists every invalid variable. */
@@ -84,6 +86,9 @@ const env = z.object({
     unsetIfEmpty,
     z.string().min(32, "Expected at least 32 characters").optional(),
   ),
+  // Baked into the api image by the preview-images workflow; unset in local dev
+  // and in a plain `docker compose build`.
+  COMMIT: z.preprocess(unsetIfEmpty, z.string().default("dev")),
 });
 
 /** Validates the API's environment, throwing a {@link ConfigError} when it is invalid. */
@@ -92,7 +97,7 @@ export function parseConfig(environment: Record<string, string | undefined>): Co
   if (!result.success) {
     throw new ConfigError(z.prettifyError(result.error));
   }
-  const { DATA_DIR, PORT, LOG_FORMAT, LOG_LEVEL, ORIGIN, AUTH_SECRET } = result.data;
+  const { DATA_DIR, PORT, LOG_FORMAT, LOG_LEVEL, ORIGIN, AUTH_SECRET, COMMIT } = result.data;
   return {
     dataDir: DATA_DIR,
     port: PORT,
@@ -100,5 +105,6 @@ export function parseConfig(environment: Record<string, string | undefined>): Co
     logLevel: LOG_LEVEL,
     origin: ORIGIN,
     authSecret: AUTH_SECRET,
+    commit: COMMIT,
   };
 }

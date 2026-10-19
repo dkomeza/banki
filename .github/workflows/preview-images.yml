@@ -1,0 +1,184 @@
+name: Preview images
+
+# Builds the api and web images of every push to a same-repo pull request and
+# pushes them to GHCR, where the pull agent on the home server picks them up for
+# the PR's Preview. When a PR closes, cleanup deletes the image versions of
+# every closed PR, so whatever an earlier cleanup had to leave behind goes too.
+# Fork and Dependabot PRs never get images: their code would otherwise run on
+# the home server, and their token can't write packages anyway.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+
+concurrency:
+  group: preview-images-${{ github.event.pull_request.number }}
+  # A new push supersedes the build in progress, and closing the PR cancels it:
+  # cleanup runs after it anyway.
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    name: build (${{ matrix.app }})
+    if: >-
+      github.event.action != 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'dependabot[bot]' &&
+      github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        app: [api, web]
+    env:
+      # Tag with the PR's head commit, not the merge commit the event points at.
+      DOCKER_METADATA_PR_HEAD_SHA: "true"
+    steps:
+      # The head commit, so the image holds exactly what its SHA tags name.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      # Image names must be lowercase, and the owner may not be.
+      - name: Name the image
+        id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/banki-${{ matrix.app }}" >> "$GITHUB_OUTPUT"
+      - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        id: meta
+        with:
+          images: ${{ steps.image.outputs.name }}
+          # pr-<N> moves to the newest push; the pull agent waits on sha-<head>;
+          # pr-<N>-<head> lets cleanup find every version the PR ever pushed.
+          tags: |
+            type=ref,event=pr
+            type=sha,format=long
+            type=sha,format=long,prefix=pr-${{ github.event.pull_request.number }}-
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # A rebuild of a SHA that's already pushed (a re-run, or a reopen with no
+      # new commit) gets a fresh created label and so a new digest: every tag
+      # would move to it and orphan the old version untagged, where cleanup
+      # never finds it. Runs after the login, since the package may be private.
+      # Any failure here means a build: a needless rebuild is the safe side.
+      - name: Check whether this SHA is already pushed
+        id: pushed
+        continue-on-error: true
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}:pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+        run: |
+          if docker buildx imagetools inspect "$IMAGE" >/dev/null 2>&1; then
+            echo "$IMAGE is already pushed, skipping the build"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "$IMAGE isn't pushed yet, building it"
+          fi
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        if: steps.pushed.outputs.exists != 'true'
+        with:
+          context: .
+          file: apps/${{ matrix.app }}/Dockerfile
+          # The home server is x86. `bun run docker:buildx` checks arm64 on demand.
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # One plain image per push, so each push is one package version and
+          # nothing untagged is left behind for cleanup to miss.
+          provenance: false
+          sbom: false
+          build-args: ${{ matrix.app == 'api' && format('COMMIT={0}', github.event.pull_request.head.sha) || '' }}
+          cache-from: type=gha,scope=banki-${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=banki-${{ matrix.app }}
+
+  cleanup:
+    name: cleanup
+    if: >-
+      github.event.action == 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'dependabot[bot]' &&
+      github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Listing the open PRs needs pull-requests: read, which the workflow's
+    # explicit permissions would otherwise leave out.
+    permissions:
+      packages: write
+      pull-requests: read
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    # actions/delete-package-versions can't select versions by tag, and the API
+    # has no tag filter, so this lists every version and filters with jq. The
+    # repo has admin access to the packages its workflow first published, which
+    # DELETE needs.
+    #
+    # A version is deleted when one of its tags is pr-<M> or pr-<M>-…, PR <M> is
+    # no longer open (this PR included), and every tag it has is a pr-… or sha-…
+    # tag. A version with any other tag, such as a release's, is never touched.
+    #
+    # GHCR refuses to delete a package's last tagged version (HTTP 400). That
+    # version stays until a later cleanup sweeps it, once a newer PR has pushed,
+    # or for good once a release version lives in the same package.
+    steps:
+      - name: Delete closed PRs' image versions
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          errors="$(mktemp)"
+          open_prs="$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls?state=open&per_page=100" --jq '.[].number' | jq -cs .)"
+          echo "Open PRs: $open_prs"
+          for pkg in banki-api banki-web; do
+            versions="users/$owner/packages/container/$pkg/versions"
+            if ! pages="$(gh api --paginate "$versions?per_page=100" 2>"$errors")"; then
+              if grep -q "(HTTP 404)" "$errors"; then
+                echo "$pkg: no package, nothing to delete"
+                continue
+              fi
+              cat "$errors" >&2
+              exit 1
+            fi
+            # M is the digits right after pr-, up to the end of the tag or the
+            # next -, so pr-1 is never read from pr-12's tags. Pages arrive as
+            # concatenated arrays.
+            matches="$(jq -rs --argjson open "$open_prs" '
+              add // []
+              | .[]
+              | (.metadata.container.tags // []) as $tags
+              | select(
+                  ($tags | length > 0)
+                  and all($tags[]; startswith("pr-") or startswith("sha-"))
+                  and any(
+                    $tags[] | capture("^pr-(?<m>[0-9]+)(-|$)") | .m | tonumber;
+                    . as $m | $open | any(. == $m) | not
+                  )
+                )
+              | "\(.id)\t\($tags | join(" "))"
+            ' <<<"$pages")"
+            if [ -z "$matches" ]; then
+              echo "$pkg: no versions of closed PRs"
+              continue
+            fi
+            while IFS=$'\t' read -r id tags; do
+              echo "$pkg: deleting version $id ($tags)"
+              if ! gh api --method DELETE "$versions/$id" --silent </dev/null 2>"$errors"; then
+                if grep "(HTTP 400)" "$errors" | grep -q "You cannot delete the last tagged version of a package"; then
+                  echo "$pkg: kept version $id, GHCR won't delete a package's last tagged version"
+                  continue
+                fi
+                # Another PR's cleanup, sweeping at the same time, got there first.
+                if grep -q "(HTTP 404)" "$errors"; then
+                  echo "$pkg: version $id is already deleted"
+                  continue
+                fi
+                cat "$errors" >&2
+                exit 1
+              fi
+            done <<<"$matches"
+          done

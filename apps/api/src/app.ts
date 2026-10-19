@@ -72,7 +72,7 @@ export function createApp(config: Config) {
     )
     // Also covers `/api` itself.
     .use("/api/*", requireSignedIn({ auth, publicRoutes: PUBLIC_ROUTES }))
-    .route("/api/health", healthRoutes({ health }))
+    .route("/api/health", healthRoutes({ health, commit: config.commit }))
     .route("/api/setup", setupRoutes({ auth, users, setupToken, limiter: setupLimiter }))
     .route("/api/auth", authRoutes({ auth, config }))
     .route("/api/me", meRoutes());

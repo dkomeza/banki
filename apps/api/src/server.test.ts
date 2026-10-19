@@ -82,7 +82,11 @@ describe("the server process", () => {
     const server = startServer({ DATA_DIR: dataDir, PORT: String(port) });
 
     const res = await waitForHealth(port);
-    expect(HealthResponse.parse(await res.json())).toEqual({ status: "ok", database: "ok" });
+    expect(HealthResponse.parse(await res.json())).toEqual({
+      status: "ok",
+      database: "ok",
+      commit: "dev",
+    });
 
     server.kill("SIGTERM");
     expect(await server.exited).toBe(0);
