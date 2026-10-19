@@ -3,6 +3,7 @@ import { getLogger } from "@logtape/logtape";
 import { Hono } from "hono";
 import { validator } from "hono/validator";
 import type { Auth } from "../auth/auth";
+import { setUpUser } from "../auth/set-up-user";
 import type { SetupToken } from "../auth/setup-token";
 import { clientIp } from "../http/client-ip";
 import { apiError } from "../http/errors";
@@ -56,17 +57,8 @@ export function setupRoutes({
           return c.json(apiError("invalid_setup_token", "The Setup token is wrong"), 403);
         }
 
-        const context = await auth.$context;
-        const userId = context.generateId({ model: "user" });
-        const accountId = context.generateId({ model: "account" });
-        if (userId === false || accountId === false) throw new Error("better-auth generated no id");
-        const created = users.createWithPassword({
-          userId,
-          accountId,
-          email,
-          passwordHash: await context.password.hash(password),
-        });
-        if (created === "already_set_up") return c.json(alreadySetUp, 409);
+        if ((await setUpUser(users, { email, password })) === "already_set_up")
+          return c.json(alreadySetUp, 409);
         setupToken.discard();
         logger.info("Setup done");
 

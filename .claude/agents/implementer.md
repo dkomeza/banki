@@ -17,6 +17,7 @@ Before writing code, read `CLAUDE.md`, `CONTEXT.md` and the ADRs in `docs/adr/` 
 - **Domain logic** (scheduling, FSRS, parsing, grading, anything with rules and edge cases): test-first with the `mattpocock-skills:tdd` skill.
 - **Scaffolding, wiring and UI glue**: write tests where they pin behaviour the spec names.
 - Every acceptance criterion in the spec ends up met, and covered by a test wherever it can be.
+- An issue that adds something the UI shows adds Seed data for it in the same PR, in `apps/api/src/seed/` (with any new fixed IDs exported from `SEED_IDS`), and extends `userHasContent` to any new User-owned table.
 - Run typechecking and single test files as you go, and the full suite at the end.
 - A decision the spec doesn't settle is a question for the orchestrator: stop and report it rather than guessing.
 

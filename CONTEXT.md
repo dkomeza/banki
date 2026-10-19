@@ -23,11 +23,11 @@ The state of a browser or device that has proven the Email and Password and may 
 _Avoid_: logged in, log in, auth session, session
 
 **Setup**:
-The one-time first-run step in which the User picks the Email and Password. Until Setup is done, Banki does nothing else.
+The one-time first-run step in which the User picks the Email and Password, done on the Setup page or from a shell on the server. Until Setup is done, Banki does nothing else.
 _Avoid_: onboarding, registration, sign-up
 
 **Setup token**:
-A one-time code that Banki prints to its logs while Setup isn't done, and that Setup asks for. It proves that whoever does Setup can see the server, so a stranger who reaches a fresh installation first can't claim it.
+A one-time code that Banki prints to its logs while Setup isn't done, and that the Setup page asks for. It proves that whoever does Setup can see the server, so a stranger who reaches a fresh installation first can't claim it.
 
 **Preview**:
 A disposable installation of Banki built from one pull request, already set up and holding Seed data, so the change can be tried on any device. It is rebuilt from scratch on every push and removed when the pull request closes. Its User is the only account it has.

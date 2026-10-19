@@ -2,10 +2,14 @@ import { Database as SQLite } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { type BunSQLiteDatabase, drizzle } from "drizzle-orm/bun-sqlite";
+import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
 import * as schema from "./schema";
 
 /** The Drizzle handle every repository queries through. */
 export type Database = BunSQLiteDatabase<typeof schema>;
+
+/** A {@link Database} or a transaction on one: anything a query can run through. */
+export type Queryable = BaseSQLiteDatabase<"sync", void, typeof schema>;
 
 export type OpenedDatabase = {
   db: Database;

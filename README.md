@@ -26,6 +26,32 @@ Until Setup is done, Banki does nothing else. On every start while no User exist
 
 After Setup, everything except `/api/health`, `/api/setup` and signing in needs a signed-in browser. Signing in lasts 30 days, moving forward each day you use Banki, until you sign out.
 
+### Setting up from a shell
+
+`banki setup` does Setup without the Setup page: headless Setup, for scripts, Previews and anyone with a shell on the server. Run it before the API starts, or while it waits for Setup (the Setup page then answers that Banki is already set up). In `apps/api`, against the dev data directory:
+
+```sh
+DATA_DIR=.data bun run banki setup
+```
+
+It asks for the Email, then for the Password twice with hidden input, asking again until both match and are valid. `--email you@example.com` skips the Email question. For scripts, `--email` with `--password-stdin` reads the Password from the first line of stdin instead, without asking:
+
+```sh
+printf '%s\n' "$PASSWORD" | DATA_DIR=.data bun run banki setup --email you@example.com --password-stdin
+```
+
+The Password never goes on the command line or in the environment. Setup from a shell needs no Setup token: a shell on the server proves at least as much. It refuses when Banki is already set up, and changes nothing. Like every `banki` command, it reads the same configuration as the API, applies any pending migrations, and creates the data directory if it is missing. For Docker, see [Setting up from a shell in Docker](#setting-up-from-a-shell-in-docker).
+
+### Seed data
+
+`banki seed` loads the Seed data: fixed sample content, the same on every run, for development and Previews. It only runs on an installation that is set up and whose User has no content yet, so it can't touch a real installation's cards:
+
+```sh
+DATA_DIR=.data bun run banki seed
+```
+
+To start a local copy set up and seeded, delete `apps/api/.data/`, then run `banki setup` and `banki seed` before `bun run dev`.
+
 ### Resetting the Password
 
 There's no email to send a reset link to, so a forgotten Password is reset from the command line. In `apps/api`, against the dev data directory:
@@ -138,6 +164,17 @@ services:
       - /srv/banki:/data
 ```
 
+### Setting up from a shell in Docker
+
+Instead of opening the Setup link, run `banki setup` in a one-off `api` container before the first `docker compose up`, against the empty volume:
+
+```sh
+printf '%s\n' "$PASSWORD" | docker compose run --rm -T api bun run banki setup --email you@example.com --password-stdin
+docker compose up -d
+```
+
+Or interactively, answering its questions: `docker compose run --rm api bun run banki setup`. The API then starts set up and logs no Setup token. See [Setting up from a shell](#setting-up-from-a-shell). `docker compose run --rm -T api bun run banki seed` loads the [Seed data](#seed-data) the same way.
+
 ### Resetting the Password in Docker
 
 ```sh
@@ -158,10 +195,10 @@ That rebuilds both images and recreates the containers. The API applies any new 
 
 Two scripts check the images and the stack. Both run on demand only, not in CI.
 
-| Script                  | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bun run smoke:docker`  | Builds both images for this machine under their own throwaway tags, leaving any `banki-api` and `banki-web` you run untouched, and starts the stack under a throwaway project on a free port. Through the web port only, it checks the app, a deep link, health, the API's 401 and 404, asset caching, the security headers, Setup with the logged token, signing in and out, the client IP Caddy forwards (with and without `BANKI_TRUSTED_PROXIES`), non-root users, a restart, `reset-password --password-stdin` and a clean stop. Then it removes the stack, its volume and its images, also when a check fails or it gets SIGINT or SIGTERM. |
-| `bun run docker:buildx` | Builds both images for `linux/amd64` and `linux/arm64` without loading them. It needs a buildx builder that can build for several platforms; if yours can't, create one with `docker buildx create --use`.                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Script                  | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bun run smoke:docker`  | Builds both images for this machine under their own throwaway tags, leaving any `banki-api` and `banki-web` you run untouched, and starts the stack under a throwaway project on a free port. Through the web port only, it checks the app, a deep link, health, the API's 401 and 404, asset caching, the security headers, Setup with the logged token, signing in and out, the client IP Caddy forwards (with and without `BANKI_TRUSTED_PROXIES`), non-root users, a restart, `reset-password --password-stdin`, that a second `banki setup` through `docker compose run --rm -T api` is refused and signing in still works, that `banki seed` succeeds the same way, and a clean stop. Then it removes the stack, its volume and its images, also when a check fails or it gets SIGINT or SIGTERM. |
+| `bun run docker:buildx` | Builds both images for `linux/amd64` and `linux/arm64` without loading them. It needs a buildx builder that can build for several platforms; if yours can't, create one with `docker buildx create --use`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
 ## Database migrations
 
