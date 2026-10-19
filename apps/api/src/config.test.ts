@@ -11,6 +11,7 @@ describe("parseConfig", () => {
       logLevel: "info",
       origin: "http://localhost:5173",
       authSecret: undefined,
+      commit: "dev",
     });
   });
 
@@ -23,6 +24,7 @@ describe("parseConfig", () => {
         LOG_LEVEL: "debug",
         ORIGIN: "https://banki.example.com",
         AUTH_SECRET: "a".repeat(32),
+        COMMIT: "0123456789abcdef0123456789abcdef01234567",
       }),
     ).toEqual({
       dataDir: "/srv/banki",
@@ -31,6 +33,7 @@ describe("parseConfig", () => {
       logLevel: "debug",
       origin: "https://banki.example.com",
       authSecret: "a".repeat(32),
+      commit: "0123456789abcdef0123456789abcdef01234567",
     });
   });
 
@@ -47,6 +50,7 @@ describe("parseConfig", () => {
         LOG_LEVEL: "",
         ORIGIN: "",
         AUTH_SECRET: "",
+        COMMIT: "",
       }),
     ).toEqual(parseConfig({}));
   });
@@ -105,6 +109,18 @@ describe("parseConfig", () => {
 
     test("rejects anything shorter than 32 characters", () => {
       expect(() => parseConfig({ AUTH_SECRET: "x".repeat(31) })).toThrow(/→ at AUTH_SECRET/);
+    });
+  });
+
+  describe("COMMIT", () => {
+    test("defaults to dev when unset or empty", () => {
+      expect(parseConfig({}).commit).toBe("dev");
+      expect(parseConfig({ COMMIT: "" }).commit).toBe("dev");
+    });
+
+    test("is the commit the image was built from when set", () => {
+      const sha = "0123456789abcdef0123456789abcdef01234567";
+      expect(parseConfig({ COMMIT: sha }).commit).toBe(sha);
     });
   });
 });

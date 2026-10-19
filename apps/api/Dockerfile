@@ -31,3 +31,9 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=30s --start-i
 
 # Exec form: Bun is PID 1 and gets SIGTERM directly, so it shuts down cleanly.
 CMD ["bun", "src/server.ts"]
+
+# The commit `/api/health` reports. The preview-images workflow passes the PR's
+# head SHA; a local build leaves it empty, which the API reports as "dev". Last,
+# so a new SHA doesn't invalidate the install and copy layers above.
+ARG COMMIT
+ENV COMMIT=$COMMIT

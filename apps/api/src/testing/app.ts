@@ -36,6 +36,7 @@ export function bootApps() {
         logLevel: "info",
         origin: ORIGIN,
         authSecret: undefined,
+        commit: "dev",
         ...overrides,
       });
       opened.push(booted);

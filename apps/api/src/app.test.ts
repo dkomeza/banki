@@ -25,6 +25,7 @@ const configFor = (dataDir: string): Config => ({
   logLevel: "info",
   origin: "http://localhost:5173",
   authSecret: undefined,
+  commit: "dev",
 });
 
 /** Boots the app the way the server does, against a data directory inside this test's temp dir. */
@@ -102,7 +103,20 @@ describe("GET /api/health", () => {
     const res = await app.request("/api/health");
 
     expect(res.status).toBe(200);
-    expect(HealthResponse.parse(await res.json())).toEqual({ status: "ok", database: "ok" });
+    expect(HealthResponse.parse(await res.json())).toEqual({
+      status: "ok",
+      database: "ok",
+      commit: "dev",
+    });
+  });
+
+  test("reports the commit the API was built from", async () => {
+    const commit = "0123456789abcdef0123456789abcdef01234567";
+    const { app } = boot(undefined, { commit });
+
+    const res = await app.request("/api/health");
+
+    expect(HealthResponse.parse(await res.json()).commit).toBe(commit);
   });
 
   test("answers 503 database_unreachable once the database is closed", async () => {
@@ -114,6 +128,22 @@ describe("GET /api/health", () => {
     expect(res.status).toBe(503);
     const body = ApiError.parse(await res.json());
     expect(body.error.code).toBe("database_unreachable");
+  });
+});
+
+describe("HealthResponse", () => {
+  const healthy = { status: "ok", database: "ok" } as const;
+
+  test.each(["dev", "0123456789abcdef0123456789abcdef01234567"])("accepts commit %p", (commit) => {
+    expect(HealthResponse.parse({ ...healthy, commit })).toEqual({ ...healthy, commit });
+  });
+
+  test("rejects a body without a commit", () => {
+    expect(HealthResponse.safeParse(healthy).success).toBe(false);
+  });
+
+  test("rejects an empty commit", () => {
+    expect(HealthResponse.safeParse({ ...healthy, commit: "" }).success).toBe(false);
   });
 });
 
