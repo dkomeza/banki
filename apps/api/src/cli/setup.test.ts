@@ -50,9 +50,10 @@ describe("banki setup --email --password-stdin", () => {
     const result = await scripted("  Someone@Example.COM ", `${PASSWORD}\n`);
 
     expect(result.stdout).toContain("Banki is set up for someone@example.com.");
-    const res = await signIn(boot().app, { email: "someone@example.com" });
+    const { app } = boot();
+    const res = await signIn(app, { email: "someone@example.com" });
     expect(res.status).toBe(200);
-    const me = await get(boot().app, "/api/me", cookiesFrom(res));
+    const me = await get(app, "/api/me", cookiesFrom(res));
     expect(MeResponse.parse(await me.json())).toEqual({ email: "someone@example.com" });
   });
 
