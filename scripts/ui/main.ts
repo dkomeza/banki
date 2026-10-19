@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { constants } from "node:os";
 import { join, relative } from "node:path";
-import { type Command, parseCommand, USAGE, UsageError } from "./args.ts";
+import { type Command, parseCommand, type UpMode, USAGE, UsageError } from "./args.ts";
 import { launchChromium, shootRoutes } from "./browser.ts";
 import { themes } from "./shots.ts";
 import { decideUp, type StackFile } from "./stack-file.ts";
@@ -10,8 +10,9 @@ import {
   readStackFile,
   recordedStackRunning,
   refreshSetupUrl,
+  exclusively,
   removeStackFile,
-  removeStrayDataDirs,
+  removeUnusedDataDirs,
   ROOT,
   Stack,
   STACK_FILE,
@@ -96,7 +97,11 @@ async function up({ mode }: Extract<Command, { name: "up" }>) {
   const { signal } = interrupt;
   // Agents drive this stack with playwright-cli, on the same Chromium.
   await (await launchChromium()).close();
+  // A second ui up at the same moment waits here, then reuses this one's stack.
+  await exclusively(signal, () => upExclusively(mode, signal));
+}
 
+async function upExclusively(mode: UpMode, signal: AbortSignal) {
   const recorded = readStackFile();
   if (recorded === "corrupt") {
     throw new UiError(`${show(STACK_FILE)} can't be read. Run bun run ui down first.`);
@@ -134,6 +139,10 @@ async function up({ mode }: Extract<Command, { name: "up" }>) {
 }
 
 async function down() {
+  await exclusively(interrupt.signal, downExclusively);
+}
+
+async function downExclusively() {
   const recorded = readStackFile();
   const said: string[] = [];
   if (recorded === "corrupt") {
@@ -143,8 +152,11 @@ async function down() {
     await stopRecordedStack(recorded);
     said.push(`Stopped the ui stack at ${recorded.url} and deleted ${show(recorded.dataDir)}`);
   }
-  const stray = removeStrayDataDirs();
-  if (stray.length > 0) said.push(`Removed stray data folders: ${stray.join(", ")}`);
+  // Also a stack whose stack.json was lost or unreadable, or one a racing
+  // ui up never recorded: it is stopped before its folder goes.
+  const { removed, stopped } = await removeUnusedDataDirs();
+  if (stopped > 0) said.push(`Stopped ${stopped} unrecorded ui stack(s)`);
+  if (removed.length > 0) said.push(`Removed unused data folders: ${removed.join(", ")}`);
   console.log(said.length > 0 ? said.join("\n") : "No ui stack is running.");
 }
 

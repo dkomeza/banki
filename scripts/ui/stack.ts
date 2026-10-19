@@ -7,6 +7,8 @@ import {
   openSync,
   readFileSync,
   readdirSync,
+  readlinkSync,
+  realpathSync,
   renameSync,
   rmSync,
   writeFileSync,
@@ -18,7 +20,15 @@ import { request } from "playwright";
 import type { ShootMode, UpMode } from "./args.ts";
 import { type SetupLink, setupLinkFromLog } from "./setup-link.ts";
 import { apiEnv, webEnv, webUrl } from "./stack-env.ts";
-import { dataDirName, isStrayDataDir, parseStackFile, type StackFile } from "./stack-file.ts";
+import { withLock } from "./lock.ts";
+import {
+  dataDirFate,
+  dataDirName,
+  parseStackFile,
+  parseStackProcesses,
+  type StackFile,
+  type StackProcesses,
+} from "./stack-file.ts";
 
 // A throwaway copy of Banki (the stack): the API and Vite on free ports, with
 // their own data directory under .ui/, never apps/api/.data. Each process
@@ -28,6 +38,10 @@ import { dataDirName, isStrayDataDir, parseStackFile, type StackFile } from "./s
 export const ROOT = resolve(import.meta.dirname, "../..");
 export const UI_DIR = join(ROOT, ".ui");
 export const STACK_FILE = join(UI_DIR, "stack.json");
+/** Held by `ui up` and `ui down`, so only one of them touches stack.json at a time. */
+const LOCK_FILE = join(UI_DIR, "up-down.lock");
+/** In each data folder: the process groups its stack started (see StackProcesses). */
+const PROCESSES_FILE = "processes.json";
 const API_DIR = join(ROOT, "apps/api");
 const WEB_DIR = join(ROOT, "apps/web");
 const VITE_BIN = join(WEB_DIR, "node_modules/vite/bin/vite.js");
@@ -37,6 +51,8 @@ export const EMAIL = "ui@example.com";
 const PASSWORD = "ui-throwaway-password";
 
 const START_TIMEOUT_MS = 90_000;
+/** How long a `ui up` or `ui down` waits for another one to finish: a whole stack start. */
+const LOCK_TIMEOUT_MS = 3 * START_TIMEOUT_MS;
 const STOP_TIMEOUT_MS = 10_000;
 
 /** A failure the script explains in its message, without a stack trace. */
@@ -232,11 +248,13 @@ export class Stack {
       env,
       logFile: this.logs.api,
     });
+    this.recordProcesses();
     this.web = await spawnGroup(
       process.execPath,
       [VITE_BIN, "--port", String(this.webPort), "--strictPort"],
       { cwd: WEB_DIR, env: webEnv(process.env, place), logFile: this.logs.web },
     );
+    this.recordProcesses();
     await waitFor("The API", () => answers(`http://localhost:${this.apiPort}/api/health`, signal), {
       child: this.api,
       logFile: this.logs.api,
@@ -261,6 +279,16 @@ export class Stack {
       this.signedInState = join(this.dataDir, "signed-in.json");
       await signIn(this.url, this.signedInState);
     }
+  }
+
+  /**
+   * Records the process groups started so far in the data folder, so `ui down`
+   * can stop this stack even if stack.json is lost.
+   */
+  private recordProcesses(): void {
+    if (this.dataDir === undefined) return;
+    const processes: StackProcesses = { api: this.api?.pid, web: this.web?.pid };
+    writeFileSync(join(this.dataDir, PROCESSES_FILE), `${JSON.stringify(processes)}\n`);
   }
 
   async teardown(): Promise<void> {
@@ -351,17 +379,75 @@ function commandLine(pid: number): string | undefined {
   }
 }
 
-/**
- * Whether the stack in stack.json is running: both its processes are, and are
- * still the API and Vite (not other processes that got the same PIDs since).
- */
-export function recordedStackRunning(file: StackFile): boolean {
-  return isRecorded(file.pids.api, "src/server.ts") && isRecorded(file.pids.web, "vite");
+/** The working directory of a running process, or undefined if it can't be read. */
+function workingDirectory(pid: number): string | undefined {
+  try {
+    return readlinkSync(`/proc/${pid}/cwd`);
+  } catch {
+    // Not Linux: ask lsof.
+  }
+  try {
+    const out = execFileSync("lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"], {
+      encoding: "utf8",
+    });
+    return out
+      .split("\n")
+      .find((line) => line.startsWith("n"))
+      ?.slice(1);
+  } catch {
+    return undefined;
+  }
 }
 
-/** Whether `pid` runs and its command line has `marker`: a recorded process, not a stranger. */
-const isRecorded = (pid: number, marker: string) =>
-  isAlive(pid) && commandLine(pid)?.includes(marker) === true;
+const samePath = (a: string, b: string) => {
+  try {
+    return realpathSync(a) === realpathSync(b);
+  } catch {
+    return false;
+  }
+};
+
+const STACK_PROCESS = {
+  api: { marker: "src/server.ts", cwd: API_DIR },
+  web: { marker: "vite", cwd: WEB_DIR },
+} as const;
+
+/**
+ * Whether `pgid` still runs as this worktree's stack API or Vite: its command
+ * line and working directory match, so a process that got the same PID since
+ * (or another worktree's stack) is never stopped.
+ */
+function isStackProcess(pgid: number, role: "api" | "web"): boolean {
+  if (!isAlive(pgid)) return false;
+  const { marker, cwd } = STACK_PROCESS[role];
+  if (commandLine(pgid)?.includes(marker) !== true) return false;
+  const actual = workingDirectory(pgid);
+  return actual !== undefined && samePath(actual, cwd);
+}
+
+/** Whether `pid` is a running `ui` script, such as a `ui shoot` using its data folder. */
+const isUiProcess = (pid: number) =>
+  isAlive(pid) && commandLine(pid)?.includes("scripts/ui/main.ts") === true;
+
+/** Whether the stack in stack.json is running: both its processes are still its API and Vite. */
+export function recordedStackRunning(file: StackFile): boolean {
+  return isStackProcess(file.pids.api, "api") && isStackProcess(file.pids.web, "web");
+}
+
+/**
+ * Runs `body` while no other `ui up` or `ui down` runs in this worktree,
+ * waiting for one that does. A lock left by a killed run is taken over.
+ */
+export async function exclusively<T>(signal: AbortSignal, body: () => Promise<T>): Promise<T> {
+  mkdirSync(UI_DIR, { recursive: true });
+  return withLock(LOCK_FILE, body, {
+    isHolderRunning: isUiProcess,
+    signal,
+    timeoutMs: LOCK_TIMEOUT_MS,
+    onWait: (pid) =>
+      console.log(`Waiting for another ui up or ui down (process ${pid ?? "unknown"}) to finish`),
+  });
+}
 
 /** stack.json as `ui up` wrote it; `"corrupt"` when it exists but can't be read. */
 export function readStackFile(): StackFile | "corrupt" | undefined {
@@ -372,8 +458,8 @@ export function readStackFile(): StackFile | "corrupt" | undefined {
 /** Stops a recorded stack (whatever of it still runs), deletes its data and stack.json. */
 export async function stopRecordedStack(file: StackFile): Promise<void> {
   const pgids = [
-    ...(isRecorded(file.pids.api, "src/server.ts") ? [file.pids.api] : []),
-    ...(isRecorded(file.pids.web, "vite") ? [file.pids.web] : []),
+    ...(isStackProcess(file.pids.api, "api") ? [file.pids.api] : []),
+    ...(isStackProcess(file.pids.web, "web") ? [file.pids.web] : []),
   ];
   if (pgids.length > 0) await stopGroups(pgids);
   // Only ever a folder under .ui/, whatever stack.json says.
@@ -387,12 +473,39 @@ export function removeStackFile(): void {
   rmSync(STACK_FILE, { force: true });
 }
 
-/** Deletes the data folders under .ui/ that no process is using; returns their names. */
-export function removeStrayDataDirs(): string[] {
-  if (!existsSync(UI_DIR)) return [];
-  const stray = readdirSync(UI_DIR, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && isStrayDataDir(entry.name, isAlive))
-    .map((entry) => entry.name);
-  for (const name of stray) rmSync(join(UI_DIR, name), { recursive: true, force: true });
-  return stray;
+function readProcesses(dataDir: string): StackProcesses {
+  try {
+    return parseStackProcesses(readFileSync(join(dataDir, PROCESSES_FILE), "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Clears away the data folders under .ui/ that no `ui` run is using (see
+ * dataDirFate): a stack still running from one, such as a `ui up` whose
+ * stack.json was lost, is stopped first. Returns the folders removed, and how
+ * many of them still had a stack running.
+ */
+export async function removeUnusedDataDirs(): Promise<{ removed: string[]; stopped: number }> {
+  const removed: string[] = [];
+  let stopped = 0;
+  if (!existsSync(UI_DIR)) return { removed, stopped };
+  for (const entry of readdirSync(UI_DIR, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const dir = join(UI_DIR, entry.name);
+    const fate = dataDirFate(entry.name, {
+      creatorRunning: isUiProcess,
+      processes: readProcesses(dir),
+      isStackProcess,
+    });
+    if (fate?.action !== "remove") continue;
+    if (fate.stop.length > 0) {
+      await stopGroups(fate.stop);
+      stopped++;
+    }
+    rmSync(dir, { recursive: true, force: true });
+    removed.push(entry.name);
+  }
+  return { removed, stopped };
 }

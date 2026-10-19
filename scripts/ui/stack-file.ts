@@ -92,18 +92,66 @@ export function decideUp(stack: StackFile | undefined, running: boolean, mode: U
   return { action: "reuse", stack };
 }
 
-/** A stack's data folder under `.ui/`, named after the process that creates it. */
+/** A stack's data folder under `.ui/`, named after the `ui` process that creates it. */
 export function dataDirName(pid: number, now: Date): string {
   return `data-${pid}-${now.getTime().toString(36)}`;
 }
 
 /**
- * Whether a folder under `.ui/` is a data folder nobody is using: one whose
- * creating process has gone (a `ui shoot` that was killed, or a `ui up` whose
- * stack.json is lost). A running `ui shoot`'s folder is not stray.
+ * The process groups a stack started, which it records in its data folder as
+ * it starts them, so `ui down` can find the stack even without stack.json.
  */
-export function isStrayDataDir(name: string, isAlive: (pid: number) => boolean): boolean {
-  if (!name.startsWith("data-")) return false;
-  const pid = /^data-(\d+)-/.exec(name)?.[1];
-  return pid === undefined || !isAlive(Number(pid));
+export type StackProcesses = { api?: number; web?: number };
+
+/** The processes file of a data folder; whatever it can't read is left out. */
+export function parseStackProcesses(text: string): StackProcesses {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return {};
+  }
+  if (!isObject(value)) return {};
+  const processes: StackProcesses = {};
+  if (isPid(value["api"])) processes.api = value["api"];
+  if (isPid(value["web"])) processes.web = value["web"];
+  return processes;
+}
+
+export type DataDirFate =
+  /** A `ui` run is still using it. */
+  | { action: "keep" }
+  /** Stop these process groups (the stack's API and Vite), then delete the folder. */
+  | { action: "remove"; stop: number[] };
+
+/**
+ * What `ui down` does with a folder under `.ui/`, or undefined when it isn't
+ * a data folder. While the `ui` run that created it is going (a `ui shoot`, or
+ * a `ui up` still starting), it is kept. Otherwise it goes, but its stack is
+ * stopped first: a `ui up` exits once it hands its stack over, so a stack whose
+ * stack.json is lost or unreadable still runs from a folder like this.
+ */
+export function dataDirFate(
+  name: string,
+  {
+    creatorRunning,
+    processes,
+    isStackProcess,
+  }: {
+    /** Whether `pid` is a running `ui` process. */
+    creatorRunning: (pid: number) => boolean;
+    processes: StackProcesses;
+    /** Whether `pgid` is still running as this stack's API or Vite. */
+    isStackProcess: (pgid: number, role: "api" | "web") => boolean;
+  },
+): DataDirFate | undefined {
+  if (!name.startsWith("data-")) return undefined;
+  const creator = /^data-(\d+)-/.exec(name)?.[1];
+  if (creator !== undefined && creatorRunning(Number(creator))) return { action: "keep" };
+  const stop: number[] = [];
+  for (const role of ["api", "web"] as const) {
+    const pgid = processes[role];
+    if (pgid !== undefined && isStackProcess(pgid, role)) stop.push(pgid);
+  }
+  return { action: "remove", stop };
 }

@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import {
+  dataDirFate,
   dataDirName,
   decideUp,
-  isStrayDataDir,
   parseStackFile,
+  parseStackProcesses,
   type StackFile,
 } from "./stack-file.ts";
 
@@ -85,48 +86,74 @@ describe("decideUp", () => {
 });
 
 describe("dataDirName", () => {
-  test("names the folder after the process that owns it", () => {
-    assert.match(dataDirName(1234, new Date(0)), /^data-1234-0$/);
-    assert.equal(
-      isStrayDataDir(dataDirName(1234, new Date()), () => false),
-      true,
-    );
-    assert.equal(
-      isStrayDataDir(dataDirName(1234, new Date()), () => true),
-      false,
-    );
+  test("names the folder after the process that creates it", () => {
+    assert.equal(dataDirName(1234, new Date(0)), "data-1234-0");
   });
 });
 
-describe("isStrayDataDir", () => {
-  test("a data folder whose process is gone is stray", () => {
-    assert.equal(
-      isStrayDataDir("data-42-abc", (pid) => pid !== 42),
-      true,
+describe("parseStackProcesses", () => {
+  test("reads back the process groups a stack started", () => {
+    assert.deepEqual(parseStackProcesses('{"api":101,"web":102}'), { api: 101, web: 102 });
+    assert.deepEqual(parseStackProcesses('{"api":101}'), { api: 101 });
+  });
+
+  test("ignores anything that isn't a process group ID", () => {
+    assert.deepEqual(parseStackProcesses('{"api":"101","web":-1}'), {});
+    assert.deepEqual(parseStackProcesses("{"), {});
+    assert.deepEqual(parseStackProcesses("null"), {});
+  });
+});
+
+describe("dataDirFate", () => {
+  const nothingRuns = {
+    creatorRunning: () => false,
+    processes: {},
+    isStackProcess: () => false,
+  };
+
+  test("keeps the folder of a ui run that is still going, such as a ui shoot", () => {
+    assert.deepEqual(
+      dataDirFate("data-42-abc", {
+        creatorRunning: (pid) => pid === 42,
+        processes: { api: 101, web: 102 },
+        isStackProcess: () => true,
+      }),
+      { action: "keep" },
     );
   });
 
-  test("a data folder of a running ui shoot is left alone", () => {
-    assert.equal(
-      isStrayDataDir("data-42-abc", (pid) => pid === 42),
-      false,
+  test("stops a handed-over stack whose stack.json is lost before removing its folder", () => {
+    // ui up exits after handing its stack over, so its creator is gone while
+    // its API and Vite still run.
+    assert.deepEqual(
+      dataDirFate("data-42-abc", {
+        creatorRunning: () => false,
+        processes: { api: 101, web: 102 },
+        isStackProcess: () => true,
+      }),
+      { action: "remove", stop: [101, 102] },
     );
   });
 
-  test("a data folder with no owner in its name is stray", () => {
-    assert.equal(
-      isStrayDataDir("data-xyz", () => true),
-      true,
+  test("stops only the recorded processes that are still the stack's API and Vite", () => {
+    assert.deepEqual(
+      dataDirFate("data-42-abc", {
+        creatorRunning: () => false,
+        processes: { api: 101, web: 102 },
+        isStackProcess: (pgid, role) => pgid === 102 && role === "web",
+      }),
+      { action: "remove", stop: [102] },
     );
   });
 
-  test("anything that isn't a data folder is not", () => {
+  test("removes a folder nothing uses any more", () => {
+    assert.deepEqual(dataDirFate("data-42-abc", nothingRuns), { action: "remove", stop: [] });
+    assert.deepEqual(dataDirFate("data-xyz", nothingRuns), { action: "remove", stop: [] });
+  });
+
+  test("leaves anything that isn't a data folder alone", () => {
     for (const name of ["shots", "stack.json", "playwright-cli", "database-1-a"]) {
-      assert.equal(
-        isStrayDataDir(name, () => false),
-        false,
-        name,
-      );
+      assert.equal(dataDirFate(name, nothingRuns), undefined, name);
     }
   });
 });
