@@ -200,6 +200,22 @@ Two scripts check the images and the stack. Both run on demand only, not in CI.
 | `bun run smoke:docker`  | Builds both images for this machine under their own throwaway tags, leaving any `banki-api` and `banki-web` you run untouched, and starts the stack under a throwaway project on a free port. Through the web port only, it checks the app, a deep link, health, the API's 401 and 404, asset caching, the security headers, Setup with the logged token, signing in and out, the client IP Caddy forwards (with and without `BANKI_TRUSTED_PROXIES`), non-root users, a restart, `reset-password --password-stdin`, that a second `banki setup` through `docker compose run --rm -T api` is refused and signing in still works, that `banki seed` succeeds the same way, and a clean stop. Then it removes the stack, its volume and its images, also when a check fails or it gets SIGINT or SIGTERM. |
 | `bun run docker:buildx` | Builds both images for `linux/amd64` and `linux/arm64` without loading them. It needs a buildx builder that can build for several platforms; if yours can't, create one with `docker buildx create --use`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
+### Preview images
+
+For Previews, every push to a pull request from a branch of this repo builds both images for `linux/amd64` on GitHub's runners and pushes them to GHCR as `ghcr.io/<owner>/banki-api` and `ghcr.io/<owner>/banki-web` (`.github/workflows/preview-images.yml`). The home server only pulls them, so no PR code runs there outside a Preview container. Each push adds one version per package, tagged:
+
+| Tag            | What it marks                                                                            |
+| -------------- | ---------------------------------------------------------------------------------------- |
+| `pr-<N>`       | The newest push to PR `<N>`; it moves on every push                                      |
+| `sha-<sha>`    | The push of the PR's head commit `<sha>` (the full SHA), which the home server waits for |
+| `pr-<N>-<sha>` | The same push, so every version PR `<N>` ever pushed can be found by its PR              |
+
+When the PR closes, every version tagged `pr-<N>` or `pr-<N>-…` is deleted. Pull requests from forks and Dependabot get no images.
+
+Both packages start out private. Make each one public once, after its first push (on GitHub: the package's **Package settings**, then **Change visibility**), so the home server can pull them without credentials.
+
+`GET /api/health` reports the commit its image was built from as `commit`: the full SHA in a preview image, and `"dev"` in local dev and in images built locally, such as with `docker compose`.
+
 ## Database migrations
 
 The schema lives in `apps/api/src/db/schema.ts`, and the migrations drizzle-kit generates from it live in `apps/api/drizzle/` (SQL files plus `meta/`, all committed). To change the schema:

@@ -1,0 +1,130 @@
+name: Preview images
+
+# Builds the api and web images of every push to a same-repo pull request and
+# pushes them to GHCR, where the pull agent on the home server picks them up for
+# the PR's Preview. When the PR closes, every image version it pushed is
+# deleted. Fork and Dependabot PRs never get images: their code would otherwise
+# run on the home server, and their token can't write packages anyway.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+
+concurrency:
+  group: preview-images-${{ github.event.pull_request.number }}
+  # A new push supersedes the build in progress, and closing the PR cancels it:
+  # cleanup runs after it anyway.
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    name: build (${{ matrix.app }})
+    if: >-
+      github.event.action != 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'dependabot[bot]' &&
+      github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        app: [api, web]
+    env:
+      # Tag with the PR's head commit, not the merge commit the event points at.
+      DOCKER_METADATA_PR_HEAD_SHA: "true"
+    steps:
+      # The head commit, so the image holds exactly what its SHA tags name.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      # Image names must be lowercase, and the owner may not be.
+      - name: Name the image
+        id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/banki-${{ matrix.app }}" >> "$GITHUB_OUTPUT"
+      - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        id: meta
+        with:
+          images: ${{ steps.image.outputs.name }}
+          # pr-<N> moves to the newest push; the pull agent waits on sha-<head>;
+          # pr-<N>-<head> lets cleanup find every version the PR ever pushed.
+          tags: |
+            type=ref,event=pr
+            type=sha,format=long
+            type=sha,format=long,prefix=pr-${{ github.event.pull_request.number }}-
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: apps/${{ matrix.app }}/Dockerfile
+          # The home server is x86. `bun run docker:buildx` checks arm64 on demand.
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # One plain image per push, so each push is one package version and
+          # nothing untagged is left behind for cleanup to miss.
+          provenance: false
+          sbom: false
+          build-args: ${{ matrix.app == 'api' && format('COMMIT={0}', github.event.pull_request.head.sha) || '' }}
+          cache-from: type=gha,scope=banki-${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=banki-${{ matrix.app }}
+
+  cleanup:
+    name: cleanup
+    if: >-
+      github.event.action == 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'dependabot[bot]' &&
+      github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PR: ${{ github.event.pull_request.number }}
+    # actions/delete-package-versions can't select versions by tag, and the API
+    # has no tag filter, so this lists every version and filters with jq. The
+    # repo has admin access to the packages its workflow first published, which
+    # DELETE needs.
+    steps:
+      - name: Delete this PR's image versions
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          errors="$(mktemp)"
+          for pkg in banki-api banki-web; do
+            versions="users/$owner/packages/container/$pkg/versions"
+            if ! pages="$(gh api --paginate "$versions?per_page=100" 2>"$errors")"; then
+              if grep -q "HTTP 404" "$errors"; then
+                echo "$pkg: no package, nothing to delete"
+                continue
+              fi
+              cat "$errors" >&2
+              exit 1
+            fi
+            # Versions with a tag of exactly pr-<N>, or starting with pr-<N>-,
+            # so pr-1 never matches pr-12's tags. Pages are concatenated arrays.
+            matches="$(jq -rs --arg pr "pr-$PR" '
+              add // []
+              | .[]
+              | select(any((.metadata.container.tags // [])[]; . == $pr or startswith($pr + "-")))
+              | "\(.id)\t\(.metadata.container.tags | join(" "))"
+            ' <<<"$pages")"
+            if [ -z "$matches" ]; then
+              echo "$pkg: no versions tagged pr-$PR"
+              continue
+            fi
+            while IFS=$'\t' read -r id tags; do
+              echo "$pkg: deleting version $id ($tags)"
+              gh api --method DELETE "$versions/$id" --silent </dev/null
+            done <<<"$matches"
+          done
