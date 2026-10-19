@@ -63,7 +63,25 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # A rebuild of a SHA that's already pushed (a re-run, or a reopen with no
+      # new commit) gets a fresh created label and so a new digest: every tag
+      # would move to it and orphan the old version untagged, where cleanup
+      # never finds it. Runs after the login, since the package may be private.
+      # Any failure here means a build: a needless rebuild is the safe side.
+      - name: Check whether this SHA is already pushed
+        id: pushed
+        continue-on-error: true
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}:pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+        run: |
+          if docker buildx imagetools inspect "$IMAGE" >/dev/null 2>&1; then
+            echo "$IMAGE is already pushed, skipping the build"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "$IMAGE isn't pushed yet, building it"
+          fi
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        if: steps.pushed.outputs.exists != 'true'
         with:
           context: .
           file: apps/${{ matrix.app }}/Dockerfile
