@@ -154,6 +154,11 @@ jobs:
                   echo "$pkg: kept version $id, GHCR won't delete a package's last tagged version"
                   continue
                 fi
+                # Another PR's cleanup, sweeping at the same time, got there first.
+                if grep -q "(HTTP 404)" "$errors"; then
+                  echo "$pkg: version $id is already deleted"
+                  continue
+                fi
                 cat "$errors" >&2
                 exit 1
               fi
