@@ -17,7 +17,7 @@ import {
 } from "./evidence.ts";
 import { leafRoutes, resolveRoute, RouteError, type Shot } from "./route-tree.ts";
 import { ROUTES } from "./routes.ts";
-import { shotFileName, type Theme, VIEWPORTS } from "./shots.ts";
+import { shotFileName, shotName, type Theme, VIEWPORTS } from "./shots.ts";
 import { ROOT, UI_DIR, UiError } from "./stack.ts";
 
 // `ui compare`: shoots every route on the branch (this worktree as it is,
@@ -111,6 +111,11 @@ function diffRoutes(shots: Shot[], baseRoutes: string[], themes: Theme[]) {
 }
 
 export async function compare({ body }: { body: string | undefined }, signal: AbortSignal) {
+  // Emptied first, so a failed run never leaves the last run's shots to attach.
+  rmSync(OUT_DIR, { recursive: true, force: true });
+  rmSync(SHOTS_DIR, { recursive: true, force: true });
+  mkdirSync(OUT_DIR, { recursive: true });
+
   // A PR body that can't take the fragment fails now, not after the shots.
   if (body !== undefined) {
     try {
@@ -129,12 +134,16 @@ export async function compare({ body }: { body: string | undefined }, signal: Ab
     if (error instanceof RouteError) throw new UiError(error.message);
     throw error;
   }
+  const byName = new Map<string, string>();
+  for (const { route, path } of shots) {
+    const other = byName.get(shotName(path));
+    if (other !== undefined) {
+      throw new UiError(`${other} and ${route} would be saved to the same file.`);
+    }
+    byName.set(shotName(path), route);
+  }
   const pathOf = new Map(shots.map(({ route, path }) => [route, path]));
   const shootThemes = readThemes(ROOT);
-
-  rmSync(OUT_DIR, { recursive: true, force: true });
-  rmSync(SHOTS_DIR, { recursive: true, force: true });
-  mkdirSync(OUT_DIR, { recursive: true });
 
   const browser = await launchChromium();
   // Closing the browser fails whatever it is doing, so an interrupt mid-shot
