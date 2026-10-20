@@ -317,17 +317,101 @@ Two scripts check the images and the stack. Both run on demand only, not in CI.
 
 For Previews, every push to a pull request from a branch of this repo builds both images for `linux/amd64` on GitHub's runners and pushes them to GHCR as `ghcr.io/<owner>/banki-api` and `ghcr.io/<owner>/banki-web` (`.github/workflows/preview-images.yml`). The home server only pulls them, so no PR code runs there outside a Preview container. Each push adds one version per package, tagged:
 
-| Tag            | What it marks                                                                            |
-| -------------- | ---------------------------------------------------------------------------------------- |
-| `pr-<N>`       | The newest push to PR `<N>`; it moves on every push                                      |
-| `sha-<sha>`    | The push of the PR's head commit `<sha>` (the full SHA), which the home server waits for |
-| `pr-<N>-<sha>` | The same push, so every version PR `<N>` ever pushed can be found by its PR              |
+| Tag            | What it marks                                                                                                                                                                                                                        |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `pr-<N>`       | The newest push to PR `<N>`; it moves on every push                                                                                                                                                                                  |
+| `sha-<sha>`    | The push of the PR's head commit `<sha>` (the full SHA)                                                                                                                                                                              |
+| `pr-<N>-<sha>` | The same push. The pull agent waits for it and pulls by its digest, and cleanup finds every version PR `<N>` ever pushed by it. Only PR `<N>` pushes it, while two PRs on one commit share `sha-<sha>`, and one's cleanup deletes it |
 
 When a PR closes, cleanup sweeps both packages and deletes every version of every PR that is no longer open: a version with a `pr-<M>` or `pr-<M>-…` tag whose PR `<M>` is closed, and with no tags but `pr-…` and `sha-…` ones. A version with any other tag, such as a release's `v1.0.0` or `latest`, is never touched. GHCR refuses to delete a package's last tagged version, so when a closed PR's version is the only one left, it stays until a later cleanup sweeps it after another PR has pushed, or for good once a release version lives in the same package. Pull requests from forks and Dependabot get no images.
 
 Both packages start out private. Make each one public once, after its first push (on GitHub: the package's **Package settings**, then **Change visibility**), so the home server can pull them without credentials.
 
 `GET /api/health` reports the commit its image was built from as `commit`: the full SHA in a preview image, and `"dev"` in local dev and in images built locally, such as with `docker compose`.
+
+## Previews
+
+Every open pull request from a branch of this repo gets a [Preview](CONTEXT.md) at `https://pr-<N>.banki.dkomeza.com`, drafts included. It is already set up, with the Preview's Email and Password and the [Seed data](#seed-data). Every push rebuilds it from scratch from the [images CI pushes](#preview-images), with a fresh database, so you sign in again after a push. It's removed when the pull request closes or merges. Fork and Dependabot pull requests get none, the same rule CI uses for the images.
+
+Each Preview shows on its pull request as a deployment to the `preview` environment:
+
+| Status        | What it means                                                                                                                         |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `queued`      | Waiting for the push's images. There's no timeout: a failed image build shows on the pull request, and the next push moves things on  |
+| `in_progress` | Deploying                                                                                                                             |
+| `success`     | Up, with the Preview's link                                                                                                           |
+| `failure`     | Didn't start, with a short reason such as `seed exited 1`, `api not healthy after 60 s` or `health reports wrong commit …`. See below |
+| `inactive`    | The pull request closed, or a newer push replaced it                                                                                  |
+
+While a new push waits for its images, the Preview of the previous push keeps running.
+
+### How Previews run
+
+A pull agent on the home server polls GitHub every 30 s and makes the running Previews match the open pull requests ([ADR-0008](docs/adr/0008-previews-pulled-by-an-agent-on-the-home-server.md)). Nothing from GitHub runs on the server except inside a Preview's containers, and nothing on GitHub can reach the server. The agent keeps no state of its own: Docker says what runs, and the deployments say what was tried, so restarting it loses nothing, and a deploy it was in the middle of is redone from scratch.
+
+| Path                                | What it is                                                                                                                              |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `deploy/preview/compose.yaml`       | The Preview template: one Preview as the Compose project `banki-pr-<N>`, from the images pinned by digest, hardened and limited         |
+| `deploy/preview/agent/`             | The agent (Bun, no npm dependencies) and its Dockerfile. `planner.ts` decides everything and is unit-tested; the rest are thin adapters |
+| `deploy/preview/agent.compose.yaml` | The agent, the Previews' Newt and the `banki-previews` network                                                                          |
+| `deploy/preview/bootstrap`          | Asks for the agent's settings and secrets and writes them outside the clone                                                             |
+
+Each deploy runs `docker compose down -v --remove-orphans --rmi all` on what was there, pulls the images, runs `banki setup` (the Password on stdin only) and `banki seed` against the empty volume, starts the Preview with `up --wait`, checks that `/api/health` through Caddy reports the pushed commit, and routes `pr-<N>.banki.dkomeza.com` to it through its own Pangolin resource.
+
+Each Preview's own network is internal, so it has no internet access. Only its `web` also joins `banki-previews`, an internal network shared with the Newt of the Previews site (at `172.31.255.2`, the one proxy `web` trusts). So Previews can reach each other's `web`, but never each other's `api`, and the agent isn't on that network at all.
+
+### Setting up the server
+
+You need:
+
+- A VPS running Pangolin (Community edition) with its Traefik, and a DNS record for `*.banki.dkomeza.com` pointing at it.
+- In the Pangolin org, the domain `banki.dkomeza.com`, which the Previews' resources are made under.
+- A Pangolin site for Previews only, of type Newt. Note its niceId, and the Newt ID and secret it gives you. The home server's own Newt keeps serving the homelab site and isn't touched: the Previews site gets its own Newt, in a container.
+- Pangolin's Integration API turned on: `flags.enable_integration_api: true` in Pangolin's `config/config.yml`, and a Traefik route from a host of your choice (for example `api.pangolin.example.com`) to Pangolin's port 3003. Its URL, ending in `/v1`, is the Integration API URL `bootstrap` asks for.
+- A Pangolin org API key with these actions: `listSites`, `getSite`, `listOrgDomains`, `listResources`, `getResource`, `createResource`, `updateResource`, `deleteResource`, `createTarget`, `listTargets`, `deleteTarget`.
+- A fine-grained GitHub token for this repo only, with **Deployments: Read and write**. It can always read the public repo, and the agent uses it for every GitHub call, since the anonymous limit of 60 calls an hour is less than a poll every 30 s needs.
+- Both GHCR packages public (see [Preview images](#preview-images)): the agent and Docker read them anonymously.
+- Docker with Compose v2 on the home server, with `172.31.255.0/24` unused.
+
+Then, from a clone of `main` on the home server:
+
+```sh
+deploy/preview/bootstrap
+docker compose -f deploy/preview/agent.compose.yaml up -d --build
+```
+
+`bootstrap` asks for the GitHub token, the Integration API URL, the org API key, the org ID, the Previews site's niceId, and Newt's `PANGOLIN_ENDPOINT`, ID and secret. The Preview's Email defaults to `preview@banki.dkomeza.com`. It generates the Password, 20 lowercase letters and digits in groups of 4 (`abcd-efgh-…`, about 100 bits and easy to type on a phone), and prints it once: keep it somewhere safe. Every Preview shares it, and each Preview runs its pull request's code, which can see it, so use it for Previews only and rotate it if it leaks.
+
+It writes everything to `$BANKI_PREVIEW_SECRETS`, by default `~/.config/banki-preview`, outside the clone (a `0700` directory of `0600` files), and GitHub never holds any of it. The agent gets the GitHub token, the Pangolin key and the Preview's Email and Password as compose secrets, files under `/run/secrets/`, so they aren't in its environment in `docker inspect`; only Newt gets its ID and secret as environment variables.
+
+Run `bootstrap` again to change a value: each one it has is the default, so Enter keeps it. It makes a new Password only when you answer yes to rotating it, and each Preview takes the new one from its next deploy. The agent reads the GitHub token and the Password afresh each time, but the Pangolin settings only on start, so after changing those run `docker compose -f deploy/preview/agent.compose.yaml up -d --force-recreate`.
+
+The agent stops on start with a clear error when the Previews site or the `banki.dkomeza.com` domain can't be found, or a setting is missing. Its log says why:
+
+```sh
+docker compose -f deploy/preview/agent.compose.yaml logs agent
+```
+
+### Updating the agent
+
+Until the agent updates itself, update it by hand from `main`:
+
+```sh
+git pull && docker compose -f deploy/preview/agent.compose.yaml up -d --build
+```
+
+The agent holds the Docker socket, so its image is only ever built on the server from a clone of `main`, never pulled from GHCR, where any pull request can push any tag. The Preview template is baked into that image, so a pull request can't change how its own Preview runs: a change to the template takes effect once it's merged and the agent is rebuilt.
+
+### When a Preview fails
+
+A Preview that fails is left stopped, its link gives a 404, and its deployment shows `failure` with a short reason. The agent doesn't retry it: the next push, or closing the pull request, clears it. Logs never go to GitHub; read them on the server:
+
+- The output of `setup` and `seed`, and of every other step, is in the agent's log, each line tagged with its project and step: `docker compose -f deploy/preview/agent.compose.yaml logs agent | grep banki-pr-<N>`.
+- When `up` or the health check failed, the Preview's own containers have the story: `docker compose -p banki-pr-<N> logs`.
+
+### Cookies for a future production
+
+A future production at `banki.dkomeza.com` would share its parent domain with the Previews, and a Preview runs any pull request's code, so it can set cookies for `banki.dkomeza.com` and `dkomeza.com`. Production's sign-in cookie must then use the `__Host-` prefix, which a browser only accepts from the exact host, over HTTPS and without a `Domain`, so a Preview can't plant or overwrite it.
 
 ## Database migrations
 
@@ -353,10 +437,10 @@ better-auth's tables (`user`, `auth_session`, `auth_account`, `auth_verification
 
 Run from the repo root; CI runs the same ones.
 
-| Script                 | What it does                                                                                              |
-| ---------------------- | --------------------------------------------------------------------------------------------------------- |
-| `bun run typecheck`    | `tsc -b` across every workspace                                                                           |
-| `bun run lint`         | oxlint, type-aware, warnings fail                                                                         |
-| `bun run format`       | oxfmt, rewriting files in place                                                                           |
-| `bun run format:check` | oxfmt, failing on unformatted files                                                                       |
-| `bun run test`         | Each workspace's tests: `bun test` (api, shared), Vitest (web), and the `ui` script's under `node --test` |
+| Script                 | What it does                                                                                                                                                       |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `bun run typecheck`    | `tsc -b` across every workspace                                                                                                                                    |
+| `bun run lint`         | oxlint, type-aware, warnings fail                                                                                                                                  |
+| `bun run format`       | oxfmt, rewriting files in place                                                                                                                                    |
+| `bun run format:check` | oxfmt, failing on unformatted files                                                                                                                                |
+| `bun run test`         | Each workspace's tests: `bun test` (api, shared), Vitest (web), the `ui` script's under `node --test`, and the Preview agent's (`deploy/preview`) under `bun test` |
