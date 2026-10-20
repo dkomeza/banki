@@ -157,7 +157,7 @@ You may use one of these, you may use several, it is unlikely you will use all o
 
 Concrete evidence that the change works. Show a before and after.
 
-Screenshots are S-tier - when the environment is set up for it and the change is visual.
+Screenshots are S-tier - when the environment is set up for it and the change is visual. In this repo, `bun run ui compare --body <body file>` writes them: before/after shots of every route the branch changed, between `<!-- ui-shots -->` and `<!-- /ui-shots -->` at the top of the Evidence section (see the README's `ui compare`). Keep the `## Evidence` heading outside the markers, and don't edit between them by hand: the next run replaces that part.
 
 Execution-based evidence is A-tier. Test results, console output. Show the exact test that now fails and passes, using pseudocode.
 

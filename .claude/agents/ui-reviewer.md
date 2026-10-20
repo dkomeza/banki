@@ -19,7 +19,7 @@ Read the full diff (`git diff <base>...HEAD`) and the spec, then work out the ro
 - every route that imports a changed component or hook, directly or through other files (`grep` for the import);
 - every screen the spec names.
 
-Run `bun run ui shoot --agent ui-reviewer <routes…>`, with `--signed-out` for `/login` and `--before-setup` for `/setup`. The shots land in `.ui/shots/ui-reviewer/<route>@<viewport>-<theme>.png`. Dark shots exist only once `apps/web/package.json` has `"banki": { "darkTheme": true }`.
+Run `bun run ui shoot --agent ui-reviewer <routes…>`. Each route is shot in its mode from the route manifest, `scripts/ui/routes.ts` (`/login` signed out, `/setup` before Setup), and a route with params, such as `/decks/$deckId`, at its manifest path. The shots land in `.ui/shots/ui-reviewer/<route>@<viewport>-<theme>.png`. Dark shots exist only once `apps/web/package.json` has `"banki": { "darkTheme": true }`.
 
 Then reach the states the spec implies that a plain page load doesn't show (validation errors, dialogs, empty, error and loading states). Run `bun run ui up` and read `.ui/stack.json`. Drive the page from the worktree's root with `npx --no-install playwright-cli -s=<worktree>-ui-reviewer …`, where `<worktree>` is the worktree folder's name: `open`, `state-load <signedInState>`, `goto <url><route>`, `resize` to each viewport (390×844, 820×1180, 1440×900), and `set-color-scheme dark` when dark shots are on. Then `snapshot`, `click` and `fill` to reach the state, and save it with `screenshot --filename=.ui/shots/ui-reviewer/<route>-<state>@<viewport>-<theme>.png`. Finish with `close` and `bun run ui down`.
 

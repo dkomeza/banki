@@ -77,11 +77,12 @@ Without it, the script stops and prints that command.
 ### `ui shoot`
 
 ```sh
-bun run ui shoot / /decks/abc
+bun run ui shoot / /login /setup
 bun run ui / /decks/abc          # shoot is the default
+bun run ui '/decks/$deckId'      # a route with params, at its path from the route manifest
 ```
 
-Starts a fresh stack, opens each route exactly as given, waits until the network is idle and the fonts have loaded, and saves a full-page screenshot at three sizes:
+Starts a fresh stack, opens each route as given, waits until the network is idle and the fonts have loaded, and saves a full-page screenshot at three sizes:
 
 | Viewport  | Size       | Emulates                                      |
 | --------- | ---------- | --------------------------------------------- |
@@ -89,13 +90,15 @@ Starts a fresh stack, opens each route exactly as given, waits until the network
 | `tablet`  | 820 × 1180 | a touch device (`isMobile`, `hasTouch`) at 2x |
 | `desktop` | 1440 × 900 | a desktop browser at 1x                       |
 
+Each route is shot in its mode from the [route manifest](#the-route-manifest): `/login` signed out, `/setup` before Setup, and every other route signed in. A route with params, such as `/decks/$deckId`, is shot at the one concrete path its manifest entry gives, and one with no entry is refused, naming it. Signed-in and signed-out routes share one stack; a stack waiting for Setup starts too only when a route needs one.
+
 The shots go to `.ui/shots/<agent>/<route>@<viewport>-<theme>.png`. In the file name `/` is `index`, the leading slash goes, other slashes become `_`, and the query string and hash are dropped: `/decks/abc?tab=cards` is `decks_abc@phone-light.png`. Then it stops the stack and deletes its data directory, also when a step fails or you press Ctrl-C. It never touches a stack from `ui up`.
 
-| Flag             | What it does                                                                                     |
-| ---------------- | ------------------------------------------------------------------------------------------------ |
-| `--agent <name>` | The folder under `.ui/shots/`. Defaults to `manual`                                              |
-| `--signed-out`   | Set up and seeded, but not signed in: for `/login`                                               |
-| `--before-setup` | Not set up, no Seed data, and the API waits for Setup: for `/setup` (opened with no Setup token) |
+| Flag             | What it does                                                                                   |
+| ---------------- | ---------------------------------------------------------------------------------------------- |
+| `--agent <name>` | The folder under `.ui/shots/`. Defaults to `manual`                                            |
+| `--signed-out`   | Every route set up and seeded, but not signed in, whatever the manifest says                   |
+| `--before-setup` | Every route not set up, no Seed data, and the API waits for Setup (opened with no Setup token) |
 
 Each viewport is shot in the light theme, and also in the dark one (through `prefers-color-scheme: dark`) once the web app has a dark theme. The switch is in `apps/web/package.json`:
 
@@ -104,6 +107,47 @@ Each viewport is shot in the light theme, and also in the dark one (through `pre
 ```
 
 While it is `false`, dark shots are skipped. The issue that adds the dark theme sets it to `true`.
+
+### The route manifest
+
+`scripts/ui/routes.ts` says how to shoot each route of the web app's route tree, keyed by its full path as `apps/web/src/routeTree.gen.ts` names it:
+
+```ts
+export const ROUTES: RouteManifest = {
+  "/": { mask: ["[role=status]"] },
+  "/login": { mode: "signed-out" },
+  "/setup": { mode: "before-setup" },
+  "/decks/$deckId": { path: `/decks/${SEED_IDS.deck}` },
+};
+```
+
+- `mode`: `signed-out` or `before-setup`. A route without one is shot signed in.
+- `path`: the one concrete path to shoot a route with params at, built from the [Seed data](#seed-data)'s fixed IDs (`SEED_IDS`, in `apps/api/src/seed/seed-ids.ts`). Every route with params needs one.
+- `mask`: CSS selectors of content that differs on every run, such as the home screen's measured API latency. Every shot of the route, in `ui shoot` and on both sides of `ui compare`, hides them (`visibility: hidden`, through Playwright's screenshot `style`): they keep their place on the page but draw nothing, so they never count as a change, whatever their size.
+
+An issue that adds a routed screen with params or a sign-in mode adds its entry, with any fixed ID it needs in `SEED_IDS`, and a screen with content that differs on every run masks it.
+
+### `ui compare`
+
+```sh
+bun run ui compare
+bun run ui compare --body pr-body.md
+```
+
+Shows a PR's visual change: it shoots every route on the branch and on its merge-base with `main`, keeps the routes a pixel diff finds changed, and writes their before and after shots to `.ui/pr/` with a markdown fragment, `.ui/pr/evidence.md`. `/work-issue` puts it in the PR body.
+
+- **Base:** it runs `git fetch origin main` (only warning if that fails), and checks out `git merge-base HEAD origin/main` in a detached worktree at `../banki-worktrees/.base-<12-char sha>`, next to the main checkout, so every worktree with the same merge-base shares it. Each run creates it if it is missing and runs `bun install --frozen-lockfile` in it, under a lock: two runs on the same base take turns. `/work-issue`'s step 0 removes these worktrees.
+- **After:** this worktree as it is, uncommitted changes included.
+- **Routes:** each side's leaf routes from its `routeTree.gen.ts` (pathless layouts left out), all shot as `ui shoot` shoots them, with this branch's route manifest (paths, modes and masks) and themes for both sides. A route only on the branch is **new**, and one only on the base is **removed** (and not shot). The base side runs first, then the branch side.
+- **Diff:** [`pixelmatch`](https://github.com/mapbox/pixelmatch) at a 0.1 threshold, ignoring anti-aliasing. A route has **changed** when any of its pairs has a differing pixel, or differs in size; its score is the largest fraction of differing pixels across them.
+
+The fragment sits between `<!-- ui-shots -->` and `<!-- /ui-shots -->`. Each changed route gets an `#### /route` heading and a table, Phone, Tablet and Desktop by Before and After, with the dark one (once there is a dark theme) in a collapsed `<details>`; a new route gets an After column only. Removed and unchanged routes get a line each, and with nothing changed, new or removed the section says "No visual changes". The images are referenced as `./.ui/pr/<route>@<viewport>-<theme>-<before|after>.png`, which `gh pr create --attach` (or `gh pr edit --attach`) rewrites to the uploaded files when run from the worktree's root.
+
+`gh` attaches at most 50 files, so `.ui/pr/*.png` never holds more: new routes first, then changed routes by descending score, each whole route while it still fits. The rest are named on an "Also changed (not shown)" line. Each run empties `.ui/pr/` first, and prints the fragment's path and the number of files to attach.
+
+`--body <file>` also puts the fragment into a PR body file: in place of what is between the markers, or, without them, at the top of its `## Evidence` section, or in a new `## Evidence` section after `## Summary` (or at the end).
+
+When the base side fails anywhere (the worktree, the install, its route tree, Setup, Seed data, a server or a shot), `ui compare` still exits 0, with after-only shots of every route under a note: "No before shots: the base `<sha>` couldn't start (<reason>). After only." When the branch side fails, it exits non-zero: the branch is broken. A route with params and no manifest `path` fails it too, naming the route.
 
 ### `ui up` and `ui down`
 

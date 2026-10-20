@@ -41,6 +41,8 @@ export async function withLock<T>(
     onWait,
     pollMs = 200,
     timeoutMs,
+    timeoutMessage = (pid) =>
+      `Another ui command (process ${pid ?? "unknown"}) is still running in this worktree.`,
   }: {
     isHolderRunning: (pid: number) => boolean;
     signal: AbortSignal;
@@ -48,6 +50,8 @@ export async function withLock<T>(
     onWait?: (pid: number | undefined) => void;
     pollMs?: number;
     timeoutMs: number;
+    /** The LockTimeout's message, given the holder's PID. */
+    timeoutMessage?: (pid: number | undefined) => string;
   },
 ): Promise<T> {
   const contents = `${process.pid}:${randomUUID()}`;
@@ -70,9 +74,7 @@ export async function withLock<T>(
       continue;
     }
     if (Date.now() >= deadline) {
-      throw new LockTimeout(
-        `Another ui command (process ${holder ?? "unknown"}) is still running in this worktree.`,
-      );
+      throw new LockTimeout(timeoutMessage(holder));
     }
     if (!waiting) onWait?.(holder);
     waiting = true;

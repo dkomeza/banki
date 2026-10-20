@@ -11,13 +11,13 @@ Paths used below:
 - `<branch>`: the issue's `gitBranchName` from Linear (e.g. `dkomeza/ban-74-walking-skeleton-…`).
 - `<wt>`: the worktree, `../banki-worktrees/<branch without the "dkomeza/" prefix>`, as an absolute path.
 
-A **UI issue** is one whose diff touches `apps/web/` or whose spec has UI criteria. Only a UI issue gets the UI parts below: the implementer's UI check and the `ui-reviewer`. Both use the `ui` script (the README's "Seeing the UI" section), whose stacks and shots live in `<wt>/.ui/`.
+A **UI issue** is one whose diff touches `apps/web/` or whose spec has UI criteria. Only a UI issue gets the UI parts below: the implementer's UI check, the `ui-reviewer`, and before/after shots in the PR body. They use the `ui` script (the README's "Seeing the UI" section), whose stacks and shots live in `<wt>/.ui/`.
 
 ## 0. Clean up merged work
 
-For each worktree under `../banki-worktrees/` (`git worktree list`), check its PR with `gh pr view <branch> --json state,headRefOid`. Remove it only when the state is `MERGED` **and** the local branch tip (`git rev-parse <branch>`) equals `headRefOid`: `bun run ui down` in it (stopping any stack left running), then `git worktree remove <path>` and `git branch -D <branch>`. A tip that differs means local commits that never reached the PR: leave that worktree and tell the user. Then `git checkout main && git pull` in the main checkout.
+For each worktree under `../banki-worktrees/` (`git worktree list`), check its PR with `gh pr view <branch> --json state,headRefOid`. Remove it only when the state is `MERGED` **and** the local branch tip (`git rev-parse <branch>`) equals `headRefOid`: `bun run ui down` in it (stopping any stack left running), then `git worktree remove <path>` and `git branch -D <branch>`. A tip that differs means local commits that never reached the PR: leave that worktree and tell the user. Then remove every base worktree `ui compare` left (the `.base-*` entries of `git worktree list`) with `git worktree remove --force <path>`, and `git checkout main && git pull` in the main checkout.
 
-Done when every merged worktree is removed or reported, and `main` is up to date.
+Done when every merged worktree is removed or reported, no `.base-*` worktree is left, and `main` is up to date.
 
 ## 1. Load the issue
 
@@ -67,7 +67,11 @@ Push with `git push -u origin <branch>`. Write the body with the `pr` skill, the
 - <dismissed finding> - <one-line reason>
 ```
 
-(or "None dismissed."). Title: a conventional commit with the issue ID, e.g. `feat: walking skeleton with typed health check (BAN-74)`; it becomes the squash commit. Open it with `gh pr create --base main --head <branch>` (you are on `main`, and `--head` defaults to the current branch). The branch name links it to Linear.
+(or "None dismissed."). Write the body to `<wt>/.ui/pr-body.md` (gitignored). Title: a conventional commit with the issue ID, e.g. `feat: walking skeleton with typed health check (BAN-74)`; it becomes the squash commit.
+
+On a UI issue, run `bun run ui compare --body .ui/pr-body.md` in `<wt>`. It puts before/after shots of every route the branch changed into the body's Evidence section, between the `<!-- ui-shots -->` markers, with the PNGs in `<wt>/.ui/pr/` (see the README's `ui compare`). Look at the after-shots before going on. A non-zero exit means the branch's own side failed: the branch is broken, so get it fixed first. A base that couldn't start still exits 0, with after-only shots and a note.
+
+Open the PR from `<wt>` with `gh pr create --base main --head <branch> --title <title> --body-file .ui/pr-body.md`, adding on a UI issue one `--attach ./.ui/pr/<file>.png` per PNG in `.ui/pr/`. Run from `<wt>`, the body's `./.ui/pr/…` references name the attached files, and `gh` rewrites them to the uploaded images. The branch name links the PR to Linear.
 
 ## 8. PR review
 
@@ -80,7 +84,7 @@ Run at most **2 rounds**. Each round:
 
 1. Wait with a background `until` loop until the `claude-review` check has finished on the PR's head SHA (`gh pr checks <n>`), and Codex has reviewed it (a review from `chatgpt-codex-connector[bot]` whose `commit_id` is the head SHA, or its 👍 reaction on the PR).
 2. Triage the `new` and `open` findings from the summary comment, and Codex's new inline comments, as in step 5. Spec questions go to the user.
-3. Resume the implementer with the confirmed ones, verify green, and push **once**: every push re-runs both reviews.
+3. Resume the implementer with the confirmed ones, verify green, and push **once**: every push re-runs both reviews. When the round's fixes touched `apps/web/`, refresh the shots from `<wt>`: `gh pr view <n> --json body --jq .body > .ui/pr-body.md`, `bun run ui compare --body .ui/pr-body.md`, then `gh pr edit <n> --body-file .ui/pr-body.md --attach ./.ui/pr/<file>.png …` for each PNG in `.ui/pr/`.
 4. Reply in the thread of each dismissed finding with the reason. The gate weighs replies as arguments on its next run, but only the user can override it.
 
 The round loop ends when `claude-review` passes and Codex has nothing new worth fixing.

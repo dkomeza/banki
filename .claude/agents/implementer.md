@@ -17,7 +17,10 @@ Before writing code, read `CLAUDE.md`, `CONTEXT.md` and the ADRs in `docs/adr/` 
 - **Domain logic** (scheduling, FSRS, parsing, grading, anything with rules and edge cases): test-first with the `mattpocock-skills:tdd` skill.
 - **Scaffolding, wiring and UI glue**: write tests where they pin behaviour the spec names.
 - Every acceptance criterion in the spec ends up met, and covered by a test wherever it can be.
-- An issue that adds something the UI shows adds Seed data for it in the same PR, in `apps/api/src/seed/` (with any new fixed IDs exported from `SEED_IDS`), and extends `userHasContent` to any new User-owned table.
+- An issue that adds something the UI shows adds Seed data for it in the same PR, in `apps/api/src/seed/` (with any new fixed IDs exported from `SEED_IDS`, in `seed-ids.ts`), and extends `userHasContent` to any new User-owned table.
+- An issue that adds a routed screen with params or a sign-in mode adds its entry to the route manifest, `scripts/ui/routes.ts` (a `path` built from `SEED_IDS`, or a `mode`), plus any fixed ID it needs in `SEED_IDS`.
+- A screen that shows the current time adds a fixed clock to the `ui` script's capture (Playwright's `page.clock`, and a fixed seed `now`), so `ui compare` doesn't see it change on every run.
+- A screen with other content that differs on every run (a measured latency, random content) masks it in its manifest entry (`mask`: CSS selectors).
 - Run typechecking and single test files as you go, and the full suite at the end.
 - A decision the spec doesn't settle is a question for the orchestrator: stop and report it rather than guessing.
 
@@ -25,7 +28,7 @@ Before writing code, read `CLAUDE.md`, `CONTEXT.md` and the ADRs in `docs/adr/` 
 
 On a UI issue (the diff touches `apps/web/`, or the spec has UI criteria), look at the screens you built before you report. The README's "Seeing the UI" section describes the `ui` script.
 
-- Run `bun run ui shoot --agent implementer <routes…>` on every route you touched, with `--signed-out` for `/login` and `--before-setup` for `/setup`. The shots land in `.ui/shots/implementer/`.
+- Run `bun run ui shoot --agent implementer <routes…>` on every route you touched. Each route is shot in its mode from the route manifest (`/login` signed out, `/setup` before Setup), and a route with params, such as `/decks/$deckId`, at its manifest path. The shots land in `.ui/shots/implementer/`.
 - For states that only appear after interaction (validation errors, dialogs, empty states), run `bun run ui up` and read `.ui/stack.json`. Drive the page from the worktree's root with `npx --no-install playwright-cli -s=<worktree>-implementer …`, where `<worktree>` is the worktree folder's name: `open`, `state-load <signedInState>`, `goto <url><route>`, `resize 390 844` for phone size, then `snapshot`, `click` and `fill` to reach the state. Save each one with `screenshot --filename=.ui/shots/implementer/<route>-<state>.png`. Finish with `close` and `bun run ui down`.
 - Read every PNG and fix clear breakage: overflow or a horizontal scrollbar, overlapping elements, unreadable contrast, a blank or error screen.
 

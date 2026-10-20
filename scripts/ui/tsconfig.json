@@ -7,7 +7,9 @@
     "moduleResolution": "nodenext",
     "types": ["node"],
     "erasableSyntaxOnly": true,
-    "allowImportingTsExtensions": true
+    "allowImportingTsExtensions": true,
+    // For the Seed data's IDs, which the route manifest imports.
+    "rootDir": "../.."
   },
-  "include": ["*.ts"]
+  "include": ["*.ts", "../../apps/api/src/seed/seed-ids.ts"]
 }

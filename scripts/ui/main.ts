@@ -1,9 +1,9 @@
-import { readFileSync } from "node:fs";
 import { constants } from "node:os";
 import { join, relative } from "node:path";
 import { type Command, parseCommand, type UpMode, USAGE, UsageError } from "./args.ts";
-import { launchChromium, shootRoutes } from "./browser.ts";
-import { themes } from "./shots.ts";
+import { launchChromium } from "./browser.ts";
+import { readThemes, shootSide } from "./capture.ts";
+import { compare } from "./compare.ts";
 import { decideUp, type StackFile } from "./stack-file.ts";
 import {
   EMAIL,
@@ -24,7 +24,8 @@ import {
 // The `ui` script: lets the /work-issue agents (and anyone) see the web app.
 // It starts a throwaway copy of Banki on free ports in this worktree, set up,
 // seeded and signed in, and screenshots routes at phone, tablet and desktop
-// sizes (`shoot`), or leaves the copy running to drive with playwright-cli
+// sizes (`shoot`), compares every route with the branch's merge-base for a PR
+// body (`compare`), or leaves the copy running to drive with playwright-cli
 // (`up` / `down`). Run with `bun run ui …`; see the README.
 //
 // Node runs it (Playwright doesn't support Bun), straight from TypeScript, so
@@ -44,37 +45,29 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
 
 const show = (path: string) => relative(process.cwd(), path) || ".";
 
-function webPackageJson(): unknown {
-  return JSON.parse(readFileSync(join(ROOT, "apps/web/package.json"), "utf8"));
-}
-
-async function shoot({ routes, agent, mode }: Extract<Command, { name: "shoot" }>) {
+async function shoot({ shots, agent }: Extract<Command, { name: "shoot" }>) {
   const { signal } = interrupt;
   const browser = await launchChromium();
   // Closing the browser fails whatever it is doing, so an interrupt mid-shot
   // goes straight to the teardown.
   const closeBrowser = () => void browser.close();
   signal.addEventListener("abort", closeBrowser);
-  const stack = new Stack();
   try {
-    signal.throwIfAborted();
-    await stack.start({ mode, watch: false, signal });
-    const shootThemes = themes(webPackageJson());
-    console.log(`Shooting ${routes.join(" ")} (${shootThemes.join(" and ")})`);
-    const files = await shootRoutes({
+    const shootThemes = readThemes(ROOT);
+    const named = shots.map(({ route, path }) => (route === path ? route : `${route} (${path})`));
+    console.log(`Shooting ${named.join(" ")} (${shootThemes.join(" and ")})`);
+    const files = await shootSide({
       browser,
-      url: stack.url,
-      routes,
+      root: ROOT,
+      shots,
       themes: shootThemes,
-      storageState: stack.signedInState,
       outDir: join(UI_DIR, "shots", agent),
+      signal,
     });
     for (const file of files) console.log(`  ${show(file)}`);
   } finally {
     signal.removeEventListener("abort", closeBrowser);
     await browser.close();
-    console.log("Stopping the stack");
-    await stack.teardown();
   }
 }
 
@@ -168,6 +161,8 @@ async function main(argv: string[]) {
       return;
     case "shoot":
       return shoot(command);
+    case "compare":
+      return compare(command, interrupt.signal);
     case "up":
       return up(command);
     case "down":

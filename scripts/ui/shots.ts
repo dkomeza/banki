@@ -60,3 +60,13 @@ export function themes(webPackageJson: unknown): Theme[] {
     typeof banki === "object" && banki !== null && "darkTheme" in banki && banki.darkTheme === true;
   return darkTheme ? ["light", "dark"] : ["light"];
 }
+
+/**
+ * The CSS a shot applies to hide a route's mask: its selectors keep their
+ * place on the page but draw nothing, so content that differs on every run,
+ * whatever its size, leaves the same pixels. Undefined when there is nothing
+ * to hide.
+ */
+export function hideStyle(mask: readonly string[]): string | undefined {
+  return mask.length === 0 ? undefined : `${mask.join(", ")} { visibility: hidden !important; }`;
+}

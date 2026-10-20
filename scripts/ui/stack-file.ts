@@ -99,9 +99,10 @@ export function dataDirName(pid: number, now: Date): string {
 
 /**
  * The process groups a stack started, which it records in its data folder as
- * it starts them, so `ui down` can find the stack even without stack.json.
+ * it starts them, so `ui down` can find the stack even without stack.json,
+ * and the root whose code it runs.
  */
-export type StackProcesses = { api?: number; web?: number };
+export type StackProcesses = { api?: number; web?: number; root?: string };
 
 /** The processes file of a data folder; whatever it can't read is left out. */
 export function parseStackProcesses(text: string): StackProcesses {
@@ -115,7 +116,21 @@ export function parseStackProcesses(text: string): StackProcesses {
   const processes: StackProcesses = {};
   if (isPid(value["api"])) processes.api = value["api"];
   if (isPid(value["web"])) processes.web = value["web"];
+  if (typeof value["root"] === "string") processes.root = value["root"];
   return processes;
+}
+
+/** A base worktree of `ui compare`, `.base-<12-char sha>`. */
+const BASE_WORKTREE = /\/\.base-[0-9a-f]{12}$/;
+
+/**
+ * The root whose stack processes `ui down` may stop for a data folder: the one
+ * it records when that is this worktree (`ownRoot`) or a base worktree, and
+ * otherwise this worktree.
+ */
+export function stackRoot(processes: StackProcesses, ownRoot: string): string {
+  const { root } = processes;
+  return root !== undefined && (root === ownRoot || BASE_WORKTREE.test(root)) ? root : ownRoot;
 }
 
 export type DataDirFate =

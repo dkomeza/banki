@@ -27,12 +27,16 @@ import {
   parseStackFile,
   parseStackProcesses,
   type StackFile,
+  stackRoot,
   type StackProcesses,
 } from "./stack-file.ts";
 
 // A throwaway copy of Banki (the stack): the API and Vite on free ports, with
 // their own data directory under .ui/, never apps/api/.data. Each process
 // leads its own process group, so stopping it stops whatever it started too.
+// A stack runs the code of a root, a checkout of Banki: this worktree, or the
+// base worktree `ui compare` compares it with. Its data is always under this
+// worktree's .ui/.
 
 /** The worktree this script lives in. */
 export const ROOT = resolve(import.meta.dirname, "../..");
@@ -42,9 +46,8 @@ export const STACK_FILE = join(UI_DIR, "stack.json");
 const LOCK_FILE = join(UI_DIR, "up-down.lock");
 /** In each data folder: the process groups its stack started (see StackProcesses). */
 const PROCESSES_FILE = "processes.json";
-const API_DIR = join(ROOT, "apps/api");
-const WEB_DIR = join(ROOT, "apps/web");
-const VITE_BIN = join(WEB_DIR, "node_modules/vite/bin/vite.js");
+const apiDir = (root: string) => join(root, "apps/api");
+const webDir = (root: string) => join(root, "apps/web");
 
 /** The stack's User: local and throwaway, like the stack itself. */
 export const EMAIL = "ui@example.com";
@@ -146,14 +149,19 @@ async function spawnGroup(
   return child;
 }
 
-/** Runs a `banki` CLI command against the stack's data directory. */
+/** Runs a `banki` CLI command of `root` against the stack's data directory. */
 async function banki(
   args: string[],
-  { env, input, signal }: { env: NodeJS.ProcessEnv; input?: string; signal: AbortSignal },
+  {
+    root,
+    env,
+    input,
+    signal,
+  }: { root: string; env: NodeJS.ProcessEnv; input?: string; signal: AbortSignal },
 ): Promise<void> {
   signal.throwIfAborted();
   const child = spawn("bun", ["src/cli.ts", ...args], {
-    cwd: API_DIR,
+    cwd: apiDir(root),
     env,
     detached: true,
     stdio: ["pipe", "pipe", "pipe"],
@@ -203,11 +211,13 @@ const answers = async (url: string, signal: AbortSignal) =>
   (await fetch(url, { signal: AbortSignal.any([signal, AbortSignal.timeout(5000)]) })).ok;
 
 /**
- * One run's stack. `start` starts it, `teardown` stops whatever it started and
- * deletes its data directory (safe to call at any point, and more than once),
- * and `handOver` leaves it running for `ui down` to stop.
+ * One run's stack, running the code of `root` (this worktree by default).
+ * `start` starts it, `teardown` stops whatever it started and deletes its data
+ * directory (safe to call at any point, and more than once), and `handOver`
+ * leaves it running for `ui down` to stop.
  */
 export class Stack {
+  readonly root: string;
   apiPort = 0;
   webPort = 0;
   url = "";
@@ -218,6 +228,10 @@ export class Stack {
   signedInState: string | undefined;
   /** In before-setup mode: the Setup link the API logged. */
   setupLink: SetupLink | undefined;
+
+  constructor(root: string = ROOT) {
+    this.root = root;
+  }
 
   get logs() {
     const dir = this.dataDir ?? UI_DIR;
@@ -235,24 +249,30 @@ export class Stack {
     if (mode !== "before-setup") {
       console.log(`Setting up ${this.dataDir} with Seed data`);
       await banki(["setup", "--email", EMAIL, "--password-stdin"], {
+        root: this.root,
         env,
         input: `${PASSWORD}\n`,
         signal,
       });
-      await banki(["seed"], { env, signal });
+      await banki(["seed"], { root: this.root, env, signal });
     }
 
     console.log(`Starting the API on ${this.apiPort} and Vite on ${this.url}`);
     this.api = await spawnGroup("bun", watch ? ["--watch", "src/server.ts"] : ["src/server.ts"], {
-      cwd: API_DIR,
+      cwd: apiDir(this.root),
       env,
       logFile: this.logs.api,
     });
     this.recordProcesses();
     this.web = await spawnGroup(
       process.execPath,
-      [VITE_BIN, "--port", String(this.webPort), "--strictPort"],
-      { cwd: WEB_DIR, env: webEnv(process.env, place), logFile: this.logs.web },
+      [
+        join(webDir(this.root), "node_modules/vite/bin/vite.js"),
+        "--port",
+        String(this.webPort),
+        "--strictPort",
+      ],
+      { cwd: webDir(this.root), env: webEnv(process.env, place), logFile: this.logs.web },
     );
     this.recordProcesses();
     await waitFor("The API", () => answers(`http://localhost:${this.apiPort}/api/health`, signal), {
@@ -287,7 +307,7 @@ export class Stack {
    */
   private recordProcesses(): void {
     if (this.dataDir === undefined) return;
-    const processes: StackProcesses = { api: this.api?.pid, web: this.web?.pid };
+    const processes: StackProcesses = { api: this.api?.pid, web: this.web?.pid, root: this.root };
     writeFileSync(join(this.dataDir, PROCESSES_FILE), `${JSON.stringify(processes)}\n`);
   }
 
@@ -408,25 +428,26 @@ const samePath = (a: string, b: string) => {
 };
 
 const STACK_PROCESS = {
-  api: { marker: "src/server.ts", cwd: API_DIR },
-  web: { marker: "vite", cwd: WEB_DIR },
+  api: { marker: "src/server.ts", dir: apiDir },
+  web: { marker: "vite", dir: webDir },
 } as const;
 
 /**
- * Whether `pgid` still runs as this worktree's stack API or Vite: its command
- * line and working directory match, so a process that got the same PID since
- * (or another worktree's stack) is never stopped.
+ * Whether `pgid` still runs as the API or Vite of a stack of `root` (this
+ * worktree by default): its command line and working directory match, so a
+ * process that got the same PID since (or another worktree's stack) is never
+ * stopped.
  */
-function isStackProcess(pgid: number, role: "api" | "web"): boolean {
+function isStackProcess(pgid: number, role: "api" | "web", root: string = ROOT): boolean {
   if (!isAlive(pgid)) return false;
-  const { marker, cwd } = STACK_PROCESS[role];
+  const { marker, dir } = STACK_PROCESS[role];
   if (commandLine(pgid)?.includes(marker) !== true) return false;
   const actual = workingDirectory(pgid);
-  return actual !== undefined && samePath(actual, cwd);
+  return actual !== undefined && samePath(actual, dir(root));
 }
 
 /** Whether `pid` is a running `ui` script, such as a `ui shoot` using its data folder. */
-const isUiProcess = (pid: number) =>
+export const isUiProcess = (pid: number) =>
   isAlive(pid) && commandLine(pid)?.includes("scripts/ui/main.ts") === true;
 
 /** Whether the stack in stack.json is running: both its processes are still its API and Vite. */
@@ -494,10 +515,12 @@ export async function removeUnusedDataDirs(): Promise<{ removed: string[]; stopp
   for (const entry of readdirSync(UI_DIR, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const dir = join(UI_DIR, entry.name);
+    const processes = readProcesses(dir);
+    const root = stackRoot(processes, ROOT);
     const fate = dataDirFate(entry.name, {
       creatorRunning: isUiProcess,
-      processes: readProcesses(dir),
-      isStackProcess,
+      processes,
+      isStackProcess: (pgid, role) => isStackProcess(pgid, role, root),
     });
     if (fate?.action !== "remove") continue;
     if (fate.stop.length > 0) {
