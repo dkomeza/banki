@@ -196,12 +196,16 @@ function parseDeployment(value: unknown): Deployment | undefined {
   };
 }
 
-/** GraphQL gives the payload as a JSON string. */
-function prOfPayload(payload: unknown): number | undefined {
+/**
+ * The `pr` of a Deployment's payload. GraphQL gives the payload JSON-encoded
+ * twice (a JSON string holding the JSON object), so it is decoded until it is
+ * no longer a string, a few times at most.
+ */
+export function prOfPayload(payload: unknown): number | undefined {
   let parsed: unknown = payload;
-  if (typeof payload === "string") {
+  for (let decoded = 0; typeof parsed === "string" && decoded < 3; decoded++) {
     try {
-      parsed = JSON.parse(payload);
+      parsed = JSON.parse(parsed);
     } catch {
       return undefined;
     }
