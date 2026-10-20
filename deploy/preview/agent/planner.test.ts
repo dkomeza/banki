@@ -272,6 +272,7 @@ describe("a new SHA", () => {
         previous: old,
         supersedes: [live.id],
         deployedAt: NOW,
+        needs: [],
       },
     ]);
   });
@@ -1302,5 +1303,87 @@ describe("an evicted or idle head", () => {
     });
 
     expect(kinds(actions)).toEqual(["teardown", "deploy"]);
+  });
+});
+
+/** The observations once PR `<n>` has closed, its Preview still running. */
+const closing = (observed: PlanInput, prNumber: number): PlanInput => ({
+  ...observed,
+  pullRequests: observed.pullRequests.filter((pull) => pull.number !== prNumber),
+});
+
+const needsOf = (actions: Action[], prNumber: number) =>
+  actions.find((action) => action.kind === "deploy" && action.pr === prNumber);
+
+describe("the cleanups a deploy needs", () => {
+  test("none, when there's room for it even if every cleanup fails", () => {
+    const gone = live(1, hoursAgo(1));
+    const observed = observing([gone, live(2, hoursAgo(2))], [pushed(3)], 5);
+
+    const actions = plan(closing(observed, 1));
+
+    expect(kinds(actions)).toEqual(["delete-resource", "teardown", "mark-inactive", "deploy"]);
+    expect(needsOf(actions, 3)).toMatchObject({ needs: [] });
+  });
+
+  test("a closed PR's running Preview, when the deploy fills the cap exactly", () => {
+    const gone = live(1, hoursAgo(1));
+    const observed = observing([gone, live(2, hoursAgo(2))], [pushed(3)], 2);
+
+    const actions = plan(closing(observed, 1));
+
+    expect(needsOf(actions, 3)).toMatchObject({ needs: [1] });
+  });
+
+  test("the oldest of the running cleanups, as many as there is no spare room for", () => {
+    // Cap 3: PR 4 stays and PR 5 deploys, so one of PR 1's teardown and PR 2's
+    // idle removal may fail. The oldest, PR 2's, is the one it counts on.
+    const gone = live(1, hoursAgo(1));
+    const stale = live(2, SEVEN_DAYS_AGO);
+    const observed = observing([gone, stale, live(4, hoursAgo(2))], [pushed(5)], 3);
+
+    const actions = plan(closing(observed, 1));
+
+    expect(kinds(actions)).toEqual([
+      "delete-resource",
+      "teardown",
+      "remove",
+      "mark-inactive",
+      "deploy",
+    ]);
+    expect(needsOf(actions, 5)).toMatchObject({ needs: [2] });
+  });
+
+  test("its evictions, which leave no spare room", () => {
+    const oldest = live(1, hoursAgo(3));
+
+    const actions = plan(observing([oldest, live(2, hoursAgo(2))], [pushed(3)], 2));
+
+    expect(needsOf(actions, 3)).toMatchObject({ needs: [1] });
+  });
+
+  test("never the PR's own idle Preview, which the deploy replaces anyway", () => {
+    const own = live(1, SEVEN_DAYS_AGO);
+    const observed = observing([own], [pushed(1)], 1);
+
+    const actions = plan({ ...observed, deployments: [own.deployment, ...observed.deployments] });
+
+    expect(kinds(actions)).toEqual(["remove", "deploy"]);
+    expect(needsOf(actions, 1)).toMatchObject({ needs: [] });
+  });
+
+  test("never one that isn't running, which never counted", () => {
+    const volumeOnly = { ...leftover(1), deployedAt: SEVEN_DAYS_AGO };
+    const observed = observing([live(2, hoursAgo(2))], [pushed(3)], 2);
+
+    const actions = plan({
+      ...observed,
+      pullRequests: [...observed.pullRequests, pr(1, SHA_A)],
+      projects: [...observed.projects, volumeOnly],
+      deployments: [...observed.deployments, deployment(1, SHA_A, "failure")],
+    });
+
+    expect(kinds(actions)).toEqual(["remove", "deploy"]);
+    expect(needsOf(actions, 3)).toMatchObject({ needs: [] });
   });
 });

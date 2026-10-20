@@ -108,6 +108,12 @@ export type Action =
       previous: DockerProject | undefined;
       supersedes: number[];
       deployedAt: Date;
+      /**
+       * The PRs whose running Preview the cap counts on being removed or torn
+       * down before it. Should one of those fail, the deploy waits for the
+       * next loop; any other cleanup may fail without going over the cap.
+       */
+      needs: number[];
     }
   /**
    * Check the head's Preview, already running at that commit, without taking
@@ -287,6 +293,7 @@ export function plan(input: PlanInput): Action[] {
       previous: project,
       supersedes: others.map((deployment) => deployment.id),
       deployedAt: input.now,
+      needs: [],
     });
   }
 
@@ -297,7 +304,15 @@ export function plan(input: PlanInput): Action[] {
   // about to be replaced anyway, but two such PRs must not wait on each other.
   // Each deploy counts the ones before it as done, the newest of all, though
   // the loop stops after the first: the next loop plans the rest again.
+  //
+  // The running Previews a closed PR's teardown, a finished removal or an idle
+  // one takes down count as gone too. Should those fail, they still run, so a
+  // deploy needs as many of them as it has no spare room for, oldest first;
+  // never the PR's own, which the deploy replaces anyway.
   const leaving = new Set([...finishing, ...idle.map((action) => action.project)]);
+  const cleanups = input.projects.filter(
+    (project) => isRunning(project) && (!targets.has(project.pr) || leaving.has(project)),
+  );
   const redeploying = new Set(deploys.map((action) => action.pr));
   const deploysMakingRoom: Action[] = [];
   const evictions: Extract<Action, { kind: "remove" }>[] = [];
@@ -316,8 +331,14 @@ export function plan(input: PlanInput): Action[] {
       evictions.push(eviction);
       deploysMakingRoom.push(eviction);
     }
-    deploysMakingRoom.push(action);
-    running = [...others.filter((project) => !evicted.includes(project)), deployed(action)];
+    const staying = others.filter((project) => !evicted.includes(project));
+    const spare = input.limits.cap - (staying.length + 1);
+    const freeing = [...cleanups, ...evictions.map((eviction) => eviction.project)]
+      .filter((project) => project.pr !== action.pr)
+      .toSorted(byLastDeploy);
+    const needs = freeing.slice(0, Math.max(0, freeing.length - spare));
+    deploysMakingRoom.push({ ...action, needs: needs.map((project) => project.pr) });
+    running = [...staying, deployed(action)];
   }
 
   // A resource exists exactly while its PR is an open target, its `web` runs
@@ -374,7 +395,7 @@ export function plan(input: PlanInput): Action[] {
  * Whether the Preview counts against the cap: one of its services runs. A
  * failed one (stopped), one stopped by hand, and a leftover volume don't.
  */
-export const isRunning = (project: DockerProject) =>
+const isRunning = (project: DockerProject) =>
   project.api === "running" || project.web === "running";
 
 /** Oldest last deploy first, a missing label oldest of all; a tie goes to the lower PR. */

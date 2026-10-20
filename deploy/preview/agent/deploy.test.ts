@@ -116,6 +116,7 @@ const deployAction = (overrides: Partial<DeployAction> = {}): DeployAction => ({
   previous,
   supersedes: [3],
   deployedAt: NOW,
+  needs: [],
   ...overrides,
 });
 

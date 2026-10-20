@@ -24,7 +24,8 @@ const removal = (pr: number, reason: "evicted" | "idle"): Extract<Action, { kind
   resourceIds: [],
 });
 
-const deploy = (pr: number): Action => ({
+/** A deploy of PR `<pr>` that counts on the Previews of `needs` being gone first. */
+const deploy = (pr: number, needs: number[] = []): Action => ({
   kind: "deploy",
   pr,
   sha: "b".repeat(40),
@@ -33,6 +34,7 @@ const deploy = (pr: number): Action => ({
   previous: undefined,
   supersedes: [],
   deployedAt: new Date("2026-10-20T12:00:00Z"),
+  needs,
 });
 
 const label = (action: Action) =>
@@ -80,42 +82,42 @@ describe("running a plan", () => {
     ]);
   });
 
-  test("skips the deploy when an eviction to make room for it failed, so the cap holds", async () => {
-    const actions = [removal(1, "evicted"), removal(2, "evicted"), deploy(3), deploy(5)];
+  test("skips the deploy when an eviction it needs failed, so the cap holds", async () => {
+    const actions = [removal(1, "evicted"), removal(2, "evicted"), deploy(3, [1, 2]), deploy(5)];
 
     expect(await ran(actions, ["remove 1"])).toEqual(["remove 1", "remove 2"]);
   });
 
-  test("skips the deploy when an idle removal failed: the cap didn't count that Preview", async () => {
-    const actions = [removal(1, "idle"), deploy(3)];
+  test("skips the deploy when an idle removal it needs failed", async () => {
+    const actions = [removal(1, "idle"), deploy(3, [1])];
 
     expect(await ran(actions, ["remove 1"])).toEqual(["remove 1"]);
   });
 
-  test("skips the deploy when a teardown failed: the cap didn't count that Preview either", async () => {
+  test("skips the deploy when a teardown it needs failed", async () => {
     const actions: Action[] = [
       { kind: "teardown", project: project(1) },
       { kind: "create-deployment", pr: 4, sha: "c".repeat(40) },
-      deploy(3),
+      deploy(3, [1]),
     ];
 
     expect(await ran(actions, ["teardown 1"])).toEqual(["teardown 1", "create-deployment 4"]);
   });
 
-  test("still deploys when a failed teardown was of a leftover with only a volume: it never counted", async () => {
-    const volumeOnly: DockerProject = { ...project(1), api: "missing", web: "missing" };
-    const actions: Action[] = [{ kind: "teardown", project: volumeOnly }, deploy(3)];
+  test("still deploys when a cleanup it doesn't need failed: there's room without it", async () => {
+    const actions: Action[] = [
+      { kind: "teardown", project: project(1) },
+      removal(2, "idle"),
+      deploy(3, [2]),
+    ];
 
-    expect(await ran(actions, ["teardown 1"])).toEqual(["teardown 1", "deploy 3"]);
+    expect(await ran(actions, ["teardown 1"])).toEqual(["teardown 1", "remove 2", "deploy 3"]);
   });
 
-  test("still deploys when a failed idle removal was of a stopped Preview: it never counted", async () => {
-    const stopped: Action = {
-      ...removal(1, "idle"),
-      project: { ...project(1), api: "stopped", web: "stopped" },
-    };
+  test("still deploys when the PR's own idle removal failed: the deploy replaces it anyway", async () => {
+    const actions = [removal(3, "idle"), deploy(3)];
 
-    expect(await ran([stopped, deploy(3)], ["remove 1"])).toEqual(["remove 1", "deploy 3"]);
+    expect(await ran(actions, ["remove 3"])).toEqual(["remove 3", "deploy 3"]);
   });
 
   test("still deploys when an action that frees no room failed", async () => {
