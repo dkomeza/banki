@@ -156,13 +156,13 @@ export const pull = (target: ComposeTarget) =>
   });
 
 /**
- * `banki setup` against the fresh volume. The Password goes in on stdin only,
- * never in argv or an environment; the command never prints it.
+ * The `docker compose` arguments and stdin of `banki setup`. The Password goes
+ * in on stdin only, never in argv or an environment; the command never
+ * prints it. Pure, so it is unit-tested.
  */
-export const setup = (target: ComposeTarget, email: string, password: string) =>
-  compose(
-    target,
-    [
+export function setupInvocation(email: string, password: string) {
+  return {
+    args: [
       "run",
       "--rm",
       "-T",
@@ -175,8 +175,19 @@ export const setup = (target: ComposeTarget, email: string, password: string) =>
       email,
       "--password-stdin",
     ],
-    { timeoutMs: 120_000, stdin: `${password}\n`, logAs: `${projectName(target.pr)} setup` },
-  );
+    stdin: `${password}\n`,
+  };
+}
+
+/** `banki setup` against the fresh volume. */
+export function setup(target: ComposeTarget, email: string, password: string) {
+  const { args, stdin } = setupInvocation(email, password);
+  return compose(target, args, {
+    timeoutMs: 120_000,
+    stdin,
+    logAs: `${projectName(target.pr)} setup`,
+  });
+}
 
 export const seed = (target: ComposeTarget) =>
   compose(target, ["run", "--rm", "-T", "api", "bun", "run", "banki", "seed"], {

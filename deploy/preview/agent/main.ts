@@ -1,11 +1,11 @@
 import { ConfigError, pangolinSettings, readSecret, SECRETS } from "./config";
-import { confirm, deploy } from "./deploy";
+import { confirm, deploy, type Services } from "./deploy";
 import * as docker from "./docker";
 import { resolveDigests } from "./ghcr";
 import { gitHub, type GitHub } from "./github";
 import { projectName, REPO, shortSha } from "./naming";
 import { type Pangolin, pangolin } from "./pangolin";
-import { type Action, type ImagesReady, imagesToCheck, plan } from "./planner";
+import { type Action, type ImagesReady, imagesToCheck, isFullReadLoop, plan } from "./planner";
 
 // The pull agent (ADR-0008): every 30 s it observes the open PRs, the Docker
 // projects, the `preview` Deployments, the images and the Pangolin resources,
@@ -29,13 +29,13 @@ async function start(): Promise<Pangolin> {
   }
 }
 
-async function reconcile(previews: Pangolin): Promise<void> {
+async function reconcile(previews: Pangolin, loop: number): Promise<void> {
   // Read on every loop, so a token `bootstrap` rewrites applies without a restart.
   const github = gitHub(readSecret(SECRETS.githubToken));
   // The Deployments are read only as far back as the open PRs need.
   const pullRequests = await github.openPullRequests();
   const [deployments, projects, resources] = await Promise.all([
-    github.previewDeployments(pullRequests),
+    github.previewDeployments(pullRequests, { full: isFullReadLoop(loop) }),
     docker.discoverProjects(),
     previews.resources(),
   ]);
@@ -88,9 +88,9 @@ async function execute(action: Action, github: GitHub, previews: Pangolin, now: 
         `waiting for images of ${shortSha(action.sha)}`,
       );
     case "deploy":
-      return deploy(action, { github, pangolin: previews });
+      return deploy(action, services(github, previews));
     case "confirm":
-      return confirm(action, { github, pangolin: previews });
+      return confirm(action, services(github, previews));
     case "teardown": {
       const result = await docker.down(docker.targetOf(action.project, now));
       if (result.exitCode !== 0) throw new Error(`down ${docker.failure(result)}`);
@@ -109,6 +109,14 @@ async function execute(action: Action, github: GitHub, previews: Pangolin, now: 
   }
 }
 
+const services = (github: GitHub, previews: Pangolin): Services => ({
+  github,
+  pangolin: previews,
+  docker,
+  readSecret,
+  sleep: (ms) => Bun.sleep(ms),
+});
+
 function summary(action: Action): string {
   const project = projectName(action.kind === "teardown" ? action.project.pr : action.pr);
   if (action.kind === "mark-inactive") {
@@ -122,9 +130,9 @@ function summary(action: Action): string {
 }
 
 const previews = await start();
-for (;;) {
+for (let loop = 0; ; loop++) {
   try {
-    await reconcile(previews);
+    await reconcile(previews, loop);
   } catch (error) {
     console.error(`Loop failed: ${errorText(error)}`);
     if (error instanceof ConfigError) process.exit(1);

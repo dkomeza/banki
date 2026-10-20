@@ -1,4 +1,4 @@
-import { readSecret, SECRETS } from "./config";
+import { SECRETS } from "./config";
 import * as docker from "./docker";
 import type { GitHub } from "./github";
 import { previewUrl, projectName, shortSha } from "./naming";
@@ -18,7 +18,21 @@ import type { RunResult } from "./run";
 export type DeployAction = Extract<Action, { kind: "deploy" }>;
 export type ConfirmAction = Extract<Action, { kind: "confirm" }>;
 
-type Services = { github: GitHub; pangolin: Pangolin };
+/** The Docker steps a deploy runs: docker.ts in the agent, a fake in tests. */
+export type DockerSteps = Pick<
+  typeof docker,
+  "down" | "pull" | "setup" | "seed" | "up" | "serviceStates" | "health" | "stop"
+>;
+
+/** Everything a deploy or confirm acts through, passed in so tests can fake it. */
+export type Services = {
+  github: Pick<GitHub, "setStatus">;
+  pangolin: Pick<Pangolin, "createOrKeep">;
+  docker: DockerSteps;
+  /** Reads one of the agent's secret files (config.ts's readSecret). */
+  readSecret: (name: string) => string;
+  sleep: (ms: number) => Promise<void>;
+};
 
 /** A step failed; `reason` is the short, fixed text the Deployment's failure shows. */
 class DeployFailure extends Error {
@@ -44,7 +58,7 @@ export async function deploy(action: DeployAction, services: Services): Promise<
     "in_progress",
     `starting ${shortSha(action.sha)}`,
   );
-  await finish(action, target, services, () => steps(action, target, services.pangolin));
+  await finish(action, target, services, () => steps(action, target, services));
 }
 
 /**
@@ -55,8 +69,8 @@ export async function confirm(action: ConfirmAction, services: Services): Promis
   const target = docker.targetOf(action.project, new Date());
   console.log(`${projectName(action.pr)}: already running ${shortSha(action.sha)}, confirming it`);
   await finish(action, target, services, async () => {
-    await checkHealth(target);
-    await route(services.pangolin, target.pr);
+    await checkHealth(target, services);
+    await route(services, target.pr);
   });
 }
 
@@ -95,7 +109,7 @@ async function finish(
   } else {
     // Left stopped, never retried: it waits for the next push or the PR's close.
     console.log(`${projectName(pr)}: deploy of ${shortSha(sha)} failed: ${reason}`);
-    await docker.stop(target).catch((error: unknown) => {
+    await services.docker.stop(target).catch((error: unknown) => {
       console.error(`${projectName(pr)}: couldn't stop it: ${errorText(error)}`);
     });
     await services.github.setStatus(deploymentId, "failure", reason);
@@ -105,39 +119,40 @@ async function finish(
   }
 }
 
-async function steps(action: DeployAction, target: docker.ComposeTarget, pangolin: Pangolin) {
+async function steps(action: DeployAction, target: docker.ComposeTarget, services: Services) {
+  const run = services.docker;
   // The previous project's images, so `--rmi all` removes them too. With no
   // previous project there are none, and the new ones aren't pulled yet.
   const previous =
     action.previous === undefined
       ? { ...target, digests: docker.NO_DIGESTS }
       : docker.targetOf(action.previous, action.deployedAt);
-  check(await docker.down(previous), "down", "couldn't remove the previous Preview");
-  check(await docker.pull(target), "pull", "couldn't pull the images");
+  check(await run.down(previous), "down", "couldn't remove the previous Preview");
+  check(await run.pull(target), "pull", "couldn't pull the images");
 
   // Read now, so a rotated Password applies from this deploy on.
-  const email = readSecret(SECRETS.previewEmail);
-  const password = readSecret(SECRETS.previewPassword);
-  check(await docker.setup(target, email, password), "setup");
-  check(await docker.seed(target), "seed");
+  const email = services.readSecret(SECRETS.previewEmail);
+  const password = services.readSecret(SECRETS.previewPassword);
+  check(await run.setup(target, email, password), "setup");
+  check(await run.seed(target), "seed");
 
-  const up = await docker.up(target);
-  if (up.exitCode !== 0) throw new DeployFailure(await notUp(target, up));
+  const up = await run.up(target);
+  if (up.exitCode !== 0) throw new DeployFailure(await notUp(target, up, services));
 
-  await checkHealth(target);
-  await route(pangolin, target.pr);
+  await checkHealth(target, services);
+  await route(services, target.pr);
 }
 
 // `up --wait` waits for `web` to run, not for Caddy to listen (it has no
 // healthcheck), so the first try can be refused: a few more, a second apart.
-const HEALTH_ATTEMPTS = 15;
+export const HEALTH_ATTEMPTS = 15;
 
 /** `/api/health` through `web` must answer, and report the head's commit. */
-async function checkHealth(target: docker.ComposeTarget): Promise<void> {
-  let health = await docker.health(target);
+async function checkHealth(target: docker.ComposeTarget, services: Services): Promise<void> {
+  let health = await services.docker.health(target);
   for (let attempt = 1; attempt < HEALTH_ATTEMPTS && health.exitCode !== 0; attempt++) {
-    await Bun.sleep(1000);
-    health = await docker.health(target);
+    await services.sleep(1000);
+    health = await services.docker.health(target);
   }
   if (health.exitCode !== 0) {
     console.log(`${projectName(target.pr)}: health check ${docker.failure(health)}`);
@@ -156,9 +171,9 @@ async function checkHealth(target: docker.ComposeTarget): Promise<void> {
 }
 
 /** Creates or keeps the PR's Pangolin resource. */
-async function route(pangolin: Pangolin, pr: number): Promise<void> {
+async function route(services: Services, pr: number): Promise<void> {
   try {
-    await pangolin.createOrKeep(pr);
+    await services.pangolin.createOrKeep(pr);
   } catch (error) {
     console.error(`${projectName(pr)}: Pangolin: ${errorText(error)}`);
     throw new DeployFailure(
@@ -180,10 +195,14 @@ function check(result: RunResult, step: string, reason?: string): void {
 }
 
 /** Why `up --wait` failed, from the first service that isn't up. */
-async function notUp(target: docker.ComposeTarget, up: RunResult): Promise<string> {
+async function notUp(
+  target: docker.ComposeTarget,
+  up: RunResult,
+  services: Services,
+): Promise<string> {
   const seconds = `after ${docker.UP_WAIT_SECONDS} s`;
   if (up.timedOut) return `not up ${seconds}`;
-  const states = await docker.serviceStates(target).catch(() => []);
+  const states = await services.docker.serviceStates(target).catch(() => []);
   for (const service of ["api", "web"]) {
     const found = states.find((state) => state.service === service);
     if (found === undefined || found.state !== "running") {

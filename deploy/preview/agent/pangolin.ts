@@ -107,7 +107,9 @@ export async function pangolin(options: {
       const data = asObject(
         await call(
           "GET",
-          `${org}/public-resources?siteId=${siteId}&page=${page}&pageSize=${PAGE_SIZE}`,
+          // The whole org, not just the Previews site: an orphan (created, but
+          // cut short before its target) is on no site at all.
+          `${org}/public-resources?page=${page}&pageSize=${PAGE_SIZE}`,
         ),
         "resources",
       );
@@ -124,17 +126,22 @@ export async function pangolin(options: {
   return {
     siteId,
 
-    /** The resources on the Previews site; the planner decides which it owns. */
+    /** Every resource of the org; the planner decides which it owns. */
     resources,
 
     /**
      * Creates PR `<pr>`'s resource unless an owned one exists: HTTP to
      * `banki-pr-<N>-web-1:8080` on the Previews site, with SSO off (the
-     * Preview's User is the only gate). A half-made resource is deleted again.
+     * Preview's User is the only gate). A half-made resource is deleted again,
+     * and so is an orphan an earlier, cut-short create left holding the host.
      */
     async createOrKeep(pr: number): Promise<void> {
       const host = previewHost(pr);
-      if (ownedResources(await resources(), siteId).some((resource) => resource.pr === pr)) return;
+      const owned = ownedResources(await resources(), siteId).filter(
+        (resource) => resource.pr === pr,
+      );
+      if (owned.some((resource) => !resource.orphan)) return;
+      for (const orphan of owned) await deleteResource(orphan.resourceId);
 
       let resourceId: number;
       try {
@@ -178,20 +185,26 @@ export async function pangolin(options: {
   };
 }
 
+const listOf = (list: unknown, at: string): unknown[] =>
+  list === undefined || list === null ? [] : asArray(list, at);
+
 /** The `siteId`s in a resource's `sites` or `targets`. */
 const siteIdsOf = (list: unknown, at: string): number[] =>
-  list === undefined || list === null
-    ? []
-    : asArray(list, at).flatMap((item) => {
-        const siteId = asObject(item, at).siteId;
-        return typeof siteId === "number" ? [siteId] : [];
-      });
+  listOf(list, at).flatMap((item) => {
+    const siteId = asObject(item, at).siteId;
+    return typeof siteId === "number" ? [siteId] : [];
+  });
 
 function parseResource(value: unknown): PangolinResource {
   const resource = asObject(value, "resource");
   return {
     resourceId: asNumber(resource.resourceId, "resource.resourceId"),
     fullDomain: typeof resource.fullDomain === "string" ? resource.fullDomain : "",
+    name: typeof resource.name === "string" ? resource.name : "",
+    // `sites` lists the sites of its targets, so either list says it has one.
+    hasTargets:
+      listOf(resource.targets, "resource.targets").length > 0 ||
+      listOf(resource.sites, "resource.sites").length > 0,
     siteIds: [
       ...new Set([
         ...siteIdsOf(resource.sites, "resource.sites"),

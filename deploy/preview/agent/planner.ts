@@ -1,4 +1,4 @@
-import { prFromHost, REPO } from "./naming";
+import { prFromHost, projectName, REPO } from "./naming";
 
 // The reconcile loop's one decision: given what Docker, GitHub, GHCR and
 // Pangolin say right now, and the time, which actions bring the Previews in
@@ -57,8 +57,14 @@ export type Deployment = {
 /** Both images of PR `<pr>`'s push of `<sha>` exist, tagged `pr-<pr>-<sha>`. */
 export type ImagesReady = { pr: number; sha: string; digests: ImageDigests };
 
-/** A Pangolin public resource, with the sites its targets are on. */
-export type PangolinResource = { resourceId: number; fullDomain: string; siteIds: number[] };
+/** A Pangolin public resource of the org, with the sites its targets are on. */
+export type PangolinResource = {
+  resourceId: number;
+  fullDomain: string;
+  name: string;
+  siteIds: number[];
+  hasTargets: boolean;
+};
 
 export type PlanInput = {
   /** Every open pull request, targets or not. */
@@ -67,7 +73,7 @@ export type PlanInput = {
   deployments: Deployment[];
   /** The images that exist, for the PRs {@link imagesToCheck} named. */
   images: ImagesReady[];
-  /** The resources on the Previews site, owned by the agent or not. */
+  /** Every resource of the org, owned by the agent or not. */
   resources: PangolinResource[];
   /** The Previews site's numeric ID. */
   siteId: number;
@@ -122,20 +128,26 @@ export type Action =
 const isTarget = (pull: PullRequest) =>
   pull.headRepo?.toLowerCase() === REPO.toLowerCase() && pull.author !== "dependabot[bot]";
 
+export type OwnedResource = { pr: number; resourceId: number; orphan: boolean };
+
 /**
- * The resources the agent owns: a target on the Previews site and exactly a
- * Preview's host name. Pangolin's own search is a substring match, so it is
- * never trusted; every other resource is left alone.
+ * The resources the agent owns: exactly a Preview's host name, and either a
+ * target on the Previews site, or no targets at all and the agent's name for
+ * it, `banki-pr-<N>`. That last kind is an orphan: the agent created it but
+ * was cut short before its target. Pangolin's own search is a substring
+ * match, so it is never trusted; every other resource is left alone.
  */
-export function ownedResources(
-  resources: PangolinResource[],
-  siteId: number,
-): { pr: number; resourceId: number }[] {
-  return resources.flatMap((resource) => {
+export function ownedResources(resources: PangolinResource[], siteId: number): OwnedResource[] {
+  return resources.flatMap((resource): OwnedResource[] => {
     const pr = prFromHost(resource.fullDomain);
-    return pr !== undefined && resource.siteIds.includes(siteId)
-      ? [{ pr, resourceId: resource.resourceId }]
-      : [];
+    if (pr === undefined) return [];
+    if (resource.siteIds.includes(siteId)) {
+      return [{ pr, resourceId: resource.resourceId, orphan: false }];
+    }
+    if (!resource.hasTargets && resource.name === projectName(pr)) {
+      return [{ pr, resourceId: resource.resourceId, orphan: true }];
+    }
+    return [];
   });
 }
 
@@ -149,9 +161,15 @@ export function plan(input: PlanInput): Action[] {
   // A resource exists exactly while its PR is an open target and its `web` runs.
   const wantsResource = (pr: number) => targets.has(pr) && projectOf.get(pr)?.web === "running";
 
+  // An orphan routes nowhere and holds its host, so it always goes, and a
+  // wanted PR gets a whole resource again below.
   const deleteResources: Action[] = owned
-    .filter((resource) => !wantsResource(resource.pr))
-    .map((resource) => ({ kind: "delete-resource", ...resource }));
+    .filter((resource) => resource.orphan || !wantsResource(resource.pr))
+    .map((resource) => ({
+      kind: "delete-resource",
+      pr: resource.pr,
+      resourceId: resource.resourceId,
+    }));
 
   const teardowns: Action[] = input.projects
     .filter((project) => !targets.has(project.pr))
@@ -251,7 +269,9 @@ export function plan(input: PlanInput): Action[] {
   const createResources: Action[] = [...targets.keys()]
     .filter(
       (pr) =>
-        wantsResource(pr) && !deploying.has(pr) && !owned.some((resource) => resource.pr === pr),
+        wantsResource(pr) &&
+        !deploying.has(pr) &&
+        !owned.some((resource) => resource.pr === pr && !resource.orphan),
     )
     .map((pr) => ({ kind: "create-resource", pr }));
 
@@ -305,8 +325,11 @@ export function imagesToCheck(input: Omit<PlanInput, "images">): { pr: number; s
  * Whether the loop, reading the `preview` Deployments newest first, has read
  * enough to plan, so it can stop paging: every target's head has a
  * Deployment among those read, and the page just read (`lastPage`) holds only
- * inactive ones, so what lies further back is history the planner doesn't
- * need. Without it, every loop would read every Deployment ever made.
+ * inactive ones. Without it, every loop would read every Deployment ever made.
+ *
+ * It is a shortcut, not proof: an older page can still hold a Deployment that
+ * isn't inactive, such as the success of a PR that closes after a long idle,
+ * or an older one it superseded. {@link isFullReadLoop} loops read them all.
  */
 export function readEnoughDeployments(
   pullRequests: PullRequest[],
@@ -321,3 +344,14 @@ export function readEnoughDeployments(
       ) && lastPage.every((deployment) => deployment.status === "inactive")
   );
 }
+
+/** Every how many loops the agent reads every Deployment, whatever the shortcut says. */
+export const FULL_READ_EVERY = 20;
+
+/**
+ * Whether loop number `loop` (0 is the agent's first) reads every `preview`
+ * Deployment instead of stopping at {@link readEnoughDeployments}: the first,
+ * then every 20th, about every 10 minutes. So a Deployment deep in history
+ * that isn't inactive yet still gets marked, at the latest 10 minutes late.
+ */
+export const isFullReadLoop = (loop: number) => loop % FULL_READ_EVERY === 0;

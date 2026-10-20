@@ -62,12 +62,16 @@ export function gitHub(token: string) {
     },
 
     /**
-     * The `preview` Deployments with their latest statuses, newest first, as
-     * far back as the planner needs (see {@link readEnoughDeployments}).
+     * The `preview` Deployments with their latest statuses, newest first: as
+     * far back as the planner needs (see {@link readEnoughDeployments}), or
+     * all of them, up to the page cap, when `full`.
      * GraphQL gets them with their statuses 100 at a time; REST would need one
      * call per Deployment.
      */
-    async previewDeployments(pullRequests: PullRequest[]): Promise<Deployment[]> {
+    async previewDeployments(
+      pullRequests: PullRequest[],
+      { full }: { full: boolean },
+    ): Promise<Deployment[]> {
       const deployments: Deployment[] = [];
       let after: string | null = null;
       for (let page = 1; page <= MAX_DEPLOYMENT_PAGES; page++) {
@@ -90,10 +94,13 @@ export function gitHub(token: string) {
         );
         deployments.push(...batch);
         const pageInfo = asObject(connection.pageInfo, "pageInfo");
-        if (pageInfo.hasNextPage !== true) break;
-        if (readEnoughDeployments(pullRequests, deployments, batch)) break;
+        if (pageInfo.hasNextPage !== true) return deployments;
+        if (!full && readEnoughDeployments(pullRequests, deployments, batch)) return deployments;
         after = asString(pageInfo.endCursor, "pageInfo.endCursor");
       }
+      console.warn(
+        `Read the newest ${MAX_DEPLOYMENT_PAGES * 100} preview Deployments and stopped there: older ones aren't planned for`,
+      );
       return deployments;
     },
 

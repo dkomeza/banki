@@ -7,6 +7,7 @@ import {
   type PlanInput,
   type PullRequest,
   imagesToCheck,
+  isFullReadLoop,
   plan,
   readEnoughDeployments,
 } from "./planner";
@@ -65,11 +66,24 @@ const project = (prNumber: number, overrides: Partial<DockerProject> = {}): Dock
 const leftover = (prNumber: number): DockerProject =>
   project(prNumber, { api: "missing", web: "missing" });
 
+/** A resource with targets on `siteIds`, named the way the agent names its own. */
 const resource = (
   resourceId: number,
   fullDomain: string,
   siteIds: number[] = [SITE],
-): PangolinResource => ({ resourceId, fullDomain, siteIds });
+  overrides: Partial<PangolinResource> = {},
+): PangolinResource => ({
+  resourceId,
+  fullDomain,
+  name: fullDomain.replace(/^pr-([0-9]+)\..*$/, "banki-pr-$1"),
+  siteIds,
+  hasTargets: siteIds.length > 0,
+  ...overrides,
+});
+
+/** A resource the agent created but never gave its target: it was cut short. */
+const orphan = (resourceId: number, prNumber: number) =>
+  resource(resourceId, `pr-${prNumber}.banki.dkomeza.com`, []);
 
 const ready = (prNumber: number, sha: string) => ({
   pr: prNumber,
@@ -600,13 +614,65 @@ describe("Pangolin resources", () => {
           resource(44, "pr-5.banki.dkomeza.com.evil.com"),
           resource(45, "pr-5-banki.dkomeza.com"),
           resource(46, "homelab.dkomeza.com"),
-          // With no targets at all.
-          resource(47, "pr-6.banki.dkomeza.com", []),
+          // With no targets at all, but not named the way the agent names its own.
+          resource(47, "pr-6.banki.dkomeza.com", [], { name: "someone-else" }),
+          // Named like the agent's, but its targets are on another site.
+          resource(48, "pr-7.banki.dkomeza.com", [OTHER_SITE], { name: "banki-pr-7" }),
         ],
       }),
     );
 
     expect(actions).toEqual([]);
+  });
+
+  test("an orphan the agent made, with no target, is deleted and made again for a running Preview", () => {
+    const actions = plan(
+      input({
+        pullRequests: [pr(5, SHA_A)],
+        projects: [project(5, { sha: SHA_A })],
+        deployments: [deployment(5, SHA_A, "success")],
+        resources: [orphan(40, 5)],
+      }),
+    );
+
+    expect(actions).toEqual([
+      { kind: "delete-resource", pr: 5, resourceId: 40 },
+      { kind: "create-resource", pr: 5 },
+    ]);
+  });
+
+  test("an orphan of a closed PR is deleted", () => {
+    const actions = plan(input({ resources: [orphan(40, 5)] }));
+
+    expect(actions).toEqual([{ kind: "delete-resource", pr: 5, resourceId: 40 }]);
+  });
+
+  test("an orphan of a PR about to be deployed is deleted, and the deploy makes the resource", () => {
+    const actions = plan(
+      input({
+        pullRequests: [pr(5, SHA_A)],
+        deployments: [deployment(5, SHA_A, "queued")],
+        images: [ready(5, SHA_A)],
+        resources: [orphan(40, 5)],
+      }),
+    );
+
+    expect(kinds(actions)).toEqual(["delete-resource", "deploy"]);
+  });
+
+  test("a lookalike with the Preview's host but no targets and another name is never touched", () => {
+    const lookalike = resource(40, "pr-5.banki.dkomeza.com", [], { name: "pr-5" });
+
+    const actions = plan(
+      input({
+        pullRequests: [pr(5, SHA_A)],
+        projects: [project(5, { sha: SHA_A })],
+        deployments: [deployment(5, SHA_A, "success")],
+        resources: [lookalike],
+      }),
+    );
+
+    expect(actions).toEqual([{ kind: "create-resource", pr: 5 }]);
   });
 
   test("an owned resource on several sites, the Previews site among them, is still owned", () => {
@@ -694,5 +760,13 @@ describe("reading Deployments newest first", () => {
     ];
 
     expect(readEnoughDeployments(pulls, [old], [old])).toBe(true);
+  });
+});
+
+describe("full reads of the Deployments", () => {
+  test("happen on the agent's first loop and every 20th after it, about every 10 minutes", () => {
+    const full = Array.from({ length: 61 }, (_, loop) => loop).filter(isFullReadLoop);
+
+    expect(full).toEqual([0, 20, 40, 60]);
   });
 });
