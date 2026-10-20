@@ -347,7 +347,7 @@ While a new push waits for its images, the Preview of the previous push keeps ru
 
 ### How Previews run
 
-A pull agent on the home server polls GitHub every 30 s and makes the running Previews match the open pull requests ([ADR-0008](docs/adr/0008-previews-pulled-by-an-agent-on-the-home-server.md)). Nothing from GitHub runs on the server except inside a Preview's containers, and nothing on GitHub can reach the server. The agent keeps no state of its own: Docker says what runs, and the deployments say what was tried, so restarting it loses nothing, and a deploy it was in the middle of is redone from scratch.
+A pull agent on the home server polls GitHub every 30 s and makes the running Previews match the open pull requests ([ADR-0008](docs/adr/0008-previews-pulled-by-an-agent-on-the-home-server.md)). Nothing from GitHub runs on the server except inside a Preview's containers, and nothing on GitHub can reach the server. The agent keeps no state of its own: Docker says what runs, and the deployments say what was tried, so restarting it loses nothing. A deploy it was in the middle of is redone from scratch, unless the Preview already runs at that commit: then, as when GitHub refused to record a success, it only checks the Preview's health again and records the result, without taking it down.
 
 | Path                                | What it is                                                                                                                              |
 | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
@@ -404,7 +404,7 @@ The agent holds the Docker socket, so its image is only ever built on the server
 
 ### When a Preview fails
 
-A Preview that fails is left stopped, its link gives a 404, and its deployment shows `failure` with a short reason. The agent doesn't retry it: the next push, or closing the pull request, clears it. Logs never go to GitHub; read them on the server:
+A Preview that fails is left stopped, its link gives a 404, and its deployment shows `failure` with a short reason. The agent doesn't retry it: the next push, or closing the pull request, clears it. Logs never go to GitHub, and the reason is one of a few fixed texts (an unexpected error shows only `agent error, see the agent's log`); read the details on the server:
 
 - The output of `setup` and `seed`, and of every other step, is in the agent's log, each line tagged with its project and step: `docker compose -f deploy/preview/agent.compose.yaml logs agent | grep banki-pr-<N>`.
 - When `up` or the health check failed, the Preview's own containers have the story: `docker compose -p banki-pr-<N> logs`.

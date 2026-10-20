@@ -15,9 +15,11 @@ export class PangolinError extends Error {
   override name = "PangolinError";
   constructor(
     message: string,
+    /** The HTTP status Pangolin answered with. */
     readonly status: number,
+    options?: ErrorOptions,
   ) {
-    super(message);
+    super(message, options);
   }
 }
 
@@ -148,9 +150,11 @@ export async function pangolin(options: {
         resourceId = asNumber(created.resourceId, "resource.resourceId");
       } catch (error) {
         if (error instanceof PangolinError && error.status === 409) {
-          throw new Error(`${host} is taken by a Pangolin resource the agent doesn't own`, {
-            cause: error,
-          });
+          throw new PangolinError(
+            `${host} is taken by a Pangolin resource the agent doesn't own`,
+            409,
+            { cause: error },
+          );
         }
         throw error;
       }

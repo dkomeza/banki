@@ -94,6 +94,19 @@ export type Action =
       supersedes: number[];
       deployedAt: Date;
     }
+  /**
+   * Check the head's Preview, already running at that commit, without taking
+   * it down: its health, then its resource and the Deployment's success. For a
+   * deploy whose success was never recorded (a failed write, or a restart).
+   */
+  | {
+      kind: "confirm";
+      pr: number;
+      sha: string;
+      deploymentId: number;
+      project: DockerProject;
+      supersedes: number[];
+    }
   /** `down -v --remove-orphans --rmi all`: containers, volumes, networks and images. */
   | { kind: "teardown"; project: DockerProject }
   | { kind: "mark-inactive"; pr: number; deploymentId: number; reason: "closed" | "superseded" }
@@ -156,6 +169,7 @@ export function plan(input: PlanInput): Action[] {
   const supersededDeployments: Action[] = [];
   const createDeployments: Action[] = [];
   const markQueued: Action[] = [];
+  const confirms: Extract<Action, { kind: "confirm" }>[] = [];
   const deploys: Extract<Action, { kind: "deploy" }>[] = [];
   for (const pull of targets.values()) {
     const head = headDeployment(input.deployments, pull);
@@ -183,6 +197,26 @@ export function plan(input: PlanInput): Action[] {
       }
       continue;
     }
+    // Already running at the head: a deploy got that far, but its success was
+    // never recorded. Taking a healthy Preview down again would repeat every
+    // loop for as long as GitHub refuses the write.
+    const project = projectOf.get(pull.number);
+    if (
+      project !== undefined &&
+      project.sha === pull.headSha &&
+      project.api === "running" &&
+      project.web === "running"
+    ) {
+      confirms.push({
+        kind: "confirm",
+        pr: pull.number,
+        sha: pull.headSha,
+        deploymentId: head.id,
+        project,
+        supersedes: others.map((deployment) => deployment.id),
+      });
+      continue;
+    }
     const images = input.images.find(
       (image) => image.pr === pull.number && image.sha === pull.headSha,
     );
@@ -197,23 +231,23 @@ export function plan(input: PlanInput): Action[] {
       }
       continue;
     }
-    // Queued, or in progress when the agent stopped mid-deploy: in progress is
-    // only ever seen by a planner that runs after the deploy was cut short,
-    // since one action runs at a time. Either way, from scratch.
+    // Queued, or in progress when the agent stopped mid-deploy (one action runs
+    // at a time, so the planner never sees a deploy that is still going), and
+    // nothing runs at the head: from scratch.
     deploys.push({
       kind: "deploy",
       pr: pull.number,
       sha: pull.headSha,
       deploymentId: head.id,
       digests: images.digests,
-      previous: projectOf.get(pull.number),
+      previous: project,
       supersedes: others.map((deployment) => deployment.id),
       deployedAt: input.now,
     });
   }
 
-  // A deploy ends by creating or keeping the resource itself.
-  const deploying = new Set(deploys.map((action) => action.pr));
+  // A deploy or a confirm ends by creating or keeping the resource itself.
+  const deploying = new Set([...deploys, ...confirms].map((action) => action.pr));
   const createResources: Action[] = [...targets.keys()]
     .filter(
       (pr) =>
@@ -229,6 +263,7 @@ export function plan(input: PlanInput): Action[] {
     ...createResources,
     ...createDeployments,
     ...markQueued,
+    ...confirms,
     ...deploys,
   ];
 }
@@ -264,4 +299,25 @@ export function imagesToCheck(input: Omit<PlanInput, "images">): { pr: number; s
       return head !== undefined && isWaiting(head);
     })
     .map((pull) => ({ pr: pull.number, sha: pull.headSha }));
+}
+
+/**
+ * Whether the loop, reading the `preview` Deployments newest first, has read
+ * enough to plan, so it can stop paging: every target's head has a
+ * Deployment among those read, and the page just read (`lastPage`) holds only
+ * inactive ones, so what lies further back is history the planner doesn't
+ * need. Without it, every loop would read every Deployment ever made.
+ */
+export function readEnoughDeployments(
+  pullRequests: PullRequest[],
+  read: Deployment[],
+  lastPage: Deployment[],
+): boolean {
+  return (
+    pullRequests
+      .filter(isTarget)
+      .every((pull) =>
+        read.some((deployment) => deployment.pr === pull.number && deployment.sha === pull.headSha),
+      ) && lastPage.every((deployment) => deployment.status === "inactive")
+  );
 }

@@ -8,6 +8,7 @@ import {
   type PullRequest,
   imagesToCheck,
   plan,
+  readEnoughDeployments,
 } from "./planner";
 
 // The planner decides everything the agent does, from what Docker, GitHub,
@@ -365,13 +366,84 @@ describe("a deployed Preview", () => {
     ]);
   });
 
-  test("interrupted by a restart after it started is deployed again, since its health was never checked", () => {
+  test("interrupted by a restart after it started, and running at its head, is confirmed, not taken down", () => {
+    const older = deployment(5, SHA_B, "success");
+    const interrupted = deployment(5, SHA_A, "in_progress", { createdAt: NOW });
+    const running = project(5, { sha: SHA_A });
+
+    const actions = plan(
+      input({
+        pullRequests: [pr(5, SHA_A)],
+        projects: [running],
+        deployments: [older, interrupted],
+        images: [ready(5, SHA_A)],
+      }),
+    );
+
+    expect(actions).toEqual([
+      {
+        kind: "confirm",
+        pr: 5,
+        sha: SHA_A,
+        deploymentId: interrupted.id,
+        project: running,
+        supersedes: [older.id],
+      },
+    ]);
+  });
+
+  test("whose success couldn't be written is confirmed again, not redeployed, while it runs at its head", () => {
+    const queued = deployment(5, SHA_A, "queued");
+
+    const actions = plan(
+      input({
+        pullRequests: [pr(5, SHA_A)],
+        projects: [project(5, { sha: SHA_A })],
+        deployments: [queued],
+        images: [ready(5, SHA_A)],
+        resources: [resource(40, "pr-5.banki.dkomeza.com")],
+      }),
+    );
+
+    expect(kinds(actions)).toEqual(["confirm"]);
+  });
+
+  test("is confirmed at its head even before its images are looked up again", () => {
     const interrupted = deployment(5, SHA_A, "in_progress");
 
     const actions = plan(
       input({
         pullRequests: [pr(5, SHA_A)],
         projects: [project(5, { sha: SHA_A })],
+        deployments: [interrupted],
+      }),
+    );
+
+    expect(kinds(actions)).toEqual(["confirm"]);
+  });
+
+  test("running at an older SHA is deployed over, not confirmed", () => {
+    const waiting = deployment(5, SHA_B, "in_progress");
+
+    const actions = plan(
+      input({
+        pullRequests: [pr(5, SHA_B)],
+        projects: [project(5, { sha: SHA_A })],
+        deployments: [waiting],
+        images: [ready(5, SHA_B)],
+      }),
+    );
+
+    expect(kinds(actions)).toEqual(["deploy"]);
+  });
+
+  test("stopped at its head is deployed again, not confirmed", () => {
+    const interrupted = deployment(5, SHA_A, "in_progress");
+
+    const actions = plan(
+      input({
+        pullRequests: [pr(5, SHA_A)],
+        projects: [project(5, { sha: SHA_A, web: "stopped" })],
         deployments: [interrupted],
         images: [ready(5, SHA_A)],
       }),
@@ -584,4 +656,43 @@ test("a Preview about to be deployed gets its resource from the deploy, not befo
   );
 
   expect(kinds(actions)).toEqual(["deploy"]);
+});
+
+describe("reading Deployments newest first", () => {
+  test("stops once every target's head has one and the last page is all inactive", () => {
+    const head = deployment(5, SHA_B, "success");
+    const old = deployment(4, SHA_A, "inactive");
+
+    expect(readEnoughDeployments([pr(5, SHA_B)], [head, old], [old])).toBe(true);
+  });
+
+  test("goes on while a target's head has none yet", () => {
+    const old = deployment(4, SHA_A, "inactive");
+
+    expect(readEnoughDeployments([pr(5, SHA_B)], [old], [old])).toBe(false);
+  });
+
+  test("goes on while the last page holds a Deployment that isn't inactive, which may need marking", () => {
+    const head = deployment(5, SHA_B, "success");
+    const stale = deployment(4, SHA_A, "queued");
+
+    expect(readEnoughDeployments([pr(5, SHA_B)], [head, stale], [stale])).toBe(false);
+  });
+
+  test("counts only a Deployment of the head's own PR and commit", () => {
+    const otherPr = deployment(6, SHA_B, "inactive");
+    const otherSha = deployment(5, SHA_A, "inactive");
+
+    expect(readEnoughDeployments([pr(5, SHA_B)], [otherPr, otherSha], [otherSha])).toBe(false);
+  });
+
+  test("needs no Deployment for a fork or Dependabot PR", () => {
+    const old = deployment(4, SHA_A, "inactive");
+    const pulls = [
+      pr(5, SHA_B, { headRepo: "someone/banki" }),
+      pr(6, SHA_B, { author: "dependabot[bot]" }),
+    ];
+
+    expect(readEnoughDeployments(pulls, [old], [old])).toBe(true);
+  });
 });

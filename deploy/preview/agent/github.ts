@@ -1,6 +1,11 @@
 import { ENVIRONMENT, REPO } from "./naming";
 import { asArray, asNumber, asObject, asString, parseJson } from "./parse";
-import type { Deployment, DeploymentStatus, PullRequest } from "./planner";
+import {
+  type Deployment,
+  type DeploymentStatus,
+  type PullRequest,
+  readEnoughDeployments,
+} from "./planner";
 
 // The GitHub adapter. Every call uses the token: the anonymous limit of 60
 // calls an hour is less than one poll every 30 s needs. The token is a
@@ -8,6 +13,8 @@ import type { Deployment, DeploymentStatus, PullRequest } from "./planner";
 // the public repo.
 
 const API = "https://api.github.com";
+/** A backstop on paging the Deployments: 2000 of them. */
+const MAX_DEPLOYMENT_PAGES = 20;
 const TIMEOUT_MS = 30_000;
 const [OWNER = "", NAME = ""] = REPO.split("/");
 
@@ -55,14 +62,15 @@ export function gitHub(token: string) {
     },
 
     /**
-     * Every `preview` Deployment with its latest status. GraphQL gets them
-     * with their statuses 100 at a time; REST would need one call per
-     * Deployment, which outgrows the rate limit as Deployments pile up.
+     * The `preview` Deployments with their latest statuses, newest first, as
+     * far back as the planner needs (see {@link readEnoughDeployments}).
+     * GraphQL gets them with their statuses 100 at a time; REST would need one
+     * call per Deployment.
      */
-    async previewDeployments(): Promise<Deployment[]> {
+    async previewDeployments(pullRequests: PullRequest[]): Promise<Deployment[]> {
       const deployments: Deployment[] = [];
       let after: string | null = null;
-      for (;;) {
+      for (let page = 1; page <= MAX_DEPLOYMENT_PAGES; page++) {
         const body = asObject(
           await json("POST", "/graphql", {
             query: DEPLOYMENTS_QUERY,
@@ -77,14 +85,16 @@ export function gitHub(token: string) {
           asObject(asObject(body.data, "data").repository, "repository").deployments,
           "deployments",
         );
-        for (const node of asArray(connection.nodes, "deployments.nodes")) {
-          const deployment = parseDeployment(node);
-          if (deployment !== undefined) deployments.push(deployment);
-        }
+        const batch = asArray(connection.nodes, "deployments.nodes").flatMap(
+          (node) => parseDeployment(node) ?? [],
+        );
+        deployments.push(...batch);
         const pageInfo = asObject(connection.pageInfo, "pageInfo");
-        if (pageInfo.hasNextPage !== true) return deployments;
+        if (pageInfo.hasNextPage !== true) break;
+        if (readEnoughDeployments(pullRequests, deployments, batch)) break;
         after = asString(pageInfo.endCursor, "pageInfo.endCursor");
       }
+      return deployments;
     },
 
     /** A Deployment of `sha` for PR `pr`; its ID. */

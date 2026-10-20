@@ -1,5 +1,5 @@
 import { ConfigError, pangolinSettings, readSecret, SECRETS } from "./config";
-import { deploy } from "./deploy";
+import { confirm, deploy } from "./deploy";
 import * as docker from "./docker";
 import { resolveDigests } from "./ghcr";
 import { gitHub, type GitHub } from "./github";
@@ -32,9 +32,10 @@ async function start(): Promise<Pangolin> {
 async function reconcile(previews: Pangolin): Promise<void> {
   // Read on every loop, so a token `bootstrap` rewrites applies without a restart.
   const github = gitHub(readSecret(SECRETS.githubToken));
-  const [pullRequests, deployments, projects, resources] = await Promise.all([
-    github.openPullRequests(),
-    github.previewDeployments(),
+  // The Deployments are read only as far back as the open PRs need.
+  const pullRequests = await github.openPullRequests();
+  const [deployments, projects, resources] = await Promise.all([
+    github.previewDeployments(pullRequests),
     docker.discoverProjects(),
     previews.resources(),
   ]);
@@ -49,8 +50,15 @@ async function reconcile(previews: Pangolin): Promise<void> {
 
   const images: ImagesReady[] = [];
   for (const { pr, sha } of imagesToCheck(observed)) {
-    const digests = await resolveDigests(pr, sha);
-    if (digests !== undefined) images.push({ pr, sha, digests });
+    // One PR's lookup failing leaves only that PR waiting, not every other.
+    try {
+      const digests = await resolveDigests(pr, sha);
+      if (digests !== undefined) images.push({ pr, sha, digests });
+    } catch (error) {
+      console.error(
+        `${projectName(pr)}: couldn't look up the images of ${shortSha(sha)}, so they count as not ready: ${errorText(error)}`,
+      );
+    }
   }
 
   for (const action of plan({ ...observed, images })) {
@@ -81,6 +89,8 @@ async function execute(action: Action, github: GitHub, previews: Pangolin, now: 
       );
     case "deploy":
       return deploy(action, { github, pangolin: previews });
+    case "confirm":
+      return confirm(action, { github, pangolin: previews });
     case "teardown": {
       const result = await docker.down(docker.targetOf(action.project, now));
       if (result.exitCode !== 0) throw new Error(`down ${docker.failure(result)}`);
