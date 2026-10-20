@@ -14,7 +14,7 @@ const project = (pr: number): DockerProject => ({
   web: "running",
 });
 
-const removal = (pr: number, reason: "evicted" | "idle"): Action => ({
+const removal = (pr: number, reason: "evicted" | "idle"): Extract<Action, { kind: "remove" }> => ({
   kind: "remove",
   pr,
   reason,
@@ -100,6 +100,22 @@ describe("running a plan", () => {
     ];
 
     expect(await ran(actions, ["teardown 1"])).toEqual(["teardown 1", "create-deployment 4"]);
+  });
+
+  test("still deploys when a failed teardown was of a leftover with only a volume: it never counted", async () => {
+    const volumeOnly: DockerProject = { ...project(1), api: "missing", web: "missing" };
+    const actions: Action[] = [{ kind: "teardown", project: volumeOnly }, deploy(3)];
+
+    expect(await ran(actions, ["teardown 1"])).toEqual(["teardown 1", "deploy 3"]);
+  });
+
+  test("still deploys when a failed idle removal was of a stopped Preview: it never counted", async () => {
+    const stopped: Action = {
+      ...removal(1, "idle"),
+      project: { ...project(1), api: "stopped", web: "stopped" },
+    };
+
+    expect(await ran([stopped, deploy(3)], ["remove 1"])).toEqual(["remove 1", "deploy 3"]);
   });
 
   test("still deploys when an action that frees no room failed", async () => {

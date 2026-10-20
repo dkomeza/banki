@@ -374,7 +374,7 @@ export function plan(input: PlanInput): Action[] {
  * Whether the Preview counts against the cap: one of its services runs. A
  * failed one (stopped), one stopped by hand, and a leftover volume don't.
  */
-const isRunning = (project: DockerProject) =>
+export const isRunning = (project: DockerProject) =>
   project.api === "running" || project.web === "running";
 
 /** Oldest last deploy first, a missing label oldest of all; a tie goes to the lower PR. */
