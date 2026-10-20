@@ -12,8 +12,9 @@ import { SEED_IDS } from "../../apps/api/src/seed/seed-ids.ts";
 // - `mode`: `signed-out` (set up and seeded, not signed in) or `before-setup`
 //   (not set up yet).
 // - `mask`: CSS selectors of content that differs on every run, such as a
-//   measured latency or random content. Every shot paints them over (on both
-//   sides of `ui compare`), so they never count as a change.
+//   measured latency or random content. Every shot hides it, keeping its
+//   place on the page (on both sides of `ui compare`), so it never counts as
+//   a change, whatever its size.
 //
 // An issue that adds a routed screen with params or a sign-in mode adds its
 // entry here, with any fixed ID it needs in SEED_IDS, and a screen with

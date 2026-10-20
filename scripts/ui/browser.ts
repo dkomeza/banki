@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { type Browser, chromium, type Page } from "playwright";
-import { shotFileName, type Theme, VIEWPORTS } from "./shots.ts";
+import { hideStyle, shotFileName, type Theme, VIEWPORTS } from "./shots.ts";
 import { UiError } from "./stack.ts";
 
 /** How to install the browser, for the message when it is missing. */
@@ -40,12 +40,12 @@ async function open(page: Page, url: string): Promise<void> {
   await page.evaluate("document.fonts.ready.then(() => undefined)");
 }
 
-/** A page to shoot: its path, and the CSS selectors to paint over in its shots. */
+/** A page to shoot: its path, and the CSS selectors to hide in its shots. */
 export type Target = { path: string; mask: readonly string[] };
 
 /**
  * Screenshots every route, full page, at each viewport in each theme, into
- * `outDir`, with its mask painted over. Returns the files written.
+ * `outDir`, with its mask hidden. Returns the files written.
  */
 export async function shootRoutes({
   browser,
@@ -96,7 +96,7 @@ export async function shootRoutes({
             path: file,
             fullPage: true,
             animations: "disabled",
-            mask: mask.map((selector) => page.locator(selector)),
+            style: hideStyle(mask),
           });
           files.push(file);
           for (const error of errors) {

@@ -65,7 +65,7 @@ export type Shot = {
   /** The concrete path to open. */
   path: string;
   mode: ShootMode;
-  /** CSS selectors to paint over in the shots: content that differs on every run. */
+  /** CSS selectors to hide in the shots: content that differs on every run. */
   mask: readonly string[];
 };
 

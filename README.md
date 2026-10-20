@@ -123,7 +123,7 @@ export const ROUTES: RouteManifest = {
 
 - `mode`: `signed-out` or `before-setup`. A route without one is shot signed in.
 - `path`: the one concrete path to shoot a route with params at, built from the [Seed data](#seed-data)'s fixed IDs (`SEED_IDS`, in `apps/api/src/seed/seed-ids.ts`). Every route with params needs one.
-- `mask`: CSS selectors of content that differs on every run, such as the home screen's measured API latency. Every shot of the route, in `ui shoot` and on both sides of `ui compare`, paints them over with a solid box (Playwright's screenshot `mask`), so they never count as a change.
+- `mask`: CSS selectors of content that differs on every run, such as the home screen's measured API latency. Every shot of the route, in `ui shoot` and on both sides of `ui compare`, hides them (`visibility: hidden`, through Playwright's screenshot `style`): they keep their place on the page but draw nothing, so they never count as a change, whatever their size.
 
 An issue that adds a routed screen with params or a sign-in mode adds its entry, with any fixed ID it needs in `SEED_IDS`, and a screen with content that differs on every run masks it.
 

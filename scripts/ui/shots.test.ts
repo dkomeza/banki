@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { shotFileName, shotName, themes, VIEWPORTS } from "./shots.ts";
+import { hideStyle, shotFileName, shotName, themes, VIEWPORTS } from "./shots.ts";
 
 describe("shotName", () => {
   test("/ is index", () => {
@@ -63,5 +63,18 @@ describe("themes", () => {
     assert.deepEqual(themes({ banki: {} }), ["light"]);
     assert.deepEqual(themes({ banki: { darkTheme: "true" } }), ["light"]);
     assert.deepEqual(themes(null), ["light"]);
+  });
+});
+
+describe("hideStyle", () => {
+  test("hides a route's masked content, keeping its place on the page", () => {
+    assert.equal(
+      hideStyle(["[role=status]", ".clock"]),
+      "[role=status], .clock { visibility: hidden !important; }",
+    );
+  });
+
+  test("is undefined with nothing to hide", () => {
+    assert.equal(hideStyle([]), undefined);
   });
 });
