@@ -426,6 +426,8 @@ docker compose -f deploy/preview/agent.compose.yaml logs agent | grep -i self-up
 
 Running `docker compose -f deploy/preview/agent.compose.yaml up -d --build` by hand from a checkout still works, for the first start or to fix a broken agent. An agent started that way doesn't know its commit, so on its next loop it moves itself back onto `main`.
 
+The agent only checks for updates once it has started, so one whose start-up crashes on a bug in `main` doesn't update itself, even after the fix is merged. Run `docker compose -f deploy/preview/agent.compose.yaml up -d --build` by hand from a checkout with the fix; once that agent runs, it moves itself back onto `main`.
+
 The agent holds the Docker socket, so its image is only ever built on the server from `main`, never pulled from GHCR, where any pull request can push any tag. The Preview template is baked into that image, so a pull request can't change how its own Preview runs: a change to the template takes effect once it's merged and the agent has updated itself, and then for each Preview at its next push. Running Previews aren't redeployed.
 
 ### When a Preview fails
