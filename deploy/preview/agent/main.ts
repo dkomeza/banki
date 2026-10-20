@@ -1,10 +1,11 @@
+import { runActions } from "./act";
 import * as clone from "./clone";
 import { ConfigError, pangolinSettings, previewLimits, readSecret, SECRETS } from "./config";
 import { confirm, deploy, type Services } from "./deploy";
 import * as docker from "./docker";
 import { resolveDigests } from "./ghcr";
 import { gitHub, type GitHub } from "./github";
-import { HELPER, removeHelper, runHelper } from "./helper";
+import { HELPER, removeFinishedHelper, runHelper, START_WAIT_MS } from "./helper";
 import { projectName, REPO, shortSha } from "./naming";
 import { type Pangolin, pangolin } from "./pangolin";
 import {
@@ -38,10 +39,15 @@ async function start(): Promise<{ previews: Pangolin; limits: Limits }> {
     console.log(
       `At most ${limits.cap} Previews run at once, and each is removed ${limits.idleDays} days after its last deploy`,
     );
-    // Whatever update started this agent is over, or failed.
-    await removeHelper().catch((error: unknown) => {
+    // The helper whose `up` started this agent may still be finishing it.
+    const leftover = await removeFinishedHelper(START_WAIT_MS).catch((error: unknown) => {
       console.error(`Couldn't remove the old ${HELPER}: ${errorText(error)}`);
     });
+    if (leftover === "running") {
+      console.error(
+        `${HELPER} is still running after ${START_WAIT_MS / 60_000} minutes: leaving it, to be removed on the next start`,
+      );
+    }
     return { previews, limits };
   } catch (error) {
     console.error(`Can't start: ${errorText(error)}`);
@@ -126,17 +132,9 @@ async function reconcile(previews: Pangolin, limits: Limits, loop: number): Prom
     }
   }
 
-  for (const action of plan({ ...observed, images })) {
-    console.log(summary(action));
-    try {
-      await execute(action, github, previews, observed.now);
-    } catch (error) {
-      // The next loop observes again and retries whatever is still wrong.
-      console.error(`${summary(action)} failed: ${errorText(error)}`);
-    }
-    // A deploy takes a while, and what it was planned from may have moved on.
-    if (action.kind === "deploy") break;
-  }
+  await runActions(plan({ ...observed, images }), summary, (action) =>
+    execute(action, github, previews, observed.now),
+  );
 }
 
 async function execute(action: Action, github: GitHub, previews: Pangolin, now: Date) {

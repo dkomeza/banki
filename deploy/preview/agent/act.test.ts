@@ -1,0 +1,94 @@
+import { describe, expect, spyOn, test } from "bun:test";
+import { runActions } from "./act";
+import type { Action, DockerProject } from "./planner";
+
+// The loop runs the plan's actions one at a time. These tests give it a plan
+// and a fake that fails the actions named, and check which ones ran.
+
+const project = (pr: number): DockerProject => ({
+  pr,
+  sha: "a".repeat(40),
+  deployedAt: new Date("2026-10-20T11:00:00Z"),
+  digests: undefined,
+  api: "running",
+  web: "running",
+});
+
+const removal = (pr: number, reason: "evicted" | "idle"): Action => ({
+  kind: "remove",
+  pr,
+  reason,
+  description: `${reason}, push to rebuild`,
+  project: project(pr),
+  deploymentId: pr * 100,
+  resourceIds: [],
+});
+
+const deploy = (pr: number): Action => ({
+  kind: "deploy",
+  pr,
+  sha: "b".repeat(40),
+  deploymentId: pr * 100 + 1,
+  digests: { api: "sha256:1", web: "sha256:2" },
+  previous: undefined,
+  supersedes: [],
+  deployedAt: new Date("2026-10-20T12:00:00Z"),
+});
+
+const label = (action: Action) =>
+  `${action.kind} ${action.kind === "teardown" ? action.project.pr : action.pr}`;
+
+/** Runs `actions`, failing those whose label is in `failing`; the labels of those that ran. */
+async function ran(actions: Action[], failing: string[] = []): Promise<string[]> {
+  const log = spyOn(console, "log").mockImplementation(() => {});
+  const error = spyOn(console, "error").mockImplementation(() => {});
+  const calls: string[] = [];
+  try {
+    await runActions(actions, label, async (action) => {
+      calls.push(label(action));
+      if (failing.includes(label(action))) throw new Error("boom");
+    });
+  } finally {
+    log.mockRestore();
+    error.mockRestore();
+  }
+  return calls;
+}
+
+describe("running a plan", () => {
+  test("runs every action in order, and stops after the first deploy", async () => {
+    const actions = [
+      { kind: "create-deployment", pr: 4, sha: "c".repeat(40) } as const,
+      removal(1, "evicted"),
+      deploy(3),
+      removal(2, "evicted"),
+      deploy(5),
+    ];
+
+    expect(await ran(actions)).toEqual(["create-deployment 4", "remove 1", "deploy 3"]);
+  });
+
+  test("goes on past a failed action", async () => {
+    const actions = [
+      { kind: "create-deployment", pr: 4, sha: "c".repeat(40) } as const,
+      { kind: "create-resource", pr: 6 } as const,
+    ];
+
+    expect(await ran(actions, ["create-deployment 4"])).toEqual([
+      "create-deployment 4",
+      "create-resource 6",
+    ]);
+  });
+
+  test("skips the deploy when an eviction to make room for it failed, so the cap holds", async () => {
+    const actions = [removal(1, "evicted"), removal(2, "evicted"), deploy(3), deploy(5)];
+
+    expect(await ran(actions, ["remove 1"])).toEqual(["remove 1", "remove 2"]);
+  });
+
+  test("still deploys when only an idle removal failed", async () => {
+    const actions = [removal(1, "idle"), deploy(3)];
+
+    expect(await ran(actions, ["remove 1"])).toEqual(["remove 1", "deploy 3"]);
+  });
+});
