@@ -958,6 +958,81 @@ describe("the cap on running Previews", () => {
     expect(kinds(actions)).toEqual(["delete-resource", "teardown", "mark-inactive", "deploy"]);
   });
 
+  test("a PR with its own deploy in the plan isn't evicted while another can be", () => {
+    // PR 1 is the oldest, but its new push deploys in this plan too.
+    const oldest = live(1, hoursAgo(3));
+    const newer = live(2, hoursAgo(2));
+
+    const actions = plan(observing([oldest, newer], [pushed(3), pushed(1)], 2));
+
+    expect(actions).toEqual([
+      eviction(newer),
+      expect.objectContaining({ kind: "deploy", pr: 3 }),
+      expect.objectContaining({ kind: "deploy", pr: 1, previous: oldest.project }),
+    ]);
+  });
+
+  test("a PR redeploying its head, with only api left running, isn't evicted while another can be", () => {
+    const halfUp = project(1, { sha: SHA_A, deployedAt: hoursAgo(3), web: "stopped" });
+    const head = deployment(1, SHA_A, "in_progress");
+    const newer = live(2, hoursAgo(2));
+    const observed = observing([newer], [pushed(3)], 2);
+
+    const actions = plan({
+      ...observed,
+      pullRequests: [...observed.pullRequests, pr(1, SHA_A)],
+      projects: [...observed.projects, halfUp],
+      deployments: [...observed.deployments, head],
+      images: [...observed.images, ready(1, SHA_A)],
+    });
+
+    expect(actions).toEqual([
+      eviction(newer),
+      expect.objectContaining({ kind: "deploy", pr: 3 }),
+      expect.objectContaining({ kind: "deploy", pr: 1, deploymentId: head.id }),
+    ]);
+  });
+
+  test("when only PRs deploying in the plan can make room, one is evicted, so no deploy waits forever", () => {
+    // At a cap of 1, each of the two would otherwise wait for the other.
+    const first = live(1, hoursAgo(3));
+    const second = live(2, hoursAgo(2));
+
+    const actions = plan(observing([first, second], [pushed(1), pushed(2)], 1));
+
+    expect(actions.slice(0, 2)).toEqual([
+      eviction(second),
+      expect.objectContaining({ kind: "deploy", pr: 1 }),
+    ]);
+  });
+
+  test("an eviction never marks a head still waiting to deploy: that head deploys anyway", () => {
+    const halfUp = project(2, { sha: SHA_A, deployedAt: hoursAgo(2), web: "stopped" });
+    const head = deployment(2, SHA_A, "in_progress");
+    const observed = observing([], [pushed(1)], 1);
+
+    const actions = plan({
+      ...observed,
+      pullRequests: [...observed.pullRequests, pr(2, SHA_A)],
+      projects: [halfUp],
+      deployments: [...observed.deployments, head],
+      images: [...observed.images, ready(2, SHA_A)],
+    });
+
+    expect(actions.slice(0, 2)).toEqual([
+      {
+        kind: "remove",
+        pr: 2,
+        reason: "evicted",
+        description: "evicted, push to rebuild",
+        project: halfUp,
+        deploymentId: undefined,
+        resourceIds: [],
+      },
+      expect.objectContaining({ kind: "deploy", pr: 1 }),
+    ]);
+  });
+
   test("several deploys in one plan each make room, counting the ones before as the newest", () => {
     const oldest = live(1, hoursAgo(3));
     const newer = live(2, hoursAgo(2));

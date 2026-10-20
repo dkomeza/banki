@@ -292,10 +292,13 @@ export function plan(input: PlanInput): Action[] {
 
   // A deploy admits one more running Preview. Right before it, as many of the
   // running ones as the cap needs make room, oldest last deploy first; the
-  // PR's own counts for nothing, since the deploy replaces it. Each deploy
-  // counts the ones before it as done, the newest of all, though the loop
-  // stops after the first: the next loop plans the rest again.
+  // PR's own counts for nothing, since the deploy replaces it. A PR with a
+  // deploy of its own in this plan goes only when nothing else can: it is
+  // about to be replaced anyway, but two such PRs must not wait on each other.
+  // Each deploy counts the ones before it as done, the newest of all, though
+  // the loop stops after the first: the next loop plans the rest again.
   const leaving = new Set([...finishing, ...idle.map((action) => action.project)]);
+  const redeploying = new Set(deploys.map((action) => action.pr));
   const deploysMakingRoom: Action[] = [];
   const evictions: Extract<Action, { kind: "remove" }>[] = [];
   let running = input.projects
@@ -304,13 +307,17 @@ export function plan(input: PlanInput): Action[] {
   for (const action of deploys) {
     const others = running.filter((project) => project.pr !== action.pr);
     const excess = Math.max(0, others.length + 1 - input.limits.cap);
-    for (const project of others.slice(0, excess)) {
+    const evicted = [
+      ...others.filter((project) => !redeploying.has(project.pr)),
+      ...others.filter((project) => redeploying.has(project.pr)),
+    ].slice(0, excess);
+    for (const project of evicted) {
       const eviction = removal(input, owned, project, "evicted");
       evictions.push(eviction);
       deploysMakingRoom.push(eviction);
     }
     deploysMakingRoom.push(action);
-    running = [...others.slice(excess), deployed(action)];
+    running = [...others.filter((project) => !evicted.includes(project)), deployed(action)];
   }
 
   // A resource exists exactly while its PR is an open target, its `web` runs
@@ -399,13 +406,21 @@ function removal(
   reason: "evicted" | "idle",
 ): Extract<Action, { kind: "remove" }> {
   const made = madeBy(input.deployments, project);
+  // A head still waiting deploys anyway, over whatever is left: an eviction
+  // marking it would keep a fresh push down. An idle one is marked, though.
+  const pull = input.pullRequests.find((candidate) => candidate.number === project.pr);
+  const waitingHead =
+    made !== undefined &&
+    pull !== undefined &&
+    made.id === headDeployment(input.deployments, pull)?.id &&
+    isWaiting(made);
   return {
     kind: "remove",
     pr: project.pr,
     reason,
     description: removedDescription(reason, input.limits.idleDays),
     project,
-    deploymentId: made?.id,
+    deploymentId: reason === "evicted" && waitingHead ? undefined : made?.id,
     resourceIds: owned
       .filter((resource) => resource.pr === project.pr)
       .map((resource) => resource.resourceId),
