@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -141,6 +149,23 @@ describe("bootstrap", () => {
       "PANGOLIN_API_URL=https://api.pangolin.example.com/v1\nPANGOLIN_ORG_ID=other-org\nPANGOLIN_SITE=previews\n",
     );
     expect(read(dir, "github-token")).toBe(`${GITHUB_TOKEN}\n`);
+  });
+
+  test("keeps the Preview limits set by hand in agent.env, without asking for them", async () => {
+    const dir = secretsDir();
+    await bootstrap(dir, FIRST_ANSWERS);
+    const env = join(dir, "agent.env");
+    writeFileSync(env, `${read(dir, "agent.env")}PREVIEW_CAP=2\nPREVIEW_IDLE_DAYS=0.5\n`);
+    const answers = keepAll("n");
+    answers[3] = "other-org";
+
+    const result = await bootstrap(dir, answers);
+
+    expect(result.exitCode).toBe(0);
+    expect(read(dir, "agent.env")).toBe(
+      "PANGOLIN_API_URL=https://api.pangolin.example.com/v1\nPANGOLIN_ORG_ID=other-org\nPANGOLIN_SITE=previews\nPREVIEW_CAP=2\nPREVIEW_IDLE_DAYS=0.5\n",
+    );
+    expect(mode(env)).toBe(0o600);
   });
 
   test("rotates the Password only when the answer is yes", async () => {

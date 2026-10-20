@@ -1,7 +1,11 @@
 # The Preview pull agent and the Previews' Newt (ADR-0008), on the home
-# server. Start or update it from a clone of `main`:
+# server. Start it from a clone of `main`:
 #
 #   docker compose -f deploy/preview/agent.compose.yaml up -d --build
+#
+# From then on the agent updates itself (ADR-0009): when deploy/preview/
+# changes on `main`, a helper container runs that same command on the agent's
+# own clone of `main`, with BANKI_PREVIEW_SECRETS and BANKI_PREVIEW_COMMIT set.
 #
 # Its settings and secrets come from `deploy/preview/bootstrap`, which writes
 # them to $BANKI_PREVIEW_SECRETS (default ~/.config/banki-preview), outside
@@ -26,18 +30,29 @@ services:
     # Bun isn't PID 1, so `docker compose stop` ends it straight away.
     init: true
     environment:
-      # The docker CLI keeps its config under HOME, on the tmpfs.
+      # The docker CLI and git keep their config under HOME, on the tmpfs.
       HOME: /tmp
+      # The `main` commit the helper built this agent from; empty when a person
+      # started it, which moves it onto `main` on its first loop.
+      BANKI_PREVIEW_COMMIT: ${BANKI_PREVIEW_COMMIT:-}
+      # The secrets directory's host path, which the helper mounts at that
+      # same path: Compose reads the env files and has the daemon mount the
+      # secret files from there.
+      BANKI_PREVIEW_SECRETS: ${BANKI_PREVIEW_SECRETS:-${HOME}/.config/banki-preview}
     # PANGOLIN_API_URL, PANGOLIN_ORG_ID and PANGOLIN_SITE: not secret.
+    # PREVIEW_CAP and PREVIEW_IDLE_DAYS, if set: the limits on Previews.
     env_file: ${BANKI_PREVIEW_SECRETS:-${HOME}/.config/banki-preview}/agent.env
     # Files under /run/secrets, so none of them is in its environment in
     # `docker inspect`.
     secrets: [github-token, pangolin-api-key, preview-email, preview-password]
-    # It runs `docker compose` for every Preview against the host's daemon.
     volumes:
+      # It runs `docker compose` for every Preview against the host's daemon.
       - /var/run/docker.sock:/var/run/docker.sock
+      # Its own clone of `main`, which only it writes to.
+      - banki-preview-src:/src
     # Root, for the socket. Of root's powers it keeps only reading files it
-    # doesn't own: the secrets are the host user's, mode 0600.
+    # doesn't own: the secrets are the host user's, mode 0600. The clone's
+    # volume is root's own, so git needs nothing more.
     cap_drop: [ALL]
     cap_add: [DAC_READ_SEARCH]
     # Its own network, for GitHub, GHCR and Pangolin. Never banki-previews.
@@ -79,6 +94,11 @@ networks:
           # Preview may start before Newt, and if it took .2, Newt would fail
           # to start and that Preview would be the proxy every `web` trusts.
           ip_range: 172.31.255.128/25
+
+volumes:
+  # Named outside the project, so the helper can mount it by name.
+  banki-preview-src:
+    name: banki-preview-src
 
 secrets:
   github-token:

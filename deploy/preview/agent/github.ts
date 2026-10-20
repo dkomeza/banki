@@ -1,5 +1,5 @@
 import { ENVIRONMENT, REPO } from "./naming";
-import { asArray, asNumber, asObject, asString, parseJson } from "./parse";
+import { asArray, asNumber, asObject, asOptionalString, asString, parseJson } from "./parse";
 import {
   type Deployment,
   type DeploymentStatus,
@@ -145,7 +145,7 @@ query ($owner: String!, $name: String!, $environment: String!, $after: String) {
   repository(owner: $owner, name: $name) {
     deployments(environments: [$environment], first: 100, after: $after, orderBy: { field: CREATED_AT, direction: DESC }) {
       pageInfo { hasNextPage endCursor }
-      nodes { databaseId commitOid createdAt payload latestStatus { state } }
+      nodes { databaseId commitOid createdAt payload latestStatus { state description } }
     }
   }
 }`;
@@ -188,6 +188,11 @@ function parseDeployment(value: unknown): Deployment | undefined {
     createdAt: new Date(asString(node.createdAt, "deployment.createdAt")),
     // An unknown state is left to the next push, like a failure.
     status: state === undefined ? undefined : (STATUSES[state] ?? "error"),
+    // Says whether an inactive one was evicted or went idle (see the planner).
+    description:
+      latest === undefined
+        ? undefined
+        : asOptionalString(latest.description, "latestStatus.description"),
   };
 }
 

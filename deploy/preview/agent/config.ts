@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import type { Limits } from "./planner";
 
 // What the agent reads from outside: compose secrets under /run/secrets (the
 // GitHub token, the Pangolin key, and the Preview's Email and Password, so
@@ -53,4 +54,40 @@ export function pangolinSettings() {
     orgId: requiredEnv("PANGOLIN_ORG_ID"),
     siteNiceId: requiredEnv("PANGOLIN_SITE"),
   };
+}
+
+/**
+ * How many Previews may run at once and after how many days without a push
+ * one is removed: PREVIEW_CAP (a positive integer, default 5) and
+ * PREVIEW_IDLE_DAYS (a positive number, decimals allowed, default 7), from
+ * agent.env. Read on start, so a change needs `up -d --force-recreate`.
+ */
+export function previewLimits(env: Record<string, string | undefined> = process.env): Limits {
+  return {
+    cap: optionalEnv(env, "PREVIEW_CAP", 5, /^[0-9]+$/, "a positive whole number"),
+    idleDays: optionalEnv(
+      env,
+      "PREVIEW_IDLE_DAYS",
+      7,
+      /^(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)$/,
+      "a positive number of days, such as 7 or 0.5",
+    ),
+  };
+}
+
+/** A setting that is a positive number matching `pattern`, or `fallback` when it is unset or empty. */
+function optionalEnv(
+  env: Record<string, string | undefined>,
+  name: string,
+  fallback: number,
+  pattern: RegExp,
+  expected: string,
+): number {
+  const value = env[name]?.trim();
+  if (value === undefined || value === "") return fallback;
+  const parsed = Number(value);
+  if (!pattern.test(value) || !Number.isFinite(parsed) || parsed <= 0) {
+    throw new ConfigError(`${name} is ${JSON.stringify(value)}, not ${expected}. Fix agent.env.`);
+  }
+  return parsed;
 }

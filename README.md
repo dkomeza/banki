@@ -333,15 +333,22 @@ Both packages start out private. Make each one public once, after its first push
 
 Every open pull request from a branch of this repo gets a [Preview](CONTEXT.md) at `https://pr-<N>.banki.dkomeza.com`, drafts included. It is already set up, with the Preview's Email and Password and the [Seed data](#seed-data). Every push rebuilds it from scratch from the [images CI pushes](#preview-images), with a fresh database, so you sign in again after a push. It's removed when the pull request closes or merges. Fork and Dependabot pull requests get none, the same rule CI uses for the images.
 
+The home server runs other things too, so Previews are limited:
+
+- **At most 5 run at once.** When a deploy would make a sixth, the Preview whose last deploy is the oldest is evicted first (a tie goes to the lower pull request number). Only a Preview with a running container counts: one that failed, one stopped by hand, or what's left after a failed start doesn't. The pull request being deployed is never evicted.
+- **Each is removed 7 days after its last deploy**, whatever its state, unless a newer push is still waiting for its images: that one deploys when they arrive.
+
+An evicted or idle Preview comes back on its next push, as the newest. Closing and reopening the pull request doesn't bring it back; pushing does.
+
 Each Preview shows on its pull request as a deployment to the `preview` environment:
 
-| Status        | What it means                                                                                                                         |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `queued`      | Waiting for the push's images. There's no timeout: a failed image build shows on the pull request, and the next push moves things on  |
-| `in_progress` | Deploying                                                                                                                             |
-| `success`     | Up, with the Preview's link                                                                                                           |
-| `failure`     | Didn't start, with a short reason such as `seed exited 1`, `api not healthy after 60 s` or `health reports wrong commit …`. See below |
-| `inactive`    | The pull request closed, or a newer push replaced it                                                                                  |
+| Status        | What it means                                                                                                                                                      |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `queued`      | Waiting for the push's images. There's no timeout: a failed image build shows on the pull request, and the next push moves things on                               |
+| `in_progress` | Deploying                                                                                                                                                          |
+| `success`     | Up, with the Preview's link                                                                                                                                        |
+| `failure`     | Didn't start, with a short reason such as `seed exited 1`, `api not healthy after 60 s` or `health reports wrong commit …`. See below                              |
+| `inactive`    | The pull request closed (`PR closed`), a newer push replaced it, or it was removed by the limits: `evicted, push to rebuild` or `idle for 7 days, push to rebuild` |
 
 While a new push waits for its images, the Preview of the previous push keeps running.
 
@@ -349,14 +356,16 @@ While a new push waits for its images, the Preview of the previous push keeps ru
 
 A pull agent on the home server polls GitHub every 30 s and makes the running Previews match the open pull requests ([ADR-0008](docs/adr/0008-previews-pulled-by-an-agent-on-the-home-server.md)). Nothing from GitHub runs on the server except inside a Preview's containers, and nothing on GitHub can reach the server. The agent keeps no state of its own: Docker says what runs, and the deployments say what was tried, so restarting it loses nothing. A deploy it was in the middle of is redone from scratch, unless the Preview already runs at that commit: then, as when GitHub refused to record a success, it only checks the Preview's health again and records the result, without taking it down.
 
-| Path                                | What it is                                                                                                                              |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `deploy/preview/compose.yaml`       | The Preview template: one Preview as the Compose project `banki-pr-<N>`, from the images pinned by digest, hardened and limited         |
-| `deploy/preview/agent/`             | The agent (Bun, no npm dependencies) and its Dockerfile. `planner.ts` decides everything and is unit-tested; the rest are thin adapters |
-| `deploy/preview/agent.compose.yaml` | The agent, the Previews' Newt and the `banki-previews` network                                                                          |
-| `deploy/preview/bootstrap`          | Asks for the agent's settings and secrets and writes them outside the clone                                                             |
+| Path                                | What it is                                                                                                                                                                                                       |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `deploy/preview/compose.yaml`       | The Preview template: one Preview as the Compose project `banki-pr-<N>`, from the images pinned by digest, hardened and limited                                                                                  |
+| `deploy/preview/agent/`             | The agent (Bun, no npm dependencies) and its Dockerfile. `planner.ts` decides everything about Previews and `self-update.ts` when the agent updates itself; both are unit-tested, and the rest are thin adapters |
+| `deploy/preview/agent.compose.yaml` | The agent, the Previews' Newt and the `banki-previews` network                                                                                                                                                   |
+| `deploy/preview/bootstrap`          | Asks for the agent's settings and secrets and writes them outside the clone                                                                                                                                      |
 
 Each deploy runs `docker compose down -v --remove-orphans --rmi all` on what was there, pulls the images, runs `banki setup` (the Password on stdin only) and `banki seed` against the empty volume, starts the Preview with `up --wait`, checks that `/api/health` through Caddy reports the pushed commit, and routes `pr-<N>.banki.dkomeza.com` to it through its own Pangolin resource.
+
+Before a deploy that would go over the cap, and whenever a Preview goes idle, the agent first marks the deployment that made it `inactive` with the reason, then deletes its Pangolin resource and runs the same `down -v --remove-orphans --rmi all` as for a closed pull request. That mark is the only record: the agent still keeps no state, and if the teardown is cut off, the next loop sees the mark and finishes it.
 
 Each Preview's own network is internal, so it has no internet access. Only its `web` also joins `banki-previews`, an internal network shared with the Newt of the Previews site (at `172.31.255.2`, the one proxy `web` trusts). So Previews can reach each other's `web`, but never each other's `api`, and the agent isn't on that network at all.
 
@@ -386,21 +395,38 @@ It writes everything to `$BANKI_PREVIEW_SECRETS`, by default `~/.config/banki-pr
 
 Run `bootstrap` again to change a value: each one it has is the default, so Enter keeps it. It makes a new Password only when you answer yes to rotating it, and each Preview takes the new one from its next deploy. The agent reads the GitHub token and the Password afresh each time, but the Pangolin settings only on start, so after changing those run `docker compose -f deploy/preview/agent.compose.yaml up -d --force-recreate`.
 
-The agent stops on start with a clear error when the Previews site or the `banki.dkomeza.com` domain can't be found, or a setting is missing. Its log says why:
+The limits have defaults, and `bootstrap` doesn't ask for them. To change them, add either line to `agent.env` in `$BANKI_PREVIEW_SECRETS` (`bootstrap` keeps them when it rewrites the file):
+
+```sh
+# How many Previews may run at once: a positive whole number.
+PREVIEW_CAP=5
+# How many days after its last deploy a Preview is removed. Decimals work: 0.01 is about 15 minutes.
+PREVIEW_IDLE_DAYS=7
+```
+
+The agent reads them only on start, so run `docker compose -f deploy/preview/agent.compose.yaml up -d --force-recreate` afterwards. A lower cap evicts nothing by itself: the next deploy evicts as many as it takes to fit within it.
+
+The agent stops on start with a clear error when the Previews site or the `banki.dkomeza.com` domain can't be found, or a setting is missing or invalid. Its log says why:
 
 ```sh
 docker compose -f deploy/preview/agent.compose.yaml logs agent
 ```
 
-### Updating the agent
+### The agent updates itself
 
-Until the agent updates itself, update it by hand from `main`:
+The agent keeps its own clone of `main` in the `banki-preview-src` volume, fetched anonymously from `https://github.com/dkomeza/banki.git` ([ADR-0009](docs/adr/0009-the-pull-agent-updates-itself-through-a-helper-container.md)). Only `refs/heads/main` is ever fetched, checked out or built, so a pull request's branch never reaches the server, and the checkout you started it from is never touched.
+
+At the start of every loop, before it plans anything, the agent fetches `main` and compares `deploy/preview/` between the commit it runs and `main`. When anything there changed, it starts `banki-preview-updater`, a one-shot helper container from its own image with the same hardening, which runs `docker compose -f deploy/preview/agent.compose.yaml up -d --build` on the clone. That rebuilds the agent and replaces it; Newt is only recreated when its own settings change. A change outside `deploy/preview/` rebuilds nothing.
+
+The helper's output goes to the agent's log, and so does a failure: the old agent logs the helper's exit code and keeps running, and doesn't try that same `main` commit again until it restarts or `main` moves on. A failed fetch is logged and tried again on the next loop, and the Previews are kept in line either way:
 
 ```sh
-git pull && docker compose -f deploy/preview/agent.compose.yaml up -d --build
+docker compose -f deploy/preview/agent.compose.yaml logs agent | grep -i self-update
 ```
 
-The agent holds the Docker socket, so its image is only ever built on the server from a clone of `main`, never pulled from GHCR, where any pull request can push any tag. The Preview template is baked into that image, so a pull request can't change how its own Preview runs: a change to the template takes effect once it's merged and the agent is rebuilt.
+Running `docker compose -f deploy/preview/agent.compose.yaml up -d --build` by hand from a checkout still works, for the first start or to fix a broken agent. An agent started that way doesn't know its commit, so on its next loop it moves itself back onto `main`.
+
+The agent holds the Docker socket, so its image is only ever built on the server from `main`, never pulled from GHCR, where any pull request can push any tag. The Preview template is baked into that image, so a pull request can't change how its own Preview runs: a change to the template takes effect once it's merged and the agent has updated itself, and then for each Preview at its next push. Running Previews aren't redeployed.
 
 ### When a Preview fails
 
