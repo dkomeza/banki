@@ -223,12 +223,24 @@ const oneLine = (reason: string) => {
   return line.length > 200 ? `${line.slice(0, 199)}…` : line;
 };
 
+/**
+ * Text that renders as itself in a PR body: `&`, `<` and `>` as HTML entities
+ * (so no tag, comment or `ui-shots` marker can appear), and markdown's inline
+ * punctuation backslash-escaped.
+ */
+const literal = (text: string) =>
+  text
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll(/[\\`*_[\]|~]/g, "\\$&");
+
 /** The markdown fragment, between the `ui-shots` markers. */
 export function renderFragment(evidence: Evidence, themes: readonly Theme[]): string {
   const blocks: string[] = [];
   if (evidence.kind === "fallback") {
     blocks.push(
-      `No before shots: the base \`${evidence.base}\` couldn't start (${oneLine(evidence.reason)}). After only.`,
+      `No before shots: the base \`${evidence.base}\` couldn't start (${literal(oneLine(evidence.reason))}). After only.`,
     );
   }
   for (const route of evidence.shown) blocks.push(routeSection(route, themes));

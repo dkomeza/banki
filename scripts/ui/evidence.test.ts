@@ -5,10 +5,12 @@ import {
   attachments,
   classify,
   comparedEvidence,
+  END_MARKER,
   fallbackEvidence,
   prFileName,
   renderFragment,
   spliceBody,
+  START_MARKER,
 } from "./evidence.ts";
 
 const light = ["light"] as const;
@@ -325,6 +327,34 @@ describe("fallbackEvidence", () => {
     assert.equal(
       note("x".repeat(500))?.length,
       "No before shots: the base `b` couldn't start (). After only.".length + 200,
+    );
+  });
+
+  test("the note's reason renders literally: HTML and markdown in it are escaped", () => {
+    assert.equal(
+      note("TypeError: x is not a function at <anonymous> & *main* `run` [1]_"),
+      "No before shots: the base `b` couldn't start (TypeError: x is not a function at &lt;anonymous&gt; &amp; \\*main\\* \\`run\\` \\[1\\]\\_). After only.",
+    );
+  });
+
+  test("the note's reason can't end the fragment early, or start another", () => {
+    const fragment = renderFragment(
+      fallbackEvidence({
+        base: "b",
+        reason: `Vite printed ${END_MARKER} then ${START_MARKER}`,
+        routes: [],
+        pathOf,
+        themes: [...light],
+      }),
+      [...light],
+    );
+    assert.equal(fragment.split(START_MARKER).length, 2);
+    assert.equal(fragment.split(END_MARKER).length, 2);
+    assert.ok(fragment.endsWith(END_MARKER));
+    const body = spliceBody("## Evidence\n", fragment);
+    assert.equal(
+      spliceBody(body, "<!-- ui-shots -->\nx\n<!-- /ui-shots -->"),
+      "## Evidence\n\n<!-- ui-shots -->\nx\n<!-- /ui-shots -->\n",
     );
   });
 
