@@ -1,0 +1,5 @@
+# The agent's image takes only the Preview template and the agent's code.
+*
+!compose.yaml
+!agent/*.ts
+agent/*.test.ts

@@ -6,6 +6,7 @@
     { "path": "./apps/web" },
     { "path": "./apps/web/tsconfig.node.json" },
     { "path": "./scripts" },
-    { "path": "./scripts/ui" }
+    { "path": "./scripts/ui" },
+    { "path": "./deploy/preview" }
   ]
 }
