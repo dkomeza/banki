@@ -51,8 +51,11 @@ jobs:
         id: meta
         with:
           images: ${{ steps.image.outputs.name }}
-          # pr-<N> moves to the newest push; the pull agent waits on sha-<head>;
-          # pr-<N>-<head> lets cleanup find every version the PR ever pushed.
+          # pr-<N> moves to the newest push; sha-<head> marks the commit;
+          # pr-<N>-<head> is what the pull agent waits on and pulls by digest,
+          # since only PR <N> ever pushes it (two PRs on one commit share
+          # sha-<head>, and one's cleanup deletes it), and it lets cleanup find
+          # every version the PR ever pushed.
           tags: |
             type=ref,event=pr
             type=sha,format=long

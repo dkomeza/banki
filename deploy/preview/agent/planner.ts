@@ -1,0 +1,357 @@
+import { prFromHost, projectName, REPO } from "./naming";
+
+// The reconcile loop's one decision: given what Docker, GitHub, GHCR and
+// Pangolin say right now, and the time, which actions bring the Previews in
+// line with the open pull requests. It is pure: the adapters observe, the
+// planner decides, the adapters act. The agent keeps no state of its own, so a
+// restart loses nothing (ADR-0008).
+
+/** An open pull request. */
+export type PullRequest = {
+  number: number;
+  headSha: string;
+  /** The head repo's `owner/name`, or undefined when that repo is gone. */
+  headRepo: string | undefined;
+  /** The author's login, such as `dependabot[bot]`. */
+  author: string;
+};
+
+export type ImageDigests = { api: string; web: string };
+
+/** A container's state, or `missing` when the project has none for that service. */
+export type ServiceState = "running" | "stopped" | "missing";
+
+/**
+ * A Compose project `banki-pr-<N>`, found from any of its containers, volumes
+ * or networks. The labels come from whichever of those carry them.
+ */
+export type DockerProject = {
+  pr: number;
+  sha: string | undefined;
+  deployedAt: Date | undefined;
+  /** The images it was deployed from, so a teardown can remove them. */
+  digests: ImageDigests | undefined;
+  api: ServiceState;
+  web: ServiceState;
+};
+
+export type DeploymentStatus =
+  | "pending"
+  | "queued"
+  | "in_progress"
+  | "success"
+  | "failure"
+  | "error"
+  | "inactive";
+
+/** A `preview` Deployment, with the PR from its `payload.pr`. */
+export type Deployment = {
+  id: number;
+  pr: number;
+  sha: string;
+  createdAt: Date;
+  /** Its latest status, or undefined when it has none yet. */
+  status: DeploymentStatus | undefined;
+};
+
+/** Both images of PR `<pr>`'s push of `<sha>` exist, tagged `pr-<pr>-<sha>`. */
+export type ImagesReady = { pr: number; sha: string; digests: ImageDigests };
+
+/** A Pangolin public resource of the org, with the sites its targets are on. */
+export type PangolinResource = {
+  resourceId: number;
+  fullDomain: string;
+  name: string;
+  siteIds: number[];
+  hasTargets: boolean;
+};
+
+export type PlanInput = {
+  /** Every open pull request, targets or not. */
+  pullRequests: PullRequest[];
+  projects: DockerProject[];
+  deployments: Deployment[];
+  /** The images that exist, for the PRs {@link imagesToCheck} named. */
+  images: ImagesReady[];
+  /** Every resource of the org, owned by the agent or not. */
+  resources: PangolinResource[];
+  /** The Previews site's numeric ID. */
+  siteId: number;
+  now: Date;
+};
+
+export type Action =
+  /** Create a Deployment for the PR's head and mark it queued. */
+  | { kind: "create-deployment"; pr: number; sha: string }
+  /** Give a Deployment created without a status its queued status. */
+  | { kind: "mark-queued"; pr: number; sha: string; deploymentId: number }
+  /**
+   * Deploy the head from scratch over whatever project the PR has, then mark
+   * the Deployments it supersedes inactive. See deploy.ts.
+   */
+  | {
+      kind: "deploy";
+      pr: number;
+      sha: string;
+      deploymentId: number;
+      digests: ImageDigests;
+      /** The PR's project as it is now, which the deploy takes down first. */
+      previous: DockerProject | undefined;
+      supersedes: number[];
+      deployedAt: Date;
+    }
+  /**
+   * Check the head's Preview, already running at that commit, without taking
+   * it down: its health, then its resource and the Deployment's success. For a
+   * deploy whose success was never recorded (a failed write, or a restart).
+   */
+  | {
+      kind: "confirm";
+      pr: number;
+      sha: string;
+      deploymentId: number;
+      project: DockerProject;
+      supersedes: number[];
+    }
+  /** `down -v --remove-orphans --rmi all`: containers, volumes, networks and images. */
+  | { kind: "teardown"; project: DockerProject }
+  | { kind: "mark-inactive"; pr: number; deploymentId: number; reason: "closed" | "superseded" }
+  /** Create the PR's resource, with SSO off and its target on the Previews site. */
+  | { kind: "create-resource"; pr: number }
+  | { kind: "delete-resource"; pr: number; resourceId: number };
+
+/**
+ * Whether an open PR gets a Preview: the same rule as the preview-images
+ * workflow, so a PR gets one exactly when CI builds its images. Fork PRs'
+ * code must never run on the home server, and Dependabot's PRs get no images.
+ */
+const isTarget = (pull: PullRequest) =>
+  pull.headRepo?.toLowerCase() === REPO.toLowerCase() && pull.author !== "dependabot[bot]";
+
+export type OwnedResource = { pr: number; resourceId: number; orphan: boolean };
+
+/**
+ * The resources the agent owns: exactly a Preview's host name, and either a
+ * target on the Previews site, or no targets at all and the agent's name for
+ * it, `banki-pr-<N>`. That last kind is an orphan: the agent created it but
+ * was cut short before its target. Pangolin's own search is a substring
+ * match, so it is never trusted; every other resource is left alone.
+ */
+export function ownedResources(resources: PangolinResource[], siteId: number): OwnedResource[] {
+  return resources.flatMap((resource): OwnedResource[] => {
+    const pr = prFromHost(resource.fullDomain);
+    if (pr === undefined) return [];
+    if (resource.siteIds.includes(siteId)) {
+      return [{ pr, resourceId: resource.resourceId, orphan: false }];
+    }
+    if (!resource.hasTargets && resource.name === projectName(pr)) {
+      return [{ pr, resourceId: resource.resourceId, orphan: true }];
+    }
+    return [];
+  });
+}
+
+export function plan(input: PlanInput): Action[] {
+  const targets = new Map(
+    input.pullRequests.filter(isTarget).map((pull) => [pull.number, pull] as const),
+  );
+  const projectOf = new Map(input.projects.map((project) => [project.pr, project] as const));
+  const owned = ownedResources(input.resources, input.siteId);
+
+  // A resource exists exactly while its PR is an open target and its `web` runs.
+  const wantsResource = (pr: number) => targets.has(pr) && projectOf.get(pr)?.web === "running";
+
+  // An orphan routes nowhere and holds its host, so it always goes, and a
+  // wanted PR gets a whole resource again below.
+  const deleteResources: Action[] = owned
+    .filter((resource) => resource.orphan || !wantsResource(resource.pr))
+    .map((resource) => ({
+      kind: "delete-resource",
+      pr: resource.pr,
+      resourceId: resource.resourceId,
+    }));
+
+  const teardowns: Action[] = input.projects
+    .filter((project) => !targets.has(project.pr))
+    .map((project) => ({ kind: "teardown", project }));
+
+  const closedDeployments: Action[] = input.deployments
+    .filter((deployment) => !targets.has(deployment.pr) && deployment.status !== "inactive")
+    .map((deployment) => ({
+      kind: "mark-inactive",
+      pr: deployment.pr,
+      deploymentId: deployment.id,
+      reason: "closed",
+    }));
+
+  const supersededDeployments: Action[] = [];
+  const createDeployments: Action[] = [];
+  const markQueued: Action[] = [];
+  const confirms: Extract<Action, { kind: "confirm" }>[] = [];
+  const deploys: Extract<Action, { kind: "deploy" }>[] = [];
+  for (const pull of targets.values()) {
+    const head = headDeployment(input.deployments, pull);
+    const others = input.deployments.filter(
+      (deployment) =>
+        deployment.pr === pull.number &&
+        deployment.id !== head?.id &&
+        deployment.status !== "inactive",
+    );
+    // An inactive head is a PR reopened at the commit it closed on.
+    if (head === undefined || head.status === "inactive") {
+      createDeployments.push({ kind: "create-deployment", pr: pull.number, sha: pull.headSha });
+      continue;
+    }
+    // A success is done, and a failure waits for the next push. Either way the
+    // head's deploy took down whatever Preview the older Deployments made.
+    if (!isWaiting(head)) {
+      for (const deployment of others) {
+        supersededDeployments.push({
+          kind: "mark-inactive",
+          pr: pull.number,
+          deploymentId: deployment.id,
+          reason: "superseded",
+        });
+      }
+      continue;
+    }
+    // Already running at the head: a deploy got that far, but its success was
+    // never recorded. Taking a healthy Preview down again would repeat every
+    // loop for as long as GitHub refuses the write.
+    const project = projectOf.get(pull.number);
+    if (
+      project !== undefined &&
+      project.sha === pull.headSha &&
+      project.api === "running" &&
+      project.web === "running"
+    ) {
+      confirms.push({
+        kind: "confirm",
+        pr: pull.number,
+        sha: pull.headSha,
+        deploymentId: head.id,
+        project,
+        supersedes: others.map((deployment) => deployment.id),
+      });
+      continue;
+    }
+    const images = input.images.find(
+      (image) => image.pr === pull.number && image.sha === pull.headSha,
+    );
+    if (images === undefined) {
+      if (head.status === undefined || head.status === "pending") {
+        markQueued.push({
+          kind: "mark-queued",
+          pr: pull.number,
+          sha: pull.headSha,
+          deploymentId: head.id,
+        });
+      }
+      continue;
+    }
+    // Queued, or in progress when the agent stopped mid-deploy (one action runs
+    // at a time, so the planner never sees a deploy that is still going), and
+    // nothing runs at the head: from scratch.
+    deploys.push({
+      kind: "deploy",
+      pr: pull.number,
+      sha: pull.headSha,
+      deploymentId: head.id,
+      digests: images.digests,
+      previous: project,
+      supersedes: others.map((deployment) => deployment.id),
+      deployedAt: input.now,
+    });
+  }
+
+  // A deploy or a confirm ends by creating or keeping the resource itself.
+  const deploying = new Set([...deploys, ...confirms].map((action) => action.pr));
+  const createResources: Action[] = [...targets.keys()]
+    .filter(
+      (pr) =>
+        wantsResource(pr) &&
+        !deploying.has(pr) &&
+        !owned.some((resource) => resource.pr === pr && !resource.orphan),
+    )
+    .map((pr) => ({ kind: "create-resource", pr }));
+
+  return [
+    ...deleteResources,
+    ...teardowns,
+    ...closedDeployments,
+    ...supersededDeployments,
+    ...createResources,
+    ...createDeployments,
+    ...markQueued,
+    ...confirms,
+    ...deploys,
+  ];
+}
+
+/** Whether the Deployment still waits to be deployed: for its images, or to be redone. */
+const isWaiting = (deployment: Deployment) =>
+  deployment.status === undefined ||
+  deployment.status === "pending" ||
+  deployment.status === "queued" ||
+  deployment.status === "in_progress";
+
+/** The newest Deployment of the PR's head commit, if there is one. */
+function headDeployment(deployments: Deployment[], pull: PullRequest): Deployment | undefined {
+  return newestFirst(
+    deployments.filter(
+      (deployment) => deployment.pr === pull.number && deployment.sha === pull.headSha,
+    ),
+  )[0];
+}
+
+const newestFirst = (deployments: Deployment[]) =>
+  deployments.toSorted((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.id - a.id);
+
+/**
+ * The PRs and SHAs whose images the loop must look up in GHCR before it plans:
+ * each target's head whose Deployment is waiting to be deployed.
+ */
+export function imagesToCheck(input: Omit<PlanInput, "images">): { pr: number; sha: string }[] {
+  return input.pullRequests
+    .filter(isTarget)
+    .filter((pull) => {
+      const head = headDeployment(input.deployments, pull);
+      return head !== undefined && isWaiting(head);
+    })
+    .map((pull) => ({ pr: pull.number, sha: pull.headSha }));
+}
+
+/**
+ * Whether the loop, reading the `preview` Deployments newest first, has read
+ * enough to plan, so it can stop paging: every target's head has a
+ * Deployment among those read, and the page just read (`lastPage`) holds only
+ * inactive ones. Without it, every loop would read every Deployment ever made.
+ *
+ * It is a shortcut, not proof: an older page can still hold a Deployment that
+ * isn't inactive, such as the success of a PR that closes after a long idle,
+ * or an older one it superseded. {@link isFullReadLoop} loops read them all.
+ */
+export function readEnoughDeployments(
+  pullRequests: PullRequest[],
+  read: Deployment[],
+  lastPage: Deployment[],
+): boolean {
+  return (
+    pullRequests
+      .filter(isTarget)
+      .every((pull) =>
+        read.some((deployment) => deployment.pr === pull.number && deployment.sha === pull.headSha),
+      ) && lastPage.every((deployment) => deployment.status === "inactive")
+  );
+}
+
+/** Every how many loops the agent reads every Deployment, whatever the shortcut says. */
+export const FULL_READ_EVERY = 20;
+
+/**
+ * Whether loop number `loop` (0 is the agent's first) reads every `preview`
+ * Deployment instead of stopping at {@link readEnoughDeployments}: the first,
+ * then every 20th, about every 10 minutes. So a Deployment deep in history
+ * that isn't inactive yet still gets marked, at the latest 10 minutes late.
+ */
+export const isFullReadLoop = (loop: number) => loop % FULL_READ_EVERY === 0;

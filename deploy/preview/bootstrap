@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+# Writes the Preview pull agent's settings and secrets (ADR-0008), asking for
+# each one. Re-runnable: every value it already has is the default, so Enter
+# keeps it. The Preview's Password is generated, and replaced only when you
+# answer yes to rotating it.
+#
+# Everything goes to $BANKI_PREVIEW_SECRETS (default ~/.config/banki-preview),
+# outside the clone: the directory is 0700 and every file 0600. GitHub never
+# holds any of it. agent.compose.yaml hands the files to the agent as compose
+# secrets, and the two .env files to the agent and Newt as their environment.
+#
+# Usage: deploy/preview/bootstrap
+set -euo pipefail
+
+dir="${BANKI_PREVIEW_SECRETS:-$HOME/.config/banki-preview}"
+default_email="preview@banki.dkomeza.com"
+
+die() {
+  printf 'bootstrap: %s\n' "$1" >&2
+  exit 1
+}
+
+# Checked on the nearest directory that exists, before anything is created.
+probe="$dir"
+while [ ! -d "$probe" ]; do probe="$(dirname "$probe")"; done
+if command -v git >/dev/null 2>&1 && git -C "$probe" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  die "$dir is inside a git work tree. Keep the secrets outside the clone (set BANKI_PREVIEW_SECRETS)."
+fi
+
+umask 077
+mkdir -p "$dir"
+chmod 700 "$dir"
+
+# A value file's content, or nothing when it doesn't exist yet.
+current_file() {
+  if [ -f "$dir/$1" ]; then
+    printf '%s' "$(<"$dir/$1")"
+  fi
+}
+
+# KEY's value in an env file of this script's, or nothing.
+current_env() {
+  local file="$dir/$1" key="$2" line
+  [ -f "$file" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    if [ "${line%%=*}" = "$key" ]; then
+      printf '%s' "${line#*=}"
+      return 0
+    fi
+  done <"$file"
+}
+
+# Asks for a value and prints the answer, or the current value on Enter.
+# FLAGS holds `secret` for a value read without echo, whose current value is
+# never shown, and `env` for one written to agent.env or newt.env: Compose
+# interpolates `$` in those files, so it would silently change the value.
+ask() {
+  local prompt="$1" current="$2" flags=" ${3:-} " secret="" env="" answer hint="" eof=""
+  if [[ "$flags" == *" secret "* ]]; then secret=1; fi
+  if [[ "$flags" == *" env "* ]]; then env=1; fi
+  if [ -n "$current" ]; then
+    if [ -n "$secret" ]; then hint=" [set, Enter keeps it]"; else hint=" [$current]"; fi
+  fi
+  while :; do
+    answer=""
+    if [ -n "$secret" ]; then
+      read -r -s -p "$prompt$hint: " answer || eof=1
+      printf '\n' >&2
+    else
+      read -r -p "$prompt$hint: " answer || eof=1
+    fi
+    answer="${answer:-$current}"
+    if [ -z "$answer" ]; then
+      printf 'A value is needed.\n' >&2
+    elif [[ "$answer" =~ [[:space:]\'\"] ]]; then
+      printf 'No spaces or quotes, please.\n' >&2
+    elif [ -n "$env" ] && [[ "$answer" == *'$'* ]]; then
+      printf 'No $, please: Compose would read it as a variable.\n' >&2
+    else
+      printf '%s' "$answer"
+      return 0
+    fi
+    [ -z "$eof" ] || die "no answer for: $prompt"
+  done
+}
+
+# Writes a file in place (the same inode), so the agent's bind-mounted secret
+# sees the new value too.
+write() {
+  printf '%s\n' "$2" >"$dir/$1"
+  chmod 600 "$dir/$1"
+}
+
+# 20 lowercase letters and digits in groups of 4 (abcd-efgh-…): about 103
+# bits, and easy to type on a phone. tr drops every other byte, so each
+# character is uniform.
+generate_password() {
+  local raw
+  raw="$(LC_ALL=C tr -dc 'a-z0-9' < <(head -c 4096 /dev/urandom))"
+  [ "${#raw}" -ge 20 ] || die "couldn't read enough randomness from /dev/urandom"
+  printf '%s-%s-%s-%s-%s' "${raw:0:4}" "${raw:4:4}" "${raw:8:4}" "${raw:12:4}" "${raw:16:4}"
+}
+
+printf 'Writing the Preview agent settings to %s\n\n' "$dir" >&2
+
+github_token="$(ask "GitHub token (fine-grained, this repo, Deployments: read and write)" "$(current_file github-token)" secret)"
+pangolin_api_url="$(ask "Pangolin Integration API URL (e.g. https://api.pangolin.example.com/v1)" "$(current_env agent.env PANGOLIN_API_URL)" env)"
+pangolin_api_key="$(ask "Pangolin org API key" "$(current_file pangolin-api-key)" secret)"
+pangolin_org_id="$(ask "Pangolin org ID" "$(current_env agent.env PANGOLIN_ORG_ID)" env)"
+pangolin_site="$(ask "The Previews site's niceId" "$(current_env agent.env PANGOLIN_SITE)" env)"
+newt_endpoint="$(ask "Newt PANGOLIN_ENDPOINT (e.g. https://pangolin.example.com)" "$(current_env newt.env PANGOLIN_ENDPOINT)" env)"
+newt_id="$(ask "Newt ID" "$(current_env newt.env NEWT_ID)" env)"
+newt_secret="$(ask "Newt secret" "$(current_env newt.env NEWT_SECRET)" "secret env")"
+current_email="$(current_file preview-email)"
+preview_email="$(ask "The Preview's Email" "${current_email:-$default_email}")"
+
+password="$(current_file preview-password)"
+new_password=""
+if [ -z "$password" ]; then
+  new_password="$(generate_password)"
+else
+  read -r -p "Rotate the Password? Each Preview takes the new one from its next deploy. [y/N]: " rotate || rotate=""
+  case "$rotate" in
+    y | Y | yes | YES | Yes) new_password="$(generate_password)" ;;
+  esac
+fi
+
+write github-token "$github_token"
+write pangolin-api-key "$pangolin_api_key"
+write preview-email "$preview_email"
+if [ -n "$new_password" ]; then write preview-password "$new_password"; fi
+write agent.env "PANGOLIN_API_URL=$pangolin_api_url
+PANGOLIN_ORG_ID=$pangolin_org_id
+PANGOLIN_SITE=$pangolin_site"
+write newt.env "PANGOLIN_ENDPOINT=$newt_endpoint
+NEWT_ID=$newt_id
+NEWT_SECRET=$newt_secret"
+
+printf '\nSaved to %s.\n' "$dir" >&2
+if [ -n "$new_password" ]; then
+  printf '\nThe Previews sign in with:\n  Email:    %s\n  Password: %s\n\nIt is shown only now.\n' "$preview_email" "$new_password" >&2
+fi
+printf '\nStart or update the agent with:\n  docker compose -f deploy/preview/agent.compose.yaml up -d --build\n' >&2

@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  // The pull agent and its tests: Bun runs them as they are, with no npm
+  // dependencies of its own (@types/bun comes from the repo root).
+  "compilerOptions": {
+    "types": ["bun"]
+  },
+  "include": ["**/*.ts"]
+}

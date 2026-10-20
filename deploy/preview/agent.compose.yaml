@@ -1,0 +1,91 @@
+# The Preview pull agent and the Previews' Newt (ADR-0008), on the home
+# server. Start or update it from a clone of `main`:
+#
+#   docker compose -f deploy/preview/agent.compose.yaml up -d --build
+#
+# Its settings and secrets come from `deploy/preview/bootstrap`, which writes
+# them to $BANKI_PREVIEW_SECRETS (default ~/.config/banki-preview), outside
+# the clone. See "Previews" in the README. No service publishes a host port.
+
+name: banki-preview
+
+x-hardening: &hardening
+  read_only: true
+  tmpfs:
+    - /tmp
+  security_opt: [no-new-privileges:true]
+  restart: unless-stopped
+
+services:
+  agent:
+    <<: *hardening
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
+    image: banki-preview-agent
+    # Bun isn't PID 1, so `docker compose stop` ends it straight away.
+    init: true
+    environment:
+      # The docker CLI keeps its config under HOME, on the tmpfs.
+      HOME: /tmp
+    # PANGOLIN_API_URL, PANGOLIN_ORG_ID and PANGOLIN_SITE: not secret.
+    env_file: ${BANKI_PREVIEW_SECRETS:-${HOME}/.config/banki-preview}/agent.env
+    # Files under /run/secrets, so none of them is in its environment in
+    # `docker inspect`.
+    secrets: [github-token, pangolin-api-key, preview-email, preview-password]
+    # It runs `docker compose` for every Preview against the host's daemon.
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    # Root, for the socket. Of root's powers it keeps only reading files it
+    # doesn't own: the secrets are the host user's, mode 0600.
+    cap_drop: [ALL]
+    cap_add: [DAC_READ_SEARCH]
+    # Its own network, for GitHub, GHCR and Pangolin. Never banki-previews.
+    networks: [default]
+
+  newt:
+    <<: *hardening
+    # The Previews site's Newt. The home server's own systemd Newt serves the
+    # homelab site and is left alone.
+    image: fosrl/newt:1.18.1@sha256:7fed6605e0a104a337e1cb903bbb1225f80c7f6e5e56ff1eb1d70c57740d8e0f
+    # PANGOLIN_ENDPOINT, NEWT_ID and NEWT_SECRET.
+    env_file: ${BANKI_PREVIEW_SECRETS:-${HOME}/.config/banki-preview}/newt.env
+    environment:
+      CONFIG_FILE: /tmp/newt.json
+      DISABLE_SSH: "true"
+      DISABLE_CLIENTS: "true"
+    # No Docker socket and no blueprint file: the agent alone makes resources.
+    cap_drop: [ALL]
+    networks:
+      # The one trusted proxy every Preview's `web` sees (BANKI_TRUSTED_PROXIES).
+      banki-previews:
+        ipv4_address: 172.31.255.2
+      # Its tunnel to the VPS.
+      tunnel: {}
+
+networks:
+  default: {}
+  tunnel: {}
+  # Every Preview's `web` and Newt, and nothing that leaves the host. The
+  # Preview template joins it by name.
+  banki-previews:
+    name: banki-previews
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.31.255.0/24
+          # Docker hands out addresses to Previews' `web` from the upper half
+          # only, so none can take Newt's 172.31.255.2: after a reboot a
+          # Preview may start before Newt, and if it took .2, Newt would fail
+          # to start and that Preview would be the proxy every `web` trusts.
+          ip_range: 172.31.255.128/25
+
+secrets:
+  github-token:
+    file: ${BANKI_PREVIEW_SECRETS:-${HOME}/.config/banki-preview}/github-token
+  pangolin-api-key:
+    file: ${BANKI_PREVIEW_SECRETS:-${HOME}/.config/banki-preview}/pangolin-api-key
+  preview-email:
+    file: ${BANKI_PREVIEW_SECRETS:-${HOME}/.config/banki-preview}/preview-email
+  preview-password:
+    file: ${BANKI_PREVIEW_SECRETS:-${HOME}/.config/banki-preview}/preview-password
