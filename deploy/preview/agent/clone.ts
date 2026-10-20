@@ -17,8 +17,8 @@ const URL = `https://github.com/${REPO}.git`;
 /** The one ref the clone keeps: `main` as last fetched. */
 const MAIN = "refs/remotes/origin/main";
 
-const git = (args: string[], timeoutMs = 30_000) =>
-  run(["git", "-C", CLONE_DIR, ...args], {
+const git = (args: string[], timeoutMs = 30_000, dir = CLONE_DIR) =>
+  run(["git", "-C", dir, ...args], {
     timeoutMs,
     // Anonymous: never wait for a password nobody will type.
     env: { GIT_TERMINAL_PROMPT: "0" },
@@ -65,11 +65,20 @@ export async function fetchMain(): Promise<string> {
 
 /**
  * The paths that differ between two commits, renames as a deletion and an
- * addition, or undefined when the clone doesn't have `from`.
+ * addition, or undefined when the clone (`dir`, for tests) doesn't have
+ * `from`. NUL-separated, so git never quotes a path it finds unusual.
  */
-export async function changedPaths(from: string, to: string): Promise<string[] | undefined> {
+export async function changedPaths(
+  from: string,
+  to: string,
+  dir = CLONE_DIR,
+): Promise<string[] | undefined> {
   if (!isCommit(from) || !isCommit(to)) return undefined;
-  const result = await git(["diff", "--name-only", "--no-renames", from, to, "--"]);
+  const result = await git(
+    ["diff", "--name-only", "-z", "--no-renames", from, to, "--"],
+    30_000,
+    dir,
+  );
   if (result.exitCode !== 0) return undefined;
-  return result.stdout.split("\n").filter((path) => path !== "");
+  return result.stdout.split("\0").filter((path) => path !== "");
 }
