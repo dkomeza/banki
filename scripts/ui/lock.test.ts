@@ -83,6 +83,22 @@ describe("withLock", () => {
     assert.equal(readFileSync(path, "utf8"), "4242:busy");
   });
 
+  test("gives up with the caller's message for the lock it holds", async () => {
+    const path = lockPath();
+    writeFileSync(path, "4242:busy");
+    await assert.rejects(
+      withLock(path, () => Promise.resolve(), {
+        ...options,
+        timeoutMs: 50,
+        timeoutMessage: (pid) => `Another ui compare (process ${pid ?? "unknown"}) is using it.`,
+      }),
+      (error) =>
+        error instanceof Error &&
+        error.name === "LockTimeout" &&
+        error.message === "Another ui compare (process 4242) is using it.",
+    );
+  });
+
   test("stops waiting when the run is interrupted", async () => {
     const path = lockPath();
     writeFileSync(path, "4242:busy");

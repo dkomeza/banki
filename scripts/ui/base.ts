@@ -122,6 +122,8 @@ export async function withBaseWorktree<T>(
         console.log(
           `Waiting for another ui compare (process ${pid ?? "unknown"}) using ${root} to finish`,
         ),
+      timeoutMessage: (pid) =>
+        `Another ui compare (process ${pid ?? "unknown"}) is still using the base worktree ${root}.`,
     },
   );
 }
