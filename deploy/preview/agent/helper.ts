@@ -73,9 +73,26 @@ export function helperInvocation(main: string, secretsDir: string): string[] {
   ];
 }
 
-/** Removes the helper container, from this update or one before; none is fine. */
-export async function removeHelper(): Promise<void> {
-  await run(["docker", "rm", "--force", HELPER], { timeoutMs: 60_000 });
+/** How long a new agent waits on start for the helper that started it to finish. */
+export const START_WAIT_MS = 5 * 60_000;
+
+/**
+ * Waits up to `timeoutMs` for the helper container, from this update or one
+ * before, to exit, then removes it. One still running is left alone: its `up`
+ * may still be recreating Newt, and killing it would leave that half done.
+ * It is removed on a later call, once it has exited.
+ */
+export async function removeFinishedHelper(
+  timeoutMs: number,
+): Promise<"none" | "removed" | "running"> {
+  const waited = await run(["docker", "wait", HELPER], { timeoutMs });
+  if (waited.timedOut) return "running";
+  // There is no helper container.
+  if (waited.exitCode !== 0) return "none";
+  // Without --force: it never removes a running container.
+  const removed = await run(["docker", "rm", HELPER], { timeoutMs: 60_000 });
+  if (removed.exitCode !== 0) throw new Error(`docker rm ${HELPER} ${failure(removed)}`);
+  return "removed";
 }
 
 /**
@@ -85,7 +102,9 @@ export async function removeHelper(): Promise<void> {
  */
 export async function runHelper(main: string, secretsDir: string): Promise<number> {
   const argv = helperInvocation(main, secretsDir);
-  await removeHelper();
+  if ((await removeFinishedHelper(10_000)) === "running") {
+    throw new Error(`an earlier ${HELPER} is still running`);
+  }
   const started = await run(argv, { timeoutMs: 60_000 });
   if (started.exitCode !== 0) throw new Error(`docker run ${failure(started)}`);
   const followed = await run(["docker", "logs", "--follow", HELPER], {
@@ -93,14 +112,14 @@ export async function runHelper(main: string, secretsDir: string): Promise<numbe
     logAs: "self-update",
   });
   if (followed.timedOut) {
-    await removeHelper();
-    throw new Error(`the helper was still running after ${TIMEOUT_MS / 60_000} minutes`);
+    // Left alone, for the same reason as on start.
+    throw new Error(`${HELPER} was still running after ${TIMEOUT_MS / 60_000} minutes`);
   }
   const waited = await run(["docker", "wait", HELPER], { timeoutMs: 60_000 });
   const exitCode = Number(waited.stdout.trim());
   if (waited.exitCode !== 0 || waited.stdout.trim() === "" || !Number.isInteger(exitCode)) {
     throw new Error(`docker wait ${failure(waited)}`);
   }
-  await removeHelper();
+  await removeFinishedHelper(60_000);
   return exitCode;
 }
