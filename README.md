@@ -114,6 +114,7 @@ While it is `false`, dark shots are skipped. The issue that adds the dark theme 
 
 ```ts
 export const ROUTES: RouteManifest = {
+  "/": { mask: ["[role=status]"] },
   "/login": { mode: "signed-out" },
   "/setup": { mode: "before-setup" },
   "/decks/$deckId": { path: `/decks/${SEED_IDS.deck}` },
@@ -122,8 +123,9 @@ export const ROUTES: RouteManifest = {
 
 - `mode`: `signed-out` or `before-setup`. A route without one is shot signed in.
 - `path`: the one concrete path to shoot a route with params at, built from the [Seed data](#seed-data)'s fixed IDs (`SEED_IDS`, in `apps/api/src/seed/seed-ids.ts`). Every route with params needs one.
+- `mask`: CSS selectors of content that differs on every run, such as the home screen's measured API latency. Every shot of the route, in `ui shoot` and on both sides of `ui compare`, paints them over with a solid box (Playwright's screenshot `mask`), so they never count as a change.
 
-An issue that adds a routed screen with params or a sign-in mode adds its entry, with any fixed ID it needs in `SEED_IDS`.
+An issue that adds a routed screen with params or a sign-in mode adds its entry, with any fixed ID it needs in `SEED_IDS`, and a screen with content that differs on every run masks it.
 
 ### `ui compare`
 
@@ -136,7 +138,7 @@ Shows a PR's visual change: it shoots every route on the branch and on its merge
 
 - **Base:** it runs `git fetch origin main` (only warning if that fails), and checks out `git merge-base HEAD origin/main` in a detached worktree at `../banki-worktrees/.base-<12-char sha>`, next to the main checkout, so every worktree with the same merge-base shares it. Each run creates it if it is missing and runs `bun install --frozen-lockfile` in it, under a lock: two runs on the same base take turns. `/work-issue`'s step 0 removes these worktrees.
 - **After:** this worktree as it is, uncommitted changes included.
-- **Routes:** each side's leaf routes from its `routeTree.gen.ts` (pathless layouts left out), all shot as `ui shoot` shoots them, with this branch's route manifest and themes for both sides. A route only on the branch is **new**, and one only on the base is **removed** (and not shot). The base side runs first, then the branch side.
+- **Routes:** each side's leaf routes from its `routeTree.gen.ts` (pathless layouts left out), all shot as `ui shoot` shoots them, with this branch's route manifest (paths, modes and masks) and themes for both sides. A route only on the branch is **new**, and one only on the base is **removed** (and not shot). The base side runs first, then the branch side.
 - **Diff:** [`pixelmatch`](https://github.com/mapbox/pixelmatch) at a 0.1 threshold, ignoring anti-aliasing. A route has **changed** when any of its pairs has a differing pixel, or differs in size; its score is the largest fraction of differing pixels across them.
 
 The fragment sits between `<!-- ui-shots -->` and `<!-- /ui-shots -->`. Each changed route gets an `#### /route` heading and a table, Phone, Tablet and Desktop by Before and After, with the dark one (once there is a dark theme) in a collapsed `<details>`; a new route gets an After column only. Removed and unchanged routes get a line each, and with nothing changed, new or removed the section says "No visual changes". The images are referenced as `./.ui/pr/<route>@<viewport>-<theme>-<before|after>.png`, which `gh pr create --attach` (or `gh pr edit --attach`) rewrites to the uploaded files when run from the worktree's root.

@@ -55,11 +55,10 @@ export async function shootSide({
   outDir: string;
   signal: AbortSignal;
 }): Promise<string[]> {
-  const paths = (mode: ShootMode) =>
-    shots.filter((shot) => shot.mode === mode).map((shot) => shot.path);
-  const signedIn = paths("signed-in");
-  const signedOut = paths("signed-out");
-  const beforeSetup = paths("before-setup");
+  const inMode = (mode: ShootMode) => shots.filter((shot) => shot.mode === mode);
+  const signedIn = inMode("signed-in");
+  const signedOut = inMode("signed-out");
+  const beforeSetup = inMode("before-setup");
   const files: string[] = [];
 
   if (signedIn.length + signedOut.length > 0) {

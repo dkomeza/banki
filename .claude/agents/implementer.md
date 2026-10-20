@@ -20,6 +20,7 @@ Before writing code, read `CLAUDE.md`, `CONTEXT.md` and the ADRs in `docs/adr/` 
 - An issue that adds something the UI shows adds Seed data for it in the same PR, in `apps/api/src/seed/` (with any new fixed IDs exported from `SEED_IDS`, in `seed-ids.ts`), and extends `userHasContent` to any new User-owned table.
 - An issue that adds a routed screen with params or a sign-in mode adds its entry to the route manifest, `scripts/ui/routes.ts` (a `path` built from `SEED_IDS`, or a `mode`), plus any fixed ID it needs in `SEED_IDS`.
 - A screen that shows the current time adds a fixed clock to the `ui` script's capture (Playwright's `page.clock`, and a fixed seed `now`), so `ui compare` doesn't see it change on every run.
+- A screen with other content that differs on every run (a measured latency, random content) masks it in its manifest entry (`mask`: CSS selectors).
 - Run typechecking and single test files as you go, and the full suite at the end.
 - A decision the spec doesn't settle is a question for the orchestrator: stop and report it rather than guessing.
 

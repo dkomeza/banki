@@ -7,6 +7,7 @@ const manifest: RouteManifest = {
   "/login": { mode: "signed-out" },
   "/setup": { mode: "before-setup" },
   "/decks/$deckId": { path: "/decks/deck-1" },
+  "/stats": { mask: [".latency"] },
 };
 
 const parse = (argv: string[]) => parseCommand(argv, manifest);
@@ -19,7 +20,7 @@ function parseShoot(argv: string[]) {
   return command;
 }
 
-const signedIn = (route: string, path = route) => ({ route, path, mode: "signed-in" });
+const signedIn = (route: string, path = route) => ({ route, path, mode: "signed-in", mask: [] });
 
 describe("parseCommand", () => {
   test("shoot is the default command", () => {
@@ -46,19 +47,25 @@ describe("parseCommand", () => {
   test("with no mode flag, each route is shot in its manifest mode", () => {
     assert.deepEqual(parseShoot(["shoot", "/", "/login", "/setup"]).shots, [
       signedIn("/"),
-      { route: "/login", path: "/login", mode: "signed-out" },
-      { route: "/setup", path: "/setup", mode: "before-setup" },
+      { route: "/login", path: "/login", mode: "signed-out", mask: [] },
+      { route: "/setup", path: "/setup", mode: "before-setup", mask: [] },
     ]);
   });
 
   test("--signed-out and --before-setup apply to every route", () => {
     assert.deepEqual(parseShoot(["shoot", "--signed-out", "/login", "/"]).shots, [
-      { route: "/login", path: "/login", mode: "signed-out" },
-      { route: "/", path: "/", mode: "signed-out" },
+      { route: "/login", path: "/login", mode: "signed-out", mask: [] },
+      { route: "/", path: "/", mode: "signed-out", mask: [] },
     ]);
     assert.deepEqual(parseShoot(["--before-setup", "/setup", "/login"]).shots, [
-      { route: "/setup", path: "/setup", mode: "before-setup" },
-      { route: "/login", path: "/login", mode: "before-setup" },
+      { route: "/setup", path: "/setup", mode: "before-setup", mask: [] },
+      { route: "/login", path: "/login", mode: "before-setup", mask: [] },
+    ]);
+  });
+
+  test("a route's manifest mask comes along, also under a mode flag", () => {
+    assert.deepEqual(parseShoot(["--signed-out", "/stats"]).shots, [
+      { route: "/stats", path: "/stats", mode: "signed-out", mask: [".latency"] },
     ]);
   });
 
@@ -67,7 +74,7 @@ describe("parseCommand", () => {
       signedIn("/decks/$deckId", "/decks/deck-1"),
     ]);
     assert.deepEqual(parseShoot(["--signed-out", "/decks/$deckId"]).shots, [
-      { route: "/decks/$deckId", path: "/decks/deck-1", mode: "signed-out" },
+      { route: "/decks/$deckId", path: "/decks/deck-1", mode: "signed-out", mask: [] },
     ]);
   });
 
@@ -80,7 +87,12 @@ describe("parseCommand", () => {
 
   test("routes keep their query string, and their manifest mode", () => {
     assert.deepEqual(parseShoot(["/login?redirect=/decks"]).shots, [
-      { route: "/login?redirect=/decks", path: "/login?redirect=/decks", mode: "signed-out" },
+      {
+        route: "/login?redirect=/decks",
+        path: "/login?redirect=/decks",
+        mode: "signed-out",
+        mask: [],
+      },
     ]);
   });
 

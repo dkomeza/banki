@@ -65,12 +65,15 @@ export type Shot = {
   /** The concrete path to open. */
   path: string;
   mode: ShootMode;
+  /** CSS selectors to paint over in the shots: content that differs on every run. */
+  mask: readonly string[];
 };
 
 /**
  * Where and how the manifest shoots `route` (a full path from the route tree,
  * or a concrete path, maybe with a query string or hash): at the entry's
- * `path` when it has params, in the entry's mode (signed in by default).
+ * `path` when it has params, in the entry's mode (signed in by default), with
+ * the entry's mask.
  * Throws a RouteError naming a route with params that has no `path` entry.
  */
 export function resolveRoute(route: string, manifest: RouteManifest): Shot {
@@ -87,5 +90,5 @@ export function resolveRoute(route: string, manifest: RouteManifest): Shot {
     }
     path = entry.path + suffix;
   }
-  return { route, path, mode: entry?.mode ?? "signed-in" };
+  return { route, path, mode: entry?.mode ?? "signed-in", mask: entry?.mask ?? [] };
 }

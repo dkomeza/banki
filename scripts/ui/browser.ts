@@ -40,9 +40,12 @@ async function open(page: Page, url: string): Promise<void> {
   await page.evaluate("document.fonts.ready.then(() => undefined)");
 }
 
+/** A page to shoot: its path, and the CSS selectors to paint over in its shots. */
+export type Target = { path: string; mask: readonly string[] };
+
 /**
  * Screenshots every route, full page, at each viewport in each theme, into
- * `outDir`. Returns the files written.
+ * `outDir`, with its mask painted over. Returns the files written.
  */
 export async function shootRoutes({
   browser,
@@ -54,7 +57,7 @@ export async function shootRoutes({
 }: {
   browser: Browser;
   url: string;
-  routes: string[];
+  routes: readonly Target[];
   themes: Theme[];
   /** A signed-in browser state, or undefined to shoot signed out. */
   storageState: string | undefined;
@@ -66,7 +69,7 @@ export async function shootRoutes({
   // dependency it discovers (which reloads the page), before anything is shot.
   const warmUp = await browser.newContext({ storageState });
   try {
-    for (const route of routes) await open(await warmUp.newPage(), url + route);
+    for (const { path } of routes) await open(await warmUp.newPage(), url + path);
   } finally {
     await warmUp.close();
   }
@@ -83,13 +86,18 @@ export async function shootRoutes({
         storageState,
       });
       try {
-        for (const route of routes) {
+        for (const { path: route, mask } of routes) {
           const page = await context.newPage();
           const errors: string[] = [];
           page.on("pageerror", (error) => errors.push(error.message));
           await open(page, url + route);
           const file = join(outDir, shotFileName(route, viewport.name, theme));
-          await page.screenshot({ path: file, fullPage: true, animations: "disabled" });
+          await page.screenshot({
+            path: file,
+            fullPage: true,
+            animations: "disabled",
+            mask: mask.map((selector) => page.locator(selector)),
+          });
           files.push(file);
           for (const error of errors) {
             console.warn(`  ${route} (${viewport.name}, ${theme}) threw: ${error}`);

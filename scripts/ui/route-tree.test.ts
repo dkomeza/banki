@@ -122,10 +122,17 @@ describe("resolveRoute", () => {
     "/setup": { mode: "before-setup" },
     "/decks/$deckId": { path: "/decks/deck-1" },
     "/decks/$deckId/edit": {},
+    "/": { mask: ["[role=status]"] },
+    "/stats/$range": { path: "/stats/week", mode: "signed-out", mask: [".clock", "#random"] },
   } as const;
 
   test("a route with no entry is shot signed in, at its own path", () => {
-    assert.deepEqual(resolveRoute("/", manifest), { route: "/", path: "/", mode: "signed-in" });
+    assert.deepEqual(resolveRoute("/about", manifest), {
+      route: "/about",
+      path: "/about",
+      mode: "signed-in",
+      mask: [],
+    });
   });
 
   test("the entry's mode applies", () => {
@@ -133,11 +140,13 @@ describe("resolveRoute", () => {
       route: "/login",
       path: "/login",
       mode: "signed-out",
+      mask: [],
     });
     assert.deepEqual(resolveRoute("/setup", manifest), {
       route: "/setup",
       path: "/setup",
       mode: "before-setup",
+      mask: [],
     });
   });
 
@@ -146,6 +155,7 @@ describe("resolveRoute", () => {
       route: "/login?redirect=/decks",
       path: "/login?redirect=/decks",
       mode: "signed-out",
+      mask: [],
     });
   });
 
@@ -154,11 +164,28 @@ describe("resolveRoute", () => {
       route: "/decks/$deckId",
       path: "/decks/deck-1",
       mode: "signed-in",
+      mask: [],
     });
     assert.deepEqual(resolveRoute("/decks/$deckId?tab=cards", manifest), {
       route: "/decks/$deckId?tab=cards",
       path: "/decks/deck-1?tab=cards",
       mode: "signed-in",
+      mask: [],
+    });
+  });
+
+  test("the entry's mask comes along, with its path and mode", () => {
+    assert.deepEqual(resolveRoute("/", manifest), {
+      route: "/",
+      path: "/",
+      mode: "signed-in",
+      mask: ["[role=status]"],
+    });
+    assert.deepEqual(resolveRoute("/stats/$range?x=1", manifest), {
+      route: "/stats/$range?x=1",
+      path: "/stats/week?x=1",
+      mode: "signed-out",
+      mask: [".clock", "#random"],
     });
   });
 
