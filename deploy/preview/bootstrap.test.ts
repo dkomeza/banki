@@ -153,6 +153,32 @@ describe("bootstrap", () => {
     expect(mode(join(dir, "preview-password"))).toBe(0o600);
   });
 
+  test("refuses a $ in a value for agent.env or newt.env, which Compose would interpolate, and asks again", async () => {
+    const dir = secretsDir();
+    const answers = [...FIRST_ANSWERS];
+    // The org ID (agent.env), then the Newt secret (newt.env), each asked again.
+    answers.splice(3, 1, "org$HOME", "my-org");
+    answers.splice(8, 1, "newt-${SECRET}", "newt-secret");
+
+    const result = await bootstrap(dir, answers);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr.match(/No \$, please/g)).toHaveLength(2);
+    expect(read(dir, "agent.env")).toContain("PANGOLIN_ORG_ID=my-org\n");
+    expect(read(dir, "newt.env")).toContain("NEWT_SECRET=newt-secret\n");
+  });
+
+  test("allows a $ in a secret that isn't in an env file", async () => {
+    const dir = secretsDir();
+    const answers = [...FIRST_ANSWERS];
+    answers[2] = "key$with$dollars";
+
+    const result = await bootstrap(dir, answers);
+
+    expect(result.exitCode).toBe(0);
+    expect(read(dir, "pangolin-api-key")).toBe("key$with$dollars\n");
+  });
+
   test("exits 1 and writes nothing when stdin runs out before a needed value", async () => {
     const dir = secretsDir();
 

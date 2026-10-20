@@ -169,10 +169,14 @@ describe.skipIf(!hasDocker)("agent.compose.yaml", () => {
   test("defines banki-previews as internal, on 172.31.255.0/24", async () => {
     const { networks } = await render();
 
-    expect(networks["banki-previews"]).toEqual({
-      name: "banki-previews",
-      internal: true,
-      ipam: { config: [{ subnet: "172.31.255.0/24" }] },
+    expect(networks["banki-previews"]).toMatchObject({ name: "banki-previews", internal: true });
+  });
+
+  test("hands out banki-previews addresses from the upper half only, so Newt's .2 is never taken", async () => {
+    const { networks } = await render();
+
+    expect(networks["banki-previews"]?.ipam).toEqual({
+      config: [{ subnet: "172.31.255.0/24", ip_range: "172.31.255.128/25" }],
     });
   });
 

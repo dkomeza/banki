@@ -74,6 +74,11 @@ networks:
     ipam:
       config:
         - subnet: 172.31.255.0/24
+          # Docker hands out addresses to Previews' `web` from the upper half
+          # only, so none can take Newt's 172.31.255.2: after a reboot a
+          # Preview may start before Newt, and if it took .2, Newt would fail
+          # to start and that Preview would be the proxy every `web` trusts.
+          ip_range: 172.31.255.128/25
 
 secrets:
   github-token:

@@ -51,9 +51,13 @@ current_env() {
 }
 
 # Asks for a value and prints the answer, or the current value on Enter.
-# A secret is read without echo, and its current value is never shown.
+# FLAGS holds `secret` for a value read without echo, whose current value is
+# never shown, and `env` for one written to agent.env or newt.env: Compose
+# interpolates `$` in those files, so it would silently change the value.
 ask() {
-  local prompt="$1" current="$2" secret="${3:-}" answer hint="" eof=""
+  local prompt="$1" current="$2" flags=" ${3:-} " secret="" env="" answer hint="" eof=""
+  if [[ "$flags" == *" secret "* ]]; then secret=1; fi
+  if [[ "$flags" == *" env "* ]]; then env=1; fi
   if [ -n "$current" ]; then
     if [ -n "$secret" ]; then hint=" [set, Enter keeps it]"; else hint=" [$current]"; fi
   fi
@@ -70,6 +74,8 @@ ask() {
       printf 'A value is needed.\n' >&2
     elif [[ "$answer" =~ [[:space:]\'\"] ]]; then
       printf 'No spaces or quotes, please.\n' >&2
+    elif [ -n "$env" ] && [[ "$answer" == *'$'* ]]; then
+      printf 'No $, please: Compose would read it as a variable.\n' >&2
     else
       printf '%s' "$answer"
       return 0
@@ -98,13 +104,13 @@ generate_password() {
 printf 'Writing the Preview agent settings to %s\n\n' "$dir" >&2
 
 github_token="$(ask "GitHub token (fine-grained, this repo, Deployments: read and write)" "$(current_file github-token)" secret)"
-pangolin_api_url="$(ask "Pangolin Integration API URL (e.g. https://api.pangolin.example.com/v1)" "$(current_env agent.env PANGOLIN_API_URL)")"
+pangolin_api_url="$(ask "Pangolin Integration API URL (e.g. https://api.pangolin.example.com/v1)" "$(current_env agent.env PANGOLIN_API_URL)" env)"
 pangolin_api_key="$(ask "Pangolin org API key" "$(current_file pangolin-api-key)" secret)"
-pangolin_org_id="$(ask "Pangolin org ID" "$(current_env agent.env PANGOLIN_ORG_ID)")"
-pangolin_site="$(ask "The Previews site's niceId" "$(current_env agent.env PANGOLIN_SITE)")"
-newt_endpoint="$(ask "Newt PANGOLIN_ENDPOINT (e.g. https://pangolin.example.com)" "$(current_env newt.env PANGOLIN_ENDPOINT)")"
-newt_id="$(ask "Newt ID" "$(current_env newt.env NEWT_ID)")"
-newt_secret="$(ask "Newt secret" "$(current_env newt.env NEWT_SECRET)" secret)"
+pangolin_org_id="$(ask "Pangolin org ID" "$(current_env agent.env PANGOLIN_ORG_ID)" env)"
+pangolin_site="$(ask "The Previews site's niceId" "$(current_env agent.env PANGOLIN_SITE)" env)"
+newt_endpoint="$(ask "Newt PANGOLIN_ENDPOINT (e.g. https://pangolin.example.com)" "$(current_env newt.env PANGOLIN_ENDPOINT)" env)"
+newt_id="$(ask "Newt ID" "$(current_env newt.env NEWT_ID)" env)"
+newt_secret="$(ask "Newt secret" "$(current_env newt.env NEWT_SECRET)" "secret env")"
 current_email="$(current_file preview-email)"
 preview_email="$(ask "The Preview's Email" "${current_email:-$default_email}")"
 
