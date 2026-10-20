@@ -18,8 +18,12 @@ export type PullRequest = {
 
 export type ImageDigests = { api: string; web: string };
 
-/** A container's state, or `missing` when the project has none for that service. */
-export type ServiceState = "running" | "stopped" | "missing";
+/**
+ * A container's state, or `missing` when the project has none for that
+ * service. A restarting one is crash-looping back to running, and a paused
+ * one still holds its memory; any other state is stopped.
+ */
+export type ServiceState = "running" | "restarting" | "paused" | "stopped" | "missing";
 
 /**
  * A Compose project `banki-pr-<N>`, found from any of its containers, volumes
@@ -311,13 +315,13 @@ export function plan(input: PlanInput): Action[] {
   // never the PR's own, which the deploy replaces anyway.
   const leaving = new Set([...finishing, ...idle.map((action) => action.project)]);
   const cleanups = input.projects.filter(
-    (project) => isRunning(project) && (!targets.has(project.pr) || leaving.has(project)),
+    (project) => holdsRoom(project) && (!targets.has(project.pr) || leaving.has(project)),
   );
   const redeploying = new Set(deploys.map((action) => action.pr));
   const deploysMakingRoom: Action[] = [];
   const evictions: Extract<Action, { kind: "remove" }>[] = [];
   let running = input.projects
-    .filter((project) => targets.has(project.pr) && isRunning(project) && !leaving.has(project))
+    .filter((project) => targets.has(project.pr) && holdsRoom(project) && !leaving.has(project))
     .toSorted(byLastDeploy);
   for (const action of deploys) {
     const others = running.filter((project) => project.pr !== action.pr);
@@ -392,11 +396,15 @@ export function plan(input: PlanInput): Action[] {
 }
 
 /**
- * Whether the Preview counts against the cap: one of its services runs. A
+ * Whether the Preview counts against the cap: one of its services runs, is
+ * restarting (and will run again) or is paused (and holds its memory). A
  * failed one (stopped), one stopped by hand, and a leftover volume don't.
+ * Only `running` itself is up, for a confirm or a resource.
  */
-const isRunning = (project: DockerProject) =>
-  project.api === "running" || project.web === "running";
+const holdsRoom = (project: DockerProject) =>
+  [project.api, project.web].some(
+    (state) => state === "running" || state === "restarting" || state === "paused",
+  );
 
 /** Oldest last deploy first, a missing label oldest of all; a tie goes to the lower PR. */
 const byLastDeploy = (a: DockerProject, b: DockerProject) =>

@@ -55,17 +55,35 @@ describe("projectsFrom", () => {
     expect(projects.map((project) => project.pr)).toEqual([9]);
   });
 
-  test("stopped and restarting containers aren't running", () => {
+  test("a restarting or paused container keeps its state: it still holds its place", () => {
     const projects = projectsFrom({
       containers: [
         container("banki-pr-5", "api", "restarting"),
-        container("banki-pr-5", "web", "exited"),
+        container("banki-pr-5", "web", "paused"),
       ].join("\n"),
       volumes: "",
       networks: "",
     });
 
-    expect(projects).toEqual([expect.objectContaining({ api: "stopped", web: "stopped" })]);
+    expect(projects).toEqual([expect.objectContaining({ api: "restarting", web: "paused" })]);
+  });
+
+  test("every other state is stopped", () => {
+    const projects = ["exited", "created", "dead", "removing"].map(
+      (state) =>
+        projectsFrom({
+          containers: [
+            container("banki-pr-5", "api", state),
+            container("banki-pr-5", "web", state),
+          ].join("\n"),
+          volumes: "",
+          networks: "",
+        })[0],
+    );
+
+    for (const project of projects) {
+      expect(project).toEqual(expect.objectContaining({ api: "stopped", web: "stopped" }));
+    }
   });
 
   test("a one-off container from banki setup finds the project, but isn't its api", () => {

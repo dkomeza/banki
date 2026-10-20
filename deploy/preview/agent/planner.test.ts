@@ -966,6 +966,37 @@ describe("the cap on running Previews", () => {
     expect(kinds(actions)).toEqual(["deploy"]);
   });
 
+  for (const state of ["restarting", "paused"] as const) {
+    test(`a ${state} Preview counts, as it holds its place`, () => {
+      const holding = live(1, hoursAgo(3));
+      holding.project = project(1, { deployedAt: hoursAgo(3), api: state, web: state });
+
+      const actions = plan(observing([holding, live(2, hoursAgo(1))], [pushed(9)], 2));
+
+      expect(actions).toEqual([
+        eviction(holding),
+        expect.objectContaining({ kind: "deploy", pr: 9, needs: [1] }),
+      ]);
+    });
+
+    test(`a ${state} Preview is neither confirmed nor routed`, () => {
+      const interrupted = deployment(5, SHA_A, "in_progress");
+      const observed = {
+        pullRequests: [pr(5, SHA_A)],
+        projects: [project(5, { sha: SHA_A, api: state, web: state })],
+        deployments: [interrupted],
+        resources: [resource(50, "pr-5.banki.dkomeza.com")],
+      };
+
+      // Redeployed from scratch, and its resource goes, so its URL gives a 404.
+      expect(kinds(plan(input(observed)))).toEqual(["delete-resource"]);
+      expect(kinds(plan(input({ ...observed, images: [ready(5, SHA_A)] })))).toEqual([
+        "delete-resource",
+        "deploy",
+      ]);
+    });
+  }
+
   test("a Preview with only one of its services running still counts", () => {
     const halfUp = live(1, hoursAgo(3));
     halfUp.project = project(1, { deployedAt: hoursAgo(3), web: "stopped" });

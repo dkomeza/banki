@@ -335,7 +335,7 @@ Every open pull request from a branch of this repo gets a [Preview](CONTEXT.md) 
 
 The home server runs other things too, so Previews are limited:
 
-- **At most 5 run at once.** When a deploy would make a sixth, the Preview whose last deploy is the oldest is evicted first (a tie goes to the lower pull request number). Only a Preview with a running container counts: one that failed, one stopped by hand, or what's left after a failed start doesn't. The pull request being deployed is never evicted.
+- **At most 5 run at once.** When a deploy would make a sixth, the Preview whose last deploy is the oldest is evicted first (a tie goes to the lower pull request number). Only a Preview with a running container counts, or one that is restarting or paused, since it still holds its place: one that failed, one stopped by hand, or what's left after a failed start doesn't. The pull request being deployed is never evicted.
 - **Each is removed 7 days after its last deploy**, whatever its state, unless a newer push is still waiting for its images: that one deploys when they arrive.
 
 An evicted or idle Preview comes back on its next push, as the newest. Closing and reopening the pull request doesn't bring it back; pushing does.
