@@ -102,11 +102,14 @@ async function keepCurrent(): Promise<void> {
 async function reconcile(previews: Pangolin, limits: Limits, loop: number): Promise<void> {
   // Read on every loop, so a token `bootstrap` rewrites applies without a restart.
   const github = gitHub(readSecret(SECRETS.githubToken));
-  // The Deployments are read only as far back as the open PRs need.
-  const pullRequests = await github.openPullRequests();
-  const [deployments, projects, resources] = await Promise.all([
-    github.previewDeployments(pullRequests, { full: isFullReadLoop(loop) }),
+  // The Deployments are read only as far back as the open PRs and the Docker
+  // projects need, so those come first (Docker is local and quick).
+  const [pullRequests, projects] = await Promise.all([
+    github.openPullRequests(),
     docker.discoverProjects(),
+  ]);
+  const [deployments, resources] = await Promise.all([
+    github.previewDeployments(pullRequests, projects, { full: isFullReadLoop(loop) }),
     previews.resources(),
   ]);
   const observed = {

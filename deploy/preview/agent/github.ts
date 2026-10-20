@@ -3,6 +3,7 @@ import { asArray, asNumber, asObject, asOptionalString, asString, parseJson } fr
 import {
   type Deployment,
   type DeploymentStatus,
+  type DockerProject,
   type PullRequest,
   readEnoughDeployments,
 } from "./planner";
@@ -63,13 +64,15 @@ export function gitHub(token: string) {
 
     /**
      * The `preview` Deployments with their latest statuses, newest first: as
-     * far back as the planner needs (see {@link readEnoughDeployments}), or
-     * all of them, up to the page cap, when `full`.
+     * far back as the planner needs for these PRs and Docker projects (see
+     * {@link readEnoughDeployments}), or all of them, up to the page cap,
+     * when `full`.
      * GraphQL gets them with their statuses 100 at a time; REST would need one
      * call per Deployment.
      */
     async previewDeployments(
       pullRequests: PullRequest[],
+      projects: DockerProject[],
       { full }: { full: boolean },
     ): Promise<Deployment[]> {
       const deployments: Deployment[] = [];
@@ -95,7 +98,8 @@ export function gitHub(token: string) {
         deployments.push(...batch);
         const pageInfo = asObject(connection.pageInfo, "pageInfo");
         if (pageInfo.hasNextPage !== true) return deployments;
-        if (!full && readEnoughDeployments(pullRequests, deployments, batch)) return deployments;
+        if (!full && readEnoughDeployments(pullRequests, projects, deployments, batch))
+          return deployments;
         after = asString(pageInfo.endCursor, "pageInfo.endCursor");
       }
       console.warn(

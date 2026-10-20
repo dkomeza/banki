@@ -506,8 +506,11 @@ export function imagesToCheck(input: Omit<PlanInput, "images">): { pr: number; s
 /**
  * Whether the loop, reading the `preview` Deployments newest first, has read
  * enough to plan, so it can stop paging: every target's head has a
- * Deployment among those read, and the page just read (`lastPage`) holds only
- * inactive ones. Without it, every loop would read every Deployment ever made.
+ * Deployment among those read, so does every target's Preview at its SHA
+ * (an eviction or idle removal marks that Deployment first, and once the
+ * Preview is gone nothing could find it again), and the page just read
+ * (`lastPage`) holds only inactive ones. Without it, every loop would read
+ * every Deployment ever made.
  *
  * It is a shortcut, not proof: an older page can still hold a Deployment that
  * isn't inactive, such as the success of a PR that closes after a long idle,
@@ -515,15 +518,23 @@ export function imagesToCheck(input: Omit<PlanInput, "images">): { pr: number; s
  */
 export function readEnoughDeployments(
   pullRequests: PullRequest[],
+  projects: DockerProject[],
   read: Deployment[],
   lastPage: Deployment[],
 ): boolean {
+  const targets = pullRequests.filter(isTarget);
+  const wanted = [
+    ...targets.map((pull) => ({ pr: pull.number, sha: pull.headSha })),
+    ...projects.flatMap((project) =>
+      project.sha !== undefined && targets.some((pull) => pull.number === project.pr)
+        ? [{ pr: project.pr, sha: project.sha }]
+        : [],
+    ),
+  ];
   return (
-    pullRequests
-      .filter(isTarget)
-      .every((pull) =>
-        read.some((deployment) => deployment.pr === pull.number && deployment.sha === pull.headSha),
-      ) && lastPage.every((deployment) => deployment.status === "inactive")
+    wanted.every(({ pr, sha }) =>
+      read.some((deployment) => deployment.pr === pr && deployment.sha === sha),
+    ) && lastPage.every((deployment) => deployment.status === "inactive")
   );
 }
 

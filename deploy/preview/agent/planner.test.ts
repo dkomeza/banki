@@ -732,27 +732,27 @@ describe("reading Deployments newest first", () => {
     const head = deployment(5, SHA_B, "success");
     const old = deployment(4, SHA_A, "inactive");
 
-    expect(readEnoughDeployments([pr(5, SHA_B)], [head, old], [old])).toBe(true);
+    expect(readEnoughDeployments([pr(5, SHA_B)], [], [head, old], [old])).toBe(true);
   });
 
   test("goes on while a target's head has none yet", () => {
     const old = deployment(4, SHA_A, "inactive");
 
-    expect(readEnoughDeployments([pr(5, SHA_B)], [old], [old])).toBe(false);
+    expect(readEnoughDeployments([pr(5, SHA_B)], [], [old], [old])).toBe(false);
   });
 
   test("goes on while the last page holds a Deployment that isn't inactive, which may need marking", () => {
     const head = deployment(5, SHA_B, "success");
     const stale = deployment(4, SHA_A, "queued");
 
-    expect(readEnoughDeployments([pr(5, SHA_B)], [head, stale], [stale])).toBe(false);
+    expect(readEnoughDeployments([pr(5, SHA_B)], [], [head, stale], [stale])).toBe(false);
   });
 
   test("counts only a Deployment of the head's own PR and commit", () => {
     const otherPr = deployment(6, SHA_B, "inactive");
     const otherSha = deployment(5, SHA_A, "inactive");
 
-    expect(readEnoughDeployments([pr(5, SHA_B)], [otherPr, otherSha], [otherSha])).toBe(false);
+    expect(readEnoughDeployments([pr(5, SHA_B)], [], [otherPr, otherSha], [otherSha])).toBe(false);
   });
 
   test("needs no Deployment for a fork or Dependabot PR", () => {
@@ -762,7 +762,33 @@ describe("reading Deployments newest first", () => {
       pr(6, SHA_B, { author: "dependabot[bot]" }),
     ];
 
-    expect(readEnoughDeployments(pulls, [old], [old])).toBe(true);
+    expect(readEnoughDeployments(pulls, [], [old], [old])).toBe(true);
+  });
+
+  test("goes on while a target's Preview, from an older push, has no Deployment read yet", () => {
+    // PR 5's newer head waits for images it may never get, and its Preview of
+    // SHA_A, whose success a removal must mark, is on an older page.
+    const head = deployment(5, SHA_B, "queued");
+    const old = deployment(4, SHA_A, "inactive");
+    const running = project(5, { sha: SHA_A });
+
+    expect(readEnoughDeployments([pr(5, SHA_B)], [running], [head, old], [old])).toBe(false);
+  });
+
+  test("stops once the Deployment that made a target's Preview is read too", () => {
+    const head = deployment(5, SHA_B, "queued");
+    const made = deployment(5, SHA_A, "inactive");
+    const running = project(5, { sha: SHA_A });
+
+    expect(readEnoughDeployments([pr(5, SHA_B)], [running], [head, made], [made])).toBe(true);
+  });
+
+  test("needs no Deployment for a closed PR's Preview, or one without a SHA label", () => {
+    const head = deployment(5, SHA_B, "success");
+    const old = deployment(4, SHA_A, "inactive");
+    const projects = [project(7, { sha: SHA_A }), project(5, { sha: undefined })];
+
+    expect(readEnoughDeployments([pr(5, SHA_B)], projects, [head, old], [old])).toBe(true);
   });
 });
 
