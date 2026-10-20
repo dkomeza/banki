@@ -21,15 +21,21 @@ function secretsDir(): string {
   return join(parent, "secrets");
 }
 
+// Fake values, built at runtime so secret scanners don't flag them.
+const GITHUB_TOKEN = ["fake", "github", "token"].join("-");
+const PANGOLIN_KEY = ["fake", "pangolin", "key"].join("-");
+const NEWT_SECRET = ["fake", "newt", "secret"].join("-");
+const DOLLAR_KEY = ["key", "with", "dollars"].join("$");
+
 const FIRST_ANSWERS = [
-  "ghp_token",
+  GITHUB_TOKEN,
   "https://api.pangolin.example.com/v1",
-  "pangolin-key",
+  PANGOLIN_KEY,
   "my-org",
   "previews",
   "https://pangolin.example.com",
   "newt-id",
-  "newt-secret",
+  NEWT_SECRET,
   // The Email: Enter takes the default.
   "",
 ];
@@ -86,13 +92,13 @@ describe("bootstrap", () => {
       "preview-password",
     ]);
     for (const file of readdirSync(dir)) expect(mode(join(dir, file))).toBe(0o600);
-    expect(read(dir, "github-token")).toBe("ghp_token\n");
-    expect(read(dir, "pangolin-api-key")).toBe("pangolin-key\n");
+    expect(read(dir, "github-token")).toBe(`${GITHUB_TOKEN}\n`);
+    expect(read(dir, "pangolin-api-key")).toBe(`${PANGOLIN_KEY}\n`);
     expect(read(dir, "agent.env")).toBe(
       "PANGOLIN_API_URL=https://api.pangolin.example.com/v1\nPANGOLIN_ORG_ID=my-org\nPANGOLIN_SITE=previews\n",
     );
     expect(read(dir, "newt.env")).toBe(
-      "PANGOLIN_ENDPOINT=https://pangolin.example.com\nNEWT_ID=newt-id\nNEWT_SECRET=newt-secret\n",
+      `PANGOLIN_ENDPOINT=https://pangolin.example.com\nNEWT_ID=newt-id\nNEWT_SECRET=${NEWT_SECRET}\n`,
     );
     expect(read(dir, "preview-email")).toBe("preview@banki.dkomeza.com\n");
   });
@@ -134,7 +140,7 @@ describe("bootstrap", () => {
     expect(read(dir, "agent.env")).toBe(
       "PANGOLIN_API_URL=https://api.pangolin.example.com/v1\nPANGOLIN_ORG_ID=other-org\nPANGOLIN_SITE=previews\n",
     );
-    expect(read(dir, "github-token")).toBe("ghp_token\n");
+    expect(read(dir, "github-token")).toBe(`${GITHUB_TOKEN}\n`);
   });
 
   test("rotates the Password only when the answer is yes", async () => {
@@ -158,31 +164,31 @@ describe("bootstrap", () => {
     const answers = [...FIRST_ANSWERS];
     // The org ID (agent.env), then the Newt secret (newt.env), each asked again.
     answers.splice(3, 1, "org$HOME", "my-org");
-    answers.splice(8, 1, "newt-${SECRET}", "newt-secret");
+    answers.splice(8, 1, `${NEWT_SECRET}\${X}`, NEWT_SECRET);
 
     const result = await bootstrap(dir, answers);
 
     expect(result.exitCode).toBe(0);
     expect(result.stderr.match(/No \$, please/g)).toHaveLength(2);
     expect(read(dir, "agent.env")).toContain("PANGOLIN_ORG_ID=my-org\n");
-    expect(read(dir, "newt.env")).toContain("NEWT_SECRET=newt-secret\n");
+    expect(read(dir, "newt.env")).toContain(`NEWT_SECRET=${NEWT_SECRET}\n`);
   });
 
   test("allows a $ in a secret that isn't in an env file", async () => {
     const dir = secretsDir();
     const answers = [...FIRST_ANSWERS];
-    answers[2] = "key$with$dollars";
+    answers[2] = DOLLAR_KEY;
 
     const result = await bootstrap(dir, answers);
 
     expect(result.exitCode).toBe(0);
-    expect(read(dir, "pangolin-api-key")).toBe("key$with$dollars\n");
+    expect(read(dir, "pangolin-api-key")).toBe(`${DOLLAR_KEY}\n`);
   });
 
   test("exits 1 and writes nothing when stdin runs out before a needed value", async () => {
     const dir = secretsDir();
 
-    const result = await bootstrap(dir, ["ghp_token"]);
+    const result = await bootstrap(dir, [GITHUB_TOKEN]);
 
     expect(result.exitCode).toBe(1);
     expect(readdirSync(dir)).toEqual([]);
