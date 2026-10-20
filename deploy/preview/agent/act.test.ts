@@ -86,9 +86,33 @@ describe("running a plan", () => {
     expect(await ran(actions, ["remove 1"])).toEqual(["remove 1", "remove 2"]);
   });
 
-  test("still deploys when only an idle removal failed", async () => {
+  test("skips the deploy when an idle removal failed: the cap didn't count that Preview", async () => {
     const actions = [removal(1, "idle"), deploy(3)];
 
-    expect(await ran(actions, ["remove 1"])).toEqual(["remove 1", "deploy 3"]);
+    expect(await ran(actions, ["remove 1"])).toEqual(["remove 1"]);
+  });
+
+  test("skips the deploy when a teardown failed: the cap didn't count that Preview either", async () => {
+    const actions: Action[] = [
+      { kind: "teardown", project: project(1) },
+      { kind: "create-deployment", pr: 4, sha: "c".repeat(40) },
+      deploy(3),
+    ];
+
+    expect(await ran(actions, ["teardown 1"])).toEqual(["teardown 1", "create-deployment 4"]);
+  });
+
+  test("still deploys when an action that frees no room failed", async () => {
+    const actions: Action[] = [
+      { kind: "mark-inactive", pr: 1, deploymentId: 100, reason: "closed" },
+      { kind: "delete-resource", pr: 1, resourceId: 10 },
+      deploy(3),
+    ];
+
+    expect(await ran(actions, ["mark-inactive 1", "delete-resource 1"])).toEqual([
+      "mark-inactive 1",
+      "delete-resource 1",
+      "deploy 3",
+    ]);
   });
 });

@@ -11,11 +11,13 @@ export async function runActions(
   summary: (action: Action) => string,
   execute: (action: Action) => Promise<void>,
 ): Promise<void> {
-  // The evictions the planner puts right before a deploy make room for it.
+  // The planner counts a Preview being removed or torn down as gone already:
+  // a closed PR's, an idle one's, an evicted one's. Should any of those fail,
+  // the deploy would go over the cap, so it waits for the next loop.
   let roomMade = true;
   for (const action of actions) {
     if (action.kind === "deploy" && !roomMade) {
-      console.error(`${summary(action)} skipped: an eviction to make room for it failed`);
+      console.error(`${summary(action)} skipped: a Preview it counted as gone is still there`);
       break;
     }
     console.log(summary(action));
@@ -23,7 +25,7 @@ export async function runActions(
       await execute(action);
     } catch (error) {
       console.error(`${summary(action)} failed: ${errorText(error)}`);
-      if (action.kind === "remove" && action.reason === "evicted") roomMade = false;
+      if (action.kind === "remove" || action.kind === "teardown") roomMade = false;
     }
     // A deploy takes a while, and what it was planned from may have moved on.
     if (action.kind === "deploy") break;
