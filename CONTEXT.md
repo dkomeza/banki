@@ -30,7 +30,7 @@ _Avoid_: onboarding, registration, sign-up
 A one-time code that Banki prints to its logs while Setup isn't done, and that the Setup page asks for. It proves that whoever does Setup can see the server, so a stranger who reaches a fresh installation first can't claim it.
 
 **Preview**:
-A disposable installation of Banki built from one pull request, already set up and holding Seed data, so the change can be tried on any device. It is rebuilt from scratch on every push and removed when the pull request closes. Its User is the only account it has.
+A disposable installation of Banki built from one pull request, already set up and holding Seed data, so the change can be tried on any device. It is rebuilt from scratch on every push. It is removed when the pull request closes, when it goes a while without a push, or when it is evicted to make room for newer ones; a removed Preview of an open pull request comes back on its next push. Its User is the only account it has.
 _Avoid_: staging, review app, preview account
 
 **Seed data**:
