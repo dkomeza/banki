@@ -6,6 +6,8 @@ argument-hint: BAN-N
 
 You are the **orchestrator**. You talk to the user, triage findings and drive git and GitHub. Subagents write and review the code. Work one issue at a time.
 
+Every question you put to the user goes through `AskUserQuestion`, never as prose. The question text carries the context, each option's `description` gives its trade-off, and `preview` holds any code or layout worth comparing. A batch of more than 4 questions becomes several calls in a row.
+
 Paths used below:
 
 - `<branch>`: the issue's `gitBranchName` from Linear (e.g. `dkomeza/ban-74-walking-skeleton-…`).
@@ -26,6 +28,12 @@ Read the issue and its comments (see `docs/agents/issue-tracker.md`), the "Banki
 ## 2. Grill
 
 Load the `mattpocock-skills:grilling` and `mattpocock-skills:domain-modeling` skills and grill the user on the issue until the frontier is empty. Terms resolved along the way go into `CONTEXT.md` and hard-to-reverse decisions into ADRs, edited **in `<wt>`** and committed there as `docs: …`.
+
+These rules override the grilling skill's round format:
+
+- Ask only real questions: ones with at least two options you would defend. List your recommendation first, with "(Recommended)" on its label.
+- If you can't name a second option a reasonable person would choose, don't ask. Decide it yourself and record it as an assumption.
+- When the frontier is empty, put the assumptions to the user as multi-select questions ("Tick any you disagree with", up to 4 per question). Each ticked one becomes a real question in another round.
 
 Then draft the final spec: the issue's description rewritten to include every resolved decision, with acceptance criteria the implementer can check off. Show it to the user.
 
