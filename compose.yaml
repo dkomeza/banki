@@ -34,6 +34,8 @@ services:
     image: banki-web
     restart: unless-stopped
     environment:
+      # The same address as the API's ORIGIN: Caddy sends HSTS when it is https.
+      BANKI_ORIGIN: ${BANKI_ORIGIN:-http://localhost:8080}
       # Space-separated IPs or CIDRs of the User's own reverse proxies, whose
       # X-Forwarded-For Caddy believes. Unset trusts no one.
       BANKI_TRUSTED_PROXIES: ${BANKI_TRUSTED_PROXIES:-}
