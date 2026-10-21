@@ -100,13 +100,13 @@ The shots go to `.ui/shots/<agent>/<route>@<viewport>-<theme>.png`. In the file 
 | `--signed-out`   | Every route set up and seeded, but not signed in, whatever the manifest says                   |
 | `--before-setup` | Every route not set up, no Seed data, and the API waits for Setup (opened with no Setup token) |
 
-Each viewport is shot in the light theme, and also in the dark one (through `prefers-color-scheme: dark`) once the web app has a dark theme. The switch is in `apps/web/package.json`:
+Each viewport is shot in the light theme and in the dark one. The dark shots emulate `prefers-color-scheme: dark` with no theme stored, so the web app's default, System, shows dark. The switch is in `apps/web/package.json`:
 
 ```json
-"banki": { "darkTheme": false }
+"banki": { "darkTheme": true }
 ```
 
-While it is `false`, dark shots are skipped. The issue that adds the dark theme sets it to `true`.
+With it `false`, dark shots are skipped.
 
 ### The route manifest
 
@@ -114,8 +114,8 @@ While it is `false`, dark shots are skipped. The issue that adds the dark theme 
 
 ```ts
 export const ROUTES: RouteManifest = {
-  "/": { mask: ["[role=status]"] },
   "/login": { mode: "signed-out" },
+  "/stats": { mask: [".latency"] },
   "/setup": { mode: "before-setup" },
   "/decks/$deckId": { path: `/decks/${SEED_IDS.deck}` },
 };
@@ -123,7 +123,7 @@ export const ROUTES: RouteManifest = {
 
 - `mode`: `signed-out` or `before-setup`. A route without one is shot signed in.
 - `path`: the one concrete path to shoot a route with params at, built from the [Seed data](#seed-data)'s fixed IDs (`SEED_IDS`, in `apps/api/src/seed/seed-ids.ts`). Every route with params needs one.
-- `mask`: CSS selectors of content that differs on every run, such as the home screen's measured API latency. Every shot of the route, in `ui shoot` and on both sides of `ui compare`, hides them (`visibility: hidden`, through Playwright's screenshot `style`): they keep their place on the page but draw nothing, so they never count as a change, whatever their size.
+- `mask`: CSS selectors of content that differs on every run, such as a measured latency or random content. Every shot of the route, in `ui shoot` and on both sides of `ui compare`, hides them (`visibility: hidden`, through Playwright's screenshot `style`): they keep their place on the page but draw nothing, so they never count as a change, whatever their size.
 
 An issue that adds a routed screen with params or a sign-in mode adds its entry, with any fixed ID it needs in `SEED_IDS`, and a screen with content that differs on every run masks it.
 
@@ -231,7 +231,7 @@ The port is open on every network interface of the host. To make Banki reachable
 
 ### The address you open Banki at
 
-Banki refuses to sign in from any address but `BANKI_ORIGIN` (the API's `ORIGIN`), which defaults to `http://localhost:8080`. Set it in `.env` to the exact address in your browser's address bar, without a path, whenever that isn't `http://localhost:8080`: when you open Banki by another host name or IP, on a different `BANKI_PORT`, or through an HTTPS reverse proxy:
+Banki refuses to sign in from any address but `BANKI_ORIGIN` (the API's `ORIGIN`; `web` reads it too, for HSTS), which defaults to `http://localhost:8080`. Set it in `.env` to the exact address in your browser's address bar, without a path, whenever that isn't `http://localhost:8080`: when you open Banki by another host name or IP, on a different `BANKI_PORT`, or through an HTTPS reverse proxy:
 
 ```sh
 BANKI_PORT=9000
@@ -243,7 +243,7 @@ BANKI_ORIGIN=http://192.168.1.20:9000
 BANKI_ORIGIN=https://banki.example.com
 ```
 
-With an `https:` origin the sign-in cookie is `Secure`. A sign-in from the wrong address fails, and the API logs a warning naming both addresses.
+With an `https:` origin the sign-in cookie is `Secure` and `web` sends HSTS (see [Security headers](#security-headers)). A sign-in from the wrong address fails, and the API logs a warning naming both addresses.
 
 ### HTTPS
 
@@ -256,6 +256,27 @@ BANKI_TRUSTED_PROXIES=172.18.0.1 10.0.0.0/24
 ```
 
 List only your proxies, never a broad private range that also covers clients. Unset, `web` trusts no one and uses the address each connection comes from.
+
+### Security headers
+
+`web` sends these on every response, the API's included:
+
+- `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`: Banki loads nothing from anywhere but its own origin, and can't be framed.
+- `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`.
+- `Strict-Transport-Security: max-age=31536000`, only when `BANKI_ORIGIN` starts with `https://`, so browsers keep to HTTPS for a year. It leaves out `includeSubDomains` and `preload`, which would reach past Banki. Over plain HTTP it isn't sent.
+
+`bun run dev` (Vite) sends none of them.
+
+### Installing Banki as an app
+
+Banki is a Progressive Web App: your browser can install it, so it opens in its own window, or from your home screen, like any other app. Browsers offer this only over HTTPS or on `localhost`. There is no Install button in Banki; use the browser's own:
+
+- **Chrome or Edge on a computer:** the install icon at the right of the address bar, or the menu's Install page as app (Chrome: Cast, save and share).
+- **Safari on a Mac:** File, Add to Dock.
+- **Safari on an iPhone or iPad:** Share, Add to Home Screen.
+- **Chrome on Android:** the menu's Add to Home screen, then Install.
+
+Banki works online only: opened without a connection, the app shows the browser's own offline page. Its theme (System, Light or Dark, in the account menu) is kept per device.
 
 ### Where the data lives
 
@@ -308,10 +329,10 @@ That rebuilds both images and recreates the containers. The API applies any new 
 
 Two scripts check the images and the stack. Both run on demand only, not in CI.
 
-| Script                  | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bun run smoke:docker`  | Builds both images for this machine under their own throwaway tags, leaving any `banki-api` and `banki-web` you run untouched, and starts the stack under a throwaway project on a free port. Through the web port only, it checks the app, a deep link, health, the API's 401 and 404, asset caching, the security headers, Setup with the logged token, signing in and out, the client IP Caddy forwards (with and without `BANKI_TRUSTED_PROXIES`), non-root users, a restart, `reset-password --password-stdin`, that a second `banki setup` through `docker compose run --rm -T api` is refused and signing in still works, that `banki seed` succeeds the same way, and a clean stop. Then it removes the stack, its volume and its images, also when a check fails or it gets SIGINT or SIGTERM. |
-| `bun run docker:buildx` | Builds both images for `linux/amd64` and `linux/arm64` without loading them. It needs a buildx builder that can build for several platforms; if yours can't, create one with `docker buildx create --use`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Script                  | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bun run smoke:docker`  | Builds both images for this machine under their own throwaway tags, leaving any `banki-api` and `banki-web` you run untouched, and starts the stack under a throwaway project on a free port. Through the web port only, it checks the app, a deep link, health, the API's 401 and 404, asset caching, the security headers (the full CSP everywhere, and no HSTS under the default http origin), the manifest's type and its PNG icons, that there is no service worker at `/sw.js`, that the web image started again alone with an `https://` `BANKI_ORIGIN` sends HSTS, Setup with the logged token, signing in and out, the client IP Caddy forwards (with and without `BANKI_TRUSTED_PROXIES`), non-root users, a restart, `reset-password --password-stdin`, that a second `banki setup` through `docker compose run --rm -T api` is refused and signing in still works, that `banki seed` succeeds the same way, and a clean stop. Then it removes the stack, its volume and its images, also when a check fails or it gets SIGINT or SIGTERM. |
+| `bun run docker:buildx` | Builds both images for `linux/amd64` and `linux/arm64` without loading them. It needs a buildx builder that can build for several platforms; if yours can't, create one with `docker buildx create --use`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 ### Preview images
 
