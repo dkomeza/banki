@@ -63,7 +63,7 @@ export function projectsFrom(listed: {
     if (object === undefined) return [];
     const [name = "", oneoff = "", state = ""] = line.split("\t").slice(LABEL_FIELDS.length);
     if (oneoff === "True") return [object];
-    return [{ ...object, service: { name, state: state === "running" ? "running" : "stopped" } }];
+    return [{ ...object, service: { name, state: serviceState(state) } }];
   });
   const others = [...lines(listed.volumes), ...lines(listed.networks)].flatMap(
     (line) => parseObject(line) ?? [],
@@ -98,6 +98,10 @@ export function projectsFrom(listed: {
     };
   });
 }
+
+/** Docker's `{{.State}}` as the planner sees it: any state but these three is stopped. */
+const serviceState = (state: string): ServiceState =>
+  state === "running" || state === "restarting" || state === "paused" ? state : "stopped";
 
 const lines = (text: string) => text.split("\n").filter((line) => line.trim() !== "");
 

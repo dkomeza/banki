@@ -45,7 +45,7 @@ type Service = Record<string, unknown> & {
 type Rendered = {
   services: Record<string, Service>;
   networks: Record<string, Record<string, unknown>>;
-  volumes?: Record<string, { labels?: Record<string, string> }>;
+  volumes?: Record<string, { name?: string; labels?: Record<string, string> }>;
 };
 
 function isRendered(value: unknown): value is Rendered {
@@ -166,7 +166,8 @@ describe.skipIf(!hasDocker)("the Preview template", () => {
   });
 });
 
-const render = () => config("agent.compose.yaml", { BANKI_PREVIEW_SECRETS: secrets });
+const render = (env: Record<string, string> = {}) =>
+  config("agent.compose.yaml", { BANKI_PREVIEW_SECRETS: secrets, ...env });
 
 describe.skipIf(!hasDocker)("agent.compose.yaml", () => {
   test("defines banki-previews as internal, on 172.31.255.0/24", async () => {
@@ -202,13 +203,14 @@ describe.skipIf(!hasDocker)("agent.compose.yaml", () => {
     });
   });
 
-  test("gives the agent the socket and its secrets as files, and keeps it off banki-previews", async () => {
+  test("gives the agent the socket, its clone and its secrets as files, and keeps it off banki-previews", async () => {
     const { services } = await render();
     const agent = services.agent;
 
     expect(agent).toMatchObject({ read_only: true, restart: "unless-stopped" });
     expect(agent?.volumes).toEqual([
       expect.objectContaining({ source: "/var/run/docker.sock", target: "/var/run/docker.sock" }),
+      expect.objectContaining({ type: "volume", source: "banki-preview-src", target: "/src" }),
     ]);
     expect(agent?.secrets).toEqual(
       ["github-token", "pangolin-api-key", "preview-email", "preview-password"].map((name) => ({
@@ -219,11 +221,54 @@ describe.skipIf(!hasDocker)("agent.compose.yaml", () => {
     expect(Object.keys(agent?.networks ?? {})).toEqual(["default"]);
     // The secrets never reach its environment.
     expect(Object.keys(agent?.environment ?? {}).toSorted()).toEqual([
+      "BANKI_PREVIEW_COMMIT",
+      "BANKI_PREVIEW_SECRETS",
       "HOME",
       "PANGOLIN_API_URL",
       "PANGOLIN_ORG_ID",
       "PANGOLIN_SITE",
     ]);
+  });
+
+  test("tells the agent the commit the helper built it from, and the secrets directory's host path", async () => {
+    const commit = "b".repeat(40);
+    const { services } = await render({ BANKI_PREVIEW_COMMIT: commit });
+
+    expect(services.agent?.environment).toMatchObject({
+      BANKI_PREVIEW_COMMIT: commit,
+      BANKI_PREVIEW_SECRETS: secrets,
+    });
+  });
+
+  test("leaves the commit empty for an agent a person starts, so it moves onto main", async () => {
+    const { services } = await render();
+
+    expect(services.agent?.environment?.BANKI_PREVIEW_COMMIT).toBe("");
+  });
+
+  test("names the clone's volume outside the project, so the helper can mount it", async () => {
+    const { volumes } = await render();
+
+    expect(volumes?.["banki-preview-src"]).toMatchObject({ name: "banki-preview-src" });
+  });
+
+  test("passes the Preview limits from agent.env to the agent", async () => {
+    const withLimits = mkdtempSync(join(tmpdir(), "banki-preview-secrets-"));
+    for (const file of ["github-token", "pangolin-api-key", "preview-email", "preview-password"]) {
+      writeFileSync(join(withLimits, file), "dummy\n", { mode: 0o600 });
+    }
+    writeFileSync(join(withLimits, "newt.env"), "NEWT_ID=id\n");
+    writeFileSync(join(withLimits, "agent.env"), "PREVIEW_CAP=2\nPREVIEW_IDLE_DAYS=0.01\n");
+    try {
+      const { services } = await render({ BANKI_PREVIEW_SECRETS: withLimits });
+
+      expect(services.agent?.environment).toMatchObject({
+        PREVIEW_CAP: "2",
+        PREVIEW_IDLE_DAYS: "0.01",
+      });
+    } finally {
+      rmSync(withLimits, { recursive: true, force: true });
+    }
   });
 
   test("publishes no host port", async () => {

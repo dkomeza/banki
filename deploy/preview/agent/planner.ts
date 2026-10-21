@@ -18,8 +18,12 @@ export type PullRequest = {
 
 export type ImageDigests = { api: string; web: string };
 
-/** A container's state, or `missing` when the project has none for that service. */
-export type ServiceState = "running" | "stopped" | "missing";
+/**
+ * A container's state, or `missing` when the project has none for that
+ * service. A restarting one is crash-looping back to running, and a paused
+ * one still holds its memory; any other state is stopped.
+ */
+export type ServiceState = "running" | "restarting" | "paused" | "stopped" | "missing";
 
 /**
  * A Compose project `banki-pr-<N>`, found from any of its containers, volumes
@@ -52,6 +56,8 @@ export type Deployment = {
   createdAt: Date;
   /** Its latest status, or undefined when it has none yet. */
   status: DeploymentStatus | undefined;
+  /** Its latest status's description, which says why it went inactive. */
+  description: string | undefined;
 };
 
 /** Both images of PR `<pr>`'s push of `<sha>` exist, tagged `pr-<pr>-<sha>`. */
@@ -66,6 +72,12 @@ export type PangolinResource = {
   hasTargets: boolean;
 };
 
+/**
+ * The home server runs other things too, so Previews are bounded: at most
+ * `cap` running at once, and each removed `idleDays` after its last deploy.
+ */
+export type Limits = { cap: number; idleDays: number };
+
 export type PlanInput = {
   /** Every open pull request, targets or not. */
   pullRequests: PullRequest[];
@@ -77,6 +89,7 @@ export type PlanInput = {
   resources: PangolinResource[];
   /** The Previews site's numeric ID. */
   siteId: number;
+  limits: Limits;
   now: Date;
 };
 
@@ -99,6 +112,12 @@ export type Action =
       previous: DockerProject | undefined;
       supersedes: number[];
       deployedAt: Date;
+      /**
+       * The PRs whose running Preview the cap counts on being removed or torn
+       * down before it. Should one of those fail, the deploy waits for the
+       * next loop; any other cleanup may fail without going over the cap.
+       */
+      needs: number[];
     }
   /**
    * Check the head's Preview, already running at that commit, without taking
@@ -115,6 +134,21 @@ export type Action =
     }
   /** `down -v --remove-orphans --rmi all`: containers, volumes, networks and images. */
   | { kind: "teardown"; project: DockerProject }
+  /**
+   * Evict an open PR's Preview to make room, or remove it for going idle:
+   * first mark the Deployment that made it inactive with `description`, so it
+   * waits for the next push, then delete its resources and tear it down.
+   */
+  | {
+      kind: "remove";
+      pr: number;
+      reason: "evicted" | "idle";
+      description: string;
+      project: DockerProject;
+      /** The PR's Deployment at the project's SHA, or undefined when none was read. */
+      deploymentId: number | undefined;
+      resourceIds: number[];
+    }
   | { kind: "mark-inactive"; pr: number; deploymentId: number; reason: "closed" | "superseded" }
   /** Create the PR's resource, with SSO off and its target on the Previews site. */
   | { kind: "create-resource"; pr: number }
@@ -158,22 +192,20 @@ export function plan(input: PlanInput): Action[] {
   const projectOf = new Map(input.projects.map((project) => [project.pr, project] as const));
   const owned = ownedResources(input.resources, input.siteId);
 
-  // A resource exists exactly while its PR is an open target and its `web` runs.
-  const wantsResource = (pr: number) => targets.has(pr) && projectOf.get(pr)?.web === "running";
-
-  // An orphan routes nowhere and holds its host, so it always goes, and a
-  // wanted PR gets a whole resource again below.
-  const deleteResources: Action[] = owned
-    .filter((resource) => resource.orphan || !wantsResource(resource.pr))
-    .map((resource) => ({
-      kind: "delete-resource",
-      pr: resource.pr,
-      resourceId: resource.resourceId,
-    }));
-
-  const teardowns: Action[] = input.projects
-    .filter((project) => !targets.has(project.pr))
-    .map((project) => ({ kind: "teardown", project }));
+  // An open PR's Preview goes once it has gone idle, whatever its state. One
+  // whose Deployment already says it was evicted or went idle is torn down
+  // again, so a removal cut off halfway gets finished.
+  const finishing: DockerProject[] = [];
+  const idle: Extract<Action, { kind: "remove" }>[] = [];
+  for (const project of input.projects) {
+    if (!targets.has(project.pr)) continue;
+    if (isRemoved(madeBy(input.deployments, project))) {
+      finishing.push(project);
+    } else if (isIdle(project, input)) {
+      idle.push(removal(input, owned, project, "idle"));
+    }
+  }
+  const markedNow = new Set(idle.map((action) => action.deploymentId));
 
   const closedDeployments: Action[] = input.deployments
     .filter((deployment) => !targets.has(deployment.pr) && deployment.status !== "inactive")
@@ -197,11 +229,15 @@ export function plan(input: PlanInput): Action[] {
         deployment.id !== head?.id &&
         deployment.status !== "inactive",
     );
-    // An inactive head is a PR reopened at the commit it closed on.
-    if (head === undefined || head.status === "inactive") {
+    // An inactive head is a PR reopened at the commit it closed on, unless its
+    // Preview was evicted or went idle: that waits for the next push, closed
+    // and reopened or not, or it would come straight back.
+    if (head === undefined || (head.status === "inactive" && !isRemoved(head))) {
       createDeployments.push({ kind: "create-deployment", pr: pull.number, sha: pull.headSha });
       continue;
     }
+    // Its Preview goes idle in this plan, so the head waits for the next push too.
+    if (markedNow.has(head.id)) continue;
     // A success is done, and a failure waits for the next push. Either way the
     // head's deploy took down whatever Preview the older Deployments made.
     if (!isWaiting(head)) {
@@ -261,8 +297,78 @@ export function plan(input: PlanInput): Action[] {
       previous: project,
       supersedes: others.map((deployment) => deployment.id),
       deployedAt: input.now,
+      needs: [],
     });
   }
+
+  // A deploy admits one more running Preview. Right before it, as many of the
+  // running ones as the cap needs make room, oldest last deploy first; the
+  // PR's own counts for nothing, since the deploy replaces it. A PR with a
+  // deploy of its own in this plan goes only when nothing else can: it is
+  // about to be replaced anyway, but two such PRs must not wait on each other.
+  // Each deploy counts the ones before it as done, the newest of all, though
+  // the loop stops after the first: the next loop plans the rest again.
+  //
+  // The running Previews a closed PR's teardown, a finished removal or an idle
+  // one takes down count as gone too. Should those fail, they still run, so a
+  // deploy needs as many of them as it has no spare room for, oldest first;
+  // never the PR's own, which the deploy replaces anyway.
+  const leaving = new Set([...finishing, ...idle.map((action) => action.project)]);
+  const cleanups = input.projects.filter(
+    (project) => holdsRoom(project) && (!targets.has(project.pr) || leaving.has(project)),
+  );
+  const redeploying = new Set(deploys.map((action) => action.pr));
+  const deploysMakingRoom: Action[] = [];
+  const evictions: Extract<Action, { kind: "remove" }>[] = [];
+  let running = input.projects
+    .filter((project) => targets.has(project.pr) && holdsRoom(project) && !leaving.has(project))
+    .toSorted(byLastDeploy);
+  for (const action of deploys) {
+    const others = running.filter((project) => project.pr !== action.pr);
+    const excess = Math.max(0, others.length + 1 - input.limits.cap);
+    const evicted = [
+      ...others.filter((project) => !redeploying.has(project.pr)),
+      ...others.filter((project) => redeploying.has(project.pr)),
+    ].slice(0, excess);
+    for (const project of evicted) {
+      const eviction = removal(input, owned, project, "evicted");
+      evictions.push(eviction);
+      deploysMakingRoom.push(eviction);
+    }
+    const staying = others.filter((project) => !evicted.includes(project));
+    const spare = input.limits.cap - (staying.length + 1);
+    const freeing = [...cleanups, ...evictions.map((eviction) => eviction.project)]
+      .filter((project) => project.pr !== action.pr)
+      .toSorted(byLastDeploy);
+    const needs = freeing.slice(0, Math.max(0, freeing.length - spare));
+    deploysMakingRoom.push({ ...action, needs: needs.map((project) => project.pr) });
+    running = [...staying, deployed(action)];
+  }
+
+  // A resource exists exactly while its PR is an open target, its `web` runs
+  // and its Preview isn't being removed. A removal deletes its PR's resources
+  // itself, after marking the Deployment.
+  const removing = new Set([...idle, ...evictions].map((action) => action.pr));
+  const gone = new Set([...finishing.map((project) => project.pr), ...removing]);
+  const wantsResource = (pr: number) =>
+    targets.has(pr) && projectOf.get(pr)?.web === "running" && !gone.has(pr);
+
+  // An orphan routes nowhere and holds its host, so it always goes, and a
+  // wanted PR gets a whole resource again below.
+  const deleteResources: Action[] = owned
+    .filter(
+      (resource) => (resource.orphan || !wantsResource(resource.pr)) && !removing.has(resource.pr),
+    )
+    .map((resource) => ({
+      kind: "delete-resource",
+      pr: resource.pr,
+      resourceId: resource.resourceId,
+    }));
+
+  const teardowns: Action[] = [
+    ...input.projects.filter((project) => !targets.has(project.pr)),
+    ...finishing,
+  ].map((project) => ({ kind: "teardown", project }));
 
   // A deploy or a confirm ends by creating or keeping the resource itself.
   const deploying = new Set([...deploys, ...confirms].map((action) => action.pr));
@@ -278,15 +384,99 @@ export function plan(input: PlanInput): Action[] {
   return [
     ...deleteResources,
     ...teardowns,
+    ...idle,
     ...closedDeployments,
     ...supersededDeployments,
     ...createResources,
     ...createDeployments,
     ...markQueued,
     ...confirms,
-    ...deploys,
+    ...deploysMakingRoom,
   ];
 }
+
+/**
+ * Whether the Preview counts against the cap: one of its services runs, is
+ * restarting (and will run again) or is paused (and holds its memory). A
+ * failed one (stopped), one stopped by hand, and a leftover volume don't.
+ * Only `running` itself is up, for a confirm or a resource.
+ */
+const holdsRoom = (project: DockerProject) =>
+  [project.api, project.web].some(
+    (state) => state === "running" || state === "restarting" || state === "paused",
+  );
+
+/** Oldest last deploy first, a missing label oldest of all; a tie goes to the lower PR. */
+const byLastDeploy = (a: DockerProject, b: DockerProject) =>
+  (a.deployedAt?.getTime() ?? -Infinity) - (b.deployedAt?.getTime() ?? -Infinity) || a.pr - b.pr;
+
+/** Whether the Preview's last deploy is at least the idle limit ago; only the label counts. */
+const isIdle = (project: DockerProject, input: PlanInput) =>
+  project.deployedAt !== undefined &&
+  input.now.getTime() - project.deployedAt.getTime() >= input.limits.idleDays * DAY_MS;
+
+const DAY_MS = 86_400_000;
+
+/** The project a deploy leaves running, if it succeeds. */
+const deployed = (action: Extract<Action, { kind: "deploy" }>): DockerProject => ({
+  pr: action.pr,
+  sha: action.sha,
+  deployedAt: action.deployedAt,
+  digests: action.digests,
+  api: "running",
+  web: "running",
+});
+
+/** Removing the project of an open PR: its Deployment marked first, then its resources and itself. */
+function removal(
+  input: PlanInput,
+  owned: OwnedResource[],
+  project: DockerProject,
+  reason: "evicted" | "idle",
+): Extract<Action, { kind: "remove" }> {
+  const made = madeBy(input.deployments, project);
+  // A head still waiting deploys anyway, over whatever is left: an eviction
+  // marking it would keep a fresh push down. An idle one is marked, though.
+  const pull = input.pullRequests.find((candidate) => candidate.number === project.pr);
+  const waitingHead =
+    made !== undefined &&
+    pull !== undefined &&
+    made.id === headDeployment(input.deployments, pull)?.id &&
+    isWaiting(made);
+  return {
+    kind: "remove",
+    pr: project.pr,
+    reason,
+    description: removedDescription(reason, input.limits.idleDays),
+    project,
+    deploymentId: reason === "evicted" && waitingHead ? undefined : made?.id,
+    resourceIds: owned
+      .filter((resource) => resource.pr === project.pr)
+      .map((resource) => resource.resourceId),
+  };
+}
+
+/** The Deployment that made the project: the newest of its PR at its SHA. */
+const madeBy = (deployments: Deployment[], project: DockerProject) =>
+  project.sha === undefined
+    ? undefined
+    : newestFirst(
+        deployments.filter(
+          (deployment) => deployment.pr === project.pr && deployment.sha === project.sha,
+        ),
+      )[0];
+
+/** Whether the Deployment went inactive because its Preview was evicted or went idle. */
+const isRemoved = (deployment: Deployment | undefined) =>
+  deployment?.status === "inactive" && deployment.description?.endsWith(PUSH_TO_REBUILD) === true;
+
+/** The description of a Deployment whose Preview was evicted or went idle. */
+const removedDescription = (reason: "evicted" | "idle", idleDays: number) =>
+  reason === "evicted"
+    ? `evicted${PUSH_TO_REBUILD}`
+    : `idle for ${idleDays} day${idleDays === 1 ? "" : "s"}${PUSH_TO_REBUILD}`;
+
+const PUSH_TO_REBUILD = ", push to rebuild";
 
 /** Whether the Deployment still waits to be deployed: for its images, or to be redone. */
 const isWaiting = (deployment: Deployment) =>
@@ -324,8 +514,11 @@ export function imagesToCheck(input: Omit<PlanInput, "images">): { pr: number; s
 /**
  * Whether the loop, reading the `preview` Deployments newest first, has read
  * enough to plan, so it can stop paging: every target's head has a
- * Deployment among those read, and the page just read (`lastPage`) holds only
- * inactive ones. Without it, every loop would read every Deployment ever made.
+ * Deployment among those read, so does every target's Preview at its SHA
+ * (an eviction or idle removal marks that Deployment first, and once the
+ * Preview is gone nothing could find it again), and the page just read
+ * (`lastPage`) holds only inactive ones. Without it, every loop would read
+ * every Deployment ever made.
  *
  * It is a shortcut, not proof: an older page can still hold a Deployment that
  * isn't inactive, such as the success of a PR that closes after a long idle,
@@ -333,15 +526,23 @@ export function imagesToCheck(input: Omit<PlanInput, "images">): { pr: number; s
  */
 export function readEnoughDeployments(
   pullRequests: PullRequest[],
+  projects: DockerProject[],
   read: Deployment[],
   lastPage: Deployment[],
 ): boolean {
+  const targets = pullRequests.filter(isTarget);
+  const wanted = [
+    ...targets.map((pull) => ({ pr: pull.number, sha: pull.headSha })),
+    ...projects.flatMap((project) =>
+      project.sha !== undefined && targets.some((pull) => pull.number === project.pr)
+        ? [{ pr: project.pr, sha: project.sha }]
+        : [],
+    ),
+  ];
   return (
-    pullRequests
-      .filter(isTarget)
-      .every((pull) =>
-        read.some((deployment) => deployment.pr === pull.number && deployment.sha === pull.headSha),
-      ) && lastPage.every((deployment) => deployment.status === "inactive")
+    wanted.every(({ pr, sha }) =>
+      read.some((deployment) => deployment.pr === pr && deployment.sha === sha),
+    ) && lastPage.every((deployment) => deployment.status === "inactive")
   );
 }
 

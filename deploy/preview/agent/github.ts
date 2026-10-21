@@ -1,8 +1,9 @@
 import { ENVIRONMENT, REPO } from "./naming";
-import { asArray, asNumber, asObject, asString, parseJson } from "./parse";
+import { asArray, asNumber, asObject, asOptionalString, asString, parseJson } from "./parse";
 import {
   type Deployment,
   type DeploymentStatus,
+  type DockerProject,
   type PullRequest,
   readEnoughDeployments,
 } from "./planner";
@@ -63,13 +64,15 @@ export function gitHub(token: string) {
 
     /**
      * The `preview` Deployments with their latest statuses, newest first: as
-     * far back as the planner needs (see {@link readEnoughDeployments}), or
-     * all of them, up to the page cap, when `full`.
+     * far back as the planner needs for these PRs and Docker projects (see
+     * {@link readEnoughDeployments}), or all of them, up to the page cap,
+     * when `full`.
      * GraphQL gets them with their statuses 100 at a time; REST would need one
      * call per Deployment.
      */
     async previewDeployments(
       pullRequests: PullRequest[],
+      projects: DockerProject[],
       { full }: { full: boolean },
     ): Promise<Deployment[]> {
       const deployments: Deployment[] = [];
@@ -95,7 +98,8 @@ export function gitHub(token: string) {
         deployments.push(...batch);
         const pageInfo = asObject(connection.pageInfo, "pageInfo");
         if (pageInfo.hasNextPage !== true) return deployments;
-        if (!full && readEnoughDeployments(pullRequests, deployments, batch)) return deployments;
+        if (!full && readEnoughDeployments(pullRequests, projects, deployments, batch))
+          return deployments;
         after = asString(pageInfo.endCursor, "pageInfo.endCursor");
       }
       console.warn(
@@ -145,7 +149,7 @@ query ($owner: String!, $name: String!, $environment: String!, $after: String) {
   repository(owner: $owner, name: $name) {
     deployments(environments: [$environment], first: 100, after: $after, orderBy: { field: CREATED_AT, direction: DESC }) {
       pageInfo { hasNextPage endCursor }
-      nodes { databaseId commitOid createdAt payload latestStatus { state } }
+      nodes { databaseId commitOid createdAt payload latestStatus { state description } }
     }
   }
 }`;
@@ -188,6 +192,11 @@ function parseDeployment(value: unknown): Deployment | undefined {
     createdAt: new Date(asString(node.createdAt, "deployment.createdAt")),
     // An unknown state is left to the next push, like a failure.
     status: state === undefined ? undefined : (STATUSES[state] ?? "error"),
+    // Says whether an inactive one was evicted or went idle (see the planner).
+    description:
+      latest === undefined
+        ? undefined
+        : asOptionalString(latest.description, "latestStatus.description"),
   };
 }
 
