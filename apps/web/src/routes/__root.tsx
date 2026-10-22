@@ -1,5 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { Outlet, createRootRouteWithContext, redirect, useRouter } from "@tanstack/react-router";
+import { FullScreen } from "@/components/auth-card";
 import { Button } from "@/components/ui/button";
 import { guardRedirect } from "@/lib/guard";
 import { signedInQueryOptions, setupStatusQueryOptions } from "@/lib/signed-in";
@@ -28,9 +29,15 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 function CantReachBanki() {
   const router = useRouter();
   return (
-    <main className="flex min-h-svh flex-col items-center justify-center gap-4 p-4">
-      <p role="alert">Can't reach Banki. Check your connection and try again.</p>
-      <Button onClick={() => void router.invalidate()}>Try again</Button>
-    </main>
+    <FullScreen>
+      <div className="flex max-w-sm flex-col items-center gap-4 text-center">
+        <p role="alert" className="text-balance">
+          Can't reach Banki. Check your connection and try again.
+        </p>
+        <Button size="lg" onClick={() => void router.invalidate()}>
+          Try again
+        </Button>
+      </div>
+    </FullScreen>
   );
 }

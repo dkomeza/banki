@@ -130,11 +130,14 @@ describe.skipIf(!hasDocker)("the Preview template", () => {
     expect(megabytes(services.web?.mem_limit)).toBe(128);
   });
 
-  test("sets the Preview's origin and trusts only Newt, and nothing else", async () => {
+  test("sets the Preview's origin on both, trusts only Newt, and nothing else", async () => {
     const { services } = await config("compose.yaml", SAMPLE);
 
     expect(services.api?.environment).toEqual({ ORIGIN: "https://pr-5.banki.dkomeza.com" });
-    expect(services.web?.environment).toEqual({ BANKI_TRUSTED_PROXIES: "172.31.255.2" });
+    expect(services.web?.environment).toEqual({
+      BANKI_ORIGIN: "https://pr-5.banki.dkomeza.com",
+      BANKI_TRUSTED_PROXIES: "172.31.255.2",
+    });
   });
 
   test("keeps api on the internal default network, and only web on banki-previews", async () => {

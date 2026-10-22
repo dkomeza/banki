@@ -49,6 +49,8 @@ services:
     image: ghcr.io/dkomeza/banki-web@${WEB_DIGEST:?}
     restart: unless-stopped
     environment:
+      # The api's ORIGIN: an https one, so Caddy sends HSTS.
+      BANKI_ORIGIN: https://pr-${PREVIEW_PR:?}.banki.dkomeza.com
       # Newt on `banki-previews`, the only proxy in front of a Preview.
       BANKI_TRUSTED_PROXIES: 172.31.255.2
     labels: *labels

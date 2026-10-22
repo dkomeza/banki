@@ -1,3 +1,6 @@
+// First, before any module that defines a zod schema: it only configures zod.
+// oxlint-disable-next-line import/no-unassigned-import
+import "./lib/zod-jitless";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createRouter } from "@tanstack/react-router";
 import { StrictMode } from "react";

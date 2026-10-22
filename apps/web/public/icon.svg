@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Banki's icon: a stack of cards on paper. Every icon, the favicon and the
+       logo in the app are made from this one file. Its fills are the light
+       theme's background (paper) and primary (accent) from src/index.css, and
+       two lighter tints of the accent: change them here when those change. -->
+  <rect width="512" height="512" rx="112" fill="#f9f5ed" />
+  <g stroke="#f9f5ed" stroke-width="18" stroke-linejoin="round">
+    <rect x="178" y="108" width="236" height="168" rx="24" fill="#e39a72" transform="rotate(9 296 192)" />
+    <rect x="138" y="168" width="236" height="168" rx="24" fill="#c9622c" transform="rotate(2 256 252)" />
+    <rect x="98" y="228" width="236" height="168" rx="24" fill="#ab4400" transform="rotate(-5 216 312)" />
+  </g>
+  <g stroke="#f9f5ed" stroke-width="16" stroke-linecap="round" transform="rotate(-5 216 312)">
+    <path d="M136 290h112M136 334h160" />
+  </g>
+</svg>

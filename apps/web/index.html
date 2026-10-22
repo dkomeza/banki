@@ -2,8 +2,19 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Banki</title>
+    <meta name="theme-color" content="%BANKI_LIGHT_BACKGROUND%" />
+    <meta name="apple-mobile-web-app-title" content="Banki" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <!-- Blocking, before first paint: see public/theme.js. -->
+    <script
+      src="/theme.js"
+      data-light="%BANKI_LIGHT_BACKGROUND%"
+      data-dark="%BANKI_DARK_BACKGROUND%"
+    ></script>
   </head>
   <body>
     <div id="root"></div>

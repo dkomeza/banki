@@ -32,12 +32,12 @@ ${entries
 const root = "rootRouteImport";
 
 describe("leafRoutes", () => {
-  test("lists the web app's own route tree", () => {
+  test("lists the web app's own route tree, leaving out its pathless shell", () => {
     const source = readFileSync(
       join(import.meta.dirname, "../../apps/web/src/routeTree.gen.ts"),
       "utf8",
     );
-    assert.deepEqual(leafRoutes(source), ["/", "/login", "/setup"]);
+    assert.deepEqual(leafRoutes(source).toSorted(), ["/", "/login", "/setup"]);
   });
 
   test("lists top-level routes in route-tree order", () => {

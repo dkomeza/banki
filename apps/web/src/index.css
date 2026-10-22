@@ -48,83 +48,122 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/*
+ * Banki's colours, "Paper & ink": warm paper, warm ink and one burnt-orange
+ * accent. Every colour token below, in both themes, is derived from these base
+ * values (oklch hues in degrees, chroma 0 to about 0.37). To try another
+ * accent, change --accent-hue. vite.config.ts reads this file for the
+ * manifest's and theme.js's background colours, and the tests in
+ * palette.test.ts check AA contrast in both themes.
+ *
+ * The only other place the colours live is the icon, public/icon.svg (its
+ * fills): change them there too.
+ */
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --accent-hue: 45;
+  --accent-chroma: 0.15;
+  --paper-hue: 85;
+  --ink-hue: 60;
+  --danger-hue: 22;
+}
+
+:root {
+  --background: oklch(0.972 0.012 var(--paper-hue));
+  --foreground: oklch(0.24 0.018 var(--ink-hue));
+  --card: oklch(0.99 0.006 var(--paper-hue));
+  --card-foreground: var(--foreground);
+  --popover: var(--card);
+  --popover-foreground: var(--foreground);
+  --primary: oklch(0.52 var(--accent-chroma) var(--accent-hue));
+  --primary-foreground: oklch(0.985 0.008 var(--paper-hue));
+  --secondary: oklch(0.935 0.016 var(--paper-hue));
+  --secondary-foreground: var(--foreground);
+  --muted: oklch(0.945 0.014 var(--paper-hue));
+  --muted-foreground: oklch(0.48 0.02 var(--ink-hue));
+  --accent: oklch(0.935 calc(var(--accent-chroma) * 0.15) calc(var(--accent-hue) + 20));
+  --accent-foreground: var(--foreground);
+  --destructive: oklch(0.5 0.18 var(--danger-hue));
+  --border: oklch(0.89 0.014 var(--paper-hue));
+  --input: oklch(0.62 0.016 var(--ink-hue));
+  --ring: var(--primary);
+  --chart-1: var(--primary);
+  --chart-2: oklch(0.68 calc(var(--accent-chroma) * 0.8) var(--accent-hue));
+  --chart-3: oklch(0.42 calc(var(--accent-chroma) * 0.6) var(--accent-hue));
+  --chart-4: oklch(0.6 0.03 var(--ink-hue));
+  --chart-5: oklch(0.35 0.02 var(--ink-hue));
+  --radius: 0.5rem;
+  --sidebar: oklch(0.952 0.014 var(--paper-hue));
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: oklch(0.915 calc(var(--accent-chroma) * 0.2) calc(var(--accent-hue) + 20));
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: oklch(0.88 0.014 var(--paper-hue));
+  --sidebar-ring: var(--ring);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --background: oklch(0.2 0.01 var(--ink-hue));
+  --foreground: oklch(0.93 0.014 var(--paper-hue));
+  --card: oklch(0.235 0.012 var(--ink-hue));
+  --card-foreground: var(--foreground);
+  --popover: oklch(0.25 0.012 var(--ink-hue));
+  --popover-foreground: var(--foreground);
+  --primary: oklch(0.73 calc(var(--accent-chroma) * 1.05) calc(var(--accent-hue) + 5));
+  --primary-foreground: oklch(0.2 0.02 var(--ink-hue));
+  --secondary: oklch(0.29 0.012 var(--ink-hue));
+  --secondary-foreground: var(--foreground);
+  --muted: oklch(0.27 0.012 var(--ink-hue));
+  --muted-foreground: oklch(0.72 0.016 var(--paper-hue));
+  --accent: oklch(0.31 calc(var(--accent-chroma) * 0.25) var(--accent-hue));
+  --accent-foreground: var(--foreground);
+  --destructive: oklch(0.7 0.16 var(--danger-hue));
+  --border: oklch(0.32 0.012 var(--ink-hue));
+  --input: oklch(0.54 0.014 var(--ink-hue));
+  --ring: var(--primary);
+  --chart-1: var(--primary);
+  --chart-2: oklch(0.6 calc(var(--accent-chroma) * 0.8) var(--accent-hue));
+  --chart-3: oklch(0.82 calc(var(--accent-chroma) * 0.5) var(--accent-hue));
+  --chart-4: oklch(0.6 0.03 var(--paper-hue));
+  --chart-5: oklch(0.8 0.02 var(--paper-hue));
+  --sidebar: oklch(0.175 0.01 var(--ink-hue));
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: oklch(0.28 calc(var(--accent-chroma) * 0.3) var(--accent-hue));
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: oklch(0.29 0.012 var(--ink-hue));
+  --sidebar-ring: var(--ring);
 }
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border outline-ring;
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
   }
   html {
     @apply font-sans;
+    -webkit-tap-highlight-color: transparent;
+  }
+  a {
+    @apply text-primary underline-offset-4;
+  }
+}
+
+/* Motion only ever confirms what someone did; without it nothing is lost. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

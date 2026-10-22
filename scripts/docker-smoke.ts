@@ -38,11 +38,16 @@ const IMMUTABLE = "public, max-age=31536000, immutable";
 const EMAIL = "smoke@example.com";
 const PASSWORD = "smoke-test-password";
 const NEW_PASSWORD = "smoke-test-password-reset";
+const CSP =
+  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
 const SECURITY_HEADERS = {
   "x-content-type-options": "nosniff",
   "referrer-policy": "same-origin",
-  "content-security-policy": "frame-ancestors 'none'",
+  "content-security-policy": CSP,
 };
+const HSTS = "max-age=31536000";
+// The web image started alone, a second time, with an https BANKI_ORIGIN.
+const hstsContainer = `${project}-hsts`;
 const HEALTH_TIMEOUT_MS = 60_000;
 
 class SmokeFailure extends Error {
@@ -298,6 +303,95 @@ async function checkSecurityHeaders(path: string) {
       `GET ${path} has ${name} ${JSON.stringify(actual)}, expected ${JSON.stringify(value)}`,
     );
   }
+  const hsts = res.headers.get("strict-transport-security");
+  check(hsts === null, `GET ${path} sends HSTS (${hsts}) under the http origin ${origin}`);
+}
+
+/** The manifest, by its own type and revalidated, and each of its icons as a PNG. */
+async function checkManifest() {
+  const res = await get("/manifest.webmanifest");
+  expectStatus(res, 200, "GET /manifest.webmanifest");
+  const type = res.headers.get("content-type") ?? "";
+  check(
+    type.startsWith("application/manifest+json"),
+    `GET /manifest.webmanifest answered ${type}, expected application/manifest+json`,
+  );
+  const cacheControl = res.headers.get("cache-control");
+  check(
+    cacheControl === "no-cache",
+    `GET /manifest.webmanifest has Cache-Control ${JSON.stringify(cacheControl)}, expected "no-cache"`,
+  );
+  const manifest: unknown = await res.json();
+  const icons =
+    typeof manifest === "object" && manifest !== null && "icons" in manifest
+      ? manifest.icons
+      : undefined;
+  check(Array.isArray(icons) && icons.length > 0, "the manifest lists no icons");
+  for (const icon of icons) {
+    const src: unknown = typeof icon === "object" && icon !== null && "src" in icon && icon.src;
+    check(
+      typeof src === "string",
+      `the manifest has an icon without a src: ${JSON.stringify(icon)}`,
+    );
+    const path = new URL(src, `${origin}/`).pathname;
+    const png = await get(path);
+    await png.arrayBuffer();
+    expectStatus(png, 200, `GET ${path}`);
+    const pngType = png.headers.get("content-type");
+    check(pngType === "image/png", `GET ${path} answered ${pngType}, expected image/png`);
+  }
+  return icons.length;
+}
+
+/** No service worker: /sw.js is at most the SPA's index.html, never a script. */
+async function checkNoServiceWorker() {
+  const res = await get("/sw.js");
+  await res.arrayBuffer();
+  const type = res.headers.get("content-type") ?? "";
+  check(
+    res.status !== 200 || type.startsWith("text/html"),
+    `GET /sw.js answered HTTP ${res.status} as ${type}: a service worker is deployed`,
+  );
+}
+
+/** The web image, started alone with an https BANKI_ORIGIN, sends HSTS. */
+async function checkHstsOverHttps() {
+  const hstsPort = freePort();
+  await exec([
+    "docker",
+    "run",
+    "--detach",
+    "--rm",
+    "--name",
+    hstsContainer,
+    "--env",
+    "BANKI_ORIGIN=https://banki.example.com",
+    "--publish",
+    `127.0.0.1:${hstsPort}:8080`,
+    `${project}-web`,
+  ]);
+  const deadline = Date.now() + HEALTH_TIMEOUT_MS;
+  let hsts: string | null = null;
+  let answered = false;
+  let last = "no response yet";
+  while (Date.now() < deadline && !interrupt.signal.aborted) {
+    try {
+      const res = await fetch(`http://127.0.0.1:${hstsPort}/`, { signal: interrupt.signal });
+      await res.arrayBuffer();
+      hsts = res.headers.get("strict-transport-security");
+      answered = true;
+      break;
+    } catch (error) {
+      last = String(error);
+    }
+    await Bun.sleep(250);
+  }
+  check(answered, `the web image alone didn't answer within 60 s (last: ${last})`);
+  check(
+    hsts === HSTS,
+    `with BANKI_ORIGIN=https://banki.example.com, GET / has Strict-Transport-Security ${JSON.stringify(hsts)}, expected ${JSON.stringify(HSTS)}`,
+  );
+  await exec(["docker", "rm", "--force", hstsContainer], { capture: true });
 }
 
 async function setupStatus(): Promise<boolean> {
@@ -510,7 +604,14 @@ async function run() {
   for (const path of ["/", "/api/health", "/api/does-not-exist", asset]) {
     await checkSecurityHeaders(path);
   }
-  pass("every response has the three security headers");
+  pass("every response has the three security headers, with the full CSP, and no HSTS over http");
+  pass(
+    `/manifest.webmanifest is application/manifest+json, and its ${await checkManifest()} icons are PNGs`,
+  );
+  await checkNoServiceWorker();
+  pass("there is no service worker at /sw.js");
+  await checkHstsOverHttps();
+  pass("the web image alone with an https BANKI_ORIGIN sends HSTS");
 
   step("Setting up and signing in");
   await checkSignedOutBeforeSetup();
@@ -572,6 +673,11 @@ try {
   }
 } finally {
   step(`Tearing down project ${project}, including its volume and images`);
+  await exec(["docker", "rm", "--force", hstsContainer], {
+    capture: true,
+    allowFailure: true,
+    teardown: true,
+  });
   await compose(["down", "--volumes", "--remove-orphans", "--rmi", "all"], {
     allowFailure: true,
     teardown: true,

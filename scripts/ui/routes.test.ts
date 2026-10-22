@@ -11,10 +11,6 @@ describe("ROUTES", () => {
     assert.equal(ROUTES["/setup"]?.mode, "before-setup");
   });
 
-  test("masks the home screen's measured latency, which differs on every run", () => {
-    assert.deepEqual(ROUTES["/"]?.mask, ["[role=status]"]);
-  });
-
   test("can shoot every route of the web app's route tree", () => {
     const source = readFileSync(
       join(import.meta.dirname, "../../apps/web/src/routeTree.gen.ts"),

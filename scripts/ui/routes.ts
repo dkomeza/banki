@@ -29,8 +29,6 @@ export type RouteEntry = {
 export type RouteManifest = Readonly<Record<string, RouteEntry>>;
 
 export const ROUTES: RouteManifest = {
-  // "API is up · N ms": the round trip, measured afresh on every visit.
-  "/": { mask: ["[role=status]"] },
   "/login": { mode: "signed-out" },
   "/setup": { mode: "before-setup" },
 };
