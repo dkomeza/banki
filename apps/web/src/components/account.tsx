@@ -88,7 +88,7 @@ function ThemePicker() {
             <Radio.Root
               key={value}
               value={value}
-              className="flex h-9 cursor-default items-center justify-center gap-1.5 rounded-md text-sm text-muted-foreground transition-colors outline-none select-none hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring data-checked:bg-card data-checked:font-medium data-checked:text-foreground data-checked:shadow-sm data-checked:ring-1 data-checked:ring-border dark:data-checked:bg-secondary"
+              className="flex h-11 cursor-default items-center justify-center gap-1.5 rounded-md text-sm text-muted-foreground transition-colors outline-none select-none hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid lg:h-9 data-checked:bg-card data-checked:font-medium data-checked:text-primary data-checked:shadow-sm data-checked:ring-2 data-checked:ring-primary data-checked:ring-inset dark:data-checked:bg-secondary"
             >
               <Icon aria-hidden className="size-4" />
               {label}
@@ -139,14 +139,12 @@ export function AccountMenu() {
   const email = useEmail();
   return (
     <Popover.Root>
-      <Popover.Trigger
-        aria-label="Account"
-        className="flex w-full items-center gap-2.5 rounded-lg p-2 text-left text-sm transition-colors outline-none hover:bg-sidebar-accent focus-visible:outline-2 focus-visible:outline-ring data-popup-open:bg-sidebar-accent"
-      >
+      <Popover.Trigger className="flex w-full items-center gap-2.5 rounded-lg p-2 text-left text-sm transition-colors outline-none hover:bg-sidebar-accent focus-visible:outline-2 focus-visible:outline-sidebar-ring focus-visible:outline-solid data-popup-open:bg-sidebar-accent">
         <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/12 text-primary">
           <UserRound aria-hidden className="size-4" />
         </span>
         <span className="min-w-0 flex-1 truncate">{email ?? "Account"}</span>
+        <span className="sr-only">Account menu</span>
         <ChevronsUpDown aria-hidden className="size-4 shrink-0 text-muted-foreground" />
       </Popover.Trigger>
       <Popover.Portal>
@@ -189,7 +187,7 @@ export function AccountSheet({ triggerClassName }: { triggerClassName?: string }
             <Dialog.Title className="text-lg font-semibold tracking-tight">Account</Dialog.Title>
             <Dialog.Close
               aria-label="Close"
-              className="-mr-2 flex size-9 items-center justify-center rounded-lg text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+              className="-mr-2.5 flex size-11 items-center justify-center rounded-lg text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-solid lg:size-9"
             >
               <X aria-hidden className="size-5" />
             </Dialog.Close>

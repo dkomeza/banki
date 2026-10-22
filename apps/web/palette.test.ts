@@ -96,6 +96,7 @@ describe("the Paper & ink palette in index.css", () => {
     ["primary", "background"],
     ["primary", "card"],
     ["primary", "popover"],
+    ["primary", "secondary"],
     ["destructive", "background"],
     ["destructive", "card"],
     ["destructive", "popover"],
@@ -115,6 +116,8 @@ describe("the Paper & ink palette in index.css", () => {
     ["ring", "popover"],
     ["ring", "sidebar"],
     ["primary", "background"],
+    // The selected theme choice: its ring against the track it sits in.
+    ["primary", "muted"],
   ];
 
   for (const theme of THEMES) {
