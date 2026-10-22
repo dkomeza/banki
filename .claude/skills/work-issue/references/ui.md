@@ -18,7 +18,7 @@ Grill the questions that aren't about looks first (scope, states, data, routes),
 2. Spawn the `prototyper` agent. Its prompt carries `<wt>-prototype`, the question in one line, the routes and states to cover, what the grill has settled, and whether the baseline is provisional. Keep its agent ID for later rounds.
 3. When it reports, start a stack in `<wt>-prototype` in the mode its routes need (their route manifest entries in `scripts/ui/routes.ts`):
    - signed-in and signed-out routes: `bun run ui up`. Give the user the URL from `.ui/stack.json` and the sign-in (the stack's `EMAIL` and `PASSWORD` in `scripts/ui/stack.ts`).
-   - `/setup`: `bun run ui up --before-setup`. Give the user the `setupUrl` from `.ui/stack.json`.
+   - `/setup`: `bun run ui up --before-setup`. Give the user the `setupUrl` from `.ui/stack.json` with `&variant=<key>` appended, so the link keeps its Setup token.
 
    A stack runs in one mode at a time, so a prototype that covers both shows one mode, then `bun run ui down` and the other. With the links go each `?variant=` key with its name and bet, and each `&state=` key.
 
