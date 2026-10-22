@@ -22,7 +22,7 @@ import {
   Settings,
   UserRound,
 } from "lucide-react";
-import { type ReactNode, useEffect, useId, useState } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { THEME_ICONS, useSignOut } from "@/components/account";
 import { Logo } from "@/components/logo";
 import { THEME_CHOICES, useThemeChoice } from "@/lib/theme";
@@ -107,7 +107,7 @@ export function ShellE({ children }: { children: ReactNode }) {
           <ChevronRight aria-hidden className="size-4 shrink-0 text-muted-foreground" />
         </Link>
       </aside>
-      <div className="pb-[calc(4rem+env(safe-area-inset-bottom))] lg:p-0">
+      <div data-main-area className="pb-[calc(4rem+env(safe-area-inset-bottom))] lg:p-0">
         <main className={cn("mx-auto w-full px-5 py-8 sm:px-8 lg:px-10 lg:py-12", width)}>{children}</main>
       </div>
       <nav
@@ -137,7 +137,8 @@ export function ShellE({ children }: { children: ReactNode }) {
 
 type SectionDef = { id: string; title: string };
 
-export function SettingsPaper() {
+export function SettingsPaper({ variant = "d" }: { variant?: "d" | "e" }) {
+  const e = variant === "e";
   const state = useProtoState();
   const prefs = useStudyDayPrefs(state);
   const forms = useAccountForms(state, useEmail());
@@ -155,11 +156,23 @@ export function SettingsPaper() {
   ];
   return (
     <div className="lg:grid lg:grid-cols-[2rem_minmax(0,1fr)] lg:gap-8">
-      <SectionIndex sections={sections} forceOpen={state === "index-open"} />
+      {e ? (
+        <SectionIndexE sections={sections} forceOpen={state === "index-open"} />
+      ) : (
+        <SectionIndex sections={sections} forceOpen={state === "index-open"} />
+      )}
       <div className="flex flex-col gap-8 lg:gap-10">
         <h1 className="text-[2.25rem] leading-none font-semibold tracking-[-0.035em] lg:text-5xl">Settings</h1>
         <StudyDay prefs={prefs} tzOpen={state === "tz-open"} />
-        <div className="grid gap-5 md:grid-cols-2 md:items-start lg:gap-6">
+        <div
+          className={
+            e
+              ? // Masonry: CSS columns. Cards fill the first column, then the second, in
+                // DOM order (the index's order and the Tab order), and never split.
+                "gap-x-5 md:columns-2 lg:gap-x-6 [&>section]:mb-5 [&>section]:break-inside-avoid lg:[&>section]:mb-6"
+              : "grid gap-5 md:grid-cols-2 md:items-start lg:gap-6"
+          }
+        >
           {full && <Future />}
           <Account forms={forms} />
           <ThisDevice />
@@ -237,6 +250,128 @@ function SectionIndex({ sections, forceOpen }: { sections: SectionDef[]; forceOp
                   >
                     {s.title}
                   </span>
+                </a>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    </nav>
+  );
+}
+
+/**
+ * Variant e's index. Collapsed: a tight column of dashes (decorative). Hover
+ * anywhere in the gutter left of the content, or Tab into it, and a roomy panel
+ * of real links opens over the page. Which section is active: each section gets
+ * the scroll position its link would jump to, kept in index order and spread
+ * out where the page can't scroll far enough to bring a section to the top (so
+ * the last sections still each get a turn), and the active one is the last
+ * whose position has been passed.
+ */
+function SectionIndexE({ sections, forceOpen }: { sections: SectionDef[]; forceOpen: boolean }) {
+  const ids = sections.map((s) => s.id).join(",");
+  const [active, setActive] = useState(sections[0]!.id);
+  const [gutter, setGutter] = useState(0);
+  const navRef = useRef<HTMLElement>(null);
+  const lockUntil = useRef(0);
+
+  useEffect(() => {
+    const list = ids.split(",");
+    const update = () => {
+      if (performance.now() < lockUntil.current) return;
+      const max = document.documentElement.scrollHeight - window.innerHeight;
+      const y = window.scrollY;
+      const targets = list.map((id) => {
+        const el = document.getElementById(id);
+        if (!el) return 0;
+        const margin = parseFloat(getComputedStyle(el).scrollMarginTop) || 0;
+        return Math.min(Math.max(el.getBoundingClientRect().top + y - margin, 0), max);
+      });
+      // In index order, never earlier than the one before.
+      for (let i = 1; i < targets.length; i++) targets[i] = Math.max(targets[i]!, targets[i - 1]!);
+      // Spread runs of equal positions between the previous position and theirs.
+      for (let i = 1; i < targets.length; ) {
+        let j = i;
+        while (j + 1 < targets.length && targets[j + 1] === targets[i]) j++;
+        if (j > i || targets[i] === targets[i - 1]) {
+          const from = targets[i - 1]!;
+          const to = targets[i]!;
+          const k = j - i + 1;
+          if (to > from) for (let n = 0; n < k; n++) targets[i + n] = from + ((to - from) * (n + 1)) / k;
+        }
+        i = j + 1;
+      }
+      let current = 0;
+      targets.forEach((t, i) => {
+        if (t <= y + 1) current = i;
+      });
+      setActive(list[current]!);
+    };
+    const measure = () => {
+      const nav = navRef.current;
+      const area = nav?.closest("[data-main-area]");
+      if (nav && area) setGutter(nav.getBoundingClientRect().left - area.getBoundingClientRect().left);
+      update();
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(document.body);
+    window.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("scroll", update);
+      window.removeEventListener("resize", measure);
+    };
+  }, [ids]);
+
+  const dash = (s: SectionDef, on: boolean) => (
+    <span
+      aria-hidden
+      className={cn("block h-[3px] rounded-full transition-colors", on ? "bg-primary" : "bg-input/45")}
+      style={{ width: `${10 + Math.min(s.title.length, 12)}px` }}
+    />
+  );
+
+  return (
+    <nav ref={navRef} aria-label="Settings sections" className="group/idx relative hidden lg:block">
+      <div className="sticky top-28">
+        {/* The hover zone: the whole gutter left of the dashes, a little taller than them. */}
+        <div aria-hidden className="absolute -inset-y-8 right-0" style={{ left: -gutter }} />
+        <div
+          aria-hidden
+          className={cn(
+            "relative flex flex-col gap-2.5 py-3 transition-opacity group-focus-within/idx:opacity-0 group-hover/idx:opacity-0",
+            forceOpen && "opacity-0",
+          )}
+        >
+          {sections.map((s) => (
+            <span key={s.id}>{dash(s, s.id === active)}</span>
+          ))}
+        </div>
+        <ul
+          className={cn(
+            "absolute top-0 -left-3 z-20 flex w-max min-w-48 flex-col gap-1 rounded-xl border bg-popover p-2.5 text-popover-foreground shadow-lg transition-opacity duration-150",
+            "pointer-events-none opacity-0 group-focus-within/idx:pointer-events-auto group-focus-within/idx:opacity-100 group-hover/idx:pointer-events-auto group-hover/idx:opacity-100",
+            forceOpen && "pointer-events-auto opacity-100",
+          )}
+        >
+          {sections.map((s) => {
+            const on = s.id === active;
+            return (
+              <li key={s.id}>
+                <a
+                  href={`#${s.id}`}
+                  aria-current={on ? "location" : undefined}
+                  onClick={() => {
+                    lockUntil.current = performance.now() + 400;
+                    setActive(s.id);
+                  }}
+                  className="flex h-9 items-center gap-3.5 rounded-lg pr-5 pl-3 text-sm text-muted-foreground no-underline outline-none hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring aria-[current=location]:font-medium aria-[current=location]:text-foreground"
+                >
+                  <span className="flex w-[22px] shrink-0">{dash(s, on)}</span>
+                  {s.title}
                 </a>
               </li>
             );

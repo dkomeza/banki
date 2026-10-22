@@ -14,5 +14,6 @@ function SettingsSwitch() {
   const variant = useVariant();
   const state = useProtoState();
   const Page = { a: SettingsA, b: SettingsB, c: SettingsC, d: SettingsPaper, e: SettingsPaper }[variant];
-  return <Page key={`${variant}-${state}`} />;
+  const props = variant === "e" ? { variant: "e" as const } : {};
+  return <Page key={`${variant}-${state}`} {...props} />;
 }

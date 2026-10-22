@@ -369,6 +369,10 @@ export function TimezoneCombobox({
           setOpen(true);
           setActive(0);
         }}
+        onBlur={() => {
+          setOpen(false);
+          setQuery("");
+        }}
         onChange={(e) => {
           setQuery(e.target.value);
           setActive(0);
@@ -391,7 +395,7 @@ export function TimezoneCombobox({
         }}
       />
       {open && (
-        <ul ref={listRef} id={`${id}-list`} role="listbox" className={classes.list}>
+        <ul ref={listRef} id={`${id}-list`} role="listbox" tabIndex={-1} className={classes.list}>
           {results.length === 0 && <li className={classes.empty}>No timezone matches “{query}”.</li>}
           {results.slice(0, 200).map(({ zone, offset }, i) => (
             <li
