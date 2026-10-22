@@ -16,10 +16,15 @@ Grill the questions that aren't about looks first (scope, states, data, routes),
 
 1. Create a prototype worktree off the issue branch: `git worktree add <wt>-prototype -b <branch>-prototype <branch>`. The variants live only there, so `<wt>` stays clean.
 2. Spawn the `prototyper` agent. Its prompt carries `<wt>-prototype`, the question in one line, the routes and states to cover, what the grill has settled, and whether the baseline is provisional. Keep its agent ID for later rounds.
-3. When it reports, run `bun run ui up` in `<wt>-prototype`. Give the user the URL from `.ui/stack.json`, each `?variant=` key with its name and bet, and the sign-in (the stack's `EMAIL` and `PASSWORD` in `scripts/ui/stack.ts`).
+3. When it reports, start a stack in `<wt>-prototype` in the mode its routes need (their route manifest entries in `scripts/ui/routes.ts`):
+   - signed-in and signed-out routes: `bun run ui up`. Give the user the URL from `.ui/stack.json` and the sign-in (the stack's `EMAIL` and `PASSWORD` in `scripts/ui/stack.ts`).
+   - `/setup`: `bun run ui up --before-setup`. Give the user the `setupUrl` from `.ui/stack.json`.
+
+   A stack runs in one mode at a time, so a prototype that covers both shows one mode, then `bun run ui down` and the other. With the links go each `?variant=` key with its name and bet, and each `&state=` key.
+
 4. Ask with `AskUserQuestion` which variant wins: one option per variant, plus one for a mix, with notes. The answer is often a mix ("B's header with C's nav"). Resume the prototyper with it for another round. Allow at most 2 rounds in all.
 5. Capture the winner in `<wt>-prototype`:
-   - Run `bun run ui shoot --agent reference '<route>?variant=<key>' …` over its routes, then copy `.ui/shots/reference/` to `<wt>/.ui/reference/`. That folder is the **reference**: the approved design, which the spec points at, the implementer builds to and the `ui-reviewer` checks against.
+   - Run `bun run ui down`, so the prototyper can start a stack in whichever mode it needs. Then resume it to capture the winner into `.ui/shots/reference/`: every route and state it covers, at each viewport and theme. Check that every route and state is there, then copy the folder to `<wt>/.ui/reference/`. That folder is the **reference**: the approved design, which the spec points at, the implementer builds to and the `ui-reviewer` checks against.
    - Commit the variants and push `<branch>-prototype`. Then run `bun run ui down`, `git worktree remove <wt>-prototype` and `git branch -D <branch>-prototype`; origin keeps the branch.
    - Comment on the issue with the question, the winning variant and why, and the branch.
 6. Fold the outcome into the grill. A decision that holds beyond this issue goes into `docs/design.md`, edited in `<wt>` and committed as `docs: …`. The rest becomes UI criteria in the spec, which names the reference: "the screens match `.ui/reference/` (variant `<key>` on `<branch>-prototype`)".
