@@ -50,8 +50,8 @@ const apiDir = (root: string) => join(root, "apps/api");
 const webDir = (root: string) => join(root, "apps/web");
 
 /** The stack's User: local and throwaway, like the stack itself. */
-export const EMAIL = "ui@example.com";
-const PASSWORD = "ui-throwaway-password";
+export const EMAIL = "asdf@asdf.asdf";
+const PASSWORD = "asdfasdf";
 
 const START_TIMEOUT_MS = 90_000;
 /** How long a `ui up` or `ui down` waits for another one to finish: a whole stack start. */
