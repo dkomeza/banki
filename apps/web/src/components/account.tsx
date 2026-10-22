@@ -5,7 +5,7 @@ import { RadioGroup } from "@base-ui/react/radio-group";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { ChevronsUpDown, LogOut, Monitor, Moon, Sun, UserRound, X } from "lucide-react";
-import { useId, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { authClient } from "@/lib/auth-client";
 import { meQueryOptions } from "@/lib/me";
@@ -14,7 +14,7 @@ import { signedInQueryOptions } from "@/lib/signed-in";
 import { THEME_CHOICES, type ThemeChoice, useThemeChoice } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
-const THEME_ICONS = { system: Monitor, light: Sun, dark: Moon } satisfies Record<
+export const THEME_ICONS = { system: Monitor, light: Sun, dark: Moon } satisfies Record<
   ThemeChoice,
   unknown
 >;
@@ -23,7 +23,7 @@ const isThemeChoice = (value: unknown): value is ThemeChoice =>
   THEME_CHOICES.some((choice) => choice.value === value);
 
 /** Signs this browser out and goes to `/login`, or says it couldn't. */
-function useSignOut() {
+export function useSignOut() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [signingOut, setSigningOut] = useState(false);
@@ -66,7 +66,7 @@ function EmailLine() {
   );
 }
 
-function ThemePicker() {
+export function ThemePicker() {
   const id = useId();
   const [choice, setChoice] = useThemeChoice();
   return (
@@ -100,7 +100,7 @@ function ThemePicker() {
   );
 }
 
-function SignOutButton() {
+export function SignOutButton() {
   const { start, signingOut, failed } = useSignOut();
   return (
     <div className="flex flex-col gap-2">
@@ -124,10 +124,11 @@ function SignOutButton() {
 }
 
 /** What the account menu and sheet hold: the Email, the theme choice and Sign out. */
-function AccountPanel() {
+function AccountPanel({ extra }: { extra?: ReactNode }) {
   return (
     <div className="flex flex-col gap-5">
       <EmailLine />
+      {extra}
       <ThemePicker />
       <SignOutButton />
     </div>
@@ -135,10 +136,10 @@ function AccountPanel() {
 }
 
 /** The account menu at the foot of the sidebar, on wide screens. */
-export function AccountMenu() {
+export function AccountMenu({ defaultOpen, extra }: { defaultOpen?: boolean; extra?: ReactNode } = {}) {
   const email = useEmail();
   return (
-    <Popover.Root>
+    <Popover.Root defaultOpen={defaultOpen}>
       <Popover.Trigger className="flex w-full items-center gap-2.5 rounded-lg p-2 text-left text-sm transition-colors outline-none hover:bg-sidebar-accent focus-visible:outline-2 focus-visible:outline-sidebar-ring focus-visible:outline-solid data-popup-open:bg-sidebar-accent">
         <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/12 text-primary">
           <UserRound aria-hidden className="size-4" />
@@ -157,7 +158,7 @@ export function AccountMenu() {
         >
           <Popover.Popup className="w-72 origin-(--transform-origin) rounded-xl border bg-popover p-4 text-popover-foreground shadow-lg outline-none transition-[opacity,scale] duration-150 data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0">
             <Popover.Title className="sr-only">Account</Popover.Title>
-            <AccountPanel />
+            <AccountPanel extra={extra} />
           </Popover.Popup>
         </Popover.Positioner>
       </Popover.Portal>
@@ -166,9 +167,17 @@ export function AccountMenu() {
 }
 
 /** The account sheet the tab bar's Account opens, on narrow screens. */
-export function AccountSheet({ triggerClassName }: { triggerClassName?: string }) {
+export function AccountSheet({
+  triggerClassName,
+  defaultOpen,
+  extra,
+}: {
+  triggerClassName?: string;
+  defaultOpen?: boolean;
+  extra?: ReactNode;
+}) {
   return (
-    <Dialog.Root>
+    <Dialog.Root defaultOpen={defaultOpen}>
       <Dialog.Trigger className={triggerClassName}>
         <UserRound aria-hidden className="size-5" />
         Account
@@ -192,7 +201,7 @@ export function AccountSheet({ triggerClassName }: { triggerClassName?: string }
               <X aria-hidden className="size-5" />
             </Dialog.Close>
           </div>
-          <AccountPanel />
+          <AccountPanel extra={extra} />
         </Dialog.Popup>
       </Dialog.Portal>
     </Dialog.Root>

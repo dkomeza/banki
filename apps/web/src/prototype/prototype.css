@@ -1,0 +1,133 @@
+/* PROTOTYPE (BAN-9): the tokens of variants b and c. Variant a keeps index.css
+ * (Paper & ink) untouched. shared.tsx's useVariantTokens sets data-proto on
+ * <html>. Dark rules are :root.dark[data-proto] so they beat the light ones. */
+
+@import "@fontsource-variable/atkinson-hyperlegible-next";
+@import "@fontsource-variable/bricolage-grotesque/opsz.css";
+
+/* ---- b: Ruled card -------------------------------------------------------
+ * Cool index-card white, blue ruling ink, one red margin line. Atkinson
+ * Hyperlegible Next, compact. */
+:root[data-proto="b"] {
+  font-family: "Atkinson Hyperlegible Next Variable", system-ui, sans-serif;
+  --background: #f3f5f9;
+  --foreground: #172033;
+  --card: #ffffff;
+  --card-foreground: #172033;
+  --popover: #ffffff;
+  --popover-foreground: #172033;
+  --primary: #2347b5;
+  --primary-foreground: #ffffff;
+  --secondary: #e8edf5;
+  --secondary-foreground: #172033;
+  --muted: #eef1f6;
+  --muted-foreground: #556076;
+  --accent: #e3e9f7;
+  --accent-foreground: #172033;
+  --destructive: #b42318;
+  --border: #dbe1eb;
+  --input: #8590a5;
+  --ring: #2347b5;
+  --radius: 0.375rem;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #172033;
+  --sidebar-primary: #2347b5;
+  --sidebar-accent: #e8edf5;
+  --sidebar-border: #dbe1eb;
+  --sidebar-ring: #2347b5;
+  --rule: #c9d6ee;
+  --margin: #d64560;
+}
+:root.dark[data-proto="b"] {
+  --background: #0f141d;
+  --foreground: #e6eaf2;
+  --card: #161d29;
+  --card-foreground: #e6eaf2;
+  --popover: #1b2331;
+  --popover-foreground: #e6eaf2;
+  --primary: #8ea9ff;
+  --primary-foreground: #0f141d;
+  --secondary: #1f2837;
+  --secondary-foreground: #e6eaf2;
+  --muted: #1a2230;
+  --muted-foreground: #9ba6ba;
+  --accent: #222c3d;
+  --accent-foreground: #e6eaf2;
+  --destructive: #ff8a80;
+  --border: #263142;
+  --input: #5d6a80;
+  --ring: #8ea9ff;
+  --sidebar: #131924;
+  --sidebar-foreground: #e6eaf2;
+  --sidebar-primary: #8ea9ff;
+  --sidebar-accent: #1f2837;
+  --sidebar-border: #263142;
+  --sidebar-ring: #8ea9ff;
+  --rule: #24304a;
+  --margin: #e0707f;
+}
+
+/* ---- c: Sage & marigold ----------------------------------------------------
+ * Pale sage paper, deep green ink, marigold for the Study day itself.
+ * Bricolage Grotesque, roomy. */
+:root[data-proto="c"] {
+  font-family: "Bricolage Grotesque Variable", system-ui, sans-serif;
+  font-optical-sizing: auto;
+  --background: #edf1ec;
+  --foreground: #1a2520;
+  --card: #fbfcf9;
+  --card-foreground: #1a2520;
+  --popover: #fbfcf9;
+  --popover-foreground: #1a2520;
+  --primary: #1d6a55;
+  --primary-foreground: #f7fbf8;
+  --secondary: #e1e8e1;
+  --secondary-foreground: #1a2520;
+  --muted: #e5ebe4;
+  --muted-foreground: #53625b;
+  --accent: #dfe9e2;
+  --accent-foreground: #1a2520;
+  --destructive: #b3261e;
+  --border: #d3dcd2;
+  --input: #7c8a82;
+  --ring: #1d6a55;
+  --radius: 0.875rem;
+  --sidebar: #e4eae3;
+  --sidebar-foreground: #1a2520;
+  --sidebar-primary: #1d6a55;
+  --sidebar-accent: #d5e0d7;
+  --sidebar-border: #d3dcd2;
+  --sidebar-ring: #1d6a55;
+  --marigold: #e5b33f;
+  --marigold-soft: #f6e6b8;
+  --on-marigold: #2a2108;
+}
+:root.dark[data-proto="c"] {
+  --background: #121916;
+  --foreground: #e2eae5;
+  --card: #18211d;
+  --card-foreground: #e2eae5;
+  --popover: #1d2722;
+  --popover-foreground: #e2eae5;
+  --primary: #7dccaf;
+  --primary-foreground: #10201a;
+  --secondary: #222d28;
+  --secondary-foreground: #e2eae5;
+  --muted: #1e2824;
+  --muted-foreground: #9dada5;
+  --accent: #23302a;
+  --accent-foreground: #e2eae5;
+  --destructive: #f28b82;
+  --border: #2a3631;
+  --input: #5e6e66;
+  --ring: #7dccaf;
+  --sidebar: #0f1512;
+  --sidebar-foreground: #e2eae5;
+  --sidebar-primary: #7dccaf;
+  --sidebar-accent: #222d28;
+  --sidebar-border: #26312c;
+  --sidebar-ring: #7dccaf;
+  --marigold: #e8b84a;
+  --marigold-soft: #4a3d17;
+  --on-marigold: #2a2108;
+}
