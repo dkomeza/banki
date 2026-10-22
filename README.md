@@ -64,7 +64,7 @@ It prints the User's Email, asks for the new Password twice, sets it and signs o
 
 ## Seeing the UI: the `ui` script
 
-`bun run ui` starts a throwaway copy of Banki in this worktree and screenshots it, so you, and the `/work-issue` agents, can see the screens a change touches. The copy (the stack) is the API and Vite on free ports, already set up with a local throwaway User (`ui@example.com`), loaded with the [Seed data](#seed-data) and signed in. Its data directory is `.ui/data-<id>/`, never `apps/api/.data/`, so it leaves your own dev data alone, and stacks in several worktrees run side by side. Everything it writes is under `.ui/`, which is gitignored.
+`bun run ui` starts a throwaway copy of Banki in this worktree and screenshots it, so you, and the `/work-issue` agents, can see the screens a change touches. The copy (the stack) is the API and Vite on free ports, already set up with a local throwaway User (Email `asdf@asdf.asdf`, Password `asdfasdf`, so you can sign in to it by hand), loaded with the [Seed data](#seed-data) and signed in. Its data directory is `.ui/data-<id>/`, never `apps/api/.data/`, so it leaves your own dev data alone, and stacks in several worktrees run side by side. Everything it writes is under `.ui/`, which is gitignored.
 
 It runs on Node (Playwright doesn't support Bun) and drives Playwright's own Chromium, which you install once:
 
