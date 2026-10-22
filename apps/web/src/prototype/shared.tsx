@@ -57,7 +57,7 @@ export function useVariantTokens(variant: VariantKey) {
 
 export function useEmail(): string {
   const me = useQuery(meQueryOptions);
-  return me.data?.email ?? "ui@example.com";
+  return me.data?.email ?? "asdf@asdf.asdf";
 }
 
 // --- Time -------------------------------------------------------------------

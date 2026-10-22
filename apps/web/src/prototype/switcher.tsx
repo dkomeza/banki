@@ -1,5 +1,6 @@
 // PROTOTYPE (BAN-9): the floating variant switcher. Hidden in production builds
-// and in automated browsers (navigator.webdriver), so captures never show it.
+// in automated browsers (navigator.webdriver), and when localStorage has
+// banki-prototype-switcher=hidden (set for the playwright-cli reference shots).
 
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight } from "lucide-react";
@@ -36,7 +37,13 @@ export function PrototypeSwitcher() {
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  if (import.meta.env.PROD || navigator.webdriver) return null;
+  let hidden = false;
+  try {
+    hidden = localStorage.getItem("banki-prototype-switcher") === "hidden";
+  } catch {
+    // Storage blocked: show it.
+  }
+  if (import.meta.env.PROD || navigator.webdriver || hidden) return null;
 
   return (
     <div
