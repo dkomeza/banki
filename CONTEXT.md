@@ -29,6 +29,21 @@ _Avoid_: onboarding, registration, sign-up
 **Setup token**:
 A one-time code that Banki prints to its logs while Setup isn't done, and that the Setup page asks for. It proves that whoever does Setup can see the server, so a stranger who reaches a fresh installation first can't claim it.
 
+**Settings**:
+The User's choices that apply across every device, kept on the server and changed on the Settings page. Choices that belong to one device only, such as the theme, are not Settings.
+_Avoid_: preferences, config
+
+**Timezone**:
+The timezone Banki counts the User's days in. Banki takes it from the first browser the User signs in with and changes it only when the User does, even when a device is in another timezone.
+
+**Day start**:
+The hour, in the User's Timezone, at which one Study day ends and the next begins. 4:00 a.m. unless the User changes it.
+_Avoid_: rollover, cutoff
+
+**Study day**:
+The day a moment belongs to for everything Banki counts per day: due cards, daily minutes, statistics. It runs from one Day start to the next, so studying at 1:00 a.m. counts toward the day before. A review's Study day follows from when it happened and the current Timezone and Day start, so changing either moves past reviews too.
+_Avoid_: calendar day, date
+
 **Preview**:
 A disposable installation of Banki built from one pull request, already set up and holding Seed data, so the change can be tried on any device. It is rebuilt from scratch on every push. It is removed when the pull request closes, when it goes a while without a push, or when it is evicted to make room for newer ones; a removed Preview of an open pull request comes back on its next push. Its User is the only account it has.
 _Avoid_: staging, review app, preview account
