@@ -44,13 +44,12 @@ const NAV: readonly NavItem[] = [
   { to: "/", label: "Home", icon: House },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
-const SEARCH = { variant: "a" } as never;
 
-function SettingsLink() {
+function SettingsLink({ search }: { search: never }) {
   return (
     <Link
       to="/settings"
-      search={SEARCH}
+      search={search}
       className="-mx-2 flex h-11 items-center gap-2.5 rounded-lg px-2 text-sm text-foreground no-underline hover:bg-muted lg:h-9"
     >
       <Settings aria-hidden className="size-4 text-muted-foreground" />
@@ -60,7 +59,16 @@ function SettingsLink() {
   );
 }
 
-export function ShellA({ children }: { children: ReactNode }) {
+export function ShellA({
+  children,
+  variant = "a",
+  mainClassName = "max-w-3xl",
+}: {
+  children: ReactNode;
+  variant?: string;
+  mainClassName?: string;
+}) {
+  const SEARCH = { variant } as never;
   const state = useProtoState();
   const open = state === "account-open";
   const wide = isWide();
@@ -88,10 +96,10 @@ export function ShellA({ children }: { children: ReactNode }) {
             ))}
           </ul>
         </nav>
-        <AccountMenu defaultOpen={open && wide} extra={<SettingsLink />} />
+        <AccountMenu defaultOpen={open && wide} extra={<SettingsLink search={SEARCH} />} />
       </aside>
       <div className="pb-[calc(4rem+env(safe-area-inset-bottom))] lg:p-0">
-        <main className="mx-auto w-full max-w-3xl px-5 py-8 sm:px-8 lg:px-10 lg:py-12">
+        <main className={cn("mx-auto w-full px-5 py-8 sm:px-8 lg:px-10 lg:py-12", mainClassName)}>
           {children}
         </main>
       </div>
@@ -115,7 +123,7 @@ export function ShellA({ children }: { children: ReactNode }) {
           <AccountSheet
             defaultOpen={open && !wide}
             triggerClassName={`${TAB} data-popup-open:text-foreground`}
-            extra={<SettingsLink />}
+            extra={<SettingsLink search={SEARCH} />}
           />
         </div>
       </nav>

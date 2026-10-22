@@ -3,6 +3,7 @@ import { useProtoState, useVariant } from "@/prototype/shared";
 import { SettingsA } from "@/prototype/variant-a";
 import { SettingsB } from "@/prototype/variant-b";
 import { SettingsC } from "@/prototype/variant-c";
+import { SettingsPaper } from "@/prototype/variant-de";
 
 // PROTOTYPE (BAN-9): three Settings pages, ?variant=a|b|c, states via &state=.
 export const Route = createFileRoute("/_shell/settings")({
@@ -12,6 +13,6 @@ export const Route = createFileRoute("/_shell/settings")({
 function SettingsSwitch() {
   const variant = useVariant();
   const state = useProtoState();
-  const Page = variant === "b" ? SettingsB : variant === "c" ? SettingsC : SettingsA;
+  const Page = { a: SettingsA, b: SettingsB, c: SettingsC, d: SettingsPaper, e: SettingsPaper }[variant];
   return <Page key={`${variant}-${state}`} />;
 }

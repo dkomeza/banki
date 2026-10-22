@@ -9,12 +9,14 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "re
 import { meQueryOptions } from "@/lib/me";
 import { cn } from "@/lib/utils";
 
-export type VariantKey = "a" | "b" | "c";
+export type VariantKey = "a" | "b" | "c" | "d" | "e";
 
 export const VARIANTS: readonly { key: VariantKey; name: string }[] = [
   { key: "a", name: "Paper & ink, Settings in the nav" },
   { key: "b", name: "Ruled card, grouped rows" },
   { key: "c", name: "Sage & marigold, study day first" },
+  { key: "d", name: "Round 2: Paper & ink page, account menu kept" },
+  { key: "e", name: "Round 2: Paper & ink page, account menu folded in" },
 ];
 
 /** States per route, for the switcher. The plain load is `default`. */
@@ -29,6 +31,7 @@ export const STATES: Record<string, readonly string[]> = {
     "password-done",
     "save-error",
     "full",
+    "index-open",
   ],
   "/": ["default", "account-open"],
 };
@@ -36,7 +39,7 @@ export const STATES: Record<string, readonly string[]> = {
 export function useVariant(): VariantKey {
   const search = useSearch({ strict: false }) as Record<string, unknown>;
   const v = search["variant"];
-  return v === "b" || v === "c" ? v : "a";
+  return v === "b" || v === "c" || v === "d" || v === "e" ? v : "a";
 }
 
 export function useProtoState(): string {
