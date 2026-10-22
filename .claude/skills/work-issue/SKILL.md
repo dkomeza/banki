@@ -17,9 +17,13 @@ A **UI issue** is one whose diff touches `apps/web/` or whose spec has UI criter
 
 ## 0. Clean up merged work
 
-For each worktree under `../banki-worktrees/` (`git worktree list`), check its PR with `gh pr view <branch> --json state,headRefOid`. Remove it only when the state is `MERGED` **and** the local branch tip (`git rev-parse <branch>`) equals `headRefOid`: `bun run ui down` in it (stopping any stack left running), then `git worktree remove <path>` and `git branch -D <branch>`. A tip that differs means local commits that never reached the PR: leave that worktree and tell the user. Then remove every base worktree `ui compare` left (the `.base-*` entries of `git worktree list`) with `git worktree remove --force <path>`, and `git checkout main && git pull` in the main checkout.
+For each issue worktree under `../banki-worktrees/` (`git worktree list`, leaving out the `-prototype` ones), check its PR with `gh pr view <branch> --json state,headRefOid`. Remove it only when the state is `MERGED` **and** the local branch tip (`git rev-parse <branch>`) equals `headRefOid`: `bun run ui down` in it (stopping any stack left running), then `git worktree remove <path>` and `git branch -D <branch>`. A tip that differs means local commits that never reached the PR: leave that worktree and tell the user.
 
-Done when every merged worktree is removed or reported, no `.base-*` worktree is left, and `main` is up to date.
+A prototype worktree (`<wt>-prototype`, on `<branch>-prototype`) is left over when a session ended before step 2 captured it. Clean it up once its issue worktree is gone, whether removed just now or earlier: `bun run ui down` in it, commit anything uncommitted, and `git push -u origin <branch>-prototype`, so no variant is lost. Then `git worktree remove <path>` and `git branch -D <branch>-prototype`; origin keeps the branch. While its issue worktree is still there, leave it: that issue's grill may resume with it.
+
+Then remove every base worktree `ui compare` left (the `.base-*` entries of `git worktree list`) with `git worktree remove --force <path>`, and `git checkout main && git pull` in the main checkout.
+
+Done when every merged worktree is removed or reported, every prototype worktree without its issue worktree is pushed and removed, no `.base-*` worktree is left, and `main` is up to date.
 
 ## 1. Load the issue
 
