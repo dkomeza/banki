@@ -28,9 +28,10 @@ Before writing code, read `CLAUDE.md`, `CONTEXT.md` and the ADRs in `docs/adr/` 
 
 On a UI issue (the diff touches `apps/web/`, or the spec has UI criteria), look at the screens you built before you report. The README's "Seeing the UI" section describes the `ui` script.
 
+- Build within `docs/design.md` when it exists. When the spec names a reference, `.ui/reference/` holds the approved design's shots and the prototype branch holds its code (`git show <branch>-prototype:<path>`). Build to the shots, and write the code properly rather than copying the prototype's.
 - Run `bun run ui shoot --agent implementer <routes…>` on every route you touched. Each route is shot in its mode from the route manifest (`/login` signed out, `/setup` before Setup), and a route with params, such as `/decks/$deckId`, at its manifest path. The shots land in `.ui/shots/implementer/`.
 - For states that only appear after interaction (validation errors, dialogs, empty states), run `bun run ui up` and read `.ui/stack.json`. Drive the page from the worktree's root with `npx --no-install playwright-cli -s=<worktree>-implementer …`, where `<worktree>` is the worktree folder's name: `open`, `state-load <signedInState>`, `goto <url><route>`, `resize 390 844` for phone size, then `snapshot`, `click` and `fill` to reach the state. Save each one with `screenshot --filename=.ui/shots/implementer/<route>-<state>.png`. Finish with `close` and `bun run ui down`.
-- Read every PNG and fix clear breakage: overflow or a horizontal scrollbar, overlapping elements, unreadable contrast, a blank or error screen.
+- Read every PNG and fix clear breakage: overflow or a horizontal scrollbar, overlapping elements, unreadable contrast, a blank or error screen. With a reference, also fix where a screen departs from it.
 
 ## Done
 
