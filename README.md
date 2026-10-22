@@ -115,10 +115,15 @@ With it `false`, dark shots are skipped.
 ```ts
 export const ROUTES: RouteManifest = {
   "/login": { mode: "signed-out" },
-  "/stats": { mask: [".latency"] },
   "/setup": { mode: "before-setup" },
-  "/decks/$deckId": { path: `/decks/${SEED_IDS.deck}` },
 };
+```
+
+A route with params, or with content that differs on every run, gets an entry like one of these. Both routes are made up, to show the shape:
+
+```ts
+  "/decks/$deckId": { path: `/decks/${SEED_IDS.deck}` },
+  "/some-route": { mask: [".measured-latency"] },
 ```
 
 - `mode`: `signed-out` or `before-setup`. A route without one is shot signed in.
