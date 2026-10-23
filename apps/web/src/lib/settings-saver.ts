@@ -45,8 +45,8 @@ export function createSettingsSaver({
   onStored,
   now = settingsClock,
   afterSaved = (clear) => {
-    const timer = window.setTimeout(clear, SAVED_MS);
-    return () => window.clearTimeout(timer);
+    const timer = globalThis.setTimeout(clear, SAVED_MS);
+    return () => globalThis.clearTimeout(timer);
   },
 }: {
   initial: SettingsRead;
@@ -70,6 +70,8 @@ export function createSettingsSaver({
   // server may have changed since it was taken.
   let storedSince = initial.issuedAt;
   const listeners = new Set<() => void>();
+  // Once disposed (signed out), answers still on their way change nothing.
+  let disposed = false;
   const savedTimers = new Map<Field, () => void>();
   // A read that arrived while saving (the first fill, a refetch), held until
   // the queue drains, unless a later save's answer supersedes it.
@@ -102,6 +104,7 @@ export function createSettingsSaver({
     } catch {
       stored = undefined;
     }
+    if (disposed) return;
     const rest = state.queue.slice(1);
     const stillChanging = rest.some((next) => next.field === change.field);
     if (stored === undefined) {
@@ -178,6 +181,7 @@ export function createSettingsSaver({
       if (read.settings !== state.stored) update({ stored: read.settings });
     },
     dispose() {
+      disposed = true;
       for (const cancel of savedTimers.values()) cancel();
       listeners.clear();
     },

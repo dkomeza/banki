@@ -4,6 +4,7 @@ import { useState } from "react";
 import { authClient } from "./auth-client";
 import { meQueryOptions } from "./me";
 import { settingsQueryOptions } from "./settings";
+import { dropSettingsSaver } from "./settings-store";
 import { signOut } from "./sign-out";
 import { signedInQueryOptions } from "./signed-in";
 
@@ -22,6 +23,8 @@ export function useSignOut() {
       async () => {
         queryClient.setQueryData(signedInQueryOptions.queryKey, null);
         queryClient.removeQueries({ queryKey: meQueryOptions.queryKey });
+        // The settings saver too, so the next sign-in starts clean.
+        dropSettingsSaver(queryClient);
         queryClient.removeQueries({ queryKey: settingsQueryOptions().queryKey });
         await navigate({ to: "/login" });
       },

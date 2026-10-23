@@ -1,41 +1,28 @@
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { CircleAlert, Globe } from "lucide-react";
-import { useEffect, useId, useState, useSyncExternalStore } from "react";
+import { useId, useSyncExternalStore } from "react";
 import { DayBar } from "@/components/settings/day-bar";
 import { DayStartCombobox } from "@/components/settings/day-start-combobox";
 import { OUTLINE_PILL, PILL, SaveState } from "@/components/settings/parts";
 import { TimezoneCombobox } from "@/components/settings/timezone-combobox";
 import { Button } from "@/components/ui/button";
-import { saveSettings, settingsQueryOptions } from "@/lib/settings";
-import {
-  type Field,
-  type SaverState,
-  createSettingsSaver,
-  shownSettings,
-} from "@/lib/settings-saver";
+import { settingsQueryOptions } from "@/lib/settings";
+import { type Field, type SaverState, shownSettings } from "@/lib/settings-saver";
+import { settingsSaverFor } from "@/lib/settings-store";
 import { dayStartEffect, deviceTimezone, offsetOf, sameTimezone, saveErrorText } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 /**
  * The Timezone and Day start, saved as they change, one at a time and in
- * order (see createSettingsSaver), keeping the settings query in step.
+ * order (see createSettingsSaver), through the app's settings saver.
  */
 function useStudyDaySettings() {
   const queryClient = useQueryClient();
-  const options = settingsQueryOptions();
-  const { data } = useSuspenseQuery(options);
-  const [saver] = useState(() =>
-    createSettingsSaver({
-      initial: data,
-      save: (patch) => saveSettings(patch),
-      onStored: (read) => queryClient.setQueryData(options.queryKey, read),
-    }),
-  );
-  useEffect(() => () => saver.dispose(), [saver]);
-  // Every read reaching the cache (a refetch, the first fill, the saver's own
-  // answers) goes to the saver, which ignores one issued before the last save
-  // completed.
-  useEffect(() => saver.sync(data), [saver, data]);
+  // Loads the Settings, which the saver starts from.
+  useSuspenseQuery(settingsQueryOptions());
+  // The app's saver, not this card's: a save keeps running when the User
+  // leaves, and its failure is waiting when they come back.
+  const saver = settingsSaverFor(queryClient);
   const state = useSyncExternalStore(saver.subscribe, saver.getState);
   return { saver, state, shown: shownSettings(state) };
 }
