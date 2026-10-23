@@ -44,7 +44,7 @@ The Password never goes on the command line or in the environment. Setup from a 
 
 ### Seed data
 
-`banki seed` loads the Seed data: fixed sample content, the same on every run, for development and Previews. So far it is the User's Timezone, `Europe/Warsaw`. It only runs on an installation that is set up and whose User has no content yet (stored Settings count), so it can't touch a real installation's cards or Settings:
+`banki seed` loads the Seed data: fixed sample content, the same on every run, for development and Previews. So far it is the User's Timezone, `Europe/Warsaw`, stored only while no Timezone is (a signed-in load may already have stored the browser's). It only runs on an installation that is set up and whose User has no content yet, so it can't touch a real installation's cards:
 
 ```sh
 DATA_DIR=.data bun run banki seed

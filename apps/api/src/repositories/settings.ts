@@ -49,16 +49,5 @@ export function createSettingsRepository(db: Queryable) {
         .run();
       return get(userId);
     },
-
-    /** Whether the User has a row of Settings. */
-    exist(userId: string): boolean {
-      return (
-        db
-          .select({ userId: user_settings.userId })
-          .from(user_settings)
-          .where(eq(user_settings.userId, userId))
-          .get() !== undefined
-      );
-    },
   };
 }

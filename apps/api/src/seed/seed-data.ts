@@ -18,14 +18,17 @@ export { SEED_IDS, SEED_TIMEZONE } from "./seed-ids";
 
 /** Writes the Seed data for `userId` through the repositories, timed relative to `now`. */
 export function writeSeedData({ db, userId }: { db: Queryable; userId: string; now: Date }): void {
-  // The Day start stays the default.
-  createSettingsRepository(db).update(userId, { timezone: SEED_TIMEZONE });
+  // Only while no Timezone is stored, as the first fill does: a signed-in load
+  // before seeding may already have stored the browser's zone, or the User may
+  // have chosen one. The Day start stays the default.
+  createSettingsRepository(db).setInitialTimezone(userId, SEED_TIMEZONE);
 }
 
 /**
- * Whether the User owns any content, in which case `banki seed` refuses: so far
- * only stored Settings, which seeding would overwrite.
+ * Whether the User owns any content (folders, decks, cards, reviews), in which
+ * case `banki seed` refuses. There are no content tables yet, so never.
+ * Settings aren't content: seeding leaves a stored choice alone instead.
  */
-export function userHasContent(db: Queryable, userId: string): boolean {
-  return createSettingsRepository(db).exist(userId);
+export function userHasContent(_db: Queryable, _userId: string): boolean {
+  return false;
 }

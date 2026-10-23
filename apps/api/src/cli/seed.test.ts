@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { SettingsResponse } from "@banki/shared";
-import { EMAIL, PASSWORD, bootApps, cookiesFrom, get, signIn } from "../testing/app";
+import { EMAIL, ORIGIN, PASSWORD, bootApps, cookiesFrom, get, signIn } from "../testing/app";
 import { runCli } from "../testing/cli";
 
 // These run the real CLI in a child process against a temporary data
@@ -55,13 +55,25 @@ describe("banki seed", () => {
     });
   });
 
-  test("refuses once the User has Settings stored, which it would overwrite", async () => {
+  test("leaves a Timezone already stored alone, such as the first fill's", async () => {
     await setup();
-    await seed();
+    const { app, close } = boot();
+    const cookie = cookiesFrom(await signIn(app));
+    await app.request("/api/settings/timezone/initial", {
+      method: "PUT",
+      headers: { "content-type": "application/json", origin: ORIGIN, cookie },
+      body: JSON.stringify({ timezone: "Asia/Tokyo" }),
+    });
+    close();
 
-    const again = await seed();
+    const result = await seed();
 
-    expect(again.exitCode).toBe(1);
-    expect(again.stderr).toContain("The User already has content, so nothing was seeded.");
+    expect(result.exitCode).toBe(0);
+    const { app: after } = boot();
+    const res = await get(after, "/api/settings", cookiesFrom(await signIn(after)));
+    expect(SettingsResponse.parse(await res.json())).toEqual({
+      timezone: "Asia/Tokyo",
+      dayStartHour: 4,
+    });
   });
 });
