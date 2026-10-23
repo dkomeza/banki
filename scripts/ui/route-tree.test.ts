@@ -37,7 +37,7 @@ describe("leafRoutes", () => {
       join(import.meta.dirname, "../../apps/web/src/routeTree.gen.ts"),
       "utf8",
     );
-    assert.deepEqual(leafRoutes(source).toSorted(), ["/", "/login", "/setup"]);
+    assert.deepEqual(leafRoutes(source).toSorted(), ["/", "/login", "/settings", "/setup"]);
   });
 
   test("lists top-level routes in route-tree order", () => {
