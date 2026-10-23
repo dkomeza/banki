@@ -12,7 +12,7 @@ import {
 } from "./config";
 import { confirm, deploy, type Services } from "./deploy";
 import * as docker from "./docker";
-import { resolveDigests } from "./ghcr";
+import { lookUp } from "./ghcr";
 import { gitHub, type GitHub } from "./github";
 import { HELPER, removeFinishedHelper, runHelper, START_WAIT_MS } from "./helper";
 import { keyOf, type PreviewKey, projectName, REPO, shortSha, SLUG_ENVIRONMENT } from "./naming";
@@ -161,9 +161,10 @@ async function reconcile(settings: Settings, loop: number): Promise<void> {
   if (prRead !== undefined) {
     const observed = { ...prRead, ...shared, projects: projects.prs, limits };
     const images: ImagesReady[] = [];
+    // The PR pool has no timeout, so a failed lookup counts as not ready.
     for (const { pr, sha } of imagesToCheck(observed)) {
-      const digests = await lookUp(pr, sha);
-      if (digests !== undefined) images.push({ pr, sha, digests });
+      const found = await lookUp(pr, sha);
+      if (typeof found === "object") images.push({ pr, sha, digests: found.digests });
     }
     prPlan = planParts({ ...observed, images });
   }
@@ -177,11 +178,13 @@ async function reconcile(settings: Settings, loop: number): Promise<void> {
       limits: { cap: slugLimits.cap },
     };
     const images: SlugImagesReady[] = [];
+    const missing: { slug: string; sha: string }[] = [];
     for (const { slug, sha } of slugImagesToCheck(observed)) {
-      const digests = await lookUp(slug, sha);
-      if (digests !== undefined) images.push({ slug, sha, digests });
+      const found = await lookUp(slug, sha);
+      if (typeof found === "object") images.push({ slug, sha, digests: found.digests });
+      else if (found === "missing") missing.push({ slug, sha });
     }
-    slugPlan = planSlugParts({ ...observed, images });
+    slugPlan = planSlugParts({ ...observed, images, missing });
   }
 
   const ordered = orderPlans(prPlan, slugPlan, turn);
@@ -192,18 +195,6 @@ async function reconcile(settings: Settings, loop: number): Promise<void> {
   await runActions(ordered.actions, summary, (action) =>
     isSlugAction(action) ? executeSlug(action, context) : execute(action, context),
   );
-}
-
-/** One Preview's lookup failing leaves only that Preview waiting, not every other. */
-async function lookUp(key: PreviewKey, sha: string) {
-  try {
-    return await resolveDigests(key, sha);
-  } catch (error) {
-    console.error(
-      `${projectName(key)}: couldn't look up the images of ${shortSha(sha)}, so they count as not ready: ${errorText(error)}`,
-    );
-    return undefined;
-  }
 }
 
 type Context = {

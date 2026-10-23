@@ -80,6 +80,7 @@ describe("parseSlugDeployment", () => {
         projects: [],
         deployments: broken === undefined ? [] : [broken],
         images: [],
+        missing: [],
         resources: [],
         siteId: 7,
         limits: { cap: 9 },

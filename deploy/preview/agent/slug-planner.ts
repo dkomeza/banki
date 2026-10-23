@@ -52,8 +52,14 @@ export type SlugPlanInput = {
   projects: SlugProject[];
   /** Every `slug-preview` Deployment read, good payloads or not. */
   deployments: SlugDeployment[];
-  /** The images that exist, for the builds {@link slugImagesToCheck} named. */
+  /** The builds {@link slugImagesToCheck} named whose images exist. */
   images: SlugImagesReady[];
+  /**
+   * The builds it named whose lookup succeeded and found an image missing.
+   * One in neither list couldn't be looked up: it waits, neither deployed
+   * nor timed out, for the next loop to decide.
+   */
+  missing: { slug: string; sha: string }[];
   /** Every resource of the org, owned by the agent or not. */
   resources: PangolinResource[];
   /** The Previews site's numeric ID. */
@@ -285,11 +291,16 @@ export function planSlugParts(input: SlugPlanInput): PlanParts<SlugAction> {
     const images = input.images.find((image) => image.slug === head.slug && image.sha === head.sha);
     if (images === undefined) {
       // An image can go missing for good: a sweep deleting it just as a
-      // dispatch at the same head found it already pushed. Waiting longer
-      // than any build takes, the Deployment fails visibly instead of
-      // waiting out its time to live, and dispatching again rebuilds it. One
-      // the agent stopped in the middle of deploying had its images.
+      // dispatch at the same head found it already pushed. Confirmed missing
+      // longer than any build takes, the Deployment fails visibly instead of
+      // waiting out its time to live, and dispatching again rebuilds it. A
+      // lookup that failed confirms nothing. One the agent stopped in the
+      // middle of deploying had its images.
+      const confirmedMissing = input.missing.some(
+        (build) => build.slug === head.slug && build.sha === head.sha,
+      );
       if (
+        confirmedMissing &&
         head.status !== "in_progress" &&
         input.now.getTime() - head.createdAt.getTime() >= IMAGES_WAIT_MS
       ) {
@@ -505,7 +516,7 @@ function evictionOf(
 
 /** The builds whose images the loop must look up in GHCR before it plans: each wanted Slug's newest still waiting. */
 export function slugImagesToCheck(
-  input: Omit<SlugPlanInput, "images">,
+  input: Omit<SlugPlanInput, "images" | "missing">,
 ): { slug: string; sha: string }[] {
   return [...newestOfEach(checkedDeployments(input.deployments)).values()]
     .filter((head) => head.status !== "inactive" && !isExpired(head, input.now) && isWaiting(head))

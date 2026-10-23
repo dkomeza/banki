@@ -101,6 +101,7 @@ function plans(options: { prs: number; slugs: number; prDeploy?: number; slugDep
     ],
     images:
       options.slugDeploy === undefined ? [] : [{ slug: options.slugDeploy, sha: NEW_SHA, digests }],
+    missing: [],
     resources: [],
     siteId: 7,
     limits: { cap: 9 },

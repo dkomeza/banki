@@ -88,6 +88,7 @@ const input = (overrides: Partial<SlugPlanInput> = {}): SlugPlanInput => ({
   projects: [],
   deployments: [],
   images: [],
+  missing: [],
   resources: [],
   siteId: SITE,
   limits: { cap: 9 },
@@ -327,17 +328,21 @@ describe("a Deployment whose images never arrive", () => {
     for (const status of ["queued", "pending", undefined] as const) {
       const waiting = deployment("blue", SHA_A, status, { createdAt: minutesAgo(59) });
 
-      const actions = planSlugs(input({ deployments: [waiting] }));
+      const actions = planSlugs(
+        input({ deployments: [waiting], missing: [{ slug: "blue", sha: SHA_A }] }),
+      );
 
       expect(kinds(actions).filter((kind) => kind === "mark-failed")).toEqual([]);
     }
   });
 
-  test("is marked a failure an hour after it was created, whatever it was waiting as", () => {
+  test("confirmed missing, is marked a failure an hour after it was created, whatever it was waiting as", () => {
     for (const status of ["queued", "pending", undefined] as const) {
       const waiting = deployment("blue", SHA_A, status, { createdAt: minutesAgo(60) });
 
-      const actions = planSlugs(input({ deployments: [waiting] }));
+      const actions = planSlugs(
+        input({ deployments: [waiting], missing: [{ slug: "blue", sha: SHA_A }] }),
+      );
 
       expect(actions).toEqual([
         {
@@ -349,6 +354,28 @@ describe("a Deployment whose images never arrive", () => {
         },
       ]);
     }
+  });
+
+  test("whose lookup failed, an hour late, neither fails nor deploys: the next loop decides", () => {
+    const late = deployment("blue", SHA_A, "queued", { createdAt: minutesAgo(90) });
+
+    expect(planSlugs(input({ deployments: [late] }))).toEqual([]);
+  });
+
+  test("confirmed missing for another Slug or commit doesn't time this one out", () => {
+    const late = deployment("blue", SHA_A, "queued", { createdAt: minutesAgo(90) });
+
+    const actions = planSlugs(
+      input({
+        deployments: [late],
+        missing: [
+          { slug: "cyan", sha: SHA_A },
+          { slug: "blue", sha: SHA_B },
+        ],
+      }),
+    );
+
+    expect(actions).toEqual([]);
   });
 
   test("found in the same loop, an hour late, is deployed instead", () => {
