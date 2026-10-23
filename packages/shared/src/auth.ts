@@ -27,3 +27,10 @@ export type SetupRequest = z.input<typeof SetupRequest>;
 /** The body of `GET /api/me`: the signed-in User. */
 export const MeResponse = z.object({ email: z.string() });
 export type MeResponse = z.infer<typeof MeResponse>;
+
+/** The body of `POST /api/me/email`: the new Email and the current Password. */
+export const ChangeEmailRequest = z.object({
+  email: Email,
+  password: z.string().max(PASSWORD_MAX_LENGTH),
+});
+export type ChangeEmailRequest = z.input<typeof ChangeEmailRequest>;
