@@ -20,10 +20,10 @@ function Dash({ title, current }: { title: string; current: boolean }) {
 
 /**
  * A long page's section index, from 1024 px wide: a sticky column of dashes,
- * one per section, the one in view in the accent. Hovering anywhere in the
- * gutter between the sidebar and the dashes, or tabbing into it, opens a panel
- * of the sections' names as real links, the current one with
- * `aria-current="location"`.
+ * one per section, the one in view in the accent. Hovering the dashes
+ * themselves (with a little padding), or tabbing into the index, opens a
+ * panel of the sections' names as real links over them, the current one with
+ * `aria-current="location"`; it stays open while the pointer is on it.
  *
  * The section in view is the last one whose scroll position the page has
  * reached (see scrollTargets), so every section gets its turn, even those too
@@ -33,8 +33,6 @@ function Dash({ title, current }: { title: string; current: boolean }) {
 export function SectionIndex({ label, sections }: { label: string; sections: readonly Section[] }) {
   const ids = sections.map((section) => section.id).join(" ");
   const [current, setCurrent] = useState(sections[0]?.id);
-  const [gutter, setGutter] = useState(0);
-  const navRef = useRef<HTMLElement>(null);
   // A clicked link's section (or the one the page was opened at), kept
   // current while the page stays where the jump left it (`y`, set by the
   // jump's scroll, or after the click when there was nothing to scroll), then
@@ -63,13 +61,7 @@ export function SectionIndex({ label, sections }: { label: string; sections: rea
       });
       setCurrent(list[activeSection(scrollTargets(tops, maxScroll), window.scrollY)]);
     };
-    const measure = () => {
-      const nav = navRef.current;
-      const main = nav?.closest("main");
-      if (nav && main)
-        setGutter(nav.getBoundingClientRect().left - main.getBoundingClientRect().left);
-      track(false);
-    };
+    const measure = () => track(false);
     const onScroll = () => track(true);
     const linked = sectionFromHash(window.location.hash, list);
     if (linked !== undefined) clicked.current = { id: linked, y: undefined };
@@ -93,10 +85,10 @@ export function SectionIndex({ label, sections }: { label: string; sections: rea
   }, [ids]);
 
   return (
-    <nav ref={navRef} aria-label={label} className="group/index relative hidden lg:block">
-      <div className="sticky top-28">
-        {/* The hover zone: the whole gutter left of the dashes, a little taller than them. */}
-        <div aria-hidden className="absolute -inset-y-8 right-0" style={{ left: -gutter }} />
+    <nav aria-label={label} className="relative hidden lg:block">
+      {/* The hover zone: the dashes and a little padding around them. The panel
+          opens inside it, so the pointer can move onto its links. */}
+      <div className="group/index sticky top-28 -mx-2 w-fit px-2">
         <div
           aria-hidden
           className="relative flex flex-col gap-2.5 py-3 transition-opacity motion-reduce:transition-none group-focus-within/index:opacity-0 group-hover/index:opacity-0"
@@ -105,7 +97,7 @@ export function SectionIndex({ label, sections }: { label: string; sections: rea
             <Dash key={id} title={title} current={id === current} />
           ))}
         </div>
-        <ul className="pointer-events-none absolute top-0 -left-3 z-20 flex w-max min-w-48 flex-col gap-1 rounded-xl border bg-popover p-2.5 text-popover-foreground opacity-0 shadow-lg transition-opacity duration-150 motion-reduce:transition-none group-focus-within/index:pointer-events-auto group-focus-within/index:opacity-100 group-hover/index:pointer-events-auto group-hover/index:opacity-100">
+        <ul className="pointer-events-none absolute top-0 -left-1 z-20 flex w-max min-w-48 flex-col gap-1 rounded-xl border bg-popover p-2.5 text-popover-foreground opacity-0 shadow-lg transition-opacity duration-150 motion-reduce:transition-none group-focus-within/index:pointer-events-auto group-focus-within/index:opacity-100 group-hover/index:pointer-events-auto group-hover/index:opacity-100">
           {sections.map(({ id, title }) => (
             <li key={id}>
               <a
