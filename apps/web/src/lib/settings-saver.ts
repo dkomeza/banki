@@ -1,4 +1,5 @@
 import type { SettingsPatch, SettingsResponse } from "@banki/shared";
+import { type SettingsRead, settingsClock } from "./settings";
 import type { FailedSave } from "./time";
 
 /** A change to one Setting: which, and the value it was changed to. */
@@ -42,24 +43,37 @@ export function createSettingsSaver({
   initial,
   save,
   onStored,
+  now = settingsClock,
   afterSaved = (clear) => {
     const timer = window.setTimeout(clear, SAVED_MS);
     return () => window.clearTimeout(timer);
   },
 }: {
-  initial: SettingsResponse;
+  initial: SettingsRead;
   save: (patch: SettingsPatch) => Promise<SettingsResponse>;
-  /** Called with each Settings the server answers. */
-  onStored: (settings: SettingsResponse) => void;
+  /** Called with each save's answer, stamped when it arrived. */
+  onStored: (read: SettingsRead) => void;
+  /** The clock reads are stamped with (settingsClock). */
+  now?: () => number;
   /** Schedules clearing a field's "Saved"; returns a cancel. */
   afterSaved?: (clear: () => void) => () => void;
 }) {
-  let state: SaverState = { stored: initial, queue: [], saving: [], saved: [], failures: [] };
+  let state: SaverState = {
+    stored: initial.settings,
+    queue: [],
+    saving: [],
+    saved: [],
+    failures: [],
+  };
+  // When what `stored` shows was true on the server: a read's issue time, or
+  // when a save's answer arrived. A read issued earlier can't replace it: the
+  // server may have changed since it was taken.
+  let storedSince = initial.issuedAt;
   const listeners = new Set<() => void>();
   const savedTimers = new Map<Field, () => void>();
-  // Settings the server stored meanwhile (the first fill, a refetch), held
-  // until the queue drains, unless a later save's answer supersedes them.
-  let arrived: SettingsResponse | undefined;
+  // A read that arrived while saving (the first fill, a refetch), held until
+  // the queue drains, unless a later save's answer supersedes it.
+  let arrived: SettingsRead | undefined;
 
   const update = (next: Partial<SaverState>) => {
     const merged = { ...state, ...next };
@@ -101,7 +115,8 @@ export function createSettingsSaver({
       });
     } else {
       arrived = undefined;
-      onStored(stored);
+      storedSince = now();
+      onStored({ settings: stored, issuedAt: storedSince });
       update({
         stored,
         queue: rest,
@@ -110,8 +125,12 @@ export function createSettingsSaver({
       if (!stillChanging) markSaved(change.field);
     }
     if (rest.length === 0 && arrived !== undefined) {
-      update({ stored: arrived });
+      const read = arrived;
       arrived = undefined;
+      if (read.issuedAt >= storedSince) {
+        storedSince = read.issuedAt;
+        update({ stored: read.settings });
+      }
     }
     void sendNext();
   };
@@ -143,13 +162,20 @@ export function createSettingsSaver({
       if (failed !== undefined) change(failed);
     },
     /**
-     * Takes Settings changed elsewhere (the first fill, say). While a save is
-     * under way they wait for the queue to drain, and a later save's answer,
-     * the server's state after it, replaces them.
+     * Takes a read of the Settings from elsewhere: a refetch, the first fill,
+     * or this saver's own answer coming back through the cache. A read issued
+     * before what is shown was true (before the last save completed, say) is
+     * stale and ignored. While a save is under way a read waits for the queue
+     * to drain, and a later save's answer replaces it.
      */
-    sync(settings: SettingsResponse) {
-      if (state.queue.length > 0) arrived = settings;
-      else if (settings !== state.stored) update({ stored: settings });
+    sync(read: SettingsRead) {
+      if (read.issuedAt < storedSince) return;
+      if (state.queue.length > 0) {
+        if (arrived === undefined || read.issuedAt >= arrived.issuedAt) arrived = read;
+        return;
+      }
+      storedSince = read.issuedAt;
+      if (read.settings !== state.stored) update({ stored: read.settings });
     },
     dispose() {
       for (const cancel of savedTimers.values()) cancel();

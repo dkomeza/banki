@@ -37,8 +37,8 @@ describe("fillFirstTimezone", () => {
       ["PUT", "/api/settings/timezone/initial", { timezone: "Europe/Lisbon" }],
     ]);
     expect(queryClient.getQueryData(settingsQueryOptions(client).queryKey)).toEqual({
-      timezone: "Europe/Lisbon",
-      dayStartHour: 4,
+      settings: { timezone: "Europe/Lisbon", dayStartHour: 4 },
+      issuedAt: expect.any(Number),
     });
   });
 
@@ -56,6 +56,29 @@ describe("fillFirstTimezone", () => {
     await expect(
       fillFirstTimezone(new QueryClient(), { client, deviceTimezone: () => "Europe/Lisbon" }),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("settingsQueryOptions", () => {
+  test("stamps a read with when its request was issued, not when it answered", async () => {
+    const answers: Array<() => void> = [];
+    const client = createApiClient(
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            answers.push(() => resolve(Response.json({ timezone: null, dayStartHour: 4 })));
+          }),
+      ),
+    );
+    const before = performance.now();
+    const read = new QueryClient().fetchQuery(settingsQueryOptions(client));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const answeredAfter = performance.now();
+    for (const answer of answers) answer();
+
+    const { issuedAt } = await read;
+    expect(issuedAt).toBeGreaterThanOrEqual(before);
+    expect(issuedAt).toBeLessThan(answeredAfter);
   });
 });
 

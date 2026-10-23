@@ -24,17 +24,26 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 const START: SettingsResponse = { timezone: "Europe/Warsaw", dayStartHour: 4 };
 
+/** A read of the Settings, issued at `issuedAt` on the test's clock. */
+const read = (settings: SettingsResponse, issuedAt: number) => ({ settings, issuedAt });
+
 function setUp() {
   const server = fakeServer(START);
   const kept: SettingsResponse[] = [];
+  let time = 0;
   const saver = createSettingsSaver({
-    initial: START,
+    initial: read(START, 0),
     save: server.save,
-    onStored: (settings) => kept.push(settings),
+    onStored: ({ settings }) => kept.push(settings),
     afterSaved: () => () => {},
+    now: () => time,
   });
   const state = (): SaverState => saver.getState();
-  return { server, saver, state, kept };
+  /** Moves the test's clock on. */
+  const at = (next: number) => {
+    time = next;
+  };
+  return { server, saver, state, kept, at };
 }
 
 describe("createSettingsSaver", () => {
@@ -130,11 +139,11 @@ describe("createSettingsSaver", () => {
   test("takes Settings changed elsewhere only while nothing is being saved", async () => {
     const { server, saver, state } = setUp();
 
-    saver.sync({ timezone: "Asia/Tokyo", dayStartHour: 4 });
+    saver.sync(read({ timezone: "Asia/Tokyo", dayStartHour: 4 }, 1));
     expect(state().stored.timezone).toBe("Asia/Tokyo");
 
     saver.change({ field: "dayStartHour", attempted: 6 });
-    saver.sync({ timezone: "Europe/Lisbon", dayStartHour: 4 });
+    saver.sync(read({ timezone: "Europe/Lisbon", dayStartHour: 4 }, 2));
     expect(state().stored.timezone).toBe("Asia/Tokyo");
     server.requests[0]?.succeed();
     await flush();
@@ -145,7 +154,7 @@ describe("createSettingsSaver", () => {
 
     saver.change({ field: "dayStartHour", attempted: 6 });
     // The first fill, say, stores a Timezone meanwhile.
-    saver.sync({ timezone: "Asia/Tokyo", dayStartHour: 4 });
+    saver.sync(read({ timezone: "Asia/Tokyo", dayStartHour: 4 }, 1));
     server.requests[0]?.fail();
     await flush();
 
@@ -157,7 +166,7 @@ describe("createSettingsSaver", () => {
     const { server, saver, state } = setUp();
 
     saver.change({ field: "dayStartHour", attempted: 6 });
-    saver.sync({ timezone: "Asia/Tokyo", dayStartHour: 4 });
+    saver.sync(read({ timezone: "Asia/Tokyo", dayStartHour: 4 }, 1));
     server.requests[0]?.succeed();
     await flush();
 
@@ -226,5 +235,82 @@ describe("createSettingsSaver", () => {
     await flush();
 
     expect(shownSettings(state())).toEqual({ timezone: "Europe/Warsaw", dayStartHour: 6 });
+  });
+
+  test("a refetch issued before a save, answered after it, doesn't undo the save", async () => {
+    const { server, saver, state, at } = setUp();
+    // The refetch goes out at 1 and reads the server as it is.
+    const refetch = read({ ...server.stored() }, 1);
+    at(2);
+    saver.change({ field: "dayStartHour", attempted: 6 });
+    at(3);
+    server.requests[0]?.succeed();
+    await flush();
+
+    // Its answer reaches the cache only now.
+    at(4);
+    saver.sync(refetch);
+
+    expect(shownSettings(state())).toEqual({ timezone: "Europe/Warsaw", dayStartHour: 6 });
+  });
+
+  test("a first fill issued during a save, answered after it, doesn't undo the save", async () => {
+    const { server, saver, state, at } = setUp();
+    at(1);
+    saver.change({ field: "dayStartHour", attempted: 6 });
+    // The fill's PUT goes out at 2 and the server applies it before the PATCH.
+    at(2);
+    const fill = read({ ...server.stored(), timezone: "Europe/Lisbon" }, 2);
+    server.stored().timezone = "Europe/Lisbon";
+    at(3);
+    server.requests[0]?.succeed();
+    await flush();
+
+    at(4);
+    saver.sync(fill);
+
+    // The PATCH's answer already carried the fill's Timezone.
+    expect(shownSettings(state())).toEqual({ timezone: "Europe/Lisbon", dayStartHour: 6 });
+  });
+
+  test("a read issued after the last save completed is taken", async () => {
+    const { server, saver, state, at } = setUp();
+    at(1);
+    saver.change({ field: "dayStartHour", attempted: 6 });
+    at(2);
+    server.requests[0]?.succeed();
+    await flush();
+
+    // Another tab changed the Timezone; a refetch at 3 sees it.
+    saver.sync(read({ timezone: "Asia/Tokyo", dayStartHour: 6 }, 3));
+
+    expect(shownSettings(state())).toEqual({ timezone: "Asia/Tokyo", dayStartHour: 6 });
+  });
+
+  test("of two reads, an older one answered later doesn't replace the newer", () => {
+    const { saver, state } = setUp();
+
+    saver.sync(read({ timezone: "Asia/Tokyo", dayStartHour: 4 }, 2));
+    saver.sync(read({ timezone: "Europe/Lisbon", dayStartHour: 4 }, 1));
+
+    expect(state().stored.timezone).toBe("Asia/Tokyo");
+  });
+
+  test("a read held during a failed save is dropped if it predates the last completed save", async () => {
+    const { server, saver, state, at } = setUp();
+    at(1);
+    saver.change({ field: "dayStartHour", attempted: 5 });
+    at(2);
+    server.requests[0]?.succeed();
+    await flush();
+    at(3);
+    saver.change({ field: "dayStartHour", attempted: 6 });
+
+    // A read issued at 1, before 5 saved, lands while 6 is saving; 6 fails.
+    saver.sync(read({ timezone: "Europe/Warsaw", dayStartHour: 4 }, 1));
+    server.requests[1]?.fail();
+    await flush();
+
+    expect(shownSettings(state()).dayStartHour).toBe(5);
   });
 });

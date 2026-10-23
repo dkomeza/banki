@@ -28,11 +28,13 @@ function useStudyDaySettings() {
     createSettingsSaver({
       initial: data,
       save: (patch) => saveSettings(patch),
-      onStored: (settings) => queryClient.setQueryData(options.queryKey, settings),
+      onStored: (read) => queryClient.setQueryData(options.queryKey, read),
     }),
   );
   useEffect(() => () => saver.dispose(), [saver]);
-  // The first fill, or another tab, may store Settings after this page opened.
+  // Every read reaching the cache (a refetch, the first fill, the saver's own
+  // answers) goes to the saver, which ignores one issued before the last save
+  // completed.
   useEffect(() => saver.sync(data), [saver, data]);
   const state = useSyncExternalStore(saver.subscribe, saver.getState);
   return { saver, state, shown: shownSettings(state) };
