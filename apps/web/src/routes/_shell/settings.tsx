@@ -6,6 +6,7 @@ import { StudyDayCard } from "@/components/settings/study-day-card";
 import { ThisDeviceCard } from "@/components/settings/this-device-card";
 import { meQueryOptions } from "@/lib/me";
 import { settingsQueryOptions } from "@/lib/settings";
+import { useHiddenScrollbar } from "@/lib/use-hidden-scrollbar";
 
 export const Route = createFileRoute("/_shell/settings")({
   loader: ({ context: { queryClient } }) =>
@@ -24,6 +25,8 @@ const SECTIONS: readonly Section[] = [
 ];
 
 function SettingsPage() {
+  // The section index stands in for the scrollbar.
+  useHiddenScrollbar();
   return (
     <Page width="cards">
       <div className="lg:grid lg:grid-cols-[2rem_minmax(0,1fr)] lg:gap-8">
