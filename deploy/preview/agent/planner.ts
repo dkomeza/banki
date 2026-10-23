@@ -185,7 +185,19 @@ export function ownedResources(resources: PangolinResource[], siteId: number): O
   });
 }
 
+/**
+ * A pool's plan in two parts: the upkeep, which never adds a running Preview,
+ * and then its deploys, each with the evictions that make room for it. The
+ * loop runs every upkeep first, and at most one deploy (see act.ts).
+ */
+export type PlanParts<A> = { upkeep: A[]; deploys: A[] };
+
 export function plan(input: PlanInput): Action[] {
+  const { upkeep, deploys } = planParts(input);
+  return [...upkeep, ...deploys];
+}
+
+export function planParts(input: PlanInput): PlanParts<Action> {
   const targets = new Map(
     input.pullRequests.filter(isTarget).map((pull) => [pull.number, pull] as const),
   );
@@ -381,18 +393,20 @@ export function plan(input: PlanInput): Action[] {
     )
     .map((pr) => ({ kind: "create-resource", pr }));
 
-  return [
-    ...deleteResources,
-    ...teardowns,
-    ...idle,
-    ...closedDeployments,
-    ...supersededDeployments,
-    ...createResources,
-    ...createDeployments,
-    ...markQueued,
-    ...confirms,
-    ...deploysMakingRoom,
-  ];
+  return {
+    upkeep: [
+      ...deleteResources,
+      ...teardowns,
+      ...idle,
+      ...closedDeployments,
+      ...supersededDeployments,
+      ...createResources,
+      ...createDeployments,
+      ...markQueued,
+      ...confirms,
+    ],
+    deploys: deploysMakingRoom,
+  };
 }
 
 /**
@@ -401,7 +415,7 @@ export function plan(input: PlanInput): Action[] {
  * failed one (stopped), one stopped by hand, and a leftover volume don't.
  * Only `running` itself is up, for a confirm or a resource.
  */
-const holdsRoom = (project: DockerProject) =>
+export const holdsRoom = (project: Pick<DockerProject, "api" | "web">) =>
   [project.api, project.web].some(
     (state) => state === "running" || state === "restarting" || state === "paused",
   );
@@ -479,7 +493,7 @@ const removedDescription = (reason: "evicted" | "idle", idleDays: number) =>
 const PUSH_TO_REBUILD = ", push to rebuild";
 
 /** Whether the Deployment still waits to be deployed: for its images, or to be redone. */
-const isWaiting = (deployment: Deployment) =>
+export const isWaiting = (deployment: Pick<Deployment, "status">) =>
   deployment.status === undefined ||
   deployment.status === "pending" ||
   deployment.status === "queued" ||

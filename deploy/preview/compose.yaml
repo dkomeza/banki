@@ -1,15 +1,22 @@
-# The Preview template (ADR-0008): one Preview of one pull request, run by the
-# pull agent as the Compose project `banki-pr-<N>`. The agent bakes this file
-# into its image from `main`, so a pull request can't change how its own
-# Preview runs. It runs the images CI pushed, pinned by digest, and builds
-# nothing. Its hardening follows the root compose.yaml.
+# The Preview template (ADR-0008, ADR-0011): one Preview, run by the pull
+# agent as the Compose project `banki-pr-<N>` for a PR Preview or
+# `banki-slug-<slug>` for a Slug Preview. The agent bakes this file into its
+# image from `main`, so a branch can't change how its own Preview runs. It
+# runs the images CI pushed, pinned by digest, and builds nothing. Its
+# hardening follows the root compose.yaml.
 #
 # The agent sets these for each run; none of them is a secret:
-#   PREVIEW_PR           the PR number <N>
-#   PREVIEW_SHA          the PR's head commit
+#   PREVIEW_POOL         `pr` or `slug`, naming the label below
+#   PREVIEW_KEY          the PR number <N>, or the Slug
+#   PREVIEW_HOST         pr-<N>.banki.dkomeza.com, or <slug>.banki.dkomeza.com
+#   PREVIEW_SHA          the commit it runs
 #   PREVIEW_DEPLOYED_AT  when this deploy started (ISO 8601)
 #   API_DIGEST           the digest of ghcr.io/dkomeza/banki-api:pr-<N>-<sha>
-#   WEB_DIGEST           the digest of ghcr.io/dkomeza/banki-web:pr-<N>-<sha>
+#                        or :slug-<slug>-<sha>
+#   WEB_DIGEST           the same for ghcr.io/dkomeza/banki-web
+#   API_MEMORY, API_CPUS, WEB_MEMORY, WEB_CPUS
+#                        each service's limits: a PR Preview's, or the
+#                        lower ones of a Slug Preview
 #
 # Neither this file nor any container's environment holds the Password: it
 # reaches `banki setup` on stdin only. AUTH_SECRET stays unset, so the API
@@ -18,19 +25,21 @@
 # Every object the project makes carries these, so the agent finds the
 # project, and the images to remove with it, even when only a volume and a
 # network are left (a failed seed).
+# A list, so the first label's name can be `banki.preview.pr` or
+# `banki.preview.slug`.
 x-labels: &labels
-  banki.preview.pr: ${PREVIEW_PR:?}
-  banki.preview.sha: ${PREVIEW_SHA:?}
-  banki.preview.deployed-at: ${PREVIEW_DEPLOYED_AT:?}
-  banki.preview.api-digest: ${API_DIGEST:?}
-  banki.preview.web-digest: ${WEB_DIGEST:?}
+  - banki.preview.${PREVIEW_POOL:?}=${PREVIEW_KEY:?}
+  - banki.preview.sha=${PREVIEW_SHA:?}
+  - banki.preview.deployed-at=${PREVIEW_DEPLOYED_AT:?}
+  - banki.preview.api-digest=${API_DIGEST:?}
+  - banki.preview.web-digest=${WEB_DIGEST:?}
 
 services:
   api:
     image: ghcr.io/dkomeza/banki-api@${API_DIGEST:?}
     restart: unless-stopped
     environment:
-      ORIGIN: https://pr-${PREVIEW_PR:?}.banki.dkomeza.com
+      ORIGIN: https://${PREVIEW_HOST:?}
     labels: *labels
     # Only the project's internal network: just `web` reaches the API.
     networks: [default]
@@ -41,8 +50,8 @@ services:
       - /tmp
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    mem_limit: 256m
-    cpus: 1.0
+    mem_limit: ${API_MEMORY:?}
+    cpus: ${API_CPUS:?}
     pids_limit: 128
 
   web:
@@ -50,7 +59,7 @@ services:
     restart: unless-stopped
     environment:
       # The api's ORIGIN: an https one, so Caddy sends HSTS.
-      BANKI_ORIGIN: https://pr-${PREVIEW_PR:?}.banki.dkomeza.com
+      BANKI_ORIGIN: https://${PREVIEW_HOST:?}
       # Newt on `banki-previews`, the only proxy in front of a Preview.
       BANKI_TRUSTED_PROXIES: 172.31.255.2
     labels: *labels
@@ -65,8 +74,8 @@ services:
       - /data:uid=1000,gid=1000
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    mem_limit: 128m
-    cpus: 0.5
+    mem_limit: ${WEB_MEMORY:?}
+    cpus: ${WEB_CPUS:?}
     pids_limit: 64
 
 networks:

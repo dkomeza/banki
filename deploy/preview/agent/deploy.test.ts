@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { HEALTH_ATTEMPTS, type ConfirmAction, type DeployAction, confirm, deploy } from "./deploy";
+import { PR_PREVIEW_RESOURCES, slugPreviewLimits } from "./config";
+import { HEALTH_ATTEMPTS, type DeployAction, confirm, deploy } from "./deploy";
 import { type ComposeTarget, setupInvocation } from "./docker";
+import type { PreviewKey } from "./naming";
 import { PangolinError } from "./pangolin";
-import type { DockerProject } from "./planner";
+import type { Action, DeploymentStatus, DockerProject } from "./planner";
 import type { RunResult } from "./run";
 
 // The deploy and confirm sequences against fakes of Docker, GitHub and
@@ -35,9 +37,12 @@ type Step = "down" | "pull" | "setup" | "seed" | "up" | "health";
 function fakes(results: Partial<Record<Step, RunResult | RunResult[]>> = {}) {
   const log: string[] = [];
   const passwords: string[] = [];
+  const targets: ComposeTarget[] = [];
+  let latest: DeploymentStatus | undefined;
   let sleeps = 0;
   const queues = new Map<Step, RunResult[]>();
   const result = (step: Step, target: ComposeTarget): Promise<RunResult> => {
+    targets.push(target);
     log.push(`docker ${step} ${step === "down" ? target.digests.api : target.sha.slice(0, 7)}`);
     const given = results[step];
     if (!Array.isArray(given))
@@ -53,10 +58,14 @@ function fakes(results: Partial<Record<Step, RunResult | RunResult[]>> = {}) {
         log.push(`status ${id} ${state} ${description}${url === undefined ? "" : ` ${url}`}`);
         return Promise.resolve();
       },
+      latestStatus: (id: number) => {
+        log.push(`latest status ${id}`);
+        return Promise.resolve(latest);
+      },
     },
     pangolin: {
-      createOrKeep: (pr: number) => {
-        log.push(`pangolin createOrKeep ${pr}`);
+      createOrKeep: (key: PreviewKey) => {
+        log.push(`pangolin createOrKeep ${key}`);
         return pangolinError === undefined ? Promise.resolve() : Promise.reject(pangolinError);
       },
     },
@@ -81,6 +90,8 @@ function fakes(results: Partial<Record<Step, RunResult | RunResult[]>> = {}) {
         return Promise.resolve();
       },
     },
+    resourcesFor: (key: PreviewKey) =>
+      typeof key === "number" ? PR_PREVIEW_RESOURCES : slugPreviewLimits({}).resources,
     readSecret: (name: string) => (name === "preview-password" ? PASSWORD : EMAIL),
     sleep: () => {
       sleeps++;
@@ -90,7 +101,12 @@ function fakes(results: Partial<Record<Step, RunResult | RunResult[]>> = {}) {
   return {
     log,
     passwords,
+    targets,
     services,
+    /** What GitHub says the Deployment's latest status is, by the time the deploy ends. */
+    setLatest: (state: DeploymentStatus | undefined) => {
+      latest = state;
+    },
     sleeps: () => sleeps,
     failPangolin: (error: unknown) => {
       pangolinError = error;
@@ -107,7 +123,10 @@ const previous: DockerProject = {
   web: "running",
 };
 
-const deployAction = (overrides: Partial<DeployAction> = {}): DeployAction => ({
+type PrDeploy = Extract<Action, { kind: "deploy" }>;
+type PrConfirm = Extract<Action, { kind: "confirm" }>;
+
+const deployAction = (overrides: Partial<PrDeploy> = {}): PrDeploy => ({
   kind: "deploy",
   pr: 5,
   sha: SHA,
@@ -120,7 +139,7 @@ const deployAction = (overrides: Partial<DeployAction> = {}): DeployAction => ({
   ...overrides,
 });
 
-const confirmAction = (overrides: Partial<ConfirmAction> = {}): ConfirmAction => ({
+const confirmAction = (overrides: Partial<PrConfirm> = {}): PrConfirm => ({
   kind: "confirm",
   pr: 5,
   sha: SHA,
@@ -266,7 +285,7 @@ describe("deploy", () => {
     expect(fake.log).toContain("status 7 failure health check failed (wget exited 1)");
   });
 
-  test("a Pangolin failure gives a short fixed reason, never Pangolin's own text", async () => {
+  test("a Pangolin failure gives a short fixed reason, never Pangolin's own text: a 409 is the host taken", async () => {
     const withStatus = fakes();
     withStatus.failPangolin(
       new PangolinError("PUT /org/x/public-resource: HTTP 409 {secret body}", 409),
@@ -278,9 +297,7 @@ describe("deploy", () => {
     await deploy(deployAction(), network.services);
 
     expect(withStatus.log).toContain("docker stop aaaaaaa");
-    expect(withStatus.log).toContain(
-      "status 7 failure Pangolin: couldn't create the resource (HTTP 409)",
-    );
+    expect(withStatus.log).toContain("status 7 failure Pangolin: host taken");
     expect(network.log).toContain("status 7 failure Pangolin: couldn't create the resource");
     expect([...withStatus.log, ...network.log].join("\n")).not.toMatch(/secret body|ECONNREFUSED/);
   });
@@ -345,5 +362,78 @@ describe("confirm", () => {
       "status 7 failure health reports wrong commit bbbbbbb",
       "status 3 inactive superseded by a newer deploy",
     ]);
+  });
+});
+
+/** A Slug Preview's deploy, over the project its previous deploy made. */
+const slugDeploy = (): DeployAction => ({
+  pool: "slug",
+  kind: "deploy",
+  slug: "blue",
+  sha: SHA,
+  deploymentId: 7,
+  digests: { api: API_DIGEST, web: WEB_DIGEST },
+  previous: {
+    slug: "blue",
+    sha: OLD_SHA,
+    deployedAt: NOW,
+    digests: { api: OLD_API, web: OLD_WEB },
+    api: "running",
+    web: "running",
+  },
+  supersedes: [3],
+  deployedAt: NOW,
+  needs: [],
+});
+
+describe("a Slug Preview's deploy", () => {
+  test("runs the same steps under the slug pool's limits, and succeeds at its Slug's URL", async () => {
+    const fake = fakes();
+
+    await deploy(slugDeploy(), fake.services);
+
+    expect(fake.log).toEqual([
+      "status 7 in_progress starting aaaaaaa",
+      `docker down ${OLD_API}`,
+      "docker pull aaaaaaa",
+      `email ${EMAIL}`,
+      "docker setup aaaaaaa",
+      "docker seed aaaaaaa",
+      "docker up aaaaaaa",
+      "docker health aaaaaaa",
+      "pangolin createOrKeep blue",
+      "latest status 7",
+      "status 7 success deployed aaaaaaa https://blue.banki.dkomeza.com",
+      "status 3 inactive superseded by a newer deploy",
+    ]);
+    for (const target of fake.targets) {
+      expect(target.key).toBe("blue");
+      expect(target.resources).toEqual({
+        apiMemory: "128m",
+        apiCpus: "0.5",
+        webMemory: "48m",
+        webCpus: "0.25",
+      });
+    }
+  });
+
+  test("taken down while it deployed isn't marked a success, which would bring it back", async () => {
+    const fake = fakes();
+    fake.setLatest("inactive");
+
+    await deploy(slugDeploy(), fake.services);
+
+    expect(fake.log.filter((line) => line.startsWith("status 7"))).toEqual([
+      "status 7 in_progress starting aaaaaaa",
+    ]);
+  });
+
+  test("a PR Preview's deploy runs under the PR Previews' limits, and never asks", async () => {
+    const fake = fakes();
+
+    await deploy(deployAction(), fake.services);
+
+    expect(fake.log).not.toContain("latest status 7");
+    for (const target of fake.targets) expect(target.resources).toEqual(PR_PREVIEW_RESOURCES);
   });
 });

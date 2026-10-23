@@ -1,8 +1,8 @@
-import { IMAGES, imageTag } from "./naming";
+import { IMAGES, imageTag, type PreviewKey } from "./naming";
 import { asObject, asString, parseJson } from "./parse";
 import type { ImageDigests } from "./planner";
 
-// The GHCR adapter: whether CI has pushed both images of a PR's commit, and
+// The GHCR adapter: whether CI has pushed both images of a Preview's commit, and
 // their digests. Reads are anonymous (the packages are public): a pull token
 // from the registry's token endpoint, then a manifest HEAD, whose
 // Docker-Content-Digest the Preview then pulls by.
@@ -18,9 +18,15 @@ const MANIFEST_TYPES = [
   "application/vnd.docker.distribution.manifest.v2+json",
 ].join(", ");
 
-/** Both images' digests for `pr-<pr>-<sha>`, or undefined while either is missing. */
-export async function resolveDigests(pr: number, sha: string): Promise<ImageDigests | undefined> {
-  const tag = imageTag(pr, sha);
+/**
+ * Both images' digests for `pr-<N>-<sha>` or `slug-<slug>-<sha>`, or
+ * undefined while either is missing.
+ */
+export async function resolveDigests(
+  key: PreviewKey,
+  sha: string,
+): Promise<ImageDigests | undefined> {
+  const tag = imageTag(key, sha);
   const [api, web] = await Promise.all([digestOf(IMAGES.api, tag), digestOf(IMAGES.web, tag)]);
   return api === undefined || web === undefined ? undefined : { api, web };
 }

@@ -1,6 +1,14 @@
-import { PREVIEW_DOMAIN, previewHost, projectName, webContainerName } from "./naming";
+import {
+  PREVIEW_DOMAIN,
+  type PreviewKey,
+  previewHost,
+  previewSubdomain,
+  projectName,
+  webContainerName,
+} from "./naming";
 import { asArray, asNumber, asObject, asString, parseJson } from "./parse";
 import { ownedResources, type PangolinResource } from "./planner";
+import { ownedSlugResources } from "./slug-planner";
 
 // The Pangolin adapter, on the Integration API (`/v1`, Community edition),
 // with the org API key. Every response is wrapped as
@@ -130,16 +138,20 @@ export async function pangolin(options: {
     resources,
 
     /**
-     * Creates PR `<pr>`'s resource unless an owned one exists: HTTP to
-     * `banki-pr-<N>-web-1:8080` on the Previews site, with SSO off (the
-     * Preview's User is the only gate). A half-made resource is deleted again,
-     * and so is an orphan an earlier, cut-short create left holding the host.
+     * Creates the Preview's resource unless an owned one exists: HTTP to
+     * `banki-pr-<N>-web-1:8080` or `banki-slug-<slug>-web-1:8080` on the
+     * Previews site, with SSO off (the Preview's User is the only gate). A
+     * half-made resource is deleted again, and so is an orphan an earlier,
+     * cut-short create left holding the host. Only the key's own pool's
+     * resources count as owned.
      */
-    async createOrKeep(pr: number): Promise<void> {
-      const host = previewHost(pr);
-      const owned = ownedResources(await resources(), siteId).filter(
-        (resource) => resource.pr === pr,
-      );
+    async createOrKeep(key: PreviewKey): Promise<void> {
+      const host = previewHost(key);
+      const all = await resources();
+      const owned =
+        typeof key === "number"
+          ? ownedResources(all, siteId).filter((resource) => resource.pr === key)
+          : ownedSlugResources(all, siteId).filter((resource) => resource.slug === key);
       if (owned.some((resource) => !resource.orphan)) return;
       for (const orphan of owned) await deleteResource(orphan.resourceId);
 
@@ -147,10 +159,10 @@ export async function pangolin(options: {
       try {
         const created = asObject(
           await call("PUT", `${org}/public-resource`, {
-            name: projectName(pr),
+            name: projectName(key),
             mode: "http",
             domainId,
-            subdomain: `pr-${pr}`,
+            subdomain: previewSubdomain(key),
           }),
           "resource",
         );
@@ -171,7 +183,7 @@ export async function pangolin(options: {
         // Without `method`, Newt silently drops the target.
         await call("PUT", `/public-resource/${resourceId}/target`, {
           siteId,
-          ip: webContainerName(pr),
+          ip: webContainerName(key),
           port: 8080,
           method: "http",
         });

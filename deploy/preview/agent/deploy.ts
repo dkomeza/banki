@@ -1,22 +1,24 @@
-import { SECRETS } from "./config";
+import { SECRETS, type ServiceResources } from "./config";
 import * as docker from "./docker";
 import type { GitHub } from "./github";
-import { previewUrl, projectName, shortSha } from "./naming";
+import { keyOf, type PreviewKey, previewUrl, projectName, shortSha } from "./naming";
 import { isRecord, parseJson } from "./parse";
 import { type Pangolin, PangolinError } from "./pangolin";
 import type { Action } from "./planner";
 import type { RunResult } from "./run";
+import type { SlugAction } from "./slug-planner";
 
-// One deploy of a PR's head, from scratch, start to finish, and the confirm of
-// one that already runs at its head. Each blocks the loop: the agent runs one
-// action at a time, and each step has its own timeout.
+// One deploy of a Preview's commit, from scratch, start to finish, and the
+// confirm of one that already runs at it, for either pool: a PR's head, or a
+// Slug's newest Deployment. Each blocks the loop: the agent runs one action
+// at a time, and each step has its own timeout.
 //
 // A Deployment's description is public, and logs never go to GitHub: a
 // failure there is one of a few fixed, short reasons, and the detail behind
 // it goes to the agent's own log.
 
-export type DeployAction = Extract<Action, { kind: "deploy" }>;
-export type ConfirmAction = Extract<Action, { kind: "confirm" }>;
+export type DeployAction = Extract<Action | SlugAction, { kind: "deploy" }>;
+export type ConfirmAction = Extract<Action | SlugAction, { kind: "confirm" }>;
 
 /** The Docker steps a deploy runs: docker.ts in the agent, a fake in tests. */
 export type DockerSteps = Pick<
@@ -26,9 +28,11 @@ export type DockerSteps = Pick<
 
 /** Everything a deploy or confirm acts through, passed in so tests can fake it. */
 export type Services = {
-  github: Pick<GitHub, "setStatus">;
+  github: Pick<GitHub, "setStatus" | "latestStatus">;
   pangolin: Pick<Pangolin, "createOrKeep">;
   docker: DockerSteps;
+  /** The memory and CPU limits of the key's pool (config.ts). */
+  resourcesFor: (key: PreviewKey) => ServiceResources;
   /** Reads one of the agent's secret files (config.ts's readSecret). */
   readSecret: (name: string) => string;
   sleep: (ms: number) => Promise<void>;
@@ -47,11 +51,13 @@ const AGENT_ERROR = "agent error, see the agent's log";
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 export async function deploy(action: DeployAction, services: Services): Promise<void> {
+  const key = keyOf(action);
   const target: docker.ComposeTarget = {
-    pr: action.pr,
+    key,
     sha: action.sha,
     deployedAt: action.deployedAt,
     digests: action.digests,
+    resources: services.resourcesFor(key),
   };
   await services.github.setStatus(
     action.deploymentId,
@@ -66,11 +72,12 @@ export async function deploy(action: DeployAction, services: Services): Promise<
  * again, and then it is routed and marked a success, or stopped and failed.
  */
 export async function confirm(action: ConfirmAction, services: Services): Promise<void> {
-  const target = docker.targetOf(action.project, new Date());
-  console.log(`${projectName(action.pr)}: already running ${shortSha(action.sha)}, confirming it`);
+  const key = keyOf(action);
+  const target = docker.targetOf(action.project, new Date(), services.resourcesFor(key));
+  console.log(`${projectName(key)}: already running ${shortSha(action.sha)}, confirming it`);
   await finish(action, target, services, async () => {
     await checkHealth(target, services);
-    await route(services, target.pr);
+    await route(services, key);
   });
 }
 
@@ -85,7 +92,8 @@ async function finish(
   services: Services,
   body: () => Promise<void>,
 ): Promise<void> {
-  const { pr, sha, deploymentId } = action;
+  const { sha, deploymentId } = action;
+  const key = keyOf(action);
   let reason: string | undefined;
   try {
     await body();
@@ -93,24 +101,29 @@ async function finish(
     if (error instanceof DeployFailure) {
       reason = error.reason;
     } else {
-      console.error(`${projectName(pr)}: agent error: ${errorText(error)}`);
+      console.error(`${projectName(key)}: agent error: ${errorText(error)}`);
       reason = AGENT_ERROR;
     }
   }
 
-  if (reason === undefined) {
-    console.log(`${projectName(pr)}: deployed ${shortSha(sha)} at ${previewUrl(pr)}`);
+  if (reason === undefined && (await takenDown(action, services))) {
+    // A success now would bring it back until its time to live runs out. The
+    // next loop finds it inactive and tears it down.
+    console.log(`${projectName(key)}: taken down while it deployed, so not marking it a success`);
+  } else if (reason === undefined) {
+    console.log(`${projectName(key)}: deployed ${shortSha(sha)} at ${previewUrl(key)}`);
     await services.github.setStatus(
       deploymentId,
       "success",
       `deployed ${shortSha(sha)}`,
-      previewUrl(pr),
+      previewUrl(key),
     );
   } else {
-    // Left stopped, never retried: it waits for the next push or the PR's close.
-    console.log(`${projectName(pr)}: deploy of ${shortSha(sha)} failed: ${reason}`);
+    // Left stopped, never retried: it waits for the next push or the PR's
+    // close, or for its Slug to be dispatched again or its time to live.
+    console.log(`${projectName(key)}: deploy of ${shortSha(sha)} failed: ${reason}`);
     await services.docker.stop(target).catch((error: unknown) => {
-      console.error(`${projectName(pr)}: couldn't stop it: ${errorText(error)}`);
+      console.error(`${projectName(key)}: couldn't stop it: ${errorText(error)}`);
     });
     await services.github.setStatus(deploymentId, "failure", reason);
   }
@@ -126,7 +139,7 @@ async function steps(action: DeployAction, target: docker.ComposeTarget, service
   const previous =
     action.previous === undefined
       ? { ...target, digests: docker.NO_DIGESTS }
-      : docker.targetOf(action.previous, action.deployedAt);
+      : docker.targetOf(action.previous, action.deployedAt, target.resources);
   check(await run.down(previous), "down", "couldn't remove the previous Preview");
   check(await run.pull(target), "pull", "couldn't pull the images");
 
@@ -140,7 +153,19 @@ async function steps(action: DeployAction, target: docker.ComposeTarget, service
   if (up.exitCode !== 0) throw new DeployFailure(await notUp(target, up, services));
 
   await checkHealth(target, services);
-  await route(services, target.pr);
+  await route(services, target.key);
+}
+
+/**
+ * Whether a Slug Preview's Deployment went inactive while it deployed: the
+ * slug-preview workflow's `down` marks it from outside the agent, and a
+ * success written over that would bring it back. A PR Preview's Deployment
+ * only the agent itself marks.
+ */
+async function takenDown(action: DeployAction | ConfirmAction, services: Services) {
+  if (!("slug" in action)) return false;
+  const status = await services.github.latestStatus(action.deploymentId).catch(() => undefined);
+  return status === "inactive";
 }
 
 // `up --wait` waits for `web` to run, not for Caddy to listen (it has no
@@ -155,7 +180,7 @@ async function checkHealth(target: docker.ComposeTarget, services: Services): Pr
     health = await services.docker.health(target);
   }
   if (health.exitCode !== 0) {
-    console.log(`${projectName(target.pr)}: health check ${docker.failure(health)}`);
+    console.log(`${projectName(target.key)}: health check ${docker.failure(health)}`);
     throw new DeployFailure(
       health.timedOut
         ? "health check timed out"
@@ -170,16 +195,21 @@ async function checkHealth(target: docker.ComposeTarget, services: Services): Pr
   }
 }
 
-/** Creates or keeps the PR's Pangolin resource. */
-async function route(services: Services, pr: number): Promise<void> {
+/**
+ * Creates or keeps the Preview's Pangolin resource. A 409 is its host taken by
+ * a resource the agent doesn't own, which it never touches.
+ */
+async function route(services: Services, key: PreviewKey): Promise<void> {
   try {
-    await services.pangolin.createOrKeep(pr);
+    await services.pangolin.createOrKeep(key);
   } catch (error) {
-    console.error(`${projectName(pr)}: Pangolin: ${errorText(error)}`);
+    console.error(`${projectName(key)}: Pangolin: ${errorText(error)}`);
     throw new DeployFailure(
-      error instanceof PangolinError
-        ? `Pangolin: couldn't create the resource (HTTP ${error.status})`
-        : "Pangolin: couldn't create the resource",
+      !(error instanceof PangolinError)
+        ? "Pangolin: couldn't create the resource"
+        : error.status === 409
+          ? "Pangolin: host taken"
+          : `Pangolin: couldn't create the resource (HTTP ${error.status})`,
     );
   }
 }

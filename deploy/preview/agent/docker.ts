@@ -1,7 +1,18 @@
 import { join } from "node:path";
-import { LABELS, prFromProjectName, projectName } from "./naming";
+import type { ServiceResources } from "./config";
+import {
+  keyOf,
+  LABELS,
+  poolOf,
+  prFromProjectName,
+  type PreviewKey,
+  previewHost,
+  projectName,
+  slugFromProjectName,
+} from "./naming";
 import type { DockerProject, ImageDigests, ServiceState } from "./planner";
 import { run, type RunOptions, type RunResult } from "./run";
+import type { SlugProject } from "./slug-planner";
 
 // The Docker adapter: finds the Previews' Compose projects and runs the
 // template's `docker compose` commands against the host's daemon, through the
@@ -26,15 +37,19 @@ const CONTAINER_FORMAT = `${LABELS_FORMAT}\t{{.Label "com.docker.compose.service
 
 const LIST_TIMEOUT_MS = 30_000;
 
-/** Every `banki-pr-<N>` project, found from any of its containers, volumes or networks. */
-export async function discoverProjects(): Promise<DockerProject[]> {
+/**
+ * Every `banki-pr-<N>` and every `banki-slug-<slug>` project, found from any
+ * of its containers, volumes or networks, in two pools.
+ */
+export async function discoverProjects(): Promise<{ prs: DockerProject[]; slugs: SlugProject[] }> {
   const filter = ["--filter", `label=${COMPOSE_PROJECT}`];
   const [containers, volumes, networks] = await Promise.all([
     list(["docker", "ps", "--all", ...filter, "--format", CONTAINER_FORMAT]),
     list(["docker", "volume", "ls", ...filter, "--format", LABELS_FORMAT]),
     list(["docker", "network", "ls", ...filter, "--format", LABELS_FORMAT]),
   ]);
-  return projectsFrom({ containers, volumes, networks });
+  const listed = { containers, volumes, networks };
+  return { prs: projectsFrom(listed), slugs: slugProjectsFrom(listed) };
 }
 
 async function list(argv: string[]): Promise<string> {
@@ -45,20 +60,43 @@ async function list(argv: string[]): Promise<string> {
   return result.stdout;
 }
 
-type DockerObject = {
-  pr: number;
+type DockerObject<K> = {
+  key: K;
   labels: string[];
   /** For a service container: its service and state. */
   service?: { name: string; state: ServiceState };
 };
 
-/** Groups the listed objects into projects. Pure, so it is unit-tested. */
-export function projectsFrom(listed: {
-  containers: string;
-  volumes: string;
-  networks: string;
-}): DockerProject[] {
-  const containers = lines(listed.containers).flatMap((line): DockerObject[] => {
+type Listed = { containers: string; volumes: string; networks: string };
+
+/** Groups the listed objects of `banki-pr-<N>` projects into PR Previews. Pure, so it is unit-tested. */
+export function projectsFrom(listed: Listed): DockerProject[] {
+  return projectsBy(listed, prFromProjectName, (a, b) => a - b).map(({ key, ...project }) => ({
+    pr: key,
+    ...project,
+  }));
+}
+
+/** Groups the listed objects of `banki-slug-<slug>` projects into Slug Previews. Pure, so it is unit-tested. */
+export function slugProjectsFrom(listed: Listed): SlugProject[] {
+  return projectsBy(listed, slugFromProjectName, (a, b) => (a < b ? -1 : a > b ? 1 : 0)).map(
+    ({ key, ...project }) => ({ slug: key, ...project }),
+  );
+}
+
+function projectsBy<K extends PreviewKey>(
+  listed: Listed,
+  keyFromName: (name: string) => K | undefined,
+  order: (a: K, b: K) => number,
+): (Omit<DockerProject, "pr"> & { key: K })[] {
+  const parseObject = (line: string): DockerObject<K> | undefined => {
+    const [project = "", ...labels] = line.split("\t");
+    const key = keyFromName(project);
+    return key === undefined
+      ? undefined
+      : { key, labels: labels.slice(0, LABEL_FIELDS.length - 1) };
+  };
+  const containers = lines(listed.containers).flatMap((line): DockerObject<K>[] => {
     const object = parseObject(line);
     if (object === undefined) return [];
     const [name = "", oneoff = "", state = ""] = line.split("\t").slice(LABEL_FIELDS.length);
@@ -75,9 +113,9 @@ export function projectsFrom(listed: {
     ...others,
   ];
 
-  const prs = [...new Set(objects.map((object) => object.pr))].toSorted((a, b) => a - b);
-  return prs.map((pr) => {
-    const found = objects.filter((object) => object.pr === pr);
+  const keys = [...new Set(objects.map((object) => object.key))].toSorted(order);
+  return keys.map((key) => {
+    const found = objects.filter((object) => object.key === key);
     const label = (index: number) =>
       found
         .map((object) => object.labels[index])
@@ -86,7 +124,7 @@ export function projectsFrom(listed: {
       found.find((object) => object.service?.name === service)?.service?.state ?? "missing";
     const [sha, deployedAt, api, web] = [label(0), label(1), label(2), label(3)];
     return {
-      pr,
+      key,
       sha,
       deployedAt:
         deployedAt === undefined || Number.isNaN(Date.parse(deployedAt))
@@ -105,14 +143,17 @@ const serviceState = (state: string): ServiceState =>
 
 const lines = (text: string) => text.split("\n").filter((line) => line.trim() !== "");
 
-function parseObject(line: string): DockerObject | undefined {
-  const [project = "", ...labels] = line.split("\t");
-  const pr = prFromProjectName(project);
-  return pr === undefined ? undefined : { pr, labels: labels.slice(0, LABEL_FIELDS.length - 1) };
-}
-
-/** What the template needs to render: the PR, its commit, the images, and when. */
-export type ComposeTarget = { pr: number; sha: string; deployedAt: Date; digests: ImageDigests };
+/**
+ * What the template needs to render: the Preview's key, its commit, the
+ * images, when, and its pool's limits.
+ */
+export type ComposeTarget = {
+  key: PreviewKey;
+  sha: string;
+  deployedAt: Date;
+  digests: ImageDigests;
+  resources: ServiceResources;
+};
 
 // Stands in for what a project's labels don't say, so the template still
 // renders for a `down`. No image has this digest, so `--rmi all` skips it.
@@ -120,29 +161,41 @@ const NO_DIGEST = `sha256:${"0".repeat(64)}`;
 export const NO_DIGESTS: ImageDigests = { api: NO_DIGEST, web: NO_DIGEST };
 
 /** The target to take `project` down with: the images it was deployed from, when known. */
-export function targetOf(project: DockerProject, now: Date): ComposeTarget {
+export function targetOf(
+  project: DockerProject | SlugProject,
+  now: Date,
+  resources: ServiceResources,
+): ComposeTarget {
   return {
-    pr: project.pr,
+    key: keyOf(project),
     sha: project.sha ?? "unknown",
     deployedAt: project.deployedAt ?? now,
     digests: project.digests ?? NO_DIGESTS,
+    resources,
+  };
+}
+
+/** The template's variables for a target. Pure, so the template's tests render with it. */
+export function composeEnv(target: ComposeTarget): Record<string, string> {
+  return {
+    PREVIEW_POOL: poolOf(target.key),
+    PREVIEW_KEY: String(target.key),
+    PREVIEW_HOST: previewHost(target.key),
+    PREVIEW_SHA: target.sha,
+    PREVIEW_DEPLOYED_AT: target.deployedAt.toISOString(),
+    API_DIGEST: target.digests.api,
+    WEB_DIGEST: target.digests.web,
+    API_MEMORY: target.resources.apiMemory,
+    API_CPUS: target.resources.apiCpus,
+    WEB_MEMORY: target.resources.webMemory,
+    WEB_CPUS: target.resources.webCpus,
   };
 }
 
 function compose(target: ComposeTarget, args: string[], options: RunOptions): Promise<RunResult> {
   return run(
-    ["docker", "compose", "--project-name", projectName(target.pr), "--file", TEMPLATE, ...args],
-    {
-      ...options,
-      env: {
-        PREVIEW_PR: String(target.pr),
-        PREVIEW_SHA: target.sha,
-        PREVIEW_DEPLOYED_AT: target.deployedAt.toISOString(),
-        API_DIGEST: target.digests.api,
-        WEB_DIGEST: target.digests.web,
-        ...options.env,
-      },
-    },
+    ["docker", "compose", "--project-name", projectName(target.key), "--file", TEMPLATE, ...args],
+    { ...options, env: { ...composeEnv(target), ...options.env } },
   );
 }
 
@@ -150,13 +203,13 @@ function compose(target: ComposeTarget, args: string[], options: RunOptions): Pr
 export const down = (target: ComposeTarget) =>
   compose(target, ["down", "--volumes", "--remove-orphans", "--rmi", "all"], {
     timeoutMs: 180_000,
-    logAs: `${projectName(target.pr)} down`,
+    logAs: `${projectName(target.key)} down`,
   });
 
 export const pull = (target: ComposeTarget) =>
   compose(target, ["pull", "--quiet"], {
     timeoutMs: 600_000,
-    logAs: `${projectName(target.pr)} pull`,
+    logAs: `${projectName(target.key)} pull`,
   });
 
 /**
@@ -189,14 +242,14 @@ export function setup(target: ComposeTarget, email: string, password: string) {
   return compose(target, args, {
     timeoutMs: 120_000,
     stdin,
-    logAs: `${projectName(target.pr)} setup`,
+    logAs: `${projectName(target.key)} setup`,
   });
 }
 
 export const seed = (target: ComposeTarget) =>
   compose(target, ["run", "--rm", "-T", "api", "bun", "run", "banki", "seed"], {
     timeoutMs: 120_000,
-    logAs: `${projectName(target.pr)} seed`,
+    logAs: `${projectName(target.key)} seed`,
   });
 
 export const UP_WAIT_SECONDS = 60;
@@ -204,7 +257,7 @@ export const UP_WAIT_SECONDS = 60;
 export const up = (target: ComposeTarget) =>
   compose(target, ["up", "--detach", "--wait", "--wait-timeout", String(UP_WAIT_SECONDS)], {
     timeoutMs: (UP_WAIT_SECONDS + 60) * 1000,
-    logAs: `${projectName(target.pr)} up`,
+    logAs: `${projectName(target.key)} up`,
   });
 
 /** Each service's state and health (empty for `web`, which has no healthcheck). */
@@ -236,7 +289,7 @@ export const health = (target: ComposeTarget) =>
  * container a timed-out `run` left behind.
  */
 export async function stop(target: ComposeTarget): Promise<void> {
-  await compose(target, ["stop"], { timeoutMs: 60_000, logAs: `${projectName(target.pr)} stop` });
+  await compose(target, ["stop"], { timeoutMs: 60_000, logAs: `${projectName(target.key)} stop` });
   const oneoffs = await run(
     [
       "docker",
@@ -244,7 +297,7 @@ export async function stop(target: ComposeTarget): Promise<void> {
       "--all",
       "--quiet",
       "--filter",
-      `label=${COMPOSE_PROJECT}=${projectName(target.pr)}`,
+      `label=${COMPOSE_PROJECT}=${projectName(target.key)}`,
       "--filter",
       "label=com.docker.compose.oneoff=True",
     ],
