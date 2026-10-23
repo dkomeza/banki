@@ -13,14 +13,13 @@ import {
   type PasswordChangeRequest,
   changeEmail,
   changePassword,
-  createOperationLock,
   newPasswordProblem,
 } from "@/lib/account";
+import { type AccountOperation, accountLockFor, applyEmailChange } from "@/lib/account-store";
 import { reportUnauthorized } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
 import { meQueryOptions } from "@/lib/me";
 import { retryAfter } from "@/lib/setup";
-import { signedInQueryOptions } from "@/lib/signed-in";
 import { useSignOut } from "@/lib/use-sign-out";
 import { cn } from "@/lib/utils";
 
@@ -31,9 +30,10 @@ type Refusal<T> = Extract<T, { ok: false }>;
 
 /** The Account: the Email and the Password, each with a form to change it, and Sign out. */
 export function AccountCard() {
-  // One operation at a time: a Password change's answer sets a fresh session
-  // cookie, which would undo a sign-out made meanwhile.
-  const [lock] = useState(() => createOperationLock<AccountOperation>());
+  // One operation at a time, app-wide (see accountLockFor): a Password
+  // change's answer sets a fresh session cookie, which would undo a sign-out
+  // made meanwhile, even one made after leaving Settings and coming back.
+  const lock = accountLockFor(useQueryClient());
   const busy = useSyncExternalStore(lock.subscribe, lock.current);
   const operations = { lock, busy };
   return (
@@ -47,9 +47,7 @@ export function AccountCard() {
   );
 }
 
-type AccountOperation = "email" | "password" | "sign-out";
-
-/** The card's operation lock, and the operation under way, if any. */
+/** The app's account operation lock, and the operation under way, if any. */
 type Operations = { lock: OperationLock<AccountOperation>; busy: AccountOperation | null };
 
 /**
@@ -124,16 +122,14 @@ function EmailRow({ lock, busy }: Operations) {
     await lock.run("email", async () => {
       const mine = attempt.start();
       const outcome = await changeEmail({ email, password });
+      // The new Email everywhere it shows, even if this form is gone by now.
+      if (outcome.ok) await applyEmailChange(queryClient, outcome.email);
+      // A refusal or a confirmation only for the form that asked.
       if (!attempt.isCurrent(mine)) return;
       if (!outcome.ok) {
         setRefusal(outcome);
         return;
       }
-      // The new Email everywhere it shows, without a reload.
-      queryClient.setQueryData(meQueryOptions.queryKey, { email: outcome.email });
-      queryClient.setQueryData(signedInQueryOptions.queryKey, (before) =>
-        before ? { ...before, email: outcome.email } : before,
-      );
       setChangedTo(outcome.email);
       close();
     });
@@ -153,14 +149,15 @@ function EmailRow({ lock, busy }: Operations) {
               variant="outline"
               size="lg"
               className={OUTLINE_PILL}
-              aria-label="Change Email"
+              // A change started before the card was last opened may still be under way.
+              aria-label={submitting ? "Changing Email" : "Change Email"}
               disabled={busy !== null}
               onClick={() => {
                 setOpen(true);
                 setChangedTo(undefined);
               }}
             >
-              Change
+              {submitting ? "Changing…" : "Change"}
             </Button>
           )
         }
@@ -281,14 +278,14 @@ function PasswordRow({ lock, busy }: Operations) {
               variant="outline"
               size="lg"
               className={OUTLINE_PILL}
-              aria-label="Change Password"
+              aria-label={submitting ? "Changing Password" : "Change Password"}
               disabled={busy !== null}
               onClick={() => {
                 setOpen(true);
                 setChanged(false);
               }}
             >
-              Change
+              {submitting ? "Changing…" : "Change"}
             </Button>
           )
         }
