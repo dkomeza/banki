@@ -139,4 +139,28 @@ describe("createSettingsSaver", () => {
     server.requests[0]?.succeed();
     await flush();
   });
+
+  test("Settings that arrive mid-save show once the queue drains, if the save fails", async () => {
+    const { server, saver, state } = setUp();
+
+    saver.change({ field: "dayStartHour", attempted: 6 });
+    // The first fill, say, stores a Timezone meanwhile.
+    saver.sync({ timezone: "Asia/Tokyo", dayStartHour: 4 });
+    server.requests[0]?.fail();
+    await flush();
+
+    expect(shownSettings(state())).toEqual({ timezone: "Asia/Tokyo", dayStartHour: 4 });
+    expect(state().failures).toEqual([{ field: "dayStartHour", attempted: 6 }]);
+  });
+
+  test("a save answered after Settings arrived mid-save is the truth", async () => {
+    const { server, saver, state } = setUp();
+
+    saver.change({ field: "dayStartHour", attempted: 6 });
+    saver.sync({ timezone: "Asia/Tokyo", dayStartHour: 4 });
+    server.requests[0]?.succeed();
+    await flush();
+
+    expect(shownSettings(state())).toEqual(server.stored());
+  });
 });

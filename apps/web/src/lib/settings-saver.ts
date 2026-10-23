@@ -57,6 +57,9 @@ export function createSettingsSaver({
   let state: SaverState = { stored: initial, queue: [], saving: [], saved: [], failures: [] };
   const listeners = new Set<() => void>();
   const savedTimers = new Map<Field, () => void>();
+  // Settings the server stored meanwhile (the first fill, a refetch), held
+  // until the queue drains, unless a later save's answer supersedes them.
+  let arrived: SettingsResponse | undefined;
 
   const update = (next: Partial<SaverState>) => {
     const merged = { ...state, ...next };
@@ -93,6 +96,7 @@ export function createSettingsSaver({
         failures: [...without(state.failures, (failure) => failure.field === change.field), change],
       });
     } else {
+      arrived = undefined;
       onStored(stored);
       update({
         stored,
@@ -100,6 +104,10 @@ export function createSettingsSaver({
         failures: without(state.failures, (failure) => failure.field === change.field),
       });
       if (!stillChanging) markSaved(change.field);
+    }
+    if (rest.length === 0 && arrived !== undefined) {
+      update({ stored: arrived });
+      arrived = undefined;
     }
     void sendNext();
   };
@@ -129,9 +137,14 @@ export function createSettingsSaver({
       update({ failures: without(state.failures, (failure) => failure.field === field) });
       change(failed);
     },
-    /** Takes Settings changed elsewhere (the first fill, say), unless a save is under way. */
+    /**
+     * Takes Settings changed elsewhere (the first fill, say). While a save is
+     * under way they wait for the queue to drain, and a later save's answer,
+     * the server's state after it, replaces them.
+     */
     sync(settings: SettingsResponse) {
-      if (state.queue.length === 0 && settings !== state.stored) update({ stored: settings });
+      if (state.queue.length > 0) arrived = settings;
+      else if (settings !== state.stored) update({ stored: settings });
     },
     dispose() {
       for (const cancel of savedTimers.values()) cancel();
