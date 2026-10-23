@@ -1,14 +1,18 @@
-import type { SettingsResponse } from "@banki/shared";
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { ChevronDown, CircleAlert, Globe } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useState, useSyncExternalStore } from "react";
 import { DayBar } from "@/components/settings/day-bar";
 import { FIELD, OUTLINE_PILL, PILL, SaveState } from "@/components/settings/parts";
 import { TimezoneCombobox } from "@/components/settings/timezone-combobox";
 import { Button } from "@/components/ui/button";
 import { saveSettings, settingsQueryOptions } from "@/lib/settings";
 import {
-  type FailedSave,
+  type Field,
+  type SaverState,
+  createSettingsSaver,
+  shownSettings,
+} from "@/lib/settings-saver";
+import {
   dayStartEffect,
   deviceTimezone,
   formatHour,
@@ -18,82 +22,37 @@ import {
 } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
-type Field = FailedSave["field"];
-
-type SaveStatus =
-  | { field: Field; kind: "saving" | "saved" }
-  | ({ kind: "error" } & FailedSave)
-  | undefined;
-
-/** How long "Saved" stays beside a field. */
-const SAVED_MS = 2000;
-
 /**
- * The Timezone and Day start, saved as they change. The new value shows at
- * once; if its save fails, the stored one comes back with an error saying so.
- * Only the latest change's answer counts, so a slow earlier one can't
- * overwrite it.
+ * The Timezone and Day start, saved as they change, one at a time and in
+ * order (see createSettingsSaver), keeping the settings query in step.
  */
 function useStudyDaySettings() {
   const queryClient = useQueryClient();
   const options = settingsQueryOptions();
-  const { data: stored } = useSuspenseQuery(options);
-  const [pending, setPending] = useState<Partial<SettingsResponse>>({});
-  const [status, setStatus] = useState<SaveStatus>();
-  const latest = useRef(0);
-  const savedTimer = useRef<number | undefined>(undefined);
-
-  useEffect(() => () => window.clearTimeout(savedTimer.current), []);
-
-  const save = async (change: FailedSave) => {
-    const attempt = ++latest.current;
-    window.clearTimeout(savedTimer.current);
-    setPending((before) => ({ ...before, [change.field]: change.attempted }));
-    setStatus({ field: change.field, kind: "saving" });
-    try {
-      const saved = await saveSettings({ [change.field]: change.attempted });
-      if (attempt !== latest.current) return;
-      queryClient.setQueryData(options.queryKey, saved);
-      setPending({});
-      setStatus({ field: change.field, kind: "saved" });
-      savedTimer.current = window.setTimeout(() => setStatus(undefined), SAVED_MS);
-    } catch {
-      if (attempt !== latest.current) return;
-      setPending({});
-      setStatus({ kind: "error", ...change });
-      // What is stored now, in case an earlier change did save.
-      void queryClient.invalidateQueries({ queryKey: options.queryKey });
-    }
-  };
-
-  const shown = { ...stored, ...pending };
-  return {
-    stored,
-    shown,
-    status,
-    setTimezone: (timezone: string) => void save({ field: "timezone", attempted: timezone }),
-    setDayStartHour: (hour: number) => void save({ field: "dayStartHour", attempted: hour }),
-    retry: () => {
-      if (status?.kind === "error") {
-        const { kind: _, ...change } = status;
-        void save(change);
-      }
-    },
-  };
+  const { data } = useSuspenseQuery(options);
+  const [saver] = useState(() =>
+    createSettingsSaver({
+      initial: data,
+      save: (patch) => saveSettings(patch),
+      onStored: (settings) => queryClient.setQueryData(options.queryKey, settings),
+    }),
+  );
+  useEffect(() => () => saver.dispose(), [saver]);
+  // The first fill, or another tab, may store Settings after this page opened.
+  useEffect(() => saver.sync(data), [saver, data]);
+  const state = useSyncExternalStore(saver.subscribe, saver.getState);
+  return { saver, state, shown: shownSettings(state) };
 }
 
-const stateOf = (status: SaveStatus, field: Field) =>
-  status !== undefined && status.kind !== "error" && status.field === field
-    ? status.kind
-    : undefined;
+const stateOf = (state: SaverState, field: Field) =>
+  state.saving.includes(field) ? "saving" : state.saved.includes(field) ? "saved" : undefined;
 
 /**
  * Your Study day: what the Day start does, the Day bar that shows it, and the
  * Timezone and Day start that move it. First on the Settings page, full width.
  */
 export function StudyDayCard() {
-  const settings = useStudyDaySettings();
-  const { shown, stored, status } = settings;
+  const { saver, state, shown } = useStudyDaySettings();
   const timezoneLabel = useId();
   const timezoneHint = useId();
   const dayStartId = useId();
@@ -123,11 +82,11 @@ export function StudyDayCard() {
             <span id={timezoneLabel} className="text-sm font-medium">
               Timezone
             </span>
-            <SaveState state={stateOf(status, "timezone")} />
+            <SaveState state={stateOf(state, "timezone")} />
           </div>
           <TimezoneCombobox
             value={shown.timezone}
-            onChange={settings.setTimezone}
+            onChange={(timezone) => saver.change({ field: "timezone", attempted: timezone })}
             labelledBy={timezoneLabel}
             describedBy={timezoneHint}
           />
@@ -140,16 +99,18 @@ export function StudyDayCard() {
             <label htmlFor={dayStartId} className="text-sm font-medium">
               Day start
             </label>
-            <SaveState state={stateOf(status, "dayStartHour")} />
+            <SaveState state={stateOf(state, "dayStartHour")} />
           </div>
           <div className="relative">
             <select
               id={dayStartId}
               value={shown.dayStartHour}
-              onChange={(event) => settings.setDayStartHour(Number(event.target.value))}
+              onChange={(event) =>
+                saver.change({ field: "dayStartHour", attempted: Number(event.target.value) })
+              }
               className={cn(
                 FIELD,
-                "w-full appearance-none border border-input pr-10 transition-colors outline-none focus-visible:border-ring focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid",
+                "w-full appearance-none border border-input pr-10 transition-colors motion-reduce:transition-none outline-none focus-visible:border-ring focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid",
               )}
             >
               {Array.from({ length: 24 }, (_, hour) => (
@@ -167,18 +128,24 @@ export function StudyDayCard() {
         </div>
       </div>
 
-      {status?.kind === "error" && (
+      {state.failures.map((failure) => (
         <div
+          key={failure.field}
           role="alert"
           className="flex flex-col gap-3 rounded-xl border border-destructive/40 p-4 text-sm sm:flex-row sm:items-center"
         >
           <CircleAlert aria-hidden className="hidden size-5 shrink-0 text-destructive sm:block" />
-          <p className="min-w-0 flex-1 text-destructive">{saveErrorText(status, stored)}</p>
-          <Button variant="outline" size="lg" className={OUTLINE_PILL} onClick={settings.retry}>
+          <p className="min-w-0 flex-1 text-destructive">{saveErrorText(failure, state.stored)}</p>
+          <Button
+            variant="outline"
+            size="lg"
+            className={OUTLINE_PILL}
+            onClick={() => saver.retry(failure.field)}
+          >
             Try again
           </Button>
         </div>
-      )}
+      ))}
 
       {mismatch && (
         <div className="flex flex-col gap-3 rounded-xl bg-accent p-4 text-[0.95rem] text-accent-foreground sm:flex-row sm:items-center">
@@ -189,8 +156,12 @@ export function StudyDayCard() {
           </p>
           <Button
             size="lg"
-            className={cn(PILL, "shrink-0")}
-            onClick={() => settings.setTimezone(device)}
+            // A long zone name wraps rather than push the card wider.
+            className={cn(
+              PILL,
+              "h-auto min-h-11 shrink whitespace-normal py-2 text-center [overflow-wrap:anywhere] lg:h-auto lg:min-h-10",
+            )}
+            onClick={() => saver.change({ field: "timezone", attempted: device })}
           >
             Use {device}
           </Button>
