@@ -114,6 +114,8 @@ export type SlugAction = InSlugPool<
   | { kind: "mark-inactive"; slug: string; deploymentId: number; reason: "superseded" }
   /** Mark a Deployment whose payload is malformed, or whose Slug is invalid or reserved, a failure. */
   | { kind: "mark-invalid"; deploymentId: number }
+  /** Mark a Deployment a failure, such as one whose images never arrived. */
+  | { kind: "mark-failed"; slug: string; deploymentId: number; description: string }
   /** Create the Slug's resource, with SSO off and its target on the Previews site. */
   | { kind: "create-resource"; slug: string }
   | { kind: "delete-resource"; slug: string; resourceId: number }
@@ -251,6 +253,7 @@ export function planSlugParts(input: SlugPlanInput): PlanParts<SlugAction> {
   }
 
   const markQueued: SlugAction[] = [];
+  const markFailed: SlugAction[] = [];
   const confirms: Extract<SlugAction, { kind: "confirm" }>[] = [];
   const deploys: Deploy[] = [];
   for (const head of newest.values()) {
@@ -281,7 +284,23 @@ export function planSlugParts(input: SlugPlanInput): PlanParts<SlugAction> {
     }
     const images = input.images.find((image) => image.slug === head.slug && image.sha === head.sha);
     if (images === undefined) {
-      if (head.status === undefined || head.status === "pending") {
+      // An image can go missing for good: a sweep deleting it just as a
+      // dispatch at the same head found it already pushed. Waiting longer
+      // than any build takes, the Deployment fails visibly instead of
+      // waiting out its time to live, and dispatching again rebuilds it. One
+      // the agent stopped in the middle of deploying had its images.
+      if (
+        head.status !== "in_progress" &&
+        input.now.getTime() - head.createdAt.getTime() >= IMAGES_WAIT_MS
+      ) {
+        markFailed.push({
+          pool: "slug",
+          kind: "mark-failed",
+          slug: head.slug,
+          deploymentId: head.id,
+          description: "images never arrived, dispatch again",
+        });
+      } else if (head.status === undefined || head.status === "pending") {
         markQueued.push({
           pool: "slug",
           kind: "mark-queued",
@@ -393,6 +412,7 @@ export function planSlugParts(input: SlugPlanInput): PlanParts<SlugAction> {
       ...superseded,
       ...createResources,
       ...markQueued,
+      ...markFailed,
       ...confirms,
     ],
     deploys: deploysMakingRoom,
@@ -400,6 +420,9 @@ export function planSlugParts(input: SlugPlanInput): PlanParts<SlugAction> {
 }
 
 const DISPATCH_AGAIN = ", dispatch again to rebuild";
+
+/** How long a Deployment waits for its images before it fails: longer than any build. */
+const IMAGES_WAIT_MS = 3_600_000;
 
 const HOUR_MS = 3_600_000;
 

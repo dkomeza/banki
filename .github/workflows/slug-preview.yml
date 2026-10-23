@@ -353,10 +353,11 @@ jobs:
     # the sweep runs, at a head whose images are already pushed, reuses them
     # without pushing: so right before deleting a version, the sweep reads
     # its Slugs' newest Deployments again, and keeps it unless they are still
-    # down. A dispatch creates its Deployment before its build checks for the
-    # images, which comes many seconds later; a delete right after a read
-    # that just missed that Deployment is done by then, and the build pushes
-    # the images again.
+    # down. That narrows the race but can't close it: a dispatch whose build
+    # found the images just before this deletes them waits with none. The
+    # pull agent marks a Deployment still waiting for its images an hour
+    # after the dispatch a failure (`images never arrived, dispatch again`),
+    # so a lost image shows, and dispatching again rebuilds it.
     #
     # GHCR refuses to delete a package's last tagged version (HTTP 400): that
     # one stays until a later sweep. A 404 is a version already deleted.

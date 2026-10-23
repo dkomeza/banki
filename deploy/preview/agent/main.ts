@@ -286,6 +286,8 @@ async function executeSlug(action: SlugAction, context: Context) {
       return github.setStatus(action.deploymentId, "inactive", "superseded by a newer deploy");
     case "mark-invalid":
       return github.setStatus(action.deploymentId, "failure", "invalid slug");
+    case "mark-failed":
+      return github.setStatus(action.deploymentId, "failure", action.description);
     case "create-resource":
       return previews.createOrKeep(action.slug);
     case "delete-resource":

@@ -22,7 +22,8 @@ const SITE = 7;
 const OTHER_SITE = 8;
 const HOUR_MS = 3_600_000;
 const NOW = new Date("2026-10-20T12:00:00Z");
-const EARLIER = new Date(NOW.getTime() - HOUR_MS);
+// Inside the hour a Deployment may wait for its images.
+const EARLIER = new Date(NOW.getTime() - 30 * 60_000);
 const SHA_A = "a".repeat(40);
 const SHA_B = "b".repeat(40);
 const API_DIGEST = `sha256:${"1".repeat(64)}`;
@@ -316,6 +317,71 @@ describe("a deployed Slug Preview", () => {
     );
 
     expect(actions).toEqual([deployOf("blue", SHA_B, second.id, { supersedes: [first.id] })]);
+  });
+});
+
+const minutesAgo = (minutes: number) => new Date(NOW.getTime() - minutes * 60_000);
+
+describe("a Deployment whose images never arrive", () => {
+  test("waits for them 59 minutes after it was created", () => {
+    for (const status of ["queued", "pending", undefined] as const) {
+      const waiting = deployment("blue", SHA_A, status, { createdAt: minutesAgo(59) });
+
+      const actions = planSlugs(input({ deployments: [waiting] }));
+
+      expect(kinds(actions).filter((kind) => kind === "mark-failed")).toEqual([]);
+    }
+  });
+
+  test("is marked a failure an hour after it was created, whatever it was waiting as", () => {
+    for (const status of ["queued", "pending", undefined] as const) {
+      const waiting = deployment("blue", SHA_A, status, { createdAt: minutesAgo(60) });
+
+      const actions = planSlugs(input({ deployments: [waiting] }));
+
+      expect(actions).toEqual([
+        {
+          pool: "slug",
+          kind: "mark-failed",
+          slug: "blue",
+          deploymentId: waiting.id,
+          description: "images never arrived, dispatch again",
+        },
+      ]);
+    }
+  });
+
+  test("found in the same loop, an hour late, is deployed instead", () => {
+    const late = deployment("blue", SHA_A, "queued", { createdAt: minutesAgo(90) });
+
+    const actions = planSlugs(input({ deployments: [late], images: [ready("blue", SHA_A)] }));
+
+    expect(actions).toEqual([deployOf("blue", SHA_A, late.id)]);
+  });
+
+  test("never times out a deploy the agent stopped in the middle of", () => {
+    const interrupted = deployment("blue", SHA_A, "in_progress", { createdAt: minutesAgo(120) });
+
+    expect(planSlugs(input({ deployments: [interrupted] }))).toEqual([]);
+  });
+
+  test("once failed, has the Preview an older Deployment left running taken down", () => {
+    const live = deployment("blue", SHA_A, "success", { createdAt: minutesAgo(180) });
+    const lost = deployment("blue", SHA_A, "failure", {
+      createdAt: minutesAgo(60),
+      description: "images never arrived, dispatch again",
+    });
+    const running = project("blue", { deployedAt: minutesAgo(170) });
+
+    const actions = planSlugs(
+      input({
+        projects: [running],
+        deployments: [live, lost],
+        resources: [resource(40, host("blue"))],
+      }),
+    );
+
+    expect(kinds(actions)).toEqual(["delete-resource", "teardown", "mark-inactive"]);
   });
 });
 
@@ -666,9 +732,9 @@ describe("a bad payload", () => {
   });
 });
 
-/** A running Slug Preview, deployed `minutesAgo`. */
-const runningFor = (slug: string, minutesAgo: number) =>
-  project(slug, { deployedAt: new Date(NOW.getTime() - minutesAgo * 60_000) });
+/** A running Slug Preview, deployed `minutes` ago. */
+const runningFor = (slug: string, minutes: number) =>
+  project(slug, { deployedAt: minutesAgo(minutes) });
 
 const succeeded = (slug: string) => deployment(slug, SHA_A, "success");
 

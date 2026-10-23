@@ -416,13 +416,13 @@ id="$(gh api 'repos/dkomeza/banki/deployments?environment=slug-preview&per_page=
 gh api "repos/dkomeza/banki/deployments/$id/statuses" --jq '.[0] | {state, description, environment_url}'
 ```
 
-| Status        | What it means                                                                                                                                                                       |
-| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `queued`      | Claimed, and waiting for its images                                                                                                                                                 |
-| `in_progress` | Deploying                                                                                                                                                                           |
-| `success`     | Up, with its link                                                                                                                                                                   |
-| `failure`     | Didn't start: `build failed` from the workflow, a reason from the agent as for a PR Preview, or `invalid slug` for a deployment the workflow didn't make                            |
-| `inactive`    | Removed: `taken down`, `expired after <N> h, dispatch again to rebuild`, `evicted, dispatch again to rebuild`, or `superseded by a newer deploy` when the Slug was dispatched again |
+| Status        | What it means                                                                                                                                                                                                                                                  |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `queued`      | Claimed, and waiting for its images                                                                                                                                                                                                                            |
+| `in_progress` | Deploying                                                                                                                                                                                                                                                      |
+| `success`     | Up, with its link                                                                                                                                                                                                                                              |
+| `failure`     | Didn't start: `build failed` from the workflow, `images never arrived, dispatch again` when its images still aren't there an hour after the dispatch, a reason from the agent as for a PR Preview, or `invalid slug` for a deployment the workflow didn't make |
+| `inactive`    | Removed: `taken down`, `expired after <N> h, dispatch again to rebuild`, `evicted, dispatch again to rebuild`, or `superseded by a newer deploy` when the Slug was dispatched again                                                                            |
 
 Slug Previews are limited apart from PR Previews:
 
