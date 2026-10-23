@@ -45,7 +45,14 @@ describe("offsetOf", () => {
     ["Europe/Warsaw", "2026-07-15T12:00:00Z", "UTC+2"],
     ["America/New_York", "2026-01-15T12:00:00Z", "UTC−5"],
     ["Asia/Kolkata", "2026-01-15T12:00:00Z", "UTC+5:30"],
+    ["Asia/Kathmandu", "2026-01-15T12:00:00Z", "UTC+5:45"],
+    ["America/St_Johns", "2026-01-15T12:00:00Z", "UTC−3:30"],
+    ["Pacific/Kiritimati", "2026-01-15T12:00:00Z", "UTC+14"],
+    // Zero offsets, which ICUs name "GMT", "GMT+0" or "UTC": always plain UTC.
     ["UTC", "2026-01-15T12:00:00Z", "UTC"],
+    ["Etc/UTC", "2026-01-15T12:00:00Z", "UTC"],
+    ["Africa/Abidjan", "2026-01-15T12:00:00Z", "UTC"],
+    ["Europe/London", "2026-01-15T12:00:00Z", "UTC"],
   ])("%s on %s is %s", (zone, iso, offset) => {
     expect(offsetOf(zone, new Date(iso))).toBe(offset);
   });

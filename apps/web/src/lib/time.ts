@@ -56,12 +56,31 @@ export function dayStartEffect(dayStartHour: number): string {
   return `Each Study day runs from ${start} to ${start}, so a review at ${halfHourBefore(dayStartHour)} counts toward the day before.`;
 }
 
-/** The zone's UTC offset at `at`: "UTC+2", "UTC−3:30", or "UTC" itself. */
+/**
+ * The zone's UTC offset at `at`: "UTC+2", "UTC−3:30", or "UTC" for none.
+ * Worked out from the wall clock rather than Intl's offset names, which ICU
+ * spells differently from platform to platform ("GMT" or "GMT+0",
+ * "GMT+5:30" or "GMT+05:30").
+ */
 export function offsetOf(timezone: string, at = new Date()): string {
-  const name = new Intl.DateTimeFormat("en-US", { timeZone: timezone, timeZoneName: "shortOffset" })
-    .formatToParts(at)
-    .find((part) => part.type === "timeZoneName")?.value;
-  return (name ?? "GMT").replace("GMT", "UTC").replace("-", "−");
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "numeric",
+  }).formatToParts(at);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((candidate) => candidate.type === type)?.value ?? 0);
+  const wall = Date.UTC(part("year"), part("month") - 1, part("day"), part("hour"), part("minute"));
+  const instant = Math.floor(at.getTime() / 60_000) * 60_000;
+  const minutes = Math.round((wall - instant) / 60_000);
+  if (minutes === 0) return "UTC";
+  const hours = Math.floor(Math.abs(minutes) / 60);
+  const rest = Math.abs(minutes) % 60;
+  return `UTC${minutes < 0 ? "−" : "+"}${hours}${rest === 0 ? "" : `:${String(rest).padStart(2, "0")}`}`;
 }
 
 /** The zone this browser is in. */
