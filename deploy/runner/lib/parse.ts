@@ -1,5 +1,5 @@
 // Small hand-written readers for the JSON the Runner gets back from GitHub,
-// Linear, the broker and `claude`. It has no npm dependencies, so these stand
+// Linear, the Broker and `claude`. It has no npm dependencies, so these stand
 // in for a schema library: each one checks only the fields it reads, and
 // names where a wrong one was found.
 

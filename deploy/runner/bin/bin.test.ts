@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// The wrappers on the runner's PATH, run for real against a fake broker on a
+// The wrappers on the runner's PATH, run for real against a fake Broker on a
 // Unix socket. Skipped without curl, which they reach the socket with.
 
 const hasCurl = Bun.which("curl") !== null;

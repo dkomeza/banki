@@ -1,4 +1,4 @@
-# The image takes only what is baked into it: the broker, the tick loop, the
+# The image takes only what is baked into it: the Broker, the tick loop, the
 # code they share, and the wrappers on PATH. The tick script and the CLI run
 # from the clone of main instead (ADR-0012).
 *

@@ -5,7 +5,7 @@ import { join } from "node:path";
 // none is in an environment in `docker inspect`), and the settings that
 // aren't secret, from the environment. All of it is written by
 // `deploy/runner/bootstrap`, outside the clone. Each container gets only its
-// own secrets: the broker the App key and the Linear client secret, the
+// own secrets: the Broker the App key and the Linear client secret, the
 // runner the Claude token.
 
 const SECRETS_DIR = process.env.SECRETS_DIR ?? "/run/secrets";
@@ -44,7 +44,7 @@ export function requiredEnv(name: string): string {
   return value;
 }
 
-/** The broker's socket, on the volume both containers mount. */
+/** The Broker's socket, on the volume both containers mount. */
 export const brokerSocket = () =>
   process.env.BANKI_BROKER_SOCKET ?? "/run/banki-broker/broker.sock";
 

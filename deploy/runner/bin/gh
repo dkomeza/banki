@@ -1,5 +1,5 @@
 #!/bin/sh
-# gh, as the Runner's GitHub App (ADR-0012): asks the broker for an
+# gh, as the Runner's GitHub App (ADR-0012): asks the Broker for an
 # installation token on every call, so a Stage outlives any one token and never
 # holds the App's key. The real gh is outside PATH.
 set -eu

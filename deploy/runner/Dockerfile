@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-# The Runner (ADR-0012): one image for both its containers, the broker and
+# The Runner (ADR-0012): one image for both its containers, the Broker and
 # the runner, built on the home server from a checkout of `main`. Build
 # context: deploy/runner. Everything a Stage runs comes from here or from the
 # clone of `main` in the volume, never from a registry tag a pull request
@@ -16,7 +16,7 @@ FROM node:24.22.1-trixie-slim@sha256:43b9ba1142b8dcf33fa8f922ca1be85714adc444e05
 
 ARG TARGETARCH
 
-# git; curl, for the wrappers that reach the broker's socket; jq, which the
+# git; curl, for the wrappers that reach the Broker's socket; jq, which the
 # workflows' scripts (and their tests) use; and ps, with which the `ui` script
 # finds its running stacks. From the Debian release the base image pins.
 RUN apt-get update \
@@ -25,7 +25,7 @@ RUN apt-get update \
 
 # gh, from its release, checked against the release's checksums. It goes
 # outside PATH: the `gh` on PATH is bin/gh, which hands it a token from the
-# broker on every call.
+# Broker on every call.
 ARG GH_VERSION=2.102.0
 RUN set -eu; \
   case "$TARGETARCH" in \
@@ -56,10 +56,10 @@ RUN npm install --global @anthropic-ai/claude-code@2.1.295 \
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
 RUN ln -s bun /usr/local/bin/bunx
 
-# git asks the broker for a token whenever github.com wants one.
+# git asks the Broker for a token whenever github.com wants one.
 RUN git config --system credential.https://github.com.helper /opt/banki-runner/bin/git-credential-banki
 
-# The broker, the tick loop and the wrappers. No npm dependencies, so there
+# The Broker, the tick loop and the wrappers. No npm dependencies, so there
 # is nothing to install: Bun runs the source.
 WORKDIR /opt/banki-runner
 COPY broker/ broker/

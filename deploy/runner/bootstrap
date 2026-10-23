@@ -4,9 +4,9 @@
 #
 # The secrets go to $BANKI_RUNNER_SECRETS (default ~/.config/banki-runner),
 # outside the clone: the directory is 0700 and every file 0600. GitHub never
-# holds any of it. compose.yaml hands the broker the App's key and the Linear
+# holds any of it. compose.yaml hands the Broker the App's key and the Linear
 # client secret, and the runner the Claude token, as compose secrets, and the
-# broker the two IDs, which aren't secret, as its environment (broker.env).
+# Broker the two IDs, which aren't secret, as its environment (broker.env).
 #
 # It also records the host user's uid and gid, and where the secrets are, in
 # deploy/runner/.env (gitignored), which Compose reads: both containers run as

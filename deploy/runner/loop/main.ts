@@ -9,7 +9,7 @@ import { imageCheck, type Stuck, stuckReport, type Toolchain } from "./sync";
 // brings its clone onto `main` in place, even while a Stage runs there, and
 // then runs `deploy/runner/tick.ts` from the clone, so a change merged to
 // `main` applies on the next tick with no Docker socket and no rebuild. Only
-// what is baked into the image (this loop, the broker, the wrappers on PATH)
+// what is baked into the image (this loop, the Broker, the wrappers on PATH)
 // needs `docker compose … up -d --build` by hand, and the loop says when:
 // when they changed on `main`, or when `main` pins another bun or node.
 // A failed sync skips the tick, a failed tick is logged, and the loop goes on.

@@ -6,7 +6,7 @@ import { isRecord } from "./lib/parse";
 
 // Renders compose.yaml with `docker compose config`, the way Compose itself
 // reads it, and checks what it promises: the two containers share nothing but
-// the broker's socket, each gets only its own secrets, both are hardened, and
+// the Broker's socket, each gets only its own secrets, both are hardened, and
 // neither can reach the Docker socket, the Previews or a host port. Skipped
 // without a docker CLI; nothing is started.
 
@@ -23,6 +23,8 @@ writeFileSync(noEnvFile, "");
 afterAll(() => rmSync(secrets, { recursive: true, force: true }));
 
 const IDS = { BANKI_RUNNER_UID: "1000", BANKI_RUNNER_GID: "1001" };
+/** The runner's subnet, which compose.yaml and the host's firewall rules both name. */
+const RUNNER_SUBNET = "10.213.94.0/24";
 
 type Service = Record<string, unknown> & {
   environment?: Record<string, string>;
@@ -143,6 +145,21 @@ describe.skipIf(!hasDocker)("compose.yaml", () => {
       expect(Object.keys(found.networks ?? {})).not.toContain("banki-previews");
     }
     expect(Object.keys(rendered.networks)).not.toContain("banki-previews");
+  });
+
+  test("never pulls the image, which the runner's service builds and both run", async () => {
+    const { services } = await render();
+
+    expect(services.broker?.pull_policy).toBe("never");
+    expect(services.runner?.pull_policy).toBe("never");
+  });
+
+  test("gives the runner's network the fixed subnet the host's firewall rules name", async () => {
+    const { networks } = await render();
+    const script = await Bun.file(join(import.meta.dir, "host-firewall")).text();
+
+    expect(networks.runner?.ipam).toEqual({ config: [{ subnet: RUNNER_SUBNET }] });
+    expect(script).toContain(`subnet="${RUNNER_SUBNET}"`);
   });
 
   test("puts each on its own network, with internet access, and they share none", async () => {

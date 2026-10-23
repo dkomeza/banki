@@ -540,25 +540,26 @@ The [Runner](CONTEXT.md) runs the `/work-issue` [Stages](CONTEXT.md) unattended,
 
 It is one Compose project, `banki-runner`, with two containers from one image:
 
-- **broker** holds the GitHub App's private key and the Linear app's client secret, and mints short-lived tokens from them. Nothing else runs there.
-- **runner** runs the tick and the Stages. It holds only the Claude token, asks the broker for GitHub and Linear tokens over a Unix socket, and never sees the keys.
+- **broker**, the [Broker](CONTEXT.md), holds the GitHub App's private key and the Linear app's client secret, and mints short-lived tokens from them. Nothing else runs there.
+- **runner** runs the tick and the Stages. It holds only the Claude token, asks the Broker for GitHub and Linear tokens over a Unix socket, and never sees the keys.
 
-They share only the volume holding the broker's socket. A Stage runs `claude` with permission prompts skipped and reads untrusted text, so it could be talked into sending whatever it can read: it can mint tokens through the socket, but it can't read the key that makes them, and every token it can get dies on its own. A GitHub token lasts an hour. A Linear token is minted when its Stage starts and revoked when it ends, or 4 hours after it was minted, whichever comes first.
+They share only the volume holding the Broker's socket. A Stage runs `claude` with permission prompts skipped and reads untrusted text, so it could be talked into sending whatever it can read: it can mint tokens through the socket, but it can't read the key that makes them, and every token it can get dies on its own. A GitHub token lasts an hour. A Linear token is minted when its Stage starts and revoked when it ends, or 4 hours after it was minted, whichever comes first.
 
-A Stage still holds the Claude, GitHub and Linear tokens while it runs, and has open internet access: there is no egress allowlist (ADR-0012 records the trade-off). The container keeps a Stage away from the host and the Previews, not from sending what it reads, so the Stages take input only from the Maintainer in Linear, and from `claude-review` and Codex on GitHub (`.claude/skills/work-issue/references/stages.md` § Input).
+A Stage still holds the Claude, GitHub and Linear tokens while it runs, and has open internet access: there is no egress allowlist (ADR-0012 records the trade-off). The host's firewall rules for the runner's network keep a Stage from the home server's ports and the home LAN ([below](#keeping-it-off-the-host-and-the-lan)), and the Previews' internal networks keep it from the Previews, but nothing keeps it from sending what it reads, so the Stages take input only from the Maintainer in Linear, and from `claude-review` and Codex on GitHub (`.claude/skills/work-issue/references/stages.md` § Input).
 
-| Path                         | What it is                                                                                                                                                               |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `deploy/runner/compose.yaml` | The two containers, hardened, with their networks, volumes and secrets                                                                                                   |
-| `deploy/runner/Dockerfile`   | The image: pinned bun, node, git, gh and the `claude` CLI, and Chromium's system libraries                                                                               |
-| `deploy/runner/broker/`      | The broker (Bun, no npm dependencies): the App's JWT, the GitHub token cache and the Linear tokens' revoke schedule are pure and unit-tested; the rest are thin adapters |
-| `deploy/runner/loop/`        | The tick loop: brings the clone onto `main`, runs `tick.ts`, and says when the image is behind `main`                                                                    |
-| `deploy/runner/bin/`         | What is on the runner's PATH: `gh` and git's credential helper, which ask the broker for a token on every call, and `runner`                                             |
-| `deploy/runner/tick.ts`      | The tick, run from the clone: the Dispatcher's place (BAN-95). It only logs for now                                                                                      |
-| `deploy/runner/cli/`         | `runner stage`, run from the clone                                                                                                                                       |
-| `deploy/runner/bootstrap`    | Asks for the Runner's secrets and writes them outside the clone                                                                                                          |
+| Path                          | What it is                                                                                                                                                               |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `deploy/runner/compose.yaml`  | The two containers, hardened, with their networks, volumes and secrets                                                                                                   |
+| `deploy/runner/Dockerfile`    | The image: pinned bun, node, git, gh and the `claude` CLI, and Chromium's system libraries                                                                               |
+| `deploy/runner/broker/`       | The Broker (Bun, no npm dependencies): the App's JWT, the GitHub token cache and the Linear tokens' revoke schedule are pure and unit-tested; the rest are thin adapters |
+| `deploy/runner/loop/`         | The tick loop: brings the clone onto `main`, runs `tick.ts`, and says when the image is behind `main`                                                                    |
+| `deploy/runner/bin/`          | What is on the runner's PATH: `gh` and git's credential helper, which ask the Broker for a token on every call, and `runner`                                             |
+| `deploy/runner/tick.ts`       | The tick, run from the clone: the Dispatcher's place (BAN-95). It only logs for now                                                                                      |
+| `deploy/runner/cli/`          | `runner stage`, run from the clone                                                                                                                                       |
+| `deploy/runner/bootstrap`     | Asks for the Runner's secrets and writes them outside the clone                                                                                                          |
+| `deploy/runner/host-firewall` | The host's firewall rules that keep the runner's network off the home server and the LAN                                                                                 |
 
-The broker, the tick loop and the wrappers on PATH are baked into the image. The tick script and the CLI run from the clone of `main` in the volume, so a merged change to them applies on the next tick.
+The Broker, the tick loop and the wrappers on PATH are baked into the image. The tick script and the CLI run from the clone of `main` in the volume, so a merged change to them applies on the next tick.
 
 ### Linear: the statuses and the app
 
@@ -570,7 +571,7 @@ The Stages are driven by the issue's status (`docs/agents/issue-tracker.md` § S
 The Runner is a Linear OAuth app acting as itself, so its comments and assignments come from it and notify you, and a comment from your account is always yours. Create it in **Settings → API → OAuth applications**:
 
 1. Name it **Banki runner**. The callback URL is never used (the Runner doesn't sign in through a browser); give it any HTTPS URL, such as `https://banki.dkomeza.com`.
-2. Turn on **Client credentials**. The Runner uses that grant only: Linear doesn't let an app mix grants and still hold several of its tokens at once. Its tokens act as the app (`actor=app`) with the `read` and `write` scopes the broker asks for, and never `admin`.
+2. Turn on **Client credentials**. The Runner uses that grant only: Linear doesn't let an app mix grants and still hold several of its tokens at once. Its tokens act as the app (`actor=app`) with the `read` and `write` scopes the Broker asks for, and never `admin`.
 3. Note the **client ID** and the **client secret**, for `bootstrap`.
 
 A client-credentials token sees the workspace's public teams only. Keep the Banki team public, or give the app access to it on the app's details page.
@@ -587,56 +588,27 @@ On GitHub the Runner is a private App installed on this repo only. In **Settings
 4. Create it, note its **App ID**, and **generate a private key**, which downloads a `.pem` file. `bootstrap` copies it in; delete the download afterwards.
 5. **Install App**, on `dkomeza/banki` only (**Only select repositories**).
 
-The broker finds the installation itself. Every token it mints is for this repo alone, with the App's permissions, and lasts an hour; it mints a new one when under 15 minutes remain. Stages commit and push as `banki-runner[bot]`, with its noreply email, and `gh` and git ask the broker for a token on every call, so a Stage outlives any one token.
+The Broker finds the installation itself. Every token it mints is for this repo alone, with the App's permissions, and lasts an hour; it mints a new one when under 15 minutes remain. Stages commit and push as `banki-runner[bot]`, with its noreply email, and `gh` and git ask the Broker for a token on every call, so a Stage outlives any one token.
 
 `claude-review` runs for the App's pushes: `.github/workflows/claude-review.yml` names it in `allowed_bots`, and no other bot.
 
 ### GitHub: the merge guard
 
-Whatever reaches `main` runs on the server on the next tick, the pull agent with its Docker socket included, so only you can make the App's pull requests mergeable. The `main` ruleset requires an approving review, dismisses approvals on a new push, and requires the last push to be approved by someone other than its pusher. The App isn't a bypass actor; your own (live-mode) pull requests merge through the existing admin bypass (`RepositoryRole` 5, in pull-request mode). Set it once with:
+Whatever reaches `main` runs on the server on the next tick, the pull agent with its Docker socket included, so only you can make the App's pull requests mergeable. The `main` ruleset requires an approving review, dismisses approvals on a new push, and requires the last push to be approved by someone other than its pusher. The App isn't a bypass actor; your own (live-mode) pull requests merge through the existing admin bypass (`RepositoryRole` 5, in pull-request mode). Set it once with the command below. It reads the live ruleset, changes those three settings of its `pull_request` rule and nothing else, and writes it back, so a rule added since this was written is kept; it stops, writing nothing, when the ruleset has no `pull_request` rule. Then it reads the ruleset again:
 
 ```sh
-gh api --method PUT repos/dkomeza/banki/rulesets/25304272 --input - <<'EOF'
-{
-  "name": "main",
-  "target": "branch",
-  "enforcement": "active",
-  "conditions": { "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] } },
-  "bypass_actors": [{ "actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request" }],
-  "rules": [
-    { "type": "deletion" },
-    { "type": "non_fast_forward" },
-    {
-      "type": "pull_request",
-      "parameters": {
-        "required_approving_review_count": 1,
-        "dismiss_stale_reviews_on_push": true,
-        "require_last_push_approval": true,
-        "required_reviewers": [],
-        "require_code_owner_review": false,
-        "required_review_thread_resolution": true,
-        "require_extra_approval_for_unattributed_changes": true,
-        "allowed_merge_methods": ["squash"]
-      }
-    },
-    {
-      "type": "required_status_checks",
-      "parameters": {
-        "strict_required_status_checks_policy": false,
-        "do_not_enforce_on_create": false,
-        "required_status_checks": [
-          { "context": "claude-review", "integration_id": 15368 },
-          { "context": "test", "integration_id": 15368 },
-          { "context": "check", "integration_id": 15368 }
-        ]
-      }
-    }
-  ]
-}
-EOF
+ruleset=repos/dkomeza/banki/rulesets/25304272
+body="$(gh api "$ruleset" | jq '
+  if any(.rules[]; .type == "pull_request") then . else error("the ruleset has no pull_request rule") end
+  | {name, target, enforcement, conditions, bypass_actors, rules: [.rules[]
+      | if .type == "pull_request"
+        then .parameters += {required_approving_review_count: 1, dismiss_stale_reviews_on_push: true, require_last_push_approval: true}
+        else . end]}')" &&
+  gh api --method PUT "$ruleset" --input - <<<"$body" >/dev/null &&
+  gh api "$ruleset" --jq '{bypass_actors, rules: [.rules[].type], pull_request: (.rules[] | select(.type == "pull_request") | .parameters)}'
 ```
 
-It replaces the whole ruleset, so check it first against `gh api repos/dkomeza/banki/rulesets/25304272`: only the three review settings change.
+The read-back should show `required_approving_review_count: 1`, `dismiss_stale_reviews_on_push: true` and `require_last_push_approval: true`, the other rules as they were, and the one bypass actor, `RepositoryRole` 5.
 
 ### Codex
 
@@ -657,9 +629,9 @@ deploy/runner/bootstrap
 BANKI_RUNNER_COMMIT="$(git rev-parse HEAD)" docker compose -f deploy/runner/compose.yaml up -d --build
 ```
 
-`bootstrap` asks for the Claude token, the App's ID and the path to its private key (which it copies in), and the Linear app's client ID and secret; the secrets are read without echo. It writes them to `$BANKI_RUNNER_SECRETS`, by default `~/.config/banki-runner`, outside the clone (a `0700` directory of `0600` files), and refuses a directory inside a git work tree. It also writes your uid and gid, and that directory's path, to `deploy/runner/.env` (gitignored), which Compose reads: both containers run as you, so they can read your `0600` files with no extra capability, and Compose refuses to start them until `bootstrap` has run. Run it again to change a value: each one it has is the default, so Enter keeps it. The broker reads its settings only on start, so afterwards run `docker compose -f deploy/runner/compose.yaml up -d --force-recreate`.
+`bootstrap` asks for the Claude token, the App's ID and the path to its private key (which it copies in), and the Linear app's client ID and secret; the secrets are read without echo. It writes them to `$BANKI_RUNNER_SECRETS`, by default `~/.config/banki-runner`, outside the clone (a `0700` directory of `0600` files), and refuses a directory inside a git work tree. It also writes your uid and gid, and that directory's path, to `deploy/runner/.env` (gitignored), which Compose reads: both containers run as you, so they can read your `0600` files with no extra capability, and Compose refuses to start them until `bootstrap` has run. Run it again to change a value: each one it has is the default, so Enter keeps it. The Broker reads its settings only on start, so afterwards run `docker compose -f deploy/runner/compose.yaml up -d --force-recreate`.
 
-The broker gets the App's key and the Linear client secret, and the runner the Claude token, as compose secrets: files under `/run/secrets/`, so none is in an environment in `docker inspect`, and each container gets only its own. Both containers run with a read-only root filesystem, `no-new-privileges`, every capability dropped, and each on its own network with internet access; neither publishes a port. The runner has an 8 GB memory cap, no CPU cap and a 1 GB `/dev/shm` for Chromium; the broker has 128 MB.
+The Broker gets the App's key and the Linear client secret, and the runner the Claude token, as compose secrets: files under `/run/secrets/`, so none is in an environment in `docker inspect`, and each container gets only its own. Both containers run with a read-only root filesystem, `no-new-privileges`, every capability dropped, and each on its own network with internet access; neither publishes a port. The runner has an 8 GB memory cap, no CPU cap and a 1 GB `/dev/shm` for Chromium; the Broker has 128 MB.
 
 The runner's volume, `banki-runner-work`, is mounted at `/work`:
 
@@ -672,15 +644,53 @@ The runner's volume, `banki-runner-work`, is mounted at `/work`:
 
 Chromium isn't in the image: each worktree installs the build its own Playwright wants with `npx playwright install chromium`, a no-op once it is there, so a Playwright bump on `main` needs no rebuild.
 
+### Keeping it off the host and the LAN
+
+A Stage runs branch code with permission prompts skipped, so the runner's network, `10.213.94.0/24` (fixed in `compose.yaml`), reaches the internet and nothing private. Docker can't do that alone: the host's firewall does it, with `deploy/runner/host-firewall`, which drops everything from that subnet
+
+- to the private ranges (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10`, `169.254.0.0/16`), through Docker's `DOCKER-USER` chain: the home LAN, the other Docker networks and the Previews;
+- to the host itself, at any of its addresses, through `INPUT`, which `DOCKER-USER` never sees: the home server's ports.
+
+Port 53 is let through both, for an upstream resolver on the LAN or on the host: Docker's embedded DNS (`127.0.0.11`) sits in the container's own namespace, but sends the queries it forwards from there too. The network has no IPv6, so there are no `ip6tables` rules. If another network or your LAN already uses `10.213.94.0/24`, change it in both files (a test checks that they agree).
+
+Install it as a systemd unit, which applies it whenever Docker starts, after a reboot included (iptables rules don't survive a reboot, and Docker keeps whatever is in `DOCKER-USER`):
+
+```sh
+sudo install -m 755 deploy/runner/host-firewall /usr/local/sbin/banki-runner-firewall
+sudo tee /etc/systemd/system/banki-runner-firewall.service >/dev/null <<'UNIT'
+[Unit]
+Description=Keep the Banki Runner's network off the host and the LAN
+After=docker.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/banki-runner-firewall
+
+[Install]
+WantedBy=docker.service
+UNIT
+sudo systemctl daemon-reload
+sudo systemctl enable --now banki-runner-firewall
+```
+
+`PartOf` applies the rules again whenever Docker restarts. After `host-firewall` changes on `main`, run the `install` line again, then `sudo systemctl restart banki-runner-firewall`; running it twice changes nothing. Check the rules with `sudo iptables -S BANKI-RUNNER-FORWARD` and `sudo iptables -S BANKI-RUNNER-INPUT`, and from inside, that the internet is in reach and the LAN isn't:
+
+```sh
+docker compose -f deploy/runner/compose.yaml exec runner curl -sS -m 5 https://api.github.com/zen
+docker compose -f deploy/runner/compose.yaml exec runner curl -sS -m 5 http://192.168.1.1/ # times out
+```
+
 ### The tick
 
-Every 5 minutes the runner runs `git fetch origin main` and `git reset --hard origin/main` in `/work/banki`, in place, even while a Stage runs there, and then runs `deploy/runner/tick.ts` from the clone. A failed fetch or tick is logged, and the loop goes on:
+Every 5 minutes the runner runs `git fetch origin main` and `git reset --hard origin/main` in `/work/banki`, in place, even while a Stage runs there, and then runs `deploy/runner/tick.ts` from the clone. Each sync first makes sure the clone's `origin` is the repo, and removes the locks a git killed mid-write left in the clone's own git dir once they are 10 minutes old (never a worktree's). A failed sync skips the tick, so it never runs on a half-synced clone, and after three in a row the log says plainly that the clone is stuck. A failed tick is logged too, and the loop goes on:
 
 ```sh
 docker compose -f deploy/runner/compose.yaml logs -f runner
 ```
 
-When anything baked into the image (`deploy/runner/Dockerfile`, `compose.yaml`, `broker/`, `loop/`, `lib/` or `bin/`) changed on `main` since the commit the image was built from, the log says so once per `main` commit, with the command to run by hand from an up-to-date checkout of `main`:
+When anything baked into the image (`deploy/runner/Dockerfile`, `compose.yaml`, `broker/`, `loop/`, `lib/` or `bin/`) changed on `main` since the commit the image was built from, or `main` pins another bun (`packageManager` in `package.json`) or node (`.node-version`) than the image has, the log says so once per `main` commit, with the reason and the command to run by hand from an up-to-date checkout of `main`:
 
 ```sh
 git pull
@@ -695,7 +705,7 @@ An image built without `BANKI_RUNNER_COMMIT` counts as behind, since nothing say
 docker compose -f deploy/runner/compose.yaml exec runner runner stage <design|implement|review-round|acceptance-fix> BAN-N
 ```
 
-It runs the Stage's prompt (`.claude/skills/work-issue/stages/<kind>.md`) on the issue, headless, in the clone of `main`, as a Dispatcher-started one would. It gets a Linear token from the broker for this Stage alone and gives `claude` a per-run MCP config (`0600`, deleted afterwards) whose one server is `linear-banki`, then runs `claude -p --output-format stream-json --verbose --dangerously-skip-permissions --strict-mcp-config --mcp-config <file> --add-dir /work/banki-worktrees` with the Claude token and no `ANTHROPIC_API_KEY`. It runs in the foreground and prints one line per event, prints the Stage's result (`<wt>/.ui/stage-result.json`) at the end, and revokes the Linear token whatever happens, Ctrl-C included. It never changes the issue's status or assignee: that is the Dispatcher's job. `exec -d` instead of `exec` runs it detached.
+It runs the Stage's prompt (`.claude/skills/work-issue/stages/<kind>.md`) on the issue, headless, in the clone of `main`, as a Dispatcher-started one would. It gets a Linear token from the Broker for this Stage alone and gives `claude` a per-run MCP config (`0600`, deleted afterwards) whose one server is `linear-banki`, then runs `claude -p --output-format stream-json --verbose --dangerously-skip-permissions --strict-mcp-config --mcp-config <file> --add-dir /work/banki-worktrees` with the Claude token and no `ANTHROPIC_API_KEY`. It runs in the foreground and prints one line per event, prints the Stage's result (`<wt>/.ui/stage-result.json`) at the end, and revokes the Linear token whatever happens, Ctrl-C included. It never changes the issue's status or assignee: that is the Dispatcher's job. `exec -d` instead of `exec` runs it detached.
 
 ### Reading a Stage's log
 
@@ -707,7 +717,7 @@ docker compose -f deploy/runner/compose.yaml exec runner tail -f /work/logs/BAN-
 docker compose -f deploy/runner/compose.yaml exec runner sh -c 'grep "\"type\":\"result\"" /work/logs/BAN-94/*.jsonl'
 ```
 
-The broker logs every token it mints or revokes, by ID, never the token itself:
+The Broker logs every token it mints or revokes, by ID, never the token itself:
 
 ```sh
 docker compose -f deploy/runner/compose.yaml logs broker
