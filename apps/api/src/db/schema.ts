@@ -4,4 +4,26 @@
 // better-auth's tables (the User row, auth sessions, credential accounts and
 // verifications) are generated from Banki's auth options into `auth-schema.ts`
 // by `bun run auth:generate`; never edit that file by hand.
+import { DEFAULT_DAY_START_HOUR } from "@banki/shared";
+import { sql } from "drizzle-orm";
+import { check, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { user } from "./auth-schema";
+
 export * from "./auth-schema";
+
+/**
+ * The User's Settings, one row per User (ADR-0001), created on first change: a
+ * User without one has the defaults. Later Settings add their own columns.
+ */
+export const user_settings = sqliteTable(
+  "user_settings",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => user.id, { onDelete: "cascade" }),
+    /** An IANA name; null until the first browser's zone fills it in. */
+    timezone: text("timezone"),
+    dayStartHour: integer("day_start_hour").notNull().default(DEFAULT_DAY_START_HOUR),
+  },
+  (table) => [check("user_settings_day_start_hour", sql`${table.dayStartHour} BETWEEN 0 AND 23`)],
+);

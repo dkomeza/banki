@@ -8,7 +8,10 @@ import * as schema from "../db/schema";
 
 const DAY_SECONDS = 24 * 60 * 60;
 
-/** Sign-in attempts allowed per client IP per window. Setup gets the same limit. */
+/**
+ * Sign-in attempts allowed per client IP per window. Setup and changing the
+ * Email or the Password get the same limit.
+ */
 export const SIGN_IN_RATE_LIMIT = { max: 5, windowSeconds: 60 } as const;
 
 const authLogger = getLogger(["banki", "auth"]);
@@ -73,6 +76,10 @@ export function authOptions({
       storage: "memory",
       customRules: {
         "/sign-in/email": {
+          max: SIGN_IN_RATE_LIMIT.max,
+          window: SIGN_IN_RATE_LIMIT.windowSeconds,
+        },
+        "/change-password": {
           max: SIGN_IN_RATE_LIMIT.max,
           window: SIGN_IN_RATE_LIMIT.windowSeconds,
         },

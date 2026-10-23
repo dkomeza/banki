@@ -89,7 +89,7 @@ describe("migrations", () => {
     const dataDir = join(tempDir, "data");
 
     const first = boot(dataDir);
-    expect(first.appliedMigrations).toEqual(["0000_baseline", "0001_auth"]);
+    expect(first.appliedMigrations).toEqual(["0000_baseline", "0001_auth", "0002_user_settings"]);
     first.close();
 
     expect(boot(dataDir).appliedMigrations).toEqual([]);

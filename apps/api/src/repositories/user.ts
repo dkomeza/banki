@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import type { Queryable } from "../db/database";
 import { auth_account, auth_session, user } from "../db/schema";
 
@@ -12,6 +12,13 @@ export const USER_NAME_PLACEHOLDER = "Banki User";
 const CREDENTIAL_PROVIDER = "credential";
 
 export type UserRepository = ReturnType<typeof createUserRepository>;
+
+const credentialAccountOf = (userId: string) =>
+  and(
+    eq(auth_account.userId, userId),
+    eq(auth_account.providerId, CREDENTIAL_PROVIDER),
+    eq(auth_account.accountId, userId),
+  );
 
 export function createUserRepository(db: Queryable) {
   return {
@@ -87,19 +94,45 @@ export function createUserRepository(db: Queryable) {
           const updated = tx
             .update(auth_account)
             .set({ password: passwordHash, updatedAt: now })
-            .where(
-              and(
-                eq(auth_account.userId, userId),
-                eq(auth_account.providerId, CREDENTIAL_PROVIDER),
-                eq(auth_account.accountId, userId),
-              ),
-            )
+            .where(credentialAccountOf(userId))
             .returning({ id: auth_account.id })
             .all();
           if (updated.length === 0) {
             throw new Error(`The User ${userId} has no credential account`);
           }
           tx.delete(auth_session).where(eq(auth_session.userId, userId)).run();
+        },
+        { behavior: "immediate" },
+      );
+    },
+
+    /** The hash of the User's Password, if they have a credential account. */
+    passwordHash(userId: string): string | undefined {
+      return (
+        db
+          .select({ password: auth_account.password })
+          .from(auth_account)
+          .where(credentialAccountOf(userId))
+          .get()?.password ?? undefined
+      );
+    },
+
+    /**
+     * Changes the User's Email, unless another User signs in with it. `email`
+     * is expected already parsed by the shared `Email` schema. Auth sessions
+     * are left alone, so every device stays signed in.
+     */
+    changeEmail(userId: string, email: string, now = new Date()): "changed" | "taken" {
+      return db.transaction(
+        (tx) => {
+          const taken = tx
+            .select({ id: user.id })
+            .from(user)
+            .where(and(eq(user.email, email), ne(user.id, userId)))
+            .get();
+          if (taken !== undefined) return "taken";
+          tx.update(user).set({ email, updatedAt: now }).where(eq(user.id, userId)).run();
+          return "changed";
         },
         { behavior: "immediate" },
       );
