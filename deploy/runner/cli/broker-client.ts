@@ -9,13 +9,16 @@ import type { Identity } from "./plan";
 export type Broker = ReturnType<typeof broker>;
 
 export function broker(socket = brokerSocket()) {
-  async function call(method: string, path: string): Promise<string> {
+  async function call(method: string, path: string, signal?: AbortSignal): Promise<string> {
     let res: Response;
     try {
       res = await fetch(`http://broker${path}`, {
         method,
         unix: socket,
-        signal: AbortSignal.timeout(CLIENT_TIMEOUT_MS),
+        signal: AbortSignal.any([
+          AbortSignal.timeout(CLIENT_TIMEOUT_MS),
+          ...(signal ? [signal] : []),
+        ]),
       });
     } catch (error) {
       throw new Error(
@@ -41,8 +44,11 @@ export function broker(socket = brokerSocket()) {
     },
 
     /** The App's bot, which the Stage commits as. */
-    async identity(): Promise<Identity> {
-      const body = asObject(parseJson(await call("GET", "/github/identity"), "broker"), "broker");
+    async identity(signal?: AbortSignal): Promise<Identity> {
+      const body = asObject(
+        parseJson(await call("GET", "/github/identity", signal), "broker"),
+        "broker",
+      );
       return {
         name: asString(body.name, "broker.name"),
         email: asString(body.email, "broker.email"),

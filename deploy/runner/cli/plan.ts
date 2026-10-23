@@ -82,12 +82,12 @@ export function stageEnv(
 }
 
 /** The Stage's full stream-json log: /work/logs/BAN-N/<start time>-<kind>.jsonl. */
-export function logPath(issue: string, kind: StageKind, startedAt: Date): string {
+export function logPath(issue: string, kind: StageKind, startedAt: Date, logs = LOGS): string {
   const time = startedAt
     .toISOString()
     .replace(/\.\d{3}Z$/, "Z")
     .replaceAll(":", "-");
-  return join(LOGS, issue, `${time}-${kind}.jsonl`);
+  return join(logs, issue, `${time}-${kind}.jsonl`);
 }
 
 /**
@@ -95,12 +95,12 @@ export function logPath(issue: string, kind: StageKind, startedAt: Date): string
  * the `dkomeza/` prefix, in banki-worktrees/ beside the clone. A branch that
  * would lead anywhere else is refused.
  */
-export function worktreeOf(branch: string): string {
+export function worktreeOf(branch: string, worktrees = WORKTREES): string {
   const name = branch.replace(/^dkomeza\//, "");
   if (!/^[A-Za-z0-9._-]+$/.test(name) || name.startsWith(".")) {
     throw new Error(`The issue's branch ${JSON.stringify(branch)} has no worktree name`);
   }
-  return join(WORKTREES, name);
+  return join(worktrees, name);
 }
 
 /** Whether a result file written at `modified` is this Stage's, not one an earlier Stage left. */

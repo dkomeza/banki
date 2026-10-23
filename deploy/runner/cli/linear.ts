@@ -8,12 +8,16 @@ import { asObject, asString, parseJson } from "../lib/parse";
 const API = "https://api.linear.app/graphql";
 const QUERY = "query ($id: String!) { issue(id: $id) { branchName } }";
 
-export async function issueBranch(token: string, issue: string): Promise<string> {
+export async function issueBranch(
+  token: string,
+  issue: string,
+  signal?: AbortSignal,
+): Promise<string> {
   const res = await fetch(API, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({ query: QUERY, variables: { id: issue } }),
-    signal: AbortSignal.timeout(30_000),
+    signal: AbortSignal.any([AbortSignal.timeout(30_000), ...(signal ? [signal] : [])]),
   });
   const text = await res.text();
   if (!res.ok) throw new Error(`Linear: HTTP ${res.status} reading ${issue}`);
