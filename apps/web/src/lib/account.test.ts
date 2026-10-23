@@ -1,6 +1,12 @@
 import { describe, expect, test, vi } from "vitest";
 import { createApiClient } from "./api";
-import { changeEmail, changePassword, newPasswordProblem, passwordChangeOutcome } from "./account";
+import {
+  changeEmail,
+  changePassword,
+  createOperationLock,
+  newPasswordProblem,
+  passwordChangeOutcome,
+} from "./account";
 
 const answering = (res: () => Response) => createApiClient(vi.fn(async () => res()));
 const refusal =
@@ -150,5 +156,54 @@ describe("changePassword", () => {
     await expect(
       changePassword(body, { request: async () => ({ error: null }), onUnauthorized: vi.fn() }),
     ).resolves.toEqual({ ok: true });
+  });
+});
+
+/** A promise and the function that settles it. */
+function deferred() {
+  const settlers: Array<() => void> = [];
+  const promise = new Promise<void>((resolve) => {
+    settlers.push(resolve);
+  });
+  return { promise, settle: () => settlers.forEach((settle) => settle()) };
+}
+
+describe("createOperationLock", () => {
+  test("runs one operation at a time, refusing others meanwhile", async () => {
+    const lock = createOperationLock<"password" | "sign-out">();
+    const change = deferred();
+    const signOut = vi.fn(async () => {});
+
+    const running = lock.run("password", () => change.promise);
+    expect(lock.current()).toBe("password");
+    await expect(lock.run("sign-out", signOut)).resolves.toBe(false);
+    expect(signOut).not.toHaveBeenCalled();
+
+    change.settle();
+    await expect(running).resolves.toBe(true);
+    expect(lock.current()).toBeNull();
+    await expect(lock.run("sign-out", signOut)).resolves.toBe(true);
+    expect(signOut).toHaveBeenCalledTimes(1);
+  });
+
+  test("frees itself when an operation throws", async () => {
+    const lock = createOperationLock<"email">();
+
+    await expect(
+      lock.run("email", async () => {
+        throw new Error("boom");
+      }),
+    ).rejects.toThrow("boom");
+    expect(lock.current()).toBeNull();
+  });
+
+  test("tells subscribers when it is taken and freed", async () => {
+    const lock = createOperationLock<"email">();
+    const seen: Array<string | null> = [];
+    lock.subscribe(() => seen.push(lock.current()));
+
+    await lock.run("email", async () => {});
+
+    expect(seen).toEqual(["email", null]);
   });
 });

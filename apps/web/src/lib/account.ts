@@ -115,6 +115,44 @@ export async function changePassword(
   return passwordChangeOutcome(answer);
 }
 
+/**
+ * Runs the Account card's operations (changing the Email or the Password,
+ * signing out) one at a time. Signing out while a Password change is under way
+ * could otherwise be undone by the change's answer, which sets a fresh
+ * session cookie.
+ */
+export function createOperationLock<Kind extends string>() {
+  let current: Kind | null = null;
+  const listeners = new Set<() => void>();
+  const set = (next: Kind | null) => {
+    current = next;
+    for (const listener of listeners) listener();
+  };
+  return {
+    /** The operation under way, if any. */
+    current: () => current,
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    /** Runs `operation` unless another is under way; says whether it ran. */
+    async run(kind: Kind, operation: () => Promise<unknown>): Promise<boolean> {
+      if (current !== null) return false;
+      set(kind);
+      try {
+        await operation();
+      } finally {
+        set(null);
+      }
+      return true;
+    },
+  };
+}
+
+export type OperationLock<Kind extends string> = ReturnType<typeof createOperationLock<Kind>>;
+
 export const EMAIL_CHANGED = (email: string) => `Email changed. Sign in with ${email} from now on.`;
 
 export const PASSWORD_CHANGED =

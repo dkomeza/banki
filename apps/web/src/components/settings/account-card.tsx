@@ -1,6 +1,6 @@
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { LogOut } from "lucide-react";
-import { type FormEvent, useRef, useState } from "react";
+import { type FormEvent, useRef, useState, useSyncExternalStore } from "react";
 import { FormError } from "@/components/auth-card";
 import { Done, Field, OUTLINE_PILL, PILL, Row, SettingsCard } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
@@ -9,9 +9,11 @@ import {
   type EmailChangeOutcome,
   PASSWORD_CHANGED,
   type PasswordChangeOutcome,
+  type OperationLock,
   type PasswordChangeRequest,
   changeEmail,
   changePassword,
+  createOperationLock,
   newPasswordProblem,
 } from "@/lib/account";
 import { reportUnauthorized } from "@/lib/api";
@@ -29,16 +31,26 @@ type Refusal<T> = Extract<T, { ok: false }>;
 
 /** The Account: the Email and the Password, each with a form to change it, and Sign out. */
 export function AccountCard() {
+  // One operation at a time: a Password change's answer sets a fresh session
+  // cookie, which would undo a sign-out made meanwhile.
+  const [lock] = useState(() => createOperationLock<AccountOperation>());
+  const busy = useSyncExternalStore(lock.subscribe, lock.current);
+  const operations = { lock, busy };
   return (
     <SettingsCard id="account" title="Account">
-      <EmailRow />
+      <EmailRow {...operations} />
       <hr />
-      <PasswordRow />
+      <PasswordRow {...operations} />
       <hr />
-      <SignOut />
+      <SignOut {...operations} />
     </SettingsCard>
   );
 }
+
+type AccountOperation = "email" | "password" | "sign-out";
+
+/** The card's operation lock, and the operation under way, if any. */
+type Operations = { lock: OperationLock<AccountOperation>; busy: AccountOperation | null };
 
 /**
  * Numbers a form's submits, so a completion can tell whether the form still
@@ -58,15 +70,19 @@ function useAttempts() {
 function FormButtons({
   submit,
   submitting,
+  busy,
   onCancel,
 }: {
   submit: string;
+  /** This form's change is under way. */
   submitting: boolean;
+  /** Any of the card's operations is under way. */
+  busy: boolean;
   onCancel: () => void;
 }) {
   return (
     <div className="flex flex-wrap gap-2">
-      <Button type="submit" size="lg" className={PILL} disabled={submitting}>
+      <Button type="submit" size="lg" className={PILL} disabled={busy}>
         {submitting ? "Changing…" : submit}
       </Button>
       {/* Disabled while a change is under way: it goes through either way. */}
@@ -75,7 +91,7 @@ function FormButtons({
         variant="ghost"
         size="lg"
         className={PILL}
-        disabled={submitting}
+        disabled={busy}
         onClick={onCancel}
       >
         Cancel
@@ -84,20 +100,19 @@ function FormButtons({
   );
 }
 
-function EmailRow() {
+function EmailRow({ lock, busy }: Operations) {
   const queryClient = useQueryClient();
   const { data: me } = useSuspenseQuery(meQueryOptions);
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  const submitting = busy === "email";
   const [refusal, setRefusal] = useState<Refusal<EmailChangeOutcome>>();
   const [changedTo, setChangedTo] = useState<string>();
   const attempt = useAttempts();
 
   const close = () => {
     attempt.forget();
-    setSubmitting(false);
     setOpen(false);
     setEmail("");
     setPassword("");
@@ -106,22 +121,22 @@ function EmailRow() {
 
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    const mine = attempt.start();
-    setSubmitting(true);
-    const outcome = await changeEmail({ email, password });
-    if (!attempt.isCurrent(mine)) return;
-    setSubmitting(false);
-    if (!outcome.ok) {
-      setRefusal(outcome);
-      return;
-    }
-    // The new Email everywhere it shows, without a reload.
-    queryClient.setQueryData(meQueryOptions.queryKey, { email: outcome.email });
-    queryClient.setQueryData(signedInQueryOptions.queryKey, (before) =>
-      before ? { ...before, email: outcome.email } : before,
-    );
-    setChangedTo(outcome.email);
-    close();
+    await lock.run("email", async () => {
+      const mine = attempt.start();
+      const outcome = await changeEmail({ email, password });
+      if (!attempt.isCurrent(mine)) return;
+      if (!outcome.ok) {
+        setRefusal(outcome);
+        return;
+      }
+      // The new Email everywhere it shows, without a reload.
+      queryClient.setQueryData(meQueryOptions.queryKey, { email: outcome.email });
+      queryClient.setQueryData(signedInQueryOptions.queryKey, (before) =>
+        before ? { ...before, email: outcome.email } : before,
+      );
+      setChangedTo(outcome.email);
+      close();
+    });
   };
 
   const errorFor = (field: Refusal<EmailChangeOutcome>["field"]) =>
@@ -139,6 +154,7 @@ function EmailRow() {
               size="lg"
               className={OUTLINE_PILL}
               aria-label="Change Email"
+              disabled={busy !== null}
               onClick={() => {
                 setOpen(true);
                 setChangedTo(undefined);
@@ -180,7 +196,12 @@ function EmailRow() {
             }}
           />
           {refusal?.field === "form" && <FormError>{refusal.message}</FormError>}
-          <FormButtons submit="Change Email" submitting={submitting} onCancel={close} />
+          <FormButtons
+            submit="Change Email"
+            submitting={submitting}
+            busy={busy !== null}
+            onCancel={close}
+          />
         </form>
       )}
     </>
@@ -205,19 +226,18 @@ const requestPasswordChange: PasswordChangeRequest = async (body) => {
   };
 };
 
-function PasswordRow() {
+function PasswordRow({ lock, busy }: Operations) {
   const { data: me } = useSuspenseQuery(meQueryOptions);
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  const submitting = busy === "password";
   const [refusal, setRefusal] = useState<Refusal<PasswordChangeOutcome>>();
   const [changed, setChanged] = useState(false);
   const attempt = useAttempts();
 
   const close = () => {
     attempt.forget();
-    setSubmitting(false);
     setOpen(false);
     setCurrent("");
     setNext("");
@@ -231,20 +251,20 @@ function PasswordRow() {
       setRefusal({ ok: false, field: "new", message: problem });
       return;
     }
-    const mine = attempt.start();
-    setSubmitting(true);
-    const outcome = await changePassword(
-      { currentPassword: current, newPassword: next },
-      { request: requestPasswordChange, onUnauthorized: reportUnauthorized },
-    );
-    if (!attempt.isCurrent(mine)) return;
-    setSubmitting(false);
-    if (!outcome.ok) {
-      setRefusal(outcome);
-      return;
-    }
-    setChanged(true);
-    close();
+    await lock.run("password", async () => {
+      const mine = attempt.start();
+      const outcome = await changePassword(
+        { currentPassword: current, newPassword: next },
+        { request: requestPasswordChange, onUnauthorized: reportUnauthorized },
+      );
+      if (!attempt.isCurrent(mine)) return;
+      if (!outcome.ok) {
+        setRefusal(outcome);
+        return;
+      }
+      setChanged(true);
+      close();
+    });
   };
 
   const errorFor = (field: Refusal<PasswordChangeOutcome>["field"]) =>
@@ -262,6 +282,7 @@ function PasswordRow() {
               size="lg"
               className={OUTLINE_PILL}
               aria-label="Change Password"
+              disabled={busy !== null}
               onClick={() => {
                 setOpen(true);
                 setChanged(false);
@@ -306,23 +327,30 @@ function PasswordRow() {
             }}
           />
           {refusal?.field === "form" && <FormError>{refusal.message}</FormError>}
-          <FormButtons submit="Change Password" submitting={submitting} onCancel={close} />
+          <FormButtons
+            submit="Change Password"
+            submitting={submitting}
+            busy={busy !== null}
+            onCancel={close}
+          />
         </form>
       )}
     </>
   );
 }
 
-function SignOut() {
-  const { start, signingOut, failed } = useSignOut();
+function SignOut({ lock, busy }: Operations) {
+  const { signOut, failed } = useSignOut();
   return (
     <div className="flex flex-col gap-2">
       <Button
         variant="outline"
         size="lg"
         className={cn(OUTLINE_PILL, "w-full")}
-        disabled={signingOut}
-        onClick={start}
+        // Not while a change is under way: a Password change's answer would
+        // sign this browser back in.
+        disabled={busy !== null}
+        onClick={() => void lock.run("sign-out", signOut)}
       >
         <LogOut aria-hidden />
         Sign out

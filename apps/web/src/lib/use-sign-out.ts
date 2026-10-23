@@ -8,15 +8,17 @@ import { dropSettingsSaver } from "./settings-store";
 import { signOut } from "./sign-out";
 import { signedInQueryOptions } from "./signed-in";
 
-/** Signs this browser out and goes to `/login`, or says it couldn't. */
+/**
+ * Signs this browser out and goes to `/login`, or says it couldn't. Whoever
+ * calls `signOut` shows that it is under way (the Account card's operation
+ * lock, which also keeps it from overlapping a change).
+ */
 export function useSignOut() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const [signingOut, setSigningOut] = useState(false);
   const [failed, setFailed] = useState(false);
 
   const attempt = async () => {
-    setSigningOut(true);
     setFailed(false);
     const ok = await signOut(
       () => authClient.signOut(),
@@ -29,9 +31,8 @@ export function useSignOut() {
         await navigate({ to: "/login" });
       },
     );
-    setSigningOut(false);
     setFailed(!ok);
   };
 
-  return { start: () => void attempt(), signingOut, failed };
+  return { signOut: attempt, failed };
 }
