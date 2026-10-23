@@ -282,6 +282,29 @@ describe("changing the Password", () => {
     expect((await signIn(app)).status).toBe(401);
   });
 
+  test("keeps this device signed in when its auth session was due a sliding refresh", async () => {
+    const app = await setUpApp();
+    const thisDevice = cookiesFrom(await signIn(app));
+    // Due the daily refresh, so the sign-in check sets a cookie of its own.
+    ageAuthSessions(2 * DAY_MS);
+
+    const res = await changePassword(app, thisDevice, {
+      currentPassword: PASSWORD,
+      newPassword: NEW_PASSWORD,
+    });
+
+    expect(res.status).toBe(200);
+    // What a browser keeps: the last cookie of each name.
+    const kept = new Map<string, string>();
+    for (const cookie of res.headers.getSetCookie()) {
+      const [pair = ""] = cookie.split(";");
+      kept.set(pair.slice(0, pair.indexOf("=")), pair);
+    }
+    expect((await get(app, "/api/me", [...kept.values()].join("; "))).status).toBe(200);
+    // One cookie per name: the route's, not a stale refresh of the old session.
+    expect(kept.size).toBe(res.headers.getSetCookie().length);
+  });
+
   test("signs out every other device even when asked not to", async () => {
     const app = await setUpApp();
     const thisDevice = cookiesFrom(await signIn(app));
