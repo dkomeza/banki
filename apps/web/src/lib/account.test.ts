@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import { createApiClient } from "./api";
-import { changeEmail, newPasswordProblem, passwordChangeOutcome } from "./account";
+import { changeEmail, changePassword, newPasswordProblem, passwordChangeOutcome } from "./account";
 
 const answering = (res: () => Response) => createApiClient(vi.fn(async () => res()));
 const refusal =
@@ -101,5 +101,54 @@ describe("passwordChangeOutcome", () => {
       field: "form",
       message: "Can't reach Banki. Check your connection and try again.",
     });
+  });
+});
+
+describe("changePassword", () => {
+  const body = { currentPassword: "old password", newPassword: "new password" };
+
+  test("hands a 401 to the shared unauthorized handling", async () => {
+    const onUnauthorized = vi.fn(async () => {});
+
+    const outcome = await changePassword(body, {
+      request: async () => ({ error: { status: 401, code: "UNAUTHORIZED" } }),
+      onUnauthorized,
+    });
+
+    expect(onUnauthorized).toHaveBeenCalledTimes(1);
+    expect(outcome.ok).toBe(false);
+  });
+
+  test("leaves other refusals to the form", async () => {
+    const onUnauthorized = vi.fn(async () => {});
+
+    const outcome = await changePassword(body, {
+      request: async () => ({ error: { status: 400, code: "INVALID_PASSWORD" } }),
+      onUnauthorized,
+    });
+
+    expect(onUnauthorized).not.toHaveBeenCalled();
+    expect(outcome).toEqual({ ok: false, field: "current", message: "That Password isn't right." });
+  });
+
+  test("says Banki can't be reached when the request fails", async () => {
+    const outcome = await changePassword(body, {
+      request: async () => {
+        throw new TypeError("Failed to fetch");
+      },
+      onUnauthorized: vi.fn(async () => {}),
+    });
+
+    expect(outcome).toEqual({
+      ok: false,
+      field: "form",
+      message: "Can't reach Banki. Check your connection and try again.",
+    });
+  });
+
+  test("is done when better-auth answered no error", async () => {
+    await expect(
+      changePassword(body, { request: async () => ({ error: null }), onUnauthorized: vi.fn() }),
+    ).resolves.toEqual({ ok: true });
   });
 });

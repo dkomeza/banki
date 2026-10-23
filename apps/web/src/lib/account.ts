@@ -83,6 +83,38 @@ export function passwordChangeOutcome({
   return { ok: false, field: "form", message: "Banki couldn't change the Password. Try again." };
 }
 
+/** better-auth's `/change-password`, answering its error (if any) and any wait it asked for. */
+export type PasswordChangeRequest = (body: {
+  currentPassword: string;
+  newPassword: string;
+}) => Promise<{
+  error: { status: number; code?: string | undefined } | null;
+  retryAfterSeconds?: number | undefined;
+}>;
+
+/**
+ * Changes the Password through `request` and says how it went. A 401 (the
+ * sign-in expired or was revoked meanwhile) goes to `onUnauthorized`, the
+ * handling every other API call's 401 gets, which sends a signed-out browser
+ * to sign in.
+ */
+export async function changePassword(
+  body: { currentPassword: string; newPassword: string },
+  {
+    request,
+    onUnauthorized,
+  }: { request: PasswordChangeRequest; onUnauthorized: () => Promise<void> },
+): Promise<PasswordChangeOutcome> {
+  let answer: Awaited<ReturnType<PasswordChangeRequest>>;
+  try {
+    answer = await request(body);
+  } catch {
+    return passwordChangeOutcome({ error: { status: 0 } });
+  }
+  if (answer.error?.status === 401) await onUnauthorized();
+  return passwordChangeOutcome(answer);
+}
+
 export const EMAIL_CHANGED = (email: string) => `Email changed. Sign in with ${email} from now on.`;
 
 export const PASSWORD_CHANGED =

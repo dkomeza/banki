@@ -9,10 +9,12 @@ import {
   type EmailChangeOutcome,
   PASSWORD_CHANGED,
   type PasswordChangeOutcome,
+  type PasswordChangeRequest,
   changeEmail,
+  changePassword,
   newPasswordProblem,
-  passwordChangeOutcome,
 } from "@/lib/account";
+import { reportUnauthorized } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
 import { meQueryOptions } from "@/lib/me";
 import { retryAfter } from "@/lib/setup";
@@ -155,6 +157,24 @@ function EmailRow() {
   );
 }
 
+/** better-auth's change-password, keeping any wait a 429 asks for. */
+const requestPasswordChange: PasswordChangeRequest = async (body) => {
+  let retryAfterSeconds: number | undefined;
+  const { error } = await authClient.changePassword(
+    // Every other device is signed out; this one gets a fresh cookie and stays.
+    { ...body, revokeOtherSessions: true },
+    {
+      onError: ({ response }) => {
+        retryAfterSeconds = retryAfter(response, "x-retry-after");
+      },
+    },
+  );
+  return {
+    error: error === null ? null : { status: error.status, code: error.code },
+    retryAfterSeconds,
+  };
+};
+
 function PasswordRow() {
   const { data: me } = useSuspenseQuery(meQueryOptions);
   const [open, setOpen] = useState(false);
@@ -179,25 +199,10 @@ function PasswordRow() {
       return;
     }
     setSubmitting(true);
-    let outcome: PasswordChangeOutcome;
-    try {
-      let retryAfterSeconds: number | undefined;
-      const { error } = await authClient.changePassword(
-        // Every other device is signed out; this one gets a fresh cookie and stays.
-        { currentPassword: current, newPassword: next, revokeOtherSessions: true },
-        {
-          onError: ({ response }) => {
-            retryAfterSeconds = retryAfter(response, "x-retry-after");
-          },
-        },
-      );
-      outcome = passwordChangeOutcome({
-        error: error === null ? null : { status: error.status, code: error.code },
-        retryAfterSeconds,
-      });
-    } catch {
-      outcome = passwordChangeOutcome({ error: { status: 0 } });
-    }
+    const outcome = await changePassword(
+      { currentPassword: current, newPassword: next },
+      { request: requestPasswordChange, onUnauthorized: reportUnauthorized },
+    );
     setSubmitting(false);
     if (!outcome.ok) {
       setRefusal(outcome);
