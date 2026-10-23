@@ -61,3 +61,40 @@ The short name a Slug Preview is asked for by and reached at. One branch holds a
 **Seed data**:
 The fixed sample content a Preview, or a developer's local copy, starts with: the same on every run, so two builds can be compared screen by screen.
 _Avoid_: fixtures, demo data
+
+### Building Banki
+
+**Maintainer**:
+The person who plans, reviews and merges changes to Banki. Not the User of an installation, even when it is the same person.
+_Avoid_: user, developer, owner
+
+**Stage**:
+One piece of work on an issue that an agent does unattended: building a prototype's Variants, implementing the spec, a round against the review bots, or fixing after Acceptance feedback. An issue's status says which Stage comes next.
+_Avoid_: job, task, step
+
+**Runner**:
+The container on the home server that runs Stages, apart from the Previews and the pull agent.
+_Avoid_: agent runner, worker
+
+**Dispatcher**:
+The part of the Runner that decides, without an LLM, which Stage starts next and whether usage allows it.
+_Avoid_: scheduler, orchestrator
+
+**Ceiling**:
+The share of the weekly usage window above which the Dispatcher starts no new Stage. The Maintainer's own use counts toward it, so whatever is left above it stays theirs.
+_Avoid_: budget, quota
+
+**Variant**:
+One candidate design in a prototype, built on a branch of its own and tried on its own Slug Preview.
+_Avoid_: option, mock-up
+
+**Design Review**:
+The status in which the Maintainer tries a prototype's Variants and either picks one or asks for another round.
+
+**Reference**:
+The screenshots of the chosen Variant, which the implementation is built to and reviewed against.
+_Avoid_: mock, baseline
+
+**Acceptance**:
+The status in which the Maintainer tries a finished pull request's Preview, and either sends feedback back or merges it.
+_Avoid_: QA, UX review, sign-off
