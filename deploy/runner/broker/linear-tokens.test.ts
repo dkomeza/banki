@@ -131,7 +131,10 @@ describe("the Linear tokens", () => {
     failRevoke.add("linear-1");
     advance(hours(5));
 
-    expect(await tokens.sweep()).toEqual({ revoked: ["id-2"], failed: ["id-1"] });
+    expect(await tokens.sweep()).toEqual({
+      revoked: ["id-2"],
+      failed: [{ id: "id-1", error: "Linear is down" }],
+    });
     expect(revoked).toEqual(["linear-2"]);
 
     failRevoke.clear();

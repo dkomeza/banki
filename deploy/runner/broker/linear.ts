@@ -1,4 +1,5 @@
 import { asObject, asString, type Fetch, isRecord, parseJson } from "../lib/parse";
+import { UPSTREAM_TIMEOUT_MS } from "./timeouts";
 
 // The Linear adapter (ADR-0012). The Runner is a Linear OAuth app acting as
 // itself (`actor=app`), and the broker mints its tokens with the
@@ -8,8 +9,8 @@ import { asObject, asString, type Fetch, isRecord, parseJson } from "../lib/pars
 
 const TOKEN_URL = "https://api.linear.app/oauth/token";
 const REVOKE_URL = "https://api.linear.app/oauth/revoke";
+const GRAPHQL_URL = "https://api.linear.app/graphql";
 export const SCOPES = "read,write";
-const TIMEOUT_MS = 30_000;
 
 export type LinearApp = ReturnType<typeof linearApp>;
 
@@ -26,8 +27,49 @@ export function linearApp(options: { clientId: string; clientSecret: string; fet
         ...(auth === undefined ? {} : { Authorization: auth }),
       },
       body: new URLSearchParams(form).toString(),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     });
+  }
+
+  /**
+   * Whether a token still authenticates: false when Linear refuses it (401,
+   * or GraphQL's authentication error), true when it answers, undefined when
+   * the answer says neither.
+   */
+  async function stillWorks(token: string): Promise<boolean | undefined> {
+    let res: Response;
+    try {
+      res = await fetchFn(GRAPHQL_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          "User-Agent": "banki-runner-broker",
+        },
+        body: JSON.stringify({ query: "{ viewer { id } }" }),
+        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+      });
+    } catch {
+      return undefined;
+    }
+    if (res.status === 401) return false;
+    let body: unknown;
+    try {
+      body = await res.json();
+    } catch {
+      return undefined;
+    }
+    if (isRecord(body) && Array.isArray(body.errors)) {
+      const unauthenticated = body.errors.some(
+        (error: unknown) =>
+          isRecord(error) &&
+          isRecord(error.extensions) &&
+          error.extensions.code === "AUTHENTICATION_ERROR",
+      );
+      if (unauthenticated) return false;
+    }
+    if (res.ok && isRecord(body) && isRecord(body.data) && isRecord(body.data.viewer)) return true;
+    return undefined;
   }
 
   return {
@@ -45,14 +87,32 @@ export function linearApp(options: { clientId: string; clientSecret: string; fet
     },
 
     /**
-     * Revokes a token. Linear answers 400 for one it can't revoke because it
-     * is gone already, which is what was wanted.
+     * Revokes a token, or throws, leaving it for the sweep to try again. It
+     * is done on a 2xx, or on a 400 after which the token no longer
+     * authenticates: Linear answers 400 for a token it has revoked already,
+     * but also for a request it can't read, which revokes nothing. The token
+     * goes first as its own Bearer authorization, then, if a 400 leaves it
+     * working, in the form as RFC 7009 has it.
      */
     async revoke(token: string): Promise<void> {
-      const res = await post(REVOKE_URL, { token, token_type_hint: "access_token" });
-      const text = await res.text();
-      if (res.ok || res.status === 400) return;
-      throw new Error(`Linear POST /oauth/revoke: HTTP ${res.status}${reason(text)}`);
+      const attempts = [
+        () => post(REVOKE_URL, {}, `Bearer ${token}`),
+        () => post(REVOKE_URL, { token, token_type_hint: "access_token" }),
+      ];
+      let refused = "";
+      for (const attempt of attempts) {
+        const res = await attempt();
+        const text = await res.text();
+        if (res.ok) return;
+        refused = `Linear POST /oauth/revoke: HTTP ${res.status}${reason(text)}`;
+        if (res.status !== 400) throw new Error(refused);
+        const works = await stillWorks(token);
+        if (works === false) return;
+        if (works === undefined) {
+          throw new Error(`${refused}, and Linear couldn't say whether the token still works`);
+        }
+      }
+      throw new Error(`${refused}, and the token still works`);
     },
   };
 }

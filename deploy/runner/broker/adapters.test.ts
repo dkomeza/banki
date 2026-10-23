@@ -123,37 +123,6 @@ describe("the Linear app adapter", () => {
     });
   });
 
-  test("revokes with the token in the form, and nothing else to authenticate", async () => {
-    const { calls, fetch } = fakeFetch(() => ({ body: "" }));
-    const linear = linearApp({ clientId: "client-id", clientSecret: CLIENT_SECRET, fetch });
-
-    await linear.revoke(LINEAR_TOKEN);
-
-    expect(calls[0]?.url).toBe("https://api.linear.app/oauth/revoke");
-    expect(calls[0]?.headers.authorization).toBeUndefined();
-    expect(Object.fromEntries(new URLSearchParams(calls[0]?.body))).toEqual({
-      token: LINEAR_TOKEN,
-      token_type_hint: "access_token",
-    });
-  });
-
-  test("counts a token Linear says it can't revoke (400, gone already) as revoked", async () => {
-    const { fetch } = fakeFetch(() => ({ status: 400, body: { error: "invalid_token" } }));
-    const linear = linearApp({ clientId: "client-id", clientSecret: CLIENT_SECRET, fetch });
-
-    await linear.revoke(LINEAR_TOKEN);
-  });
-
-  test("fails a revoke Linear refuses otherwise, without the token", async () => {
-    const { fetch } = fakeFetch(() => ({ status: 503, body: "upstream down" }));
-    const linear = linearApp({ clientId: "client-id", clientSecret: CLIENT_SECRET, fetch });
-
-    const error = await linear.revoke(LINEAR_TOKEN).catch((caught: unknown) => String(caught));
-
-    expect(error).toContain("HTTP 503");
-    expect(error).not.toContain(LINEAR_TOKEN);
-  });
-
   test("fails a mint with Linear's error code, and never the secret", async () => {
     const { fetch } = fakeFetch(() => ({
       status: 401,
@@ -165,5 +134,117 @@ describe("the Linear app adapter", () => {
 
     expect(error).toContain("Linear POST /oauth/token: HTTP 401 (invalid_client)");
     expect(error).not.toContain(CLIENT_SECRET);
+  });
+});
+
+const REVOKE = "https://api.linear.app/oauth/revoke";
+const GRAPHQL = "https://api.linear.app/graphql";
+
+/**
+ * A fake Linear for revoking: `revoke` answers each revoke call in turn (the
+ * last repeats), and `check` the GraphQL query that asks whether the token
+ * still works.
+ */
+function fakeLinear(
+  revoke: { status: number; body?: unknown }[],
+  check?: { status: number; body: unknown },
+) {
+  let revokes = 0;
+  return fakeFetch((call) => {
+    if (call.url === REVOKE) {
+      const answer = revoke[Math.min(revokes++, revoke.length - 1)];
+      return { status: answer?.status ?? 500, body: answer?.body ?? "" };
+    }
+    if (call.url === GRAPHQL && check !== undefined) return check;
+    return { status: 500, body: "unexpected" };
+  });
+}
+
+const ALIVE = { status: 200, body: { data: { viewer: { id: "app-user" } } } };
+const DEAD_401 = { status: 401, body: { errors: [{ message: "Authentication required" }] } };
+const DEAD_GRAPHQL = {
+  status: 400,
+  body: {
+    errors: [
+      {
+        message: "Authentication required, not authenticated",
+        extensions: { code: "AUTHENTICATION_ERROR" },
+      },
+    ],
+  },
+};
+
+const revokeWith = async (fetch: Fetch) =>
+  linearApp({ clientId: "client-id", clientSecret: CLIENT_SECRET, fetch })
+    .revoke(LINEAR_TOKEN)
+    .then(
+      () => "revoked",
+      (error: unknown) => String(error),
+    );
+
+describe("revoking a Linear token", () => {
+  test("sends the token as its own Bearer authorization, and is done on a 2xx", async () => {
+    const { calls, fetch } = fakeLinear([{ status: 200 }]);
+
+    expect(await revokeWith(fetch)).toBe("revoked");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toBe(REVOKE);
+    expect(calls[0]?.headers.authorization).toBe(`Bearer ${LINEAR_TOKEN}`);
+  });
+
+  test("is done on a 400 when the token no longer authenticates, by status or by GraphQL's error", async () => {
+    for (const check of [DEAD_401, DEAD_GRAPHQL]) {
+      const { calls, fetch } = fakeLinear(
+        [{ status: 400, body: { error: "invalid_token" } }],
+        check,
+      );
+
+      expect(await revokeWith(fetch)).toBe("revoked");
+      expect(calls.map((c) => c.url)).toEqual([REVOKE, GRAPHQL]);
+      expect(calls[1]?.headers.authorization).toBe(`Bearer ${LINEAR_TOKEN}`);
+    }
+  });
+
+  test("tries the token in the form next, when a 400 leaves it working", async () => {
+    const { calls, fetch } = fakeLinear(
+      [{ status: 400, body: { error: "invalid_request" } }, { status: 200 }],
+      ALIVE,
+    );
+
+    expect(await revokeWith(fetch)).toBe("revoked");
+    expect(calls.map((c) => c.url)).toEqual([REVOKE, GRAPHQL, REVOKE]);
+    expect(calls[2]?.headers.authorization).toBeUndefined();
+    expect(Object.fromEntries(new URLSearchParams(calls[2]?.body))).toEqual({
+      token: LINEAR_TOKEN,
+      token_type_hint: "access_token",
+    });
+  });
+
+  test("fails when both ways answer 400 and the token still works, so the sweep tries again", async () => {
+    const { fetch } = fakeLinear([{ status: 400, body: { error: "invalid_request" } }], ALIVE);
+
+    const outcome = await revokeWith(fetch);
+
+    expect(outcome).toContain("Linear POST /oauth/revoke: HTTP 400 (invalid_request)");
+    expect(outcome).toContain("still works");
+    expect(outcome).not.toContain(LINEAR_TOKEN);
+  });
+
+  test("fails on a 400 when the check itself fails, which proves nothing", async () => {
+    const { fetch } = fakeLinear([{ status: 400, body: { error: "invalid_client" } }], {
+      status: 503,
+      body: "down",
+    });
+
+    expect(await revokeWith(fetch)).toContain("HTTP 400 (invalid_client)");
+  });
+
+  test("fails on any other status, without the token", async () => {
+    const { fetch } = fakeLinear([{ status: 503, body: "upstream down" }]);
+
+    const outcome = await revokeWith(fetch);
+
+    expect(outcome).toContain("HTTP 503");
+    expect(outcome).not.toContain(LINEAR_TOKEN);
   });
 });

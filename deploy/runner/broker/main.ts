@@ -6,6 +6,7 @@ import { linearApp } from "./linear";
 import { LinearTokens } from "./linear-tokens";
 import { redact } from "./redact";
 import { handler } from "./server";
+import { IDLE_TIMEOUT_S } from "./timeouts";
 import { TokenCache } from "./token-cache";
 
 // The broker (ADR-0012): the one container of the Runner that holds the
@@ -55,17 +56,23 @@ const secrets = () => [pem, clientSecret, ...recent, ...linearTokens.values()];
 const log = (line: string) => console.log(redact(line, secrets()));
 
 const socket = brokerSocket();
-// A socket left by the broker before this one would refuse the bind.
+// A socket left by the Broker before this one would refuse the bind.
 rmSync(socket, { force: true });
+const handle = handler({
+  githubToken: async () => (await githubTokens.get()).token,
+  identity: async () => github.identity((await githubTokens.get()).token),
+  linear: linearTokens,
+  secrets,
+  log,
+});
 Bun.serve({
   unix: socket,
-  fetch: handler({
-    githubToken: async () => (await githubTokens.get()).token,
-    identity: async () => github.identity((await githubTokens.get()).token),
-    linear: linearTokens,
-    secrets,
-    log,
-  }),
+  fetch: (request, server) => {
+    // Bun's default of 10 s is shorter than one mint. Set per request: Bun
+    // takes `idleTimeout` in the options only for a port.
+    server.timeout(request, IDLE_TIMEOUT_S);
+    return handle(request);
+  },
   error: (error) => {
     log(`Request failed: ${errorText(error)}`);
     return Response.json({ error: "broker error" }, { status: 500 });
@@ -79,7 +86,9 @@ setInterval(() => {
   linearTokens.sweep().then(
     ({ revoked, failed }) => {
       for (const id of revoked) log(`Revoked Linear token ${id}: 4 hours old`);
-      for (const id of failed) log(`Couldn't revoke Linear token ${id}, trying again in a minute`);
+      for (const { id, error } of failed) {
+        log(`Couldn't revoke Linear token ${id}, trying again in a minute: ${error}`);
+      }
     },
     (error: unknown) => log(`Sweep failed: ${errorText(error)}`),
   );

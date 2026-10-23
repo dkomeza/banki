@@ -1,5 +1,6 @@
 import { asNumber, asObject, asString, type Fetch, isRecord, parseJson } from "../lib/parse";
 import { appJwt } from "./jwt";
+import { UPSTREAM_TIMEOUT_MS } from "./timeouts";
 import type { ExpiringToken } from "./token-cache";
 
 // The GitHub adapter (ADR-0012). The broker signs App JWTs with the App's key,
@@ -10,7 +11,6 @@ import type { ExpiringToken } from "./token-cache";
 
 const API = "https://api.github.com";
 export const REPO = "dkomeza/banki";
-const TIMEOUT_MS = 30_000;
 
 export type GitHubApp = ReturnType<typeof gitHubApp>;
 
@@ -38,7 +38,7 @@ export function gitHubApp(options: {
         ...(body === undefined ? {} : { "Content-Type": "application/json" }),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     });
     const text = await res.text();
     if (!res.ok) throw new Error(`GitHub ${method} ${path}: HTTP ${res.status}${reason(text)}`);

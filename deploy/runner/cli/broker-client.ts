@@ -1,11 +1,10 @@
+import { CLIENT_TIMEOUT_MS } from "../broker/timeouts";
 import { brokerSocket } from "../lib/config";
 import { asObject, asString, isRecord, parseJson } from "../lib/parse";
 import type { Identity } from "./plan";
 
 // The runner's side of the broker's socket (broker/server.ts). The runner
 // asks for tokens and never sees the keys that make them.
-
-const TIMEOUT_MS = 60_000;
 
 export type Broker = ReturnType<typeof broker>;
 
@@ -16,7 +15,7 @@ export function broker(socket = brokerSocket()) {
       res = await fetch(`http://broker${path}`, {
         method,
         unix: socket,
-        signal: AbortSignal.timeout(TIMEOUT_MS),
+        signal: AbortSignal.timeout(CLIENT_TIMEOUT_MS),
       });
     } catch (error) {
       throw new Error(

@@ -4,7 +4,7 @@
 # holds the App's key. The real gh is outside PATH.
 set -eu
 
-token="$(curl --silent --show-error --fail-with-body --max-time 60 \
+token="$(curl --silent --show-error --fail-with-body --max-time 90 \
   --unix-socket "${BANKI_BROKER_SOCKET:-/run/banki-broker/broker.sock}" \
   http://broker/github/token)" || {
   printf 'gh: the broker gave no GitHub token: %s\n' "${token:-is the broker container up?}" >&2

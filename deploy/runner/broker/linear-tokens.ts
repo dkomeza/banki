@@ -54,18 +54,18 @@ export class LinearTokens {
   }
 
   /** Revokes every token issued 4 hours ago or more. A failure is tried again on the next sweep. */
-  async sweep(): Promise<{ revoked: string[]; failed: string[] }> {
+  async sweep(): Promise<{ revoked: string[]; failed: { id: string; error: string }[] }> {
     const now = this.#now().getTime();
     const revoked: string[] = [];
-    const failed: string[] = [];
+    const failed: { id: string; error: string }[] = [];
     for (const [id, live] of this.#live) {
       if (now - live.issuedAt.getTime() < MAX_AGE_MS) continue;
       try {
         await this.#revoke(live.token);
         this.#live.delete(id);
         revoked.push(id);
-      } catch {
-        failed.push(id);
+      } catch (error) {
+        failed.push({ id, error: error instanceof Error ? error.message : String(error) });
       }
     }
     return { revoked, failed };
