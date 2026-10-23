@@ -80,6 +80,10 @@ _Avoid_: agent runner, worker
 The part of the Runner that decides, without an LLM, which Stage starts next and whether usage allows it.
 _Avoid_: scheduler, orchestrator
 
+**Broker**:
+The part of the Runner that holds its keys, in a container of its own, and hands the Dispatcher and the Stages short-lived tokens made from them, so neither ever sees a key.
+_Avoid_: token service, credential proxy
+
 **Ceiling**:
 The share of the weekly usage window above which the Dispatcher starts no new Stage. The Maintainer's own use counts toward it, so whatever is left above it stays theirs.
 _Avoid_: budget, quota
