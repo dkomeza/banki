@@ -155,7 +155,17 @@ describe("bootstrap", () => {
     const dir = secretsDir();
     await bootstrap(dir, FIRST_ANSWERS);
     const env = join(dir, "agent.env");
-    writeFileSync(env, `${read(dir, "agent.env")}PREVIEW_CAP=2\nPREVIEW_IDLE_DAYS=0.5\n`);
+    const slugLimits = [
+      "SLUG_PREVIEW_CAP=3",
+      "SLUG_PREVIEW_API_MEMORY=96m",
+      "SLUG_PREVIEW_API_CPUS=0.75",
+      "SLUG_PREVIEW_WEB_MEMORY=64m",
+      "SLUG_PREVIEW_WEB_CPUS=0.5",
+    ].join("\n");
+    writeFileSync(
+      env,
+      `${read(dir, "agent.env")}PREVIEW_CAP=2\nPREVIEW_IDLE_DAYS=0.5\n${slugLimits}\n`,
+    );
     const answers = keepAll("n");
     answers[3] = "other-org";
 
@@ -163,7 +173,7 @@ describe("bootstrap", () => {
 
     expect(result.exitCode).toBe(0);
     expect(read(dir, "agent.env")).toBe(
-      "PANGOLIN_API_URL=https://api.pangolin.example.com/v1\nPANGOLIN_ORG_ID=other-org\nPANGOLIN_SITE=previews\nPREVIEW_CAP=2\nPREVIEW_IDLE_DAYS=0.5\n",
+      `PANGOLIN_API_URL=https://api.pangolin.example.com/v1\nPANGOLIN_ORG_ID=other-org\nPANGOLIN_SITE=previews\nPREVIEW_CAP=2\nPREVIEW_IDLE_DAYS=0.5\n${slugLimits}\n`,
     );
     expect(mode(env)).toBe(0o600);
   });
