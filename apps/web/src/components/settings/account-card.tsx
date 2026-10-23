@@ -1,6 +1,6 @@
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { LogOut } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useRef, useState } from "react";
 import { FormError } from "@/components/auth-card";
 import { Done, Field, OUTLINE_PILL, PILL, Row, SettingsCard } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
@@ -40,6 +40,21 @@ export function AccountCard() {
   );
 }
 
+/**
+ * Numbers a form's submits, so a completion can tell whether the form still
+ * holds its attempt: not once it was closed (or closed and opened again).
+ */
+function useAttempts() {
+  const latest = useRef(0);
+  return {
+    start: () => ++latest.current,
+    isCurrent: (attempt: number) => attempt === latest.current,
+    forget: () => {
+      latest.current += 1;
+    },
+  };
+}
+
 function FormButtons({
   submit,
   submitting,
@@ -54,7 +69,15 @@ function FormButtons({
       <Button type="submit" size="lg" className={PILL} disabled={submitting}>
         {submitting ? "Changing…" : submit}
       </Button>
-      <Button type="button" variant="ghost" size="lg" className={PILL} onClick={onCancel}>
+      {/* Disabled while a change is under way: it goes through either way. */}
+      <Button
+        type="button"
+        variant="ghost"
+        size="lg"
+        className={PILL}
+        disabled={submitting}
+        onClick={onCancel}
+      >
         Cancel
       </Button>
     </div>
@@ -70,8 +93,11 @@ function EmailRow() {
   const [submitting, setSubmitting] = useState(false);
   const [refusal, setRefusal] = useState<Refusal<EmailChangeOutcome>>();
   const [changedTo, setChangedTo] = useState<string>();
+  const attempt = useAttempts();
 
   const close = () => {
+    attempt.forget();
+    setSubmitting(false);
     setOpen(false);
     setEmail("");
     setPassword("");
@@ -80,8 +106,10 @@ function EmailRow() {
 
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
+    const mine = attempt.start();
     setSubmitting(true);
     const outcome = await changeEmail({ email, password });
+    if (!attempt.isCurrent(mine)) return;
     setSubmitting(false);
     if (!outcome.ok) {
       setRefusal(outcome);
@@ -131,6 +159,7 @@ function EmailRow() {
             required
             autoFocus
             value={email}
+            readOnly={submitting}
             error={errorFor("email")}
             onChange={(event) => {
               setEmail(event.target.value);
@@ -143,6 +172,7 @@ function EmailRow() {
             autoComplete="current-password"
             required
             value={password}
+            readOnly={submitting}
             error={errorFor("password")}
             onChange={(event) => {
               setPassword(event.target.value);
@@ -183,8 +213,11 @@ function PasswordRow() {
   const [submitting, setSubmitting] = useState(false);
   const [refusal, setRefusal] = useState<Refusal<PasswordChangeOutcome>>();
   const [changed, setChanged] = useState(false);
+  const attempt = useAttempts();
 
   const close = () => {
+    attempt.forget();
+    setSubmitting(false);
     setOpen(false);
     setCurrent("");
     setNext("");
@@ -198,11 +231,13 @@ function PasswordRow() {
       setRefusal({ ok: false, field: "new", message: problem });
       return;
     }
+    const mine = attempt.start();
     setSubmitting(true);
     const outcome = await changePassword(
       { currentPassword: current, newPassword: next },
       { request: requestPasswordChange, onUnauthorized: reportUnauthorized },
     );
+    if (!attempt.isCurrent(mine)) return;
     setSubmitting(false);
     if (!outcome.ok) {
       setRefusal(outcome);
@@ -249,6 +284,7 @@ function PasswordRow() {
             required
             autoFocus
             value={current}
+            readOnly={submitting}
             error={errorFor("current")}
             onChange={(event) => {
               setCurrent(event.target.value);
@@ -261,6 +297,7 @@ function PasswordRow() {
             autoComplete="new-password"
             required
             value={next}
+            readOnly={submitting}
             hint="8 to 128 characters. Every other device gets signed out; this one stays."
             error={errorFor("new")}
             onChange={(event) => {
