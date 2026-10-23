@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { activeSection, scrollTargets } from "./section-index";
+import { activeSection, scrollTargets, sectionFromHash } from "./section-index";
 
 describe("scrollTargets", () => {
   test("keeps the jump positions of sections the page can scroll to", () => {
@@ -32,5 +32,19 @@ describe("activeSection", () => {
 
   test("counts a section as reached a pixel early, for rounding", () => {
     expect(activeSection(targets, 499.5)).toBe(1);
+  });
+});
+
+describe("sectionFromHash", () => {
+  const ids = ["study-day", "account", "this-device"];
+
+  test("names the section a hash links to", () => {
+    expect(sectionFromHash("#account", ids)).toBe("account");
+    expect(sectionFromHash("this-device", ids)).toBe("this-device");
+    expect(sectionFromHash("#%61ccount", ids)).toBe("account");
+  });
+
+  test.each(["", "#", "#nowhere", "#%", "#%E0%A4%A"])("names no section for %j", (hash) => {
+    expect(sectionFromHash(hash, ids)).toBeUndefined();
   });
 });

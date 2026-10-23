@@ -35,3 +35,17 @@ export function activeSection(targets: readonly number[], scrollY: number): numb
   });
   return current;
 }
+
+/**
+ * The section a URL hash names (`location.hash`, with or without its `#`), or
+ * undefined when it names none of `ids` or can't be decoded (`#%`).
+ */
+export function sectionFromHash(hash: string, ids: readonly string[]): string | undefined {
+  let id: string;
+  try {
+    id = decodeURIComponent(hash.replace(/^#/, ""));
+  } catch {
+    return undefined;
+  }
+  return ids.includes(id) ? id : undefined;
+}

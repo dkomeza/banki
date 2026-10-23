@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { activeSection, scrollTargets } from "@/lib/section-index";
+import { activeSection, scrollTargets, sectionFromHash } from "@/lib/section-index";
 import { cn } from "@/lib/utils";
 
 export type Section = { id: string; title: string };
@@ -71,15 +71,24 @@ export function SectionIndex({ label, sections }: { label: string; sections: rea
       track(false);
     };
     const onScroll = () => track(true);
-    const linked = decodeURIComponent(window.location.hash.slice(1));
-    if (list.includes(linked)) clicked.current = { id: linked, y: undefined };
+    const linked = sectionFromHash(window.location.hash, list);
+    if (linked !== undefined) clicked.current = { id: linked, y: undefined };
     measure();
     const resized = new ResizeObserver(measure);
     resized.observe(document.body);
+    // The hash changing in place (the address bar, Back) jumps like a click.
+    const onHashChange = () => {
+      const id = sectionFromHash(window.location.hash, list);
+      if (id === undefined) return;
+      clicked.current = { id, y: window.scrollY };
+      setCurrent(id);
+    };
     window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("hashchange", onHashChange);
     return () => {
       resized.disconnect();
       window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("hashchange", onHashChange);
     };
   }, [ids]);
 
