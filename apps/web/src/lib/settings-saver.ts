@@ -117,6 +117,9 @@ export function createSettingsSaver({
     update({
       queue: [...state.queue, next],
       saved: without(state.saved, (field) => field === next.field),
+      // A newer change replaces the field's failed one: its Try again would
+      // queue the old value after this and undo it.
+      failures: without(state.failures, (failure) => failure.field === next.field),
     });
     if (idle) void sendNext();
   };
@@ -133,9 +136,7 @@ export function createSettingsSaver({
     /** Sends a field's failed change again. */
     retry(field: Field) {
       const failed = state.failures.find((failure) => failure.field === field);
-      if (failed === undefined) return;
-      update({ failures: without(state.failures, (failure) => failure.field === field) });
-      change(failed);
+      if (failed !== undefined) change(failed);
     },
     /**
      * Takes Settings changed elsewhere (the first fill, say). While a save is

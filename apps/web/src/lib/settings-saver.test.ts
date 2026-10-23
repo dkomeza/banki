@@ -163,4 +163,21 @@ describe("createSettingsSaver", () => {
 
     expect(shownSettings(state())).toEqual(server.stored());
   });
+
+  test("a new change to a field drops its old failure, so Try again can't undo it", async () => {
+    const { server, saver, state } = setUp();
+    saver.change({ field: "dayStartHour", attempted: 6 });
+    server.requests[0]?.fail();
+    await flush();
+
+    saver.change({ field: "dayStartHour", attempted: 7 });
+
+    expect(state().failures).toEqual([]);
+    saver.retry("dayStartHour");
+    expect(state().queue).toEqual([{ field: "dayStartHour", attempted: 7 }]);
+    server.requests[1]?.succeed();
+    await flush();
+    expect(server.requests).toHaveLength(2);
+    expect(server.stored().dayStartHour).toBe(7);
+  });
 });
