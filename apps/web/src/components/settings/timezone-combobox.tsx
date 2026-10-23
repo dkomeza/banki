@@ -56,6 +56,7 @@ export function TimezoneCombobox({
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const listRef = useRef<HTMLUListElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const zones = useMemo(() => allZones().map((zone) => ({ zone, offset: offsetOf(zone) })), []);
   const results = useMemo(() => search(zones, query), [zones, query]);
 
@@ -69,9 +70,18 @@ export function TimezoneCombobox({
     setOpen(false);
     setQuery("");
   };
+  const openList = () => {
+    setOpen(true);
+    setQuery("");
+    setActive(0);
+  };
   const pick = (zone: string) => {
     close();
     if (zone !== value) onChange(zone);
+    // Focus stays here with the zone selected, so typing starts a new search.
+    window.requestAnimationFrame(() => {
+      if (document.activeElement === inputRef.current) inputRef.current?.select();
+    });
   };
 
   return (
@@ -89,9 +99,11 @@ export function TimezoneCombobox({
         className={FIELD}
         value={open ? query : (value ?? "")}
         placeholder={open ? "Search: a city, region or UTC+2" : "Pick your timezone"}
-        onFocus={() => {
-          setOpen(true);
-          setActive(0);
+        ref={inputRef}
+        onFocus={openList}
+        // Already focused after a pick: a click opens the list again.
+        onClick={() => {
+          if (!open) openList();
         }}
         onBlur={close}
         onChange={(event) => {
@@ -141,11 +153,11 @@ export function TimezoneCombobox({
                 "flex min-h-11 cursor-default items-center justify-between gap-3 rounded-lg px-3 text-[0.95rem] aria-selected:font-semibold aria-selected:text-primary lg:min-h-9",
                 index === active && "bg-accent",
               )}
-              // Picks before the input's blur closes the list.
-              onPointerDown={(event) => {
-                event.preventDefault();
-                pick(zone);
-              }}
+              // Keeps the input focused, so its blur doesn't close the list before
+              // the click lands. A touch swipe sends no mousedown or click, so it
+              // scrolls the list without picking.
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => pick(zone)}
               onPointerEnter={() => setActive(index)}
             >
               <span className="min-w-0 truncate">{zone.replaceAll("_", " ")}</span>
