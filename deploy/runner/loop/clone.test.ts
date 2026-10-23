@@ -108,12 +108,20 @@ describe.skipIf(!hasGit)("a clone a git killed mid-write", () => {
   });
 
   test("leaves a worktree's lock alone, however old", async () => {
+    // A real worktree of the clone, as a Stage adds one: git itself prunes a
+    // worktree entry with no gitdir, lock and all.
+    const worktree = join(root, "ban-1-x");
+    git(clone, "worktree", "add", "--quiet", "-b", "ban-1-x", worktree);
     const worktreeLock = lock("worktrees/ban-1-x/index.lock", 600);
+    try {
+      await syncMain(clone, origin);
 
-    await syncMain(clone, origin);
-
-    expect(existsSync(worktreeLock)).toBe(true);
-    rmSync(join(clone, ".git", "worktrees"), { recursive: true, force: true });
+      expect(existsSync(worktreeLock)).toBe(true);
+    } finally {
+      rmSync(worktreeLock, { force: true });
+      git(clone, "worktree", "remove", "--force", worktree);
+      git(clone, "branch", "--quiet", "-D", "ban-1-x");
+    }
   });
 });
 
