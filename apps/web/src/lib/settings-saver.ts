@@ -93,7 +93,11 @@ export function createSettingsSaver({
     if (stored === undefined) {
       update({
         queue: rest,
-        failures: [...without(state.failures, (failure) => failure.field === change.field), change],
+        // A newer change to the field is already queued: this one is moot,
+        // and its Try again would queue the old value after it.
+        failures: stillChanging
+          ? state.failures
+          : [...without(state.failures, (failure) => failure.field === change.field), change],
       });
     } else {
       arrived = undefined;

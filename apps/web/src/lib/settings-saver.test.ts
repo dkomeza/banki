@@ -180,4 +180,51 @@ describe("createSettingsSaver", () => {
     expect(server.requests).toHaveLength(2);
     expect(server.stored().dayStartHour).toBe(7);
   });
+
+  test("a failure already replaced in the queue isn't shown, so it can't be tried again", async () => {
+    const { server, saver, state } = setUp();
+    saver.change({ field: "dayStartHour", attempted: 5 });
+    saver.change({ field: "dayStartHour", attempted: 6 });
+
+    server.requests[0]?.fail();
+    await flush();
+
+    expect(state().failures).toEqual([]);
+    saver.retry("dayStartHour");
+    expect(state().queue).toEqual([{ field: "dayStartHour", attempted: 6 }]);
+    server.requests[1]?.succeed();
+    await flush();
+    expect(server.requests).toHaveLength(2);
+    expect(server.stored().dayStartHour).toBe(6);
+    expect(shownSettings(state()).dayStartHour).toBe(6);
+  });
+
+  test("when the newer change fails after the older one saved, the newer failure shows over the saved value", async () => {
+    const { server, saver, state } = setUp();
+    saver.change({ field: "dayStartHour", attempted: 5 });
+    saver.change({ field: "dayStartHour", attempted: 6 });
+
+    server.requests[0]?.succeed();
+    await flush();
+    server.requests[1]?.fail();
+    await flush();
+
+    expect(state().failures).toEqual([{ field: "dayStartHour", attempted: 6 }]);
+    expect(shownSettings(state()).dayStartHour).toBe(5);
+    expect(server.stored().dayStartHour).toBe(5);
+  });
+
+  test("a failure on one field leaves a queued change to the other alone", async () => {
+    const { server, saver, state } = setUp();
+    saver.change({ field: "timezone", attempted: "Asia/Tokyo" });
+    saver.change({ field: "dayStartHour", attempted: 6 });
+
+    server.requests[0]?.fail();
+    await flush();
+    expect(state().failures).toEqual([{ field: "timezone", attempted: "Asia/Tokyo" }]);
+    server.requests[1]?.succeed();
+    await flush();
+
+    expect(shownSettings(state())).toEqual({ timezone: "Europe/Warsaw", dayStartHour: 6 });
+  });
 });
