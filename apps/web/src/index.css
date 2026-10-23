@@ -156,6 +156,27 @@
   }
 }
 
+/*
+ * From 1024 px every page keeps room for the scrollbar, scrolling or not, so
+ * the content never shifts between pages. A page with its own scroll
+ * indicator (Settings' section index) hides the browser's scrollbar with
+ * .native-scrollbar-hidden on <html>, padding the same width in its place
+ * (--scrollbar-width, which useHiddenScrollbar measures). It still scrolls by
+ * wheel, trackpad, keys and touch.
+ */
+@media (min-width: 1024px) {
+  html {
+    scrollbar-gutter: stable;
+  }
+  html.native-scrollbar-hidden {
+    scrollbar-width: none;
+    padding-right: var(--scrollbar-width, 0px);
+  }
+  html.native-scrollbar-hidden::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 /* Motion only ever confirms what someone did; without it nothing is lost. */
 @media (prefers-reduced-motion: reduce) {
   *,

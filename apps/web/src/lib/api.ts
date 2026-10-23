@@ -15,6 +15,12 @@ export function setUnauthorizedHandler(handler: UnauthorizedHandler) {
   onUnauthorized = handler;
 }
 
+/**
+ * Hands a 401 from a call that doesn't go through {@link api} (better-auth's
+ * client) to the same handling, so an expired sign-in goes to sign in alike.
+ */
+export const reportUnauthorized = () => onUnauthorized();
+
 export const api = createApiClient(
   handlingUnauthorized(
     (input, init) => globalThis.fetch(input, init),

@@ -28,14 +28,34 @@ async function errorCode(res: Response): Promise<string | undefined> {
 }
 
 /**
+ * `request` with `revokeOtherSessions: true` in its JSON body, so changing the
+ * Password always signs out every other device. A body that isn't a JSON
+ * object goes on as it is, for better-auth to refuse.
+ */
+async function revokingOtherSessions(request: Request): Promise<Request> {
+  const body: unknown = await request
+    .clone()
+    .json()
+    .catch(() => undefined);
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return request;
+  const headers = new Headers(request.headers);
+  headers.delete("content-length");
+  return new Request(request.url, {
+    method: request.method,
+    headers,
+    body: JSON.stringify({ ...body, revokeOtherSessions: true }),
+  });
+}
+
+/**
  * The only better-auth endpoints reachable over HTTP, mounted at `/api/auth`:
- * sign-in with Email and Password, sign-out and get-session. Every other path
- * under `/api/auth` falls through to the JSON 404.
+ * sign-in with Email and Password, sign-out, get-session and change-password.
+ * Every other path under `/api/auth` falls through to the JSON 404.
  */
 export function authRoutes({ auth, config }: { auth: Auth; config: Pick<Config, "origin"> }) {
   /** Passes the request to better-auth, logging a refusal over its origin. */
-  const forward = async (c: Context) => {
-    const res = await auth.handler(c.req.raw);
+  const forward = async (c: Context, request = c.req.raw) => {
+    const res = await auth.handler(request);
     const refusedOrigin =
       res.status === 403 && ORIGIN_ERROR_CODES.has((await errorCode(res)) ?? "");
     if (refusedOrigin) {
@@ -50,18 +70,33 @@ export function authRoutes({ auth, config }: { auth: Auth; config: Pick<Config, 
   };
   const handle = async (c: Context) => (await forward(c)).res;
 
+  /**
+   * Logs a refused attempt at something that takes the Password, and a rate
+   * limit on it, with the client IP. `what` starts the line: "Sign-in".
+   */
+  const logAttempt = (
+    c: Context,
+    what: string,
+    { res, refusedOrigin }: Awaited<ReturnType<typeof forward>>,
+  ) => {
+    const ip = clientIp(c) ?? "unknown";
+    if (res.status === 429) {
+      logger.warning(`${what} rate limited for {ip}`, { ip });
+    } else if (!res.ok && !refusedOrigin) {
+      // A wrong Email or Password (401 or 400), or one better-auth refuses outright (400).
+      logger.warning(`Failed ${what.toLowerCase()} from {ip} ({status})`, {
+        ip,
+        status: res.status,
+      });
+    }
+    return res;
+  };
+
   return new Hono()
-    .post("/sign-in/email", async (c) => {
-      const { res, refusedOrigin } = await forward(c);
-      const ip = clientIp(c) ?? "unknown";
-      if (res.status === 429) {
-        logger.warning("Sign-in rate limited for {ip}", { ip });
-      } else if (!res.ok && !refusedOrigin) {
-        // A wrong Email or Password (401), or one better-auth refuses outright (400).
-        logger.warning("Failed sign-in from {ip} ({status})", { ip, status: res.status });
-      }
-      return res;
-    })
+    .post("/sign-in/email", async (c) => logAttempt(c, "Sign-in", await forward(c)))
     .post("/sign-out", handle)
-    .get("/get-session", handle);
+    .get("/get-session", handle)
+    .post("/change-password", async (c) =>
+      logAttempt(c, "Password change", await forward(c, await revokingOtherSessions(c.req.raw))),
+    );
 }

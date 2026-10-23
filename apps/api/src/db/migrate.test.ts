@@ -34,10 +34,16 @@ const addMigration = (tag: string, statements: string, when?: number): number =>
 };
 
 /** The committed migrations, in order. */
-const COMMITTED = ["0000_baseline", "0001_auth"];
+const COMMITTED = ["0000_baseline", "0001_auth", "0002_user_settings"];
 
 /** The tables the committed migrations create. */
-const COMMITTED_TABLES = ["auth_account", "auth_session", "auth_verification", "user"];
+const COMMITTED_TABLES = [
+  "auth_account",
+  "auth_session",
+  "auth_verification",
+  "user",
+  "user_settings",
+];
 
 /** The tables migrations created, leaving out SQLite's and Drizzle's own. */
 const tables = () =>

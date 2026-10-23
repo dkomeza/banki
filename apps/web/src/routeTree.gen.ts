@@ -13,6 +13,7 @@ import { Route as ShellRouteImport } from './routes/_shell'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as SetupRouteImport } from './routes/setup'
 import { Route as ShellIndexRouteImport } from './routes/_shell/index'
+import { Route as ShellSettingsRouteImport } from './routes/_shell/settings'
 
 const ShellRoute = ShellRouteImport.update({
   id: '/_shell',
@@ -33,15 +34,22 @@ const ShellIndexRoute = ShellIndexRouteImport.update({
   path: '/',
   getParentRoute: () => ShellRoute,
 } as any)
+const ShellSettingsRoute = ShellSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => ShellRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof ShellIndexRoute
   '/login': typeof LoginRoute
   '/setup': typeof SetupRoute
+  '/settings': typeof ShellSettingsRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/setup': typeof SetupRoute
+  '/settings': typeof ShellSettingsRoute
   '/': typeof ShellIndexRoute
 }
 export interface FileRoutesById {
@@ -49,14 +57,21 @@ export interface FileRoutesById {
   '/_shell': typeof ShellRouteWithChildren
   '/login': typeof LoginRoute
   '/setup': typeof SetupRoute
+  '/_shell/settings': typeof ShellSettingsRoute
   '/_shell/': typeof ShellIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login' | '/setup'
+  fullPaths: '/' | '/login' | '/setup' | '/settings'
   fileRoutesByTo: FileRoutesByTo
-  to: '/login' | '/setup' | '/'
-  id: '__root__' | '/_shell' | '/login' | '/setup' | '/_shell/'
+  to: '/login' | '/setup' | '/settings' | '/'
+  id:
+    | '__root__'
+    | '/_shell'
+    | '/login'
+    | '/setup'
+    | '/_shell/settings'
+    | '/_shell/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -95,14 +110,23 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellIndexRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/settings': {
+      id: '/_shell/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof ShellSettingsRouteImport
+      parentRoute: typeof ShellRoute
+    }
   }
 }
 
 interface ShellRouteChildren {
+  ShellSettingsRoute: typeof ShellSettingsRoute
   ShellIndexRoute: typeof ShellIndexRoute
 }
 
 const ShellRouteChildren: ShellRouteChildren = {
+  ShellSettingsRoute: ShellSettingsRoute,
   ShellIndexRoute: ShellIndexRoute,
 }
 

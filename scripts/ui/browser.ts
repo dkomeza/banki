@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { type Browser, chromium, type Page } from "playwright";
+import { SEED_TIMEZONE } from "../../apps/api/src/seed/seed-ids.ts";
 import { hideStyle, shotFileName, type Theme, VIEWPORTS } from "./shots.ts";
 import { UiError } from "./stack.ts";
 
@@ -67,7 +68,7 @@ export async function shootRoutes({
 
   // A first visit lets Vite transform each route's modules and optimise any
   // dependency it discovers (which reloads the page), before anything is shot.
-  const warmUp = await browser.newContext({ storageState });
+  const warmUp = await browser.newContext({ storageState, timezoneId: SEED_TIMEZONE });
   try {
     for (const { path } of routes) await open(await warmUp.newPage(), url + path);
   } finally {
@@ -84,6 +85,9 @@ export async function shootRoutes({
         hasTouch: viewport.hasTouch,
         colorScheme: theme,
         storageState,
+        // The seed User's Timezone, so shots don't depend on the machine's zone
+        // and Settings never shows its mismatch hint.
+        timezoneId: SEED_TIMEZONE,
       });
       try {
         for (const { path: route, mask } of routes) {

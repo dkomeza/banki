@@ -44,7 +44,7 @@ The Password never goes on the command line or in the environment. Setup from a 
 
 ### Seed data
 
-`banki seed` loads the Seed data: fixed sample content, the same on every run, for development and Previews. It only runs on an installation that is set up and whose User has no content yet, so it can't touch a real installation's cards:
+`banki seed` loads the Seed data: fixed sample content, the same on every run, for development and Previews. So far it is the User's Timezone, `Europe/Warsaw`, stored only while no Timezone is (a signed-in load may already have stored the browser's). It only runs on an installation that is set up and whose User has no content yet, so it can't touch a real installation's cards:
 
 ```sh
 DATA_DIR=.data bun run banki seed
@@ -64,7 +64,7 @@ It prints the User's Email, asks for the new Password twice, sets it and signs o
 
 ## Seeing the UI: the `ui` script
 
-`bun run ui` starts a throwaway copy of Banki in this worktree and screenshots it, so you, and the `/work-issue` agents, can see the screens a change touches. The copy (the stack) is the API and Vite on free ports, already set up with a local throwaway User (`ui@example.com`), loaded with the [Seed data](#seed-data) and signed in. Its data directory is `.ui/data-<id>/`, never `apps/api/.data/`, so it leaves your own dev data alone, and stacks in several worktrees run side by side. Everything it writes is under `.ui/`, which is gitignored.
+`bun run ui` starts a throwaway copy of Banki in this worktree and screenshots it, so you, and the `/work-issue` agents, can see the screens a change touches. The copy (the stack) is the API and Vite on free ports, already set up with a local throwaway User (Email `asdf@asdf.asdf`, Password `asdfasdf`, so you can sign in to it by hand), loaded with the [Seed data](#seed-data) and signed in. Its data directory is `.ui/data-<id>/`, never `apps/api/.data/`, so it leaves your own dev data alone, and stacks in several worktrees run side by side. Everything it writes is under `.ui/`, which is gitignored.
 
 It runs on Node (Playwright doesn't support Bun) and drives Playwright's own Chromium, which you install once:
 
@@ -99,6 +99,8 @@ The shots go to `.ui/shots/<agent>/<route>@<viewport>-<theme>.png`. In the file 
 | `--agent <name>` | The folder under `.ui/shots/`. Defaults to `manual`                                            |
 | `--signed-out`   | Every route set up and seeded, but not signed in, whatever the manifest says                   |
 | `--before-setup` | Every route not set up, no Seed data, and the API waits for Setup (opened with no Setup token) |
+
+Every browser the script opens is in the Seed data's Timezone, `Europe/Warsaw` (`SEED_TIMEZONE`, in `apps/api/src/seed/seed-ids.ts`), whatever the machine's zone, so shots don't change with it and Settings never shows its timezone mismatch hint.
 
 Each viewport is shot in the light theme and in the dark one. The dark shots emulate `prefers-color-scheme: dark` with no theme stored, so the web app's default, System, shows dark. The switch is in `apps/web/package.json`:
 
@@ -166,7 +168,7 @@ bun run ui down
 
 `up` starts the stack in the background, with the API under `bun --watch` so it restarts when you change its code (Vite reloads the web app as usual), and writes `.ui/stack.json`: the URL, both ports and PIDs, the data directory, the logs, and either `signedInState` (a Playwright storage state of a signed-in browser) or, with `--before-setup`, `setupUrl` (the link to Setup with its Setup token). Running `up` again reuses the stack when it is in the same mode, and fails with a hint to run `ui down` first when it isn't. Two `up` (or `down`) runs at the same moment take turns: the second waits for the first, then reuses its stack. `down` stops the stack, deletes its data directory and removes `stack.json`. It also clears away every other `.ui/data-*` folder no `ui` run is still using, such as one left by a run that was killed, stopping first any stack still running from it (each stack records its processes in its data folder, so `down` finds it even when `stack.json` is lost). A running `ui shoot`'s folder is left alone. With nothing to clear, `down` does nothing.
 
-Drive it with [`playwright-cli`](https://github.com/microsoft/playwright-cli), from the worktree's root, so it reads `.playwright/cli.config.json`: headless, on Playwright's Chromium, with its output in `.ui/playwright-cli/`. Give each browser its own session with `-s=`:
+Drive it with [`playwright-cli`](https://github.com/microsoft/playwright-cli), from the worktree's root, so it reads `.playwright/cli.config.json`: headless, on Playwright's Chromium, in the `Europe/Warsaw` timezone, with its output in `.ui/playwright-cli/`. Give each browser its own session with `-s=`:
 
 ```sh
 npx --no-install playwright-cli -s=my-session open

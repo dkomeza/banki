@@ -2,6 +2,9 @@ import type { MiddlewareHandler } from "hono";
 import type { Auth } from "../auth/auth";
 import { apiError } from "./errors";
 
+/** The name a `Set-Cookie` value sets. */
+const cookieName = (setCookie: string) => setCookie.slice(0, setCookie.indexOf("=")).trim();
+
 /** What a protected route knows about the signed-in User. */
 export type SignedInEnv = { Variables: { user: { id: string; email: string } } };
 
@@ -13,7 +16,7 @@ export type PublicRoutes = ReadonlySet<string>;
  * in, except for `publicRoutes`, matched by method and exact path. Any other
  * method on a public path is as unknown as any other path. A signed-in request carries its User on to the
  * route as `c.var.user`, and gets back any cookie better-auth set while
- * sliding the expiry forward.
+ * sliding the expiry forward, unless the route set a cookie of that name itself.
  */
 export function requireSignedIn({
   auth,
@@ -33,6 +36,12 @@ export function requireSignedIn({
 
     c.set("user", { id: signedIn.user.id, email: signedIn.user.email });
     await next();
-    for (const cookie of headers.getSetCookie()) c.res.headers.append("set-cookie", cookie);
+    // A cookie the route set itself is newer than the refresh: changing the
+    // Password, say, replaces the auth session, and the refresh would bring
+    // back the deleted one's token.
+    const setByRoute = new Set(c.res.headers.getSetCookie().map(cookieName));
+    for (const cookie of headers.getSetCookie()) {
+      if (!setByRoute.has(cookieName(cookie))) c.res.headers.append("set-cookie", cookie);
+    }
   };
 }

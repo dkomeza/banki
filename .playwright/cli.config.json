@@ -1,7 +1,13 @@
 {
   "browser": {
     "browserName": "chromium",
-    "launchOptions": { "channel": "chromium", "headless": true }
+    "launchOptions": {
+      "channel": "chromium",
+      "headless": true
+    },
+    "contextOptions": {
+      "timezoneId": "Europe/Warsaw"
+    }
   },
   "outputDir": ".ui/playwright-cli"
 }

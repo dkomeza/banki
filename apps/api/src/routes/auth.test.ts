@@ -9,6 +9,7 @@ import {
   freshIp,
   get,
   ORIGIN,
+  PASSWORD,
   post,
   setUp,
   signIn,
@@ -252,6 +253,175 @@ describe("signing out", () => {
   });
 });
 
+const NEW_PASSWORD = "a brand new password";
+
+const changePassword = (
+  app: Parameters<typeof signIn>[0],
+  cookie: string,
+  body: Record<string, unknown>,
+  ip = freshIp(),
+) => post(app, "/api/auth/change-password", body, { ip, headers: { cookie, origin: ORIGIN } });
+
+describe("changing the Password", () => {
+  test("with the right current Password signs out every other device and keeps this one", async () => {
+    const app = await setUpApp();
+    const thisDevice = cookiesFrom(await signIn(app));
+    const otherDevice = cookiesFrom(await signIn(app));
+
+    const res = await changePassword(app, thisDevice, {
+      currentPassword: PASSWORD,
+      newPassword: NEW_PASSWORD,
+      revokeOtherSessions: true,
+    });
+
+    expect(res.status).toBe(200);
+    expect((await get(app, "/api/me", otherDevice)).status).toBe(401);
+    // This device gets a fresh cookie with the answer, and stays signed in.
+    expect((await get(app, "/api/me", cookiesFrom(res))).status).toBe(200);
+    expect((await signIn(app, { password: NEW_PASSWORD })).status).toBe(200);
+    expect((await signIn(app)).status).toBe(401);
+  });
+
+  test("keeps this device signed in when its auth session was due a sliding refresh", async () => {
+    const app = await setUpApp();
+    const thisDevice = cookiesFrom(await signIn(app));
+    // Due the daily refresh, so the sign-in check sets a cookie of its own.
+    ageAuthSessions(2 * DAY_MS);
+
+    const res = await changePassword(app, thisDevice, {
+      currentPassword: PASSWORD,
+      newPassword: NEW_PASSWORD,
+    });
+
+    expect(res.status).toBe(200);
+    // What a browser keeps: the last cookie of each name.
+    const kept = new Map<string, string>();
+    for (const cookie of res.headers.getSetCookie()) {
+      const [pair = ""] = cookie.split(";");
+      kept.set(pair.slice(0, pair.indexOf("=")), pair);
+    }
+    expect((await get(app, "/api/me", [...kept.values()].join("; "))).status).toBe(200);
+    // One cookie per name: the route's, not a stale refresh of the old session.
+    expect(kept.size).toBe(res.headers.getSetCookie().length);
+  });
+
+  test("signs out every other device even when asked not to", async () => {
+    const app = await setUpApp();
+    const thisDevice = cookiesFrom(await signIn(app));
+    const otherDevice = cookiesFrom(await signIn(app));
+
+    const res = await changePassword(app, thisDevice, {
+      currentPassword: PASSWORD,
+      newPassword: NEW_PASSWORD,
+      revokeOtherSessions: false,
+    });
+
+    expect(res.status).toBe(200);
+    expect((await get(app, "/api/me", otherDevice)).status).toBe(401);
+    expect((await get(app, "/api/me", cookiesFrom(res))).status).toBe(200);
+  });
+
+  test("refuses a wrong current Password, changing nothing", async () => {
+    const app = await setUpApp();
+    const thisDevice = cookiesFrom(await signIn(app));
+    const otherDevice = cookiesFrom(await signIn(app));
+
+    const res = await changePassword(app, thisDevice, {
+      currentPassword: "not the password",
+      newPassword: NEW_PASSWORD,
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ code: "INVALID_PASSWORD" });
+    expect((await get(app, "/api/me", otherDevice)).status).toBe(200);
+    expect((await signIn(app)).status).toBe(200);
+  });
+
+  test("refuses a new Password under 8 characters", async () => {
+    const app = await setUpApp();
+    const cookie = cookiesFrom(await signIn(app));
+
+    const res = await changePassword(app, cookie, {
+      currentPassword: PASSWORD,
+      newPassword: "short",
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ code: "PASSWORD_TOO_SHORT" });
+  });
+
+  test("lets the old Password be used again", async () => {
+    const app = await setUpApp();
+    const cookie = cookiesFrom(await signIn(app));
+
+    const res = await changePassword(app, cookie, {
+      currentPassword: PASSWORD,
+      newPassword: PASSWORD,
+    });
+
+    expect(res.status).toBe(200);
+  });
+
+  test("answers 401 when signed out", async () => {
+    const app = await setUpApp();
+
+    const res = await post(
+      app,
+      "/api/auth/change-password",
+      { currentPassword: PASSWORD, newPassword: NEW_PASSWORD },
+      { headers: { origin: ORIGIN } },
+    );
+
+    expect(res.status).toBe(401);
+  });
+
+  test("the 6th attempt in a minute from one IP gets 429, logged on its own line", async () => {
+    const app = await setUpApp();
+    const cookie = cookiesFrom(await signIn(app));
+    const ip = freshIp();
+    for (let i = 0; i < 5; i++) {
+      const res = await changePassword(
+        app,
+        cookie,
+        { currentPassword: "not the password", newPassword: NEW_PASSWORD },
+        ip,
+      );
+      expect(res.status).toBe(400);
+    }
+    records.length = 0;
+
+    const limited = await changePassword(
+      app,
+      cookie,
+      { currentPassword: PASSWORD, newPassword: NEW_PASSWORD },
+      ip,
+    );
+
+    expect(limited.status).toBe(429);
+    expect(Number(limited.headers.get("x-retry-after"))).toBeGreaterThan(0);
+    expect(
+      records.filter((record) => record.level === "warning").map((r) => String(r.rawMessage)),
+    ).toEqual([expect.stringMatching(/^Password change rate limited/)]);
+  });
+
+  test("logs a refused change at warning with the client IP", async () => {
+    const app = await setUpApp();
+    const cookie = cookiesFrom(await signIn(app));
+
+    await changePassword(
+      app,
+      cookie,
+      { currentPassword: "not the password", newPassword: NEW_PASSWORD },
+      "203.0.113.40",
+    );
+
+    expect(warnings()).toContainEqual({
+      category: "banki.auth",
+      properties: { ip: "203.0.113.40", status: 400 },
+    });
+  });
+});
+
 describe("deny by default", () => {
   const unauthorized = { error: { code: "unauthorized", message: "Sign in to continue" } };
 
@@ -283,7 +453,7 @@ describe("deny by default", () => {
     ["GET", "/api/nope"],
     ["GET", "/api"],
     ["POST", "/api/auth/update-user"],
-    ["POST", "/api/auth/change-password"],
+    ["POST", "/api/auth/change-email"],
     ["POST", "/api/auth/sign-up/email"],
     ["GET", "/api/auth/list-sessions"],
     ["POST", "/api/auth/revoke-sessions"],

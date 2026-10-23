@@ -10,10 +10,12 @@ import { internalError, notFound } from "./http/errors";
 import { createRateLimiter } from "./http/rate-limit";
 import { type PublicRoutes, requireSignedIn } from "./http/require-signed-in";
 import { createHealthRepository } from "./repositories/health";
+import { createSettingsRepository } from "./repositories/settings";
 import { createUserRepository } from "./repositories/user";
 import { authRoutes } from "./routes/auth";
 import { healthRoutes } from "./routes/health";
 import { meRoutes } from "./routes/me";
+import { settingsRoutes } from "./routes/settings";
 import { setupRoutes } from "./routes/setup";
 
 /**
@@ -28,6 +30,13 @@ const PUBLIC_ROUTES: PublicRoutes = new Set([
   "POST /api/auth/sign-out",
   "GET /api/auth/get-session",
 ]);
+
+/** A limiter of attempts at something that takes the Password, as strict as sign-in's. */
+const signInLimiter = () =>
+  createRateLimiter({
+    max: SIGN_IN_RATE_LIMIT.max,
+    windowMs: SIGN_IN_RATE_LIMIT.windowSeconds * 1000,
+  });
 
 /**
  * Builds the API: prepares the data directory, opens the database, applies
@@ -52,12 +61,9 @@ export function createApp(config: Config) {
 
   const health = createHealthRepository(database.db);
   const users = createUserRepository(database.db);
+  const settings = createSettingsRepository(database.db);
   const auth = createAuth({ db: database.db, config, secret });
   const setupToken: SetupToken | undefined = users.exists() ? undefined : createSetupToken();
-  const setupLimiter = createRateLimiter({
-    max: SIGN_IN_RATE_LIMIT.max,
-    windowMs: SIGN_IN_RATE_LIMIT.windowSeconds * 1000,
-  });
 
   const app = new Hono()
     .use(
@@ -73,9 +79,10 @@ export function createApp(config: Config) {
     // Also covers `/api` itself.
     .use("/api/*", requireSignedIn({ auth, publicRoutes: PUBLIC_ROUTES }))
     .route("/api/health", healthRoutes({ health, commit: config.commit }))
-    .route("/api/setup", setupRoutes({ auth, users, setupToken, limiter: setupLimiter }))
+    .route("/api/setup", setupRoutes({ auth, users, setupToken, limiter: signInLimiter() }))
     .route("/api/auth", authRoutes({ auth, config }))
-    .route("/api/me", meRoutes());
+    .route("/api/me", meRoutes({ users, limiter: signInLimiter() }))
+    .route("/api/settings", settingsRoutes({ settings }));
   app.notFound(notFound);
   app.onError(internalError);
 

@@ -92,7 +92,7 @@ describe("the server process", () => {
     expect(await server.exited).toBe(0);
 
     const records = jsonLines(await new Response(server.stdout).text());
-    const migrations = ["0000_baseline", "0001_auth"];
+    const migrations = ["0000_baseline", "0001_auth", "0002_user_settings"];
     expect(records.map(({ level, message, properties }) => [level, message, properties])).toEqual([
       ["INFO", `API starting "${dataDir}"`, { dataDir }],
       ["INFO", `Migrations applied ${JSON.stringify(migrations)}`, { migrations }],
