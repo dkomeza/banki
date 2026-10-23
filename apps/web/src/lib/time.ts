@@ -1,4 +1,9 @@
-import { type SettingsResponse, studyDayBounds, studyDayOf } from "@banki/shared";
+import {
+  DEFAULT_DAY_START_HOUR,
+  type SettingsResponse,
+  studyDayBounds,
+  studyDayOf,
+} from "@banki/shared";
 
 // How the Settings page writes hours, Timezones and what the Day start does.
 
@@ -7,6 +12,48 @@ export function formatHour(hour: number): string {
   if (hour === 0) return "midnight";
   if (hour === 12) return "noon";
   return hour < 12 ? `${hour}:00 a.m.` : `${hour - 12}:00 p.m.`;
+}
+
+/** How the Day start picker names an hour: "4:00 a.m. (default)", "12:00 a.m. (midnight)". */
+export function dayStartLabel(hour: number): string {
+  const onClock = `${hour % 12 === 0 ? 12 : hour % 12}:00 ${hour < 12 ? "a.m." : "p.m."}`;
+  if (hour === 0) return `${onClock} (midnight)`;
+  if (hour === 12) return `${onClock} (noon)`;
+  return hour === DEFAULT_DAY_START_HOUR ? `${onClock} (default)` : onClock;
+}
+
+/** Lowercase, without spaces, dots or brackets: "6 P.M." and "6pm" read alike. */
+const normalise = (text: string) => text.toLowerCase().replaceAll(/[\s.()]/g, "");
+
+/** Every way to start typing an hour: its label, "6pm", "18", "18:00", "pm", "noon"… */
+function namesOf(hour: number): string[] {
+  const onClock = hour % 12 === 0 ? 12 : hour % 12;
+  const half = hour < 12 ? "am" : "pm";
+  return [
+    normalise(dayStartLabel(hour)),
+    `${onClock}:00${half}`,
+    `${onClock}${half}`,
+    String(hour),
+    `${hour}:00`,
+    half,
+    ...(hour === 0 ? ["midnight"] : []),
+    ...(hour === 12 ? ["noon"] : []),
+    ...(hour === DEFAULT_DAY_START_HOUR ? ["default"] : []),
+  ];
+}
+
+const HOUR_NAMES = Array.from({ length: 24 }, (_, hour) => ({ hour, names: namesOf(hour) }));
+
+/**
+ * The hours, in order, that what's typed could be the start of: "6" offers
+ * 6:00 a.m. and 6:00 p.m., "18" or "6 pm" only 6:00 p.m., "mid" midnight,
+ * "noon" noon. Nothing typed offers all 24.
+ */
+export function matchHours(query: string): number[] {
+  const typed = normalise(query);
+  return HOUR_NAMES.filter(({ names }) => names.some((name) => name.startsWith(typed))).map(
+    ({ hour }) => hour,
+  );
 }
 
 /** The time of day `at` in `timezone`, as {@link formatHour} writes it: "4:00 a.m.", "3:30 p.m.". */

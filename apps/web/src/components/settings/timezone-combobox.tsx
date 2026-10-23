@@ -1,8 +1,6 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { FIELD } from "@/components/settings/parts";
-import { Input } from "@/components/ui/input";
+import { useCallback, useMemo } from "react";
+import { Combobox, type ComboboxOption } from "@/components/settings/combobox";
 import { offsetOf } from "@/lib/time";
-import { cn } from "@/lib/utils";
 
 /** Every zone this browser knows, plus UTC, which some list only as an alias. */
 function allZones(): string[] {
@@ -10,15 +8,12 @@ function allZones(): string[] {
   return zones.includes("UTC") ? zones : [...zones, "UTC"];
 }
 
-/** At most this many matches are drawn; typing narrows the rest. */
-const SHOWN = 200;
-
 /**
  * The zones matching `query` (part of a name, or an offset such as "utc+2"):
  * cities that start with it first, then zones with any part that does, then
  * the rest.
  */
-function search(zones: readonly { zone: string; offset: string }[], query: string) {
+function search(zones: readonly ComboboxOption[], query: string) {
   const q = query.trim().toLowerCase().replaceAll(" ", "_");
   if (q === "") return zones;
   const rank = (zone: string) => {
@@ -29,17 +24,13 @@ function search(zones: readonly { zone: string; offset: string }[], query: strin
   };
   return zones
     .filter(
-      ({ zone, offset }) =>
-        zone.toLowerCase().includes(q) || offset.toLowerCase().replace("−", "-").includes(q),
+      ({ value, detail = "" }) =>
+        value.toLowerCase().includes(q) || detail.toLowerCase().replace("−", "-").includes(q),
     )
-    .toSorted((a, b) => rank(a.zone) - rank(b.zone));
+    .toSorted((a, b) => rank(a.value) - rank(b.value));
 }
 
-/**
- * The Timezone picker: a searchable list of IANA zones with their UTC offsets
- * now. Focusing it opens the list; typing narrows it; Enter or a click picks
- * one; Escape or leaving it keeps the value it had.
- */
+/** The Timezone picker: every IANA zone with its UTC offset now, searchable. */
 export function TimezoneCombobox({
   value,
   onChange,
@@ -51,121 +42,28 @@ export function TimezoneCombobox({
   labelledBy: string;
   describedBy?: string;
 }) {
-  const id = useId();
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [active, setActive] = useState(0);
-  const listRef = useRef<HTMLUListElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const zones = useMemo(() => allZones().map((zone) => ({ zone, offset: offsetOf(zone) })), []);
-  const results = useMemo(() => search(zones, query), [zones, query]);
-
-  useEffect(() => {
-    listRef.current
-      ?.querySelector<HTMLElement>(`[data-index="${active}"]`)
-      ?.scrollIntoView({ block: "nearest" });
-  }, [active]);
-
-  const close = () => {
-    setOpen(false);
-    setQuery("");
-  };
-  const openList = () => {
-    setOpen(true);
-    setQuery("");
-    setActive(0);
-  };
-  const pick = (zone: string) => {
-    close();
-    if (zone !== value) onChange(zone);
-    // Focus stays here with the zone selected, so typing starts a new search.
-    window.requestAnimationFrame(() => {
-      if (document.activeElement === inputRef.current) inputRef.current?.select();
-    });
-  };
-
+  const zones = useMemo(
+    () =>
+      allZones().map((zone) => ({
+        value: zone,
+        label: zone.replaceAll("_", " "),
+        display: zone,
+        detail: offsetOf(zone),
+      })),
+    [],
+  );
+  const searchZones = useCallback((query: string) => search(zones, query), [zones]);
   return (
-    <div className="relative">
-      <Input
-        role="combobox"
-        aria-expanded={open}
-        aria-controls={`${id}-list`}
-        aria-labelledby={labelledBy}
-        aria-describedby={describedBy}
-        aria-autocomplete="list"
-        aria-activedescendant={open && results.length > 0 ? `${id}-${active}` : undefined}
-        autoComplete="off"
-        spellCheck={false}
-        className={FIELD}
-        value={open ? query : (value ?? "")}
-        placeholder={open ? "Search: a city, region or UTC+2" : "Pick your timezone"}
-        ref={inputRef}
-        onFocus={openList}
-        // Already focused after a pick: a click opens the list again.
-        onClick={() => {
-          if (!open) openList();
-        }}
-        onBlur={close}
-        onChange={(event) => {
-          setQuery(event.target.value);
-          setActive(0);
-          setOpen(true);
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "ArrowDown") {
-            event.preventDefault();
-            setOpen(true);
-            setActive((index) => Math.min(index + 1, Math.min(results.length, SHOWN) - 1));
-          } else if (event.key === "ArrowUp") {
-            event.preventDefault();
-            setActive((index) => Math.max(index - 1, 0));
-          } else if (event.key === "Enter" && open) {
-            event.preventDefault();
-            const chosen = results[active];
-            if (chosen !== undefined) pick(chosen.zone);
-          } else if (event.key === "Escape" && open) {
-            event.preventDefault();
-            close();
-          }
-        }}
-      />
-      {open && (
-        <ul
-          ref={listRef}
-          id={`${id}-list`}
-          role="listbox"
-          aria-labelledby={labelledBy}
-          className="absolute inset-x-0 top-full z-30 mt-2 max-h-80 overflow-y-auto rounded-xl border bg-popover p-1.5 text-popover-foreground shadow-xl"
-        >
-          {results.length === 0 && (
-            <li className="px-3 py-2 text-sm text-muted-foreground">
-              No timezone matches “{query}”.
-            </li>
-          )}
-          {results.slice(0, SHOWN).map(({ zone, offset }, index) => (
-            <li
-              key={zone}
-              id={`${id}-${index}`}
-              data-index={index}
-              role="option"
-              aria-selected={zone === value}
-              className={cn(
-                "flex min-h-11 cursor-default items-center justify-between gap-3 rounded-lg px-3 text-[0.95rem] aria-selected:font-semibold aria-selected:text-primary lg:min-h-9",
-                index === active && "bg-accent",
-              )}
-              // Keeps the input focused, so its blur doesn't close the list before
-              // the click lands. A touch swipe sends no mousedown or click, so it
-              // scrolls the list without picking.
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => pick(zone)}
-              onPointerEnter={() => setActive(index)}
-            >
-              <span className="min-w-0 truncate">{zone.replaceAll("_", " ")}</span>
-              <span className="shrink-0 text-sm text-muted-foreground tabular-nums">{offset}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+    <Combobox
+      options={zones}
+      value={value}
+      onPick={onChange}
+      search={searchZones}
+      labelledBy={labelledBy}
+      describedBy={describedBy}
+      placeholder="Pick your timezone"
+      searchPlaceholder="Search: a city, region or UTC+2"
+      noMatch={(query) => `No timezone matches “${query}”.`}
+    />
   );
 }

@@ -1,8 +1,9 @@
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { ChevronDown, CircleAlert, Globe } from "lucide-react";
+import { CircleAlert, Globe } from "lucide-react";
 import { useEffect, useId, useState, useSyncExternalStore } from "react";
 import { DayBar } from "@/components/settings/day-bar";
-import { FIELD, OUTLINE_PILL, PILL, SaveState } from "@/components/settings/parts";
+import { DayStartCombobox } from "@/components/settings/day-start-combobox";
+import { OUTLINE_PILL, PILL, SaveState } from "@/components/settings/parts";
 import { TimezoneCombobox } from "@/components/settings/timezone-combobox";
 import { Button } from "@/components/ui/button";
 import { saveSettings, settingsQueryOptions } from "@/lib/settings";
@@ -12,14 +13,7 @@ import {
   createSettingsSaver,
   shownSettings,
 } from "@/lib/settings-saver";
-import {
-  dayStartEffect,
-  deviceTimezone,
-  formatHour,
-  offsetOf,
-  sameTimezone,
-  saveErrorText,
-} from "@/lib/time";
+import { dayStartEffect, deviceTimezone, offsetOf, sameTimezone, saveErrorText } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 /**
@@ -96,35 +90,16 @@ export function StudyDayCard() {
         </div>
         <div className="flex flex-col gap-2">
           <div className="flex min-h-5 items-center justify-between gap-3">
-            <label htmlFor={dayStartId} className="text-sm font-medium">
+            <span id={dayStartId} className="text-sm font-medium">
               Day start
-            </label>
+            </span>
             <SaveState state={stateOf(state, "dayStartHour")} />
           </div>
-          <div className="relative">
-            <select
-              id={dayStartId}
-              value={shown.dayStartHour}
-              onChange={(event) =>
-                saver.change({ field: "dayStartHour", attempted: Number(event.target.value) })
-              }
-              className={cn(
-                FIELD,
-                "w-full appearance-none border border-input pr-10 transition-colors motion-reduce:transition-none outline-none focus-visible:border-ring focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid",
-              )}
-            >
-              {Array.from({ length: 24 }, (_, hour) => (
-                <option key={hour} value={hour}>
-                  {formatHour(hour)}
-                  {hour === 4 ? " (default)" : ""}
-                </option>
-              ))}
-            </select>
-            <ChevronDown
-              aria-hidden
-              className="pointer-events-none absolute top-1/2 right-4 size-4 -translate-y-1/2 text-muted-foreground"
-            />
-          </div>
+          <DayStartCombobox
+            value={shown.dayStartHour}
+            onChange={(hour) => saver.change({ field: "dayStartHour", attempted: hour })}
+            labelledBy={dayStartId}
+          />
         </div>
       </div>
 

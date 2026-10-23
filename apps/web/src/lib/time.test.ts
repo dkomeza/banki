@@ -2,7 +2,9 @@ import { describe, expect, test } from "vitest";
 import {
   dayStartEffect,
   describeStudyDay,
+  dayStartLabel,
   formatHour,
+  matchHours,
   offsetOf,
   sameTimezone,
   saveErrorText,
@@ -119,5 +121,54 @@ describe("describeStudyDay", () => {
     expect(
       describeStudyDay(new Date("2026-05-12T12:00:00Z"), { timezone: null, dayStartHour: 0 }),
     ).toBe("Today's Study day runs from midnight on 12 May to midnight on 13 May, in UTC.");
+  });
+});
+
+describe("dayStartLabel", () => {
+  test.each([
+    [0, "12:00 a.m. (midnight)"],
+    [4, "4:00 a.m. (default)"],
+    [12, "12:00 p.m. (noon)"],
+    [18, "6:00 p.m."],
+  ])("%d is %s", (hour, label) => {
+    expect(dayStartLabel(hour)).toBe(label);
+  });
+});
+
+describe("matchHours", () => {
+  test("offers every hour, in order, before anything is typed", () => {
+    expect(matchHours("")).toEqual(Array.from({ length: 24 }, (_, hour) => hour));
+    expect(matchHours("   ")).toHaveLength(24);
+  });
+
+  test.each([
+    ["6", [6, 18]],
+    ["4", [4, 16]],
+    ["12", [0, 12]],
+    ["18", [18]],
+    ["0", [0]],
+    ["6p", [18]],
+    ["6 pm", [18]],
+    ["6 p.m.", [18]],
+    ["6a", [6]],
+    ["6:00 a.m.", [6]],
+    ["6:3", []],
+    ["mid", [0]],
+    ["midnight", [0]],
+    ["noon", [12]],
+    ["NOON", [12]],
+    ["default", [4]],
+    ["4:00 a.m. (default)", [4]],
+    ["12:00 a.m. (midnight)", [0]],
+    ["24", []],
+    ["13pm", []],
+    ["banana", []],
+  ])("%j offers %j", (query, hours) => {
+    expect(matchHours(query)).toEqual(hours);
+  });
+
+  test("a.m. or p.m. alone offers that half of the day", () => {
+    expect(matchHours("pm")).toEqual([12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]);
+    expect(matchHours("a.m.")).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
   });
 });
