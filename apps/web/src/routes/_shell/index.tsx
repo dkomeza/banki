@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { Page } from "@/components/page";
 
 export const Route = createFileRoute("/_shell/")({
   component: Home,
@@ -6,23 +7,25 @@ export const Route = createFileRoute("/_shell/")({
 
 function Home() {
   return (
-    <div className="flex flex-col gap-8">
-      <h1 className="text-2xl font-semibold tracking-tight">Home</h1>
-      <section
-        aria-labelledby="home-empty"
-        className="flex flex-col items-center gap-5 rounded-2xl border border-dashed border-input/60 px-6 py-14 text-center"
-      >
-        <EmptyStack />
-        <div className="flex max-w-xs flex-col gap-1.5">
-          <h2 id="home-empty" className="text-lg font-semibold tracking-tight">
-            Your decks will live here
-          </h2>
-          <p className="text-sm text-balance text-muted-foreground">
-            Each deck you make shows up on this page, with its cards.
-          </p>
-        </div>
-      </section>
-    </div>
+    <Page width="reading">
+      <div className="flex flex-col gap-8">
+        <h1 className="text-2xl font-semibold tracking-tight">Home</h1>
+        <section
+          aria-labelledby="home-empty"
+          className="flex flex-col items-center gap-5 rounded-2xl border border-dashed border-input/60 px-6 py-14 text-center"
+        >
+          <EmptyStack />
+          <div className="flex max-w-xs flex-col gap-1.5">
+            <h2 id="home-empty" className="text-lg font-semibold tracking-tight">
+              Your decks will live here
+            </h2>
+            <p className="text-sm text-balance text-muted-foreground">
+              Each deck you make shows up on this page, with its cards.
+            </p>
+          </div>
+        </section>
+      </div>
+    </Page>
   );
 }
 
