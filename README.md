@@ -534,6 +534,185 @@ A Preview that fails is left stopped, its link gives a 404, and its deployment s
 
 A future production at `banki.dkomeza.com` would share its parent domain with the Previews, and a Preview runs any pull request's code, so it can set cookies for `banki.dkomeza.com` and `dkomeza.com`. Production's sign-in cookie must then use the `__Host-` prefix, which a browser only accepts from the exact host, over HTTPS and without a `Domain`, so a Preview can't plant or overwrite it.
 
+## Runner
+
+The [Runner](CONTEXT.md) runs the `/work-issue` [Stages](CONTEXT.md) unattended, at night, on the home server ([ADR-0012](docs/adr/0012-stages-run-unattended-in-a-runner-container-on-the-home-server.md)). It sits beside the pull agent and shares nothing with it: no Docker socket, not on `banki-previews`, none of `~/.config/banki-preview`. Which Stage runs when is the Dispatcher's job, which comes with BAN-95; until then the Runner keeps its clone of `main` current and runs a Stage when you ask it to ([below](#running-one-stage-by-hand)).
+
+It is one Compose project, `banki-runner`, with two containers from one image:
+
+- **broker** holds the GitHub App's private key and the Linear app's client secret, and mints short-lived tokens from them. Nothing else runs there.
+- **runner** runs the tick and the Stages. It holds only the Claude token, asks the broker for GitHub and Linear tokens over a Unix socket, and never sees the keys.
+
+They share only the volume holding the broker's socket. A Stage runs `claude` with permission prompts skipped and reads untrusted text, so it could be talked into sending whatever it can read: it can mint tokens through the socket, but it can't read the key that makes them, and every token it can get dies on its own. A GitHub token lasts an hour. A Linear token is minted when its Stage starts and revoked when it ends, or 4 hours after it was minted, whichever comes first.
+
+A Stage still holds the Claude, GitHub and Linear tokens while it runs, and has open internet access: there is no egress allowlist (ADR-0012 records the trade-off). The container keeps a Stage away from the host and the Previews, not from sending what it reads, so the Stages take input only from the Maintainer in Linear, and from `claude-review` and Codex on GitHub (`.claude/skills/work-issue/references/stages.md` § Input).
+
+| Path                         | What it is                                                                                                                                                               |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `deploy/runner/compose.yaml` | The two containers, hardened, with their networks, volumes and secrets                                                                                                   |
+| `deploy/runner/Dockerfile`   | The image: pinned bun, node, git, gh and the `claude` CLI, and Chromium's system libraries                                                                               |
+| `deploy/runner/broker/`      | The broker (Bun, no npm dependencies): the App's JWT, the GitHub token cache and the Linear tokens' revoke schedule are pure and unit-tested; the rest are thin adapters |
+| `deploy/runner/loop/`        | The tick loop: brings the clone onto `main`, runs `tick.ts`, and says when the image is behind `main`                                                                    |
+| `deploy/runner/bin/`         | What is on the runner's PATH: `gh` and git's credential helper, which ask the broker for a token on every call, and `runner`                                             |
+| `deploy/runner/tick.ts`      | The tick, run from the clone: the Dispatcher's place (BAN-95). It only logs for now                                                                                      |
+| `deploy/runner/cli/`         | `runner stage`, run from the clone                                                                                                                                       |
+| `deploy/runner/bootstrap`    | Asks for the Runner's secrets and writes them outside the clone                                                                                                          |
+
+The broker, the tick loop and the wrappers on PATH are baked into the image. The tick script and the CLI run from the clone of `main` in the volume, so a merged change to them applies on the next tick.
+
+### Linear: the statuses and the app
+
+The Stages are driven by the issue's status (`docs/agents/issue-tracker.md` § Statuses, [ADR-0013](docs/adr/0013-linear-statuses-drive-the-stages-through-a-dispatcher-without-an-llm.md)). In the Banki team's settings, under **Workflow**, add:
+
+- **In Design** and **Design Review**, in the Unstarted category, before Todo;
+- **Acceptance**, in the Started category, after In Review.
+
+The Runner is a Linear OAuth app acting as itself, so its comments and assignments come from it and notify you, and a comment from your account is always yours. Create it in **Settings → API → OAuth applications**:
+
+1. Name it **Banki runner**. The callback URL is never used (the Runner doesn't sign in through a browser); give it any HTTPS URL, such as `https://banki.dkomeza.com`.
+2. Turn on **Client credentials**. The Runner uses that grant only: Linear doesn't let an app mix grants and still hold several of its tokens at once. Its tokens act as the app (`actor=app`) with the `read` and `write` scopes the broker asks for, and never `admin`.
+3. Note the **client ID** and the **client secret**, for `bootstrap`.
+
+A client-credentials token sees the workspace's public teams only. Keep the Banki team public, or give the app access to it on the app's details page.
+
+A headless Stage reaches Linear through the `linear-banki` MCP server, authenticated as the Runner app (`docs/agents/issue-tracker.md`).
+
+### GitHub: the App
+
+On GitHub the Runner is a private App installed on this repo only. In **Settings → Developer settings → GitHub Apps → New GitHub App**:
+
+1. Name it **Banki runner** (its slug is then `banki-runner`). Any homepage URL will do. Turn **Webhook** off.
+2. **Repository permissions.** Read and write: **Contents**, **Pull requests**, **Actions** (to dispatch `slug-preview`). Read-only: **Checks**, **Commit statuses**, **Deployments**, **Metadata**. Nothing else: in particular no **Workflows**, so no push can change `.github/workflows/`, where the Actions secrets are, and no **Administration**.
+3. **Where can this GitHub App be installed?** Only on this account.
+4. Create it, note its **App ID**, and **generate a private key**, which downloads a `.pem` file. `bootstrap` copies it in; delete the download afterwards.
+5. **Install App**, on `dkomeza/banki` only (**Only select repositories**).
+
+The broker finds the installation itself. Every token it mints is for this repo alone, with the App's permissions, and lasts an hour; it mints a new one when under 15 minutes remain. Stages commit and push as `banki-runner[bot]`, with its noreply email, and `gh` and git ask the broker for a token on every call, so a Stage outlives any one token.
+
+`claude-review` runs for the App's pushes: `.github/workflows/claude-review.yml` names it in `allowed_bots`, and no other bot.
+
+### GitHub: the merge guard
+
+Whatever reaches `main` runs on the server on the next tick, the pull agent with its Docker socket included, so only you can make the App's pull requests mergeable. The `main` ruleset requires an approving review, dismisses approvals on a new push, and requires the last push to be approved by someone other than its pusher. The App isn't a bypass actor; your own (live-mode) pull requests merge through the existing admin bypass (`RepositoryRole` 5, in pull-request mode). Set it once with:
+
+```sh
+gh api --method PUT repos/dkomeza/banki/rulesets/25304272 --input - <<'EOF'
+{
+  "name": "main",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": { "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] } },
+  "bypass_actors": [{ "actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request" }],
+  "rules": [
+    { "type": "deletion" },
+    { "type": "non_fast_forward" },
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 1,
+        "dismiss_stale_reviews_on_push": true,
+        "require_last_push_approval": true,
+        "required_reviewers": [],
+        "require_code_owner_review": false,
+        "required_review_thread_resolution": true,
+        "require_extra_approval_for_unattributed_changes": true,
+        "allowed_merge_methods": ["squash"]
+      }
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": false,
+        "do_not_enforce_on_create": false,
+        "required_status_checks": [
+          { "context": "claude-review", "integration_id": 15368 },
+          { "context": "test", "integration_id": 15368 },
+          { "context": "check", "integration_id": 15368 }
+        ]
+      }
+    }
+  ]
+}
+EOF
+```
+
+It replaces the whole ruleset, so check it first against `gh api repos/dkomeza/banki/rulesets/25304272`: only the three review settings change.
+
+### Codex
+
+Set Codex's code review for this repo to **All PRs** (in Codex's settings, under code review), so it reviews the pull requests the App opens too. Whether Codex reviews a pull request an App opened isn't documented; the first headless Stage that opens one settles it.
+
+### Setting it up
+
+You need Docker with Compose v2 on the home server, and a Claude token made for the Runner alone, so it can be revoked without touching anything else:
+
+```sh
+claude setup-token
+```
+
+Then, from a checkout of `main` on the server:
+
+```sh
+deploy/runner/bootstrap
+BANKI_RUNNER_COMMIT="$(git rev-parse HEAD)" docker compose -f deploy/runner/compose.yaml up -d --build
+```
+
+`bootstrap` asks for the Claude token, the App's ID and the path to its private key (which it copies in), and the Linear app's client ID and secret; the secrets are read without echo. It writes them to `$BANKI_RUNNER_SECRETS`, by default `~/.config/banki-runner`, outside the clone (a `0700` directory of `0600` files), and refuses a directory inside a git work tree. It also writes your uid and gid, and that directory's path, to `deploy/runner/.env` (gitignored), which Compose reads: both containers run as you, so they can read your `0600` files with no extra capability, and Compose refuses to start them until `bootstrap` has run. Run it again to change a value: each one it has is the default, so Enter keeps it. The broker reads its settings only on start, so afterwards run `docker compose -f deploy/runner/compose.yaml up -d --force-recreate`.
+
+The broker gets the App's key and the Linear client secret, and the runner the Claude token, as compose secrets: files under `/run/secrets/`, so none is in an environment in `docker inspect`, and each container gets only its own. Both containers run with a read-only root filesystem, `no-new-privileges`, every capability dropped, and each on its own network with internet access; neither publishes a port. The runner has an 8 GB memory cap, no CPU cap and a 1 GB `/dev/shm` for Chromium; the broker has 128 MB.
+
+The runner's volume, `banki-runner-work`, is mounted at `/work`:
+
+| Path                     | What it is                                                                             |
+| ------------------------ | -------------------------------------------------------------------------------------- |
+| `/work/banki`            | The clone of `main`, and each Stage's working directory                                |
+| `/work/banki-worktrees/` | The issues' worktrees, as on the laptop                                                |
+| `/work/logs/`            | Each Stage's log                                                                       |
+| `/work/home/`            | HOME: `~/.claude`, bun's cache, and Playwright's browsers (`PLAYWRIGHT_BROWSERS_PATH`) |
+
+Chromium isn't in the image: each worktree installs the build its own Playwright wants with `npx playwright install chromium`, a no-op once it is there, so a Playwright bump on `main` needs no rebuild.
+
+### The tick
+
+Every 5 minutes the runner runs `git fetch origin main` and `git reset --hard origin/main` in `/work/banki`, in place, even while a Stage runs there, and then runs `deploy/runner/tick.ts` from the clone. A failed fetch or tick is logged, and the loop goes on:
+
+```sh
+docker compose -f deploy/runner/compose.yaml logs -f runner
+```
+
+When anything baked into the image (`deploy/runner/Dockerfile`, `compose.yaml`, `broker/`, `loop/`, `lib/` or `bin/`) changed on `main` since the commit the image was built from, the log says so once per `main` commit, with the command to run by hand from an up-to-date checkout of `main`:
+
+```sh
+git pull
+BANKI_RUNNER_COMMIT="$(git rev-parse HEAD)" docker compose -f deploy/runner/compose.yaml up -d --build
+```
+
+An image built without `BANKI_RUNNER_COMMIT` counts as behind, since nothing says what it holds.
+
+### Running one Stage by hand
+
+```sh
+docker compose -f deploy/runner/compose.yaml exec runner runner stage <design|implement|review-round|acceptance-fix> BAN-N
+```
+
+It runs the Stage's prompt (`.claude/skills/work-issue/stages/<kind>.md`) on the issue, headless, in the clone of `main`, as a Dispatcher-started one would. It gets a Linear token from the broker for this Stage alone and gives `claude` a per-run MCP config (`0600`, deleted afterwards) whose one server is `linear-banki`, then runs `claude -p --output-format stream-json --verbose --dangerously-skip-permissions --strict-mcp-config --mcp-config <file>` with the Claude token and no `ANTHROPIC_API_KEY`. It runs in the foreground and prints one line per event, prints the Stage's result (`<wt>/.ui/stage-result.json`) at the end, and revokes the Linear token whatever happens, Ctrl-C included. It never changes the issue's status or assignee: that is the Dispatcher's job. `exec -d` instead of `exec` runs it detached.
+
+### Reading a Stage's log
+
+Every event of a Stage is kept in `/work/logs/BAN-N/<start time>-<kind>.jsonl`, one JSON object per line: `claude`'s stream-json events, and `runner` events for its start, its stderr and its exit.
+
+```sh
+docker compose -f deploy/runner/compose.yaml exec runner ls /work/logs/BAN-94
+docker compose -f deploy/runner/compose.yaml exec runner tail -f /work/logs/BAN-94/2026-10-24T01-00-00Z-implement.jsonl
+docker compose -f deploy/runner/compose.yaml exec runner sh -c 'grep "\"type\":\"result\"" /work/logs/BAN-94/*.jsonl'
+```
+
+The broker logs every token it mints or revokes, by ID, never the token itself:
+
+```sh
+docker compose -f deploy/runner/compose.yaml logs broker
+```
+
 ## Database migrations
 
 The schema lives in `apps/api/src/db/schema.ts`, and the migrations drizzle-kit generates from it live in `apps/api/drizzle/` (SQL files plus `meta/`, all committed). To change the schema:
@@ -558,10 +737,10 @@ better-auth's tables (`user`, `auth_session`, `auth_account`, `auth_verification
 
 Run from the repo root; CI runs the same ones.
 
-| Script                 | What it does                                                                                                                                                       |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `bun run typecheck`    | `tsc -b` across every workspace                                                                                                                                    |
-| `bun run lint`         | oxlint, type-aware, warnings fail                                                                                                                                  |
-| `bun run format`       | oxfmt, rewriting files in place                                                                                                                                    |
-| `bun run format:check` | oxfmt, failing on unformatted files                                                                                                                                |
-| `bun run test`         | Each workspace's tests: `bun test` (api, shared), Vitest (web), the `ui` script's under `node --test`, and the Preview agent's (`deploy/preview`) under `bun test` |
+| Script                 | What it does                                                                                                                                                                                          |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bun run typecheck`    | `tsc -b` across every workspace                                                                                                                                                                       |
+| `bun run lint`         | oxlint, type-aware, warnings fail                                                                                                                                                                     |
+| `bun run format`       | oxfmt, rewriting files in place                                                                                                                                                                       |
+| `bun run format:check` | oxfmt, failing on unformatted files                                                                                                                                                                   |
+| `bun run test`         | Each workspace's tests: `bun test` (api, shared), Vitest (web), the `ui` script's under `node --test`, and the Preview agent's (`deploy/preview`) and the Runner's (`deploy/runner`) under `bun test` |

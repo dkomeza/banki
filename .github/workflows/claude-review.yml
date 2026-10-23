@@ -31,6 +31,10 @@ jobs:
         uses: anthropics/claude-code-action@ed670b4cf9de2a5a570d130d2f6197b9e543cd64 # v1.0.240
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # The Runner's GitHub App pushes the headless Stages' commits
+          # (ADR-0012), and the action refuses to run for a bot it isn't told
+          # about. That App, and no other bot.
+          allowed_bots: banki-runner
           prompt: |
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ github.event.pull_request.number }}

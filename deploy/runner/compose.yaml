@@ -1,0 +1,87 @@
+# The Runner (ADR-0012), on the home server, beside the pull agent and
+# sharing nothing with it: no Docker socket, not on banki-previews, none of
+# ~/.config/banki-preview. Start it from a checkout of `main`:
+#
+#   BANKI_RUNNER_COMMIT="$(git rev-parse HEAD)" docker compose -f deploy/runner/compose.yaml up -d --build
+#
+# Its secrets come from `deploy/runner/bootstrap`, which writes them to
+# $BANKI_RUNNER_SECRETS (default ~/.config/banki-runner), outside the clone,
+# and the host user's uid and gid to deploy/runner/.env, which Compose reads
+# from here. See "Runner" in the README. No service publishes a host port.
+
+name: banki-runner
+
+x-hardening: &hardening # One image for both, built once, by the runner's service.
+  image: banki-runner
+  # As the host user, who owns the 0600 secret files, so reading them needs no
+  # capability at all.
+  user: "${BANKI_RUNNER_UID:?run deploy/runner/bootstrap}:${BANKI_RUNNER_GID:?run deploy/runner/bootstrap}"
+  read_only: true
+  tmpfs:
+    - /tmp
+  security_opt: [no-new-privileges:true]
+  cap_drop: [ALL]
+  # Bun isn't PID 1, so `docker compose stop` ends it straight away.
+  init: true
+  restart: unless-stopped
+
+services:
+  broker:
+    <<: *hardening
+    command: ["bun", "/opt/banki-runner/broker/main.ts"]
+    environment:
+      HOME: /tmp
+      BANKI_BROKER_SOCKET: /run/banki-broker/broker.sock
+    # GITHUB_APP_ID and LINEAR_CLIENT_ID: not secret.
+    env_file: ${BANKI_RUNNER_SECRETS:-${HOME}/.config/banki-runner}/broker.env
+    # The keys, as files under /run/secrets: never in an environment.
+    secrets: [github-app-key, linear-client-secret]
+    volumes:
+      # Its socket, the one thing it shares with the runner.
+      - banki-runner-broker:/run/banki-broker
+    mem_limit: 128m
+    # Its own network, for GitHub and Linear.
+    networks: [broker]
+
+  runner:
+    <<: *hardening
+    build:
+      context: .
+      args:
+        # The commit of `main` it is built from, which the tick loop compares
+        # with `main` to say when the image needs rebuilding.
+        BANKI_RUNNER_COMMIT: ${BANKI_RUNNER_COMMIT:-}
+    environment:
+      # ~/.claude, bun's cache and Playwright's browsers, on the volume.
+      HOME: /work/home
+      PLAYWRIGHT_BROWSERS_PATH: /work/home/ms-playwright
+      BANKI_BROKER_SOCKET: /run/banki-broker/broker.sock
+    # The Claude token alone. It asks the broker for GitHub and Linear tokens.
+    secrets: [claude-token]
+    volumes:
+      # The clone of main, the worktrees, the logs and HOME.
+      - banki-runner-work:/work
+      - banki-runner-broker:/run/banki-broker
+    # The Stages run tests, the `ui` stack and Chromium. No CPU cap.
+    mem_limit: 8g
+    shm_size: 1g
+    # Its own network, for GitHub, Linear, Anthropic and the package registries.
+    networks: [runner]
+
+networks:
+  broker: {}
+  runner: {}
+
+volumes:
+  banki-runner-work:
+    name: banki-runner-work
+  banki-runner-broker:
+    name: banki-runner-broker
+
+secrets:
+  github-app-key:
+    file: ${BANKI_RUNNER_SECRETS:-${HOME}/.config/banki-runner}/github-app-key
+  linear-client-secret:
+    file: ${BANKI_RUNNER_SECRETS:-${HOME}/.config/banki-runner}/linear-client-secret
+  claude-token:
+    file: ${BANKI_RUNNER_SECRETS:-${HOME}/.config/banki-runner}/claude-token

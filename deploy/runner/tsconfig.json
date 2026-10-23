@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  // The Runner's broker, tick loop and CLI, and their tests: Bun runs them as
+  // they are, with no npm dependencies of their own (@types/bun comes from the
+  // repo root).
+  "compilerOptions": {
+    "types": ["bun"]
+  },
+  "include": ["**/*.ts"]
+}

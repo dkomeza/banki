@@ -2,7 +2,7 @@
 
 Issues and specs for this repo live in Linear: workspace `banki-group`, team `Banki` (key `BAN`), project "Banki". Issue identifiers look like `BAN-123`.
 
-In a session, use the `linear-banki` MCP server (`mcp__linear-banki__*`) for all operations, not the generic claude.ai Linear connector (`mcp__claude_ai_Linear__*`). A headless Stage on the Runner reaches Linear through what the Runner provides, as the Runner app; the operations below are the same either way, named by their MCP tools.
+In a session, use the `linear-banki` MCP server (`mcp__linear-banki__*`) for all operations, not the generic claude.ai Linear connector (`mcp__claude_ai_Linear__*`). A headless Stage on the Runner uses the `linear-banki` MCP server too, authenticated as the Runner app: `runner stage` gives each Stage its own `linear-banki` server (Linear's, at `https://mcp.linear.app/mcp`) with a token minted for that Stage alone, and no other MCP server (README § Runner). The operations below are the same either way, named by their MCP tools, and what a Stage posts or changes comes from the Runner app.
 
 **Ask before creating, closing, or relabelling issues.** This is a solo project with no cycles. An issue's status drives the agent pipeline (below, and ADR-0013). The one integration is GitHub: a branch named after the issue's `gitBranchName` links its PR to the issue, and merging the PR moves the issue to `Done`.
 

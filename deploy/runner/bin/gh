@@ -1,0 +1,14 @@
+#!/bin/sh
+# gh, as the Runner's GitHub App (ADR-0012): asks the broker for an
+# installation token on every call, so a Stage outlives any one token and never
+# holds the App's key. The real gh is outside PATH.
+set -eu
+
+token="$(curl --silent --show-error --fail-with-body --max-time 60 \
+  --unix-socket "${BANKI_BROKER_SOCKET:-/run/banki-broker/broker.sock}" \
+  http://broker/github/token)" || {
+  printf 'gh: the broker gave no GitHub token: %s\n' "${token:-is the broker container up?}" >&2
+  exit 1
+}
+
+GH_TOKEN="$token" exec "${BANKI_REAL_GH:-/usr/local/libexec/gh/gh}" "$@"
