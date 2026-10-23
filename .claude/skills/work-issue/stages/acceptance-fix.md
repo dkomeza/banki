@@ -6,7 +6,7 @@ Follow [`../references/stages.md`](../references/stages.md) (paths, input, quest
 
 ## 1. Start
 
-As `stages.md` § Start. `<pr>` is the PR's number (`gh pr view <branch> --json number`).
+As `stages.md` § Start.
 
 ## 2. Read the feedback
 

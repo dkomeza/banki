@@ -29,7 +29,7 @@ Read the issue and its comments (see `docs/agents/issue-tracker.md`), the "Banki
 Past Backlog, the grill is done:
 
 - In Progress means a Stage is running on the Runner: tell the Maintainer and end here.
-- An issue a headless Stage stopped on (assigned to the Maintainer, the Stage's question its last comment) starts by putting that question to them. An answer that settles the spec goes into the issue description, not a comment: their comment would hand the issue back to the Dispatcher. Then go on in live mode.
+- An issue a headless Stage stopped on (assigned to the Maintainer, with the Stage's question in a comment) starts by putting that question to them in the session, with `AskUserQuestion`. Leave the stop comment's thread alone: a reply there would hand the issue back to the Dispatcher. A spec answer goes into the issue description, as in any Stage. Then go on in live mode, which keeps the issue assigned.
 - Any other status goes straight to live mode.
 
 In Backlog, create the worktree: `git worktree add <wt> -b <branch> main`.
@@ -58,14 +58,16 @@ Left to the Runner, the session ends here.
 
 ## Live mode
 
-You run the Stages yourself, in this session, each from its prompt under `stages/`. Run live, a Stage puts its questions to the Maintainer instead of stopping (`references/stages.md` § Questions and stops). The issue stays assigned to the Maintainer the whole time, which keeps the Dispatcher off it; assign it now if it isn't.
+You run the Stages yourself, in this session, each from its prompt under `stages/`. Run live, a Stage puts its questions to the Maintainer instead of stopping (`references/stages.md` § Questions and stops). The issue stays assigned to the Maintainer the whole time, Design Review and Acceptance included, which keeps the Dispatcher off it; assign it now if it isn't. Every comment you post is top-level, so none of them hands the issue back.
+
+A session that ends before Checkpoint 2 hands the issue to the Runner by unassigning it, where it stands. When you stop early, tell the Maintainer that, and unassign it if they want the Runner to go on.
 
 Between Stages you do what the Dispatcher does headless, going by the Stage's result (`<wt>/.ui/stage-result.json`) and the issue's status:
 
 - **In Design**: run the design Stage, then the Design Review (`references/ui.md` § Live mode: Design Review).
 - **Design Review**: the Design Review, as above.
 - **Todo**: run the implement Stage.
-- **In Review**: run review rounds, each on the new head SHA, until the rounds end (`stages/review-round.md`). Then wait with a background `until` loop until the head SHA's PR Preview is up: the newest status of its `preview` deployment (`gh api 'repos/dkomeza/banki/deployments?environment=preview&sha=<head SHA>'`, then that deployment's `statuses`) is `success`. Then move the issue to Acceptance.
-- **Acceptance**: give the Maintainer the PR Preview's link (`https://pr-<pr>.banki.dkomeza.com`, signed in with a Preview's Email and Password) and the PR's link, with its before/after shots, and ask with `AskUserQuestion` whether they have feedback. A non-UI issue has less to try, and the same question. Post their feedback on the issue as a comment, in their words, move the issue back to In Review, run the Acceptance-fix Stage, and go on with the review rounds.
+- **In Review**: run review rounds until one ends with `"roundsEnded": true` in its result; a round with `"pushed": true` is followed by another on the new head SHA (`stages/review-round.md`). Then wait until the head SHA's PR Preview is up (`references/stages.md` § Waits): the newest status of its `preview` deployment (`gh api 'repos/dkomeza/banki/deployments?environment=preview&sha=<head SHA>'`, then that deployment's `statuses`) is `success`. A `failure` or `inactive` status, or the deadline, goes to the Maintainer with its `description`: push an empty commit to rebuild it (which re-runs both bots, so another round follows), wait longer, or go on to Acceptance without it. Then post the Acceptance hand-off comment (`references/stages.md` § Hand-offs) and move the issue to Acceptance.
+- **Acceptance**: give the Maintainer the same links, and ask with `AskUserQuestion` whether they have feedback. A non-UI issue has less to try, and the same question. Post their feedback on the issue as a top-level comment, in their words, move the issue back to In Review, run the Acceptance-fix Stage, and go on with the review rounds.
 
 **Checkpoint 2.** When the Maintainer has no more feedback, leave the issue in Acceptance and unassign it. Hand over with the PR link and the state: the gate passing, no thread unresolved, and how many rounds it took. The Maintainer merges. Linear moves the issue to `Done`, and the next run's step 0 removes the worktree.

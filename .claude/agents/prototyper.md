@@ -21,11 +21,12 @@ For each Variant:
    - **Baseline**: read `docs/design.md` when it exists. Variants work within it and differ in structure. When the baseline is provisional, Variants also differ in direction (palette, type, density), and one of them keeps the current tokens in `apps/web/src/index.css`.
    - **Data**: build on the Seed data (`apps/api/src/seed/`), so the Variants show real density. Add seed rows when a Variant needs content the seed lacks.
    - **Sizes**: it works at the `ui` script's phone, tablet and desktop sizes, in light and dark.
-   - **States**: make each state the brief lists (a dialog, a validation error, an empty state) reachable by URL, `?state=<name>` on its route, with the page's plain load as the default. The Maintainer then reaches every state from a link on the Slug Preview, and so does the capture below.
+   - **States**: make each state the brief lists (a dialog, a validation error, an empty state) reachable by URL, `?state=<name>` on its route with the name the brief gives it, and the page's plain load as the default. The Maintainer then reaches every state from a link on the Slug Preview, and so does the capture below.
 3. **Self-check**: in its worktree, `bun run ui shoot --agent prototyper <routes…>`, and for each state `bun run ui shoot --agent prototyper-<state> '<route>?state=<state>'` (shot names drop the query string, so each state takes its own folder). Read every PNG and fix clear breakage, so the Maintainer's first look is at a working screen.
-4. Commit, push with `git push -u origin <branch>-proto-<key>`, and dispatch its Slug Preview: `gh workflow run slug-preview.yml -f branch=<branch>-proto-<key> -f slug=ban-<n>-<key> -f ttl_hours=336`.
+4. Write `variant.md` at the worktree's root: a `# <key>: <name>` heading, the one-line bet, and a `States:` line with its `?state=` names. Later rounds read the earlier Variants from it.
+5. Commit, push with `git push -u origin <branch>-proto-<key>`, and dispatch its Slug Preview: `gh workflow run slug-preview.yml -f branch=<branch>-proto-<key> -f slug=ban-<n>-<key> -f ttl_hours=336`.
 
-Done when every Variant is pushed, its worktree clean, and its Slug Preview dispatched.
+Done when every Variant is pushed with its `variant.md`, its worktree clean, and its Slug Preview dispatched.
 
 ## Capturing the Reference
 

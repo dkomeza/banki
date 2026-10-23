@@ -28,14 +28,19 @@ With the section written, the grill moves the issue to In Design.
 
 ## The issue's Slug Previews
 
-The design Stage takes down an earlier round's Slug Previews, and the implement Stage all of them. The issue's Slugs are the `slug-preview` deployments whose Slug starts with `ban-<n>-`:
+The design Stage checks that each Variant's Slug Preview was claimed and takes down an earlier round's, live mode waits for them to come up, and the implement Stage takes them all down. The issue's Slug Preview deployments are those whose Slug starts with `ban-<n>-`. List them, one line each with the Slug, commit, deployment ID and creation time, decoding the payload the way `.github/workflows/slug-preview.yml` does (GitHub may return it as a JSON string):
 
 ```sh
-gh api 'repos/dkomeza/banki/deployments?environment=slug-preview&per_page=100' \
-  --jq '[.[] | .payload.slug | strings | select(startswith("ban-<n>-"))] | unique | .[]'
+gh api --paginate 'repos/dkomeza/banki/deployments?environment=slug-preview&per_page=100' \
+  | jq -rs --arg prefix 'ban-<n>-' '
+    def payload: .payload | (if type == "string" then (try fromjson catch {}) else . end) | (if type == "object" then . else {} end);
+    add // [] | map(select(payload.slug | type == "string" and startswith($prefix)))
+    | sort_by([.created_at, .id]) | .[] | "\(payload.slug)\t\(.sha)\t\(.id)\t\(.created_at)"'
 ```
 
-Take each one down with `gh workflow run slug-preview.yml -f slug=<slug> -f down=true`. A Slug that is down already stays down.
+A Slug's newest deployment is its last line. Read that deployment's state with `gh api repos/dkomeza/banki/deployments/<id>/statuses --jq '.[0] | {state, description, environment_url}'` (the README's "Slug Previews" section lists the states).
+
+Take a Slug down with `gh workflow run slug-preview.yml -f slug=<slug> -f down=true`. A Slug that is down already stays down.
 
 ## Implement Stage: the Reference
 
@@ -62,6 +67,8 @@ git -C <wt> archive FETCH_HEAD:reference | tar -x -C <wt>/.ui/reference
 
 The implementer's prompt says this is a UI issue, so it checks its screens, and names `.ui/reference/` and `<branch>-proto-<key>` when the spec names a Reference. Its report lists the routes and states it checked on screen.
 
+A Reference's state shots (`<route>-<state>@<viewport>-<theme>.png`, named from the Prototype section's states) were reached on the Variant's branch with `?state=<name>`, which exists only in Variant code. On the real branch, each state is reached by interaction, as a user would reach it, and shot under the same name, so it can be compared with its Reference shot.
+
 ## Step 4: review
 
 Spawn the `ui-reviewer` alongside the other two reviewers, with the same prompt. When the spec names a Reference, the reviewer checks against `.ui/reference/`.
@@ -84,8 +91,8 @@ After a review round or an Acceptance fix that touched `apps/web/` has pushed, r
 
 After a live design Stage, show the Variants and ask for the verdict:
 
-1. Wait with a background `until` loop until each Variant's Slug Preview has reached `success` or `failure` (its deployment statuses, as the README's "Slug Previews" section reads them).
-2. Move the issue to Design Review.
-3. Give the Maintainer, per Variant, its link (`https://ban-<n>-<key>.banki.dkomeza.com` plus each route), its name and bet, and the `?state=` names, with the sign-in: a Preview's Email and Password. For a Variant whose Slug Preview failed, or a `/setup` state, start a stack in its worktree instead (`bun run ui up`, or `--before-setup`; bring the worktree to origin first) and give its URL from `.ui/stack.json` (with `&state=<name>` after a `setupUrl`, so the link keeps its Setup token) and the stack's sign-in (`EMAIL` and `PASSWORD` in `scripts/ui/stack.ts`). Each worktree's stack runs on its own ports, so every Variant can be up at once.
+1. Wait until each Variant's Slug Preview is up (`stages.md` § Waits; its newest deployment, § The issue's Slug Previews). For one that fails, or isn't up by the deadline, ask the Maintainer: dispatch it again, show it from a local stack (step 3), or go on without it.
+2. Post the Design Review hand-off comment (`stages.md` § Hand-offs), then move the issue to Design Review.
+3. Give the Maintainer the same links, names, bets and `?state=` names. For a Variant shown locally, or a `/setup` state, start a stack in its worktree instead (`bun run ui up`, or `--before-setup`; bring the worktree to origin first) and give its URL from `.ui/stack.json` (with `&state=<name>` after a `setupUrl`, so the link keeps its Setup token) and the stack's sign-in (`EMAIL` and `PASSWORD` in `scripts/ui/stack.ts`). Each worktree's stack runs on its own ports, so every Variant can be up at once.
 4. Ask with `AskUserQuestion` which Variant wins: one option per Variant, plus one for another round, with notes on what to keep, drop or mix.
-5. Post the answer as a comment on the issue, in the Maintainer's words: the winner, or what the next round should try. Then move the issue to Todo for a winner, or back to In Design for another round. Run `bun run ui down` in every worktree you started a stack in.
+5. Post the answer as a top-level comment on the issue, in the Maintainer's words: the winner, or what the next round should try. Then move the issue to Todo for a winner, or back to In Design for another round. Run `bun run ui down` in every worktree you started a stack in.

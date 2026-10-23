@@ -93,7 +93,7 @@ The status in which the Maintainer tries a prototype's Variants and either picks
 
 **Reference**:
 The screenshots of the chosen Variant, which the implementation is built to and reviewed against.
-_Avoid_: mock, baseline
+_Avoid_: mock
 
 **Acceptance**:
 The status in which the Maintainer tries a finished pull request's Preview, and either sends feedback back or merges it.
