@@ -1,0 +1,461 @@
+name: Slug Preview
+
+# Gives any branch of this repo a Slug Preview at https://<slug>.banki.dkomeza.com,
+# without a pull request (ADR-0011). A dispatch checks its inputs, claims the
+# Slug by creating a `slug-preview` Deployment, queued, then builds both images
+# of the branch's head and pushes them tagged only slug-<slug>-<sha>. The pull
+# agent on the home server deploys it once they exist and reports back on that
+# Deployment; this workflow never waits for it. `down` marks the Slug's
+# Deployment inactive, which the agent tears down, and sweeps the images of
+# every Slug that is down; so does a daily run.
+#
+# It must be dispatched from `main` (the default): with `--ref <branch>`
+# GitHub would run the branch's own copy of this file, so the Slug rule, the
+# held-Slug check and the sweep would differ from branch to branch. From
+# `main` there is one definition, and the branch is only checked out to be
+# built.
+#
+#   gh workflow run slug-preview.yml -f branch=<branch> -f slug=<slug> [-f ttl_hours=72]
+#   gh workflow run slug-preview.yml -f slug=<slug> -f down=true
+#
+# Inputs never reach a script as `${{ }}` text: each goes in through an
+# environment variable.
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: The branch to build (not needed with down)
+        type: string
+        required: false
+      slug:
+        description: The Slug, reached at https://<slug>.banki.dkomeza.com
+        type: string
+        required: true
+      ttl_hours:
+        description: Hours until the pull agent removes it, 1 to 336
+        type: number
+        default: 72
+      down:
+        description: Take the Slug Preview down instead of deploying it
+        type: boolean
+        default: false
+  schedule:
+    # The daily image sweep.
+    - cron: "23 4 * * *"
+
+# One Slug's dispatches never run at the same time; GitHub keeps at most one
+# waiting behind the running one, and a newer dispatch replaces it.
+concurrency:
+  group: ${{ github.event_name == 'schedule' && 'slug-preview-sweep' || format('slug-preview-{0}', inputs.slug) }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  check:
+    name: check
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.branch.outputs.sha }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SLUG: ${{ inputs.slug }}
+      BRANCH: ${{ inputs.branch }}
+      TTL_HOURS: ${{ inputs.ttl_hours }}
+      DOWN: ${{ inputs.down }}
+    steps:
+      # The same rule as the pull agent's isSlug (deploy/preview/agent/naming.ts).
+      - name: Check the inputs
+        id: inputs
+        run: |
+          set -euo pipefail
+          fail() {
+            echo "::error::$1"
+            exit 1
+          }
+          # Nothing unprintable, so no input can start a line of its own in the log.
+          if [[ "$SLUG$BRANCH$TTL_HOURS" =~ [^[:print:]] ]]; then
+            fail "the inputs may not hold control characters"
+          fi
+          if ! [[ "$SLUG" =~ ^[a-z][a-z0-9-]{0,38}[a-z0-9]$ ]] || [[ "$SLUG" == *--* ]]; then
+            fail "slug \`$SLUG\` isn't a Slug: 2 to 40 lowercase letters, digits and single hyphens, starting with a letter and ending with a letter or digit"
+          fi
+          if [[ "$SLUG" == pr-* ]]; then
+            fail "slug \`$SLUG\` may not start with pr-, which PR Previews use"
+          fi
+          case " www api app admin auth mail status preview previews prod production staging banki " in
+            *" $SLUG "*) fail "slug \`$SLUG\` is reserved" ;;
+          esac
+          if [ "$DOWN" = true ]; then
+            echo "Taking down slug \`$SLUG\`"
+            exit 0
+          fi
+          if ! [[ "$TTL_HOURS" =~ ^[0-9]{1,3}$ ]] || [ "$((10#$TTL_HOURS))" -lt 1 ] || [ "$((10#$TTL_HOURS))" -gt 336 ]; then
+            fail "ttl_hours must be a whole number of hours from 1 to 336, not \`$TTL_HOURS\`"
+          fi
+          if [ -z "$BRANCH" ]; then
+            fail "a branch is needed to deploy slug \`$SLUG\`"
+          fi
+          if [[ "$BRANCH" == dependabot/* ]]; then
+            fail "branch \`$BRANCH\` is Dependabot's, which gets no Slug Preview"
+          fi
+          if [[ "$BRANCH" == -* ]] || ! git check-ref-format "refs/heads/$BRANCH"; then
+            fail "branch \`$BRANCH\` isn't a valid branch name"
+          fi
+          echo "Deploying branch \`$BRANCH\` as slug \`$SLUG\` for $((10#$TTL_HOURS)) h"
+
+      # The head now is what gets built: the Slug Preview never follows later pushes.
+      - name: Resolve the branch to its head
+        id: branch
+        if: inputs.down != true
+        run: |
+          set -euo pipefail
+          fail() {
+            echo "::error::$1"
+            exit 1
+          }
+          errors="$(mktemp)"
+          path="$(jq -rn --arg branch "$BRANCH" '$branch | split("/") | map(@uri) | join("/")')"
+          if ! ref="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$path" 2>"$errors")"; then
+            if grep -q "(HTTP 404)" "$errors"; then
+              fail "branch \`$BRANCH\` doesn't exist in $GITHUB_REPOSITORY"
+            fi
+            cat "$errors" >&2
+            exit 1
+          fi
+          sha="$(jq -r 'if type == "object" and .object.type == "commit" then .object.sha else "" end' <<<"$ref")"
+          if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+            fail "branch \`$BRANCH\` doesn't exist in $GITHUB_REPOSITORY"
+          fi
+          echo "Branch \`$BRANCH\` is at $sha"
+          echo "sha=$sha" >>"$GITHUB_OUTPUT"
+
+  claim:
+    name: claim
+    needs: check
+    if: inputs.down != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      deployments: write
+    outputs:
+      deployment: ${{ steps.create.outputs.deployment }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SLUG: ${{ inputs.slug }}
+      BRANCH: ${{ inputs.branch }}
+      TTL_HOURS: ${{ inputs.ttl_hours }}
+      SHA: ${{ needs.check.outputs.sha }}
+    steps:
+      # A Slug is held by the branch of its newest Deployment until that one is
+      # inactive, so a typo can't replace another branch's Slug Preview. The
+      # same branch dispatched again redeploys at its new head.
+      - name: Refuse a Slug another branch holds
+        id: held
+        run: |
+          set -euo pipefail
+          deployments="$(gh api --paginate "repos/$GITHUB_REPOSITORY/deployments?environment=slug-preview&per_page=100")"
+          newest="$(jq -rs --arg slug "$SLUG" '
+            def payload: .payload | (if type == "string" then (try fromjson catch {}) else . end) | (if type == "object" then . else {} end);
+            add // [] | map(select(payload.slug == $slug)) | max_by([.created_at, .id]) // empty
+            | "\(.id)\t\(payload.ref // "" | tostring)"
+          ' <<<"$deployments")"
+          if [ -z "$newest" ]; then
+            echo "slug \`$SLUG\` is free"
+            exit 0
+          fi
+          IFS=$'\t' read -r id ref <<<"$newest"
+          state="$(gh api "repos/$GITHUB_REPOSITORY/deployments/$id/statuses?per_page=1" | jq -r '.[0].state // "none"')"
+          if [ "$state" = inactive ]; then
+            echo "slug \`$SLUG\` is free: its newest Deployment, $id, is inactive"
+          elif [ "$ref" = "$BRANCH" ]; then
+            echo "slug \`$SLUG\` is branch \`$BRANCH\`'s already: redeploying it at its head"
+          else
+            echo "::error::slug \`$SLUG\` is held by branch \`$ref\`"
+            exit 1
+          fi
+
+      # Created before the build, so the Slug is claimed at once. The agent
+      # deploys it once both images exist, and keeps no state of its own: this
+      # Deployment is the whole record of the Slug Preview.
+      - name: Create the Deployment, queued
+        id: create
+        run: |
+          set -euo pipefail
+          body="$(jq -n --arg sha "$SHA" --arg slug "$SLUG" --arg ref "$BRANCH" --argjson ttl "$((10#$TTL_HOURS))" '{
+            ref: $sha,
+            environment: "slug-preview",
+            payload: { slug: $slug, ref: $ref, sha: $sha, ttlHours: $ttl },
+            description: "Slug Preview \($slug)",
+            required_contexts: [],
+            auto_merge: false,
+            transient_environment: true,
+            production_environment: false
+          }')"
+          id="$(gh api --method POST "repos/$GITHUB_REPOSITORY/deployments" --input - <<<"$body" | jq -r '.id // empty')"
+          if ! [[ "$id" =~ ^[0-9]+$ ]]; then
+            echo "::error::GitHub didn't create the Deployment"
+            exit 1
+          fi
+          status="$(jq -n --arg description "waiting for images of ${SHA:0:7}" '{ state: "queued", description: $description, auto_inactive: false }')"
+          gh api --method POST "repos/$GITHUB_REPOSITORY/deployments/$id/statuses" --input - --silent <<<"$status"
+          echo "Deployment $id claims slug \`$SLUG\` for branch \`$BRANCH\` at $SHA"
+          echo "deployment=$id" >>"$GITHUB_OUTPUT"
+
+  build:
+    name: build (${{ matrix.app }})
+    needs: [check, claim]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Only what pushing the images needs: the branch's code is built here.
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        app: [api, web]
+    env:
+      APP: ${{ matrix.app }}
+      SHA: ${{ needs.check.outputs.sha }}
+      TAG: slug-${{ inputs.slug }}-${{ needs.check.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+          persist-credentials: false
+      # Image names must be lowercase, and the owner may not be.
+      - name: Name the image
+        id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/banki-$APP" >>"$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # Dispatching the same head again finds its images pushed: a rebuild
+      # would move the tag to a new digest and orphan the old version untagged.
+      - name: Check whether this build is already pushed
+        id: pushed
+        continue-on-error: true
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+        run: |
+          if docker buildx imagetools inspect "$IMAGE:$TAG" >/dev/null 2>&1; then
+            echo "$IMAGE:$TAG is already pushed, skipping the build"
+            echo "exists=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "$IMAGE:$TAG isn't pushed yet, building it"
+          fi
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        if: steps.pushed.outputs.exists != 'true'
+        with:
+          context: .
+          file: apps/${{ matrix.app }}/Dockerfile
+          # The home server is x86.
+          platforms: linux/amd64
+          push: true
+          # Only this tag: PR cleanup never touches it, and the sweep below
+          # finds every version of the Slug by it.
+          tags: ${{ steps.image.outputs.name }}:${{ env.TAG }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ needs.check.outputs.sha }}
+          provenance: false
+          sbom: false
+          build-args: ${{ matrix.app == 'api' && format('COMMIT={0}', needs.check.outputs.sha) || '' }}
+          # A cache of the Slug's own: this run is on main, whose caches every
+          # branch's runs can read, so a branch's build never writes to one
+          # another workflow reads.
+          cache-from: type=gha,scope=slug-${{ inputs.slug }}-${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=slug-${{ inputs.slug }}-${{ matrix.app }}
+
+  build-failed:
+    name: build failed
+    needs: [claim, build]
+    if: always() && needs.claim.result == 'success' && needs.build.result != 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      deployments: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      DEPLOYMENT: ${{ needs.claim.outputs.deployment }}
+    steps:
+      - name: Mark the Deployment a failure
+        id: fail
+        run: |
+          set -euo pipefail
+          gh api --method POST "repos/$GITHUB_REPOSITORY/deployments/$DEPLOYMENT/statuses" --input - --silent \
+            <<<'{"state":"failure","description":"build failed","auto_inactive":false}'
+          echo "Deployment $DEPLOYMENT: build failed"
+
+  down:
+    name: down
+    needs: check
+    if: inputs.down == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      deployments: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SLUG: ${{ inputs.slug }}
+    steps:
+      # The agent tears down a Slug Preview whose newest Deployment is
+      # inactive, and it stays down until it is dispatched again.
+      - name: Mark the Slug's Deployment inactive
+        id: down
+        run: |
+          set -euo pipefail
+          deployments="$(gh api --paginate "repos/$GITHUB_REPOSITORY/deployments?environment=slug-preview&per_page=100")"
+          ids="$(jq -rs --arg slug "$SLUG" '
+            def payload: .payload | (if type == "string" then (try fromjson catch {}) else . end) | (if type == "object" then . else {} end);
+            add // [] | map(select(payload.slug == $slug)) | sort_by([.created_at, .id]) | reverse | .[].id
+          ' <<<"$deployments")"
+          for id in $ids; do
+            state="$(gh api "repos/$GITHUB_REPOSITORY/deployments/$id/statuses?per_page=1" | jq -r '.[0].state // "none"')"
+            if [ "$state" != inactive ]; then
+              gh api --method POST "repos/$GITHUB_REPOSITORY/deployments/$id/statuses" --input - --silent \
+                <<<'{"state":"inactive","description":"taken down","auto_inactive":false}'
+              echo "Took down slug \`$SLUG\`: Deployment $id is inactive"
+              exit 0
+            fi
+          done
+          echo "slug \`$SLUG\` has no Slug Preview to take down"
+
+  sweep:
+    name: sweep images
+    needs: down
+    if: >-
+      !cancelled() &&
+      (github.event_name == 'schedule' || needs.down.result == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      deployments: read
+      packages: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    # Deletes every version, in banki-api and banki-web, whose tags are all
+    # slug-<slug>-<sha> tags of Slugs that are down: the Slug's newest
+    # `slug-preview` Deployment is inactive, or it has none. A version with
+    # any other tag, a PR's or a release's, is never touched, and PR cleanup
+    # never touches these.
+    #
+    # The versions are listed before the Deployments are read, so an image
+    # pushed after the listing is never deleted. A Slug dispatched again while
+    # the sweep runs, at a head whose images are already pushed, reuses them
+    # without pushing: so right before deleting a version, the sweep reads
+    # its Slugs' newest Deployments again, and keeps it unless they are still
+    # down. That narrows the race but can't close it: a dispatch whose build
+    # found the images just before this deletes them waits with none. The
+    # pull agent marks a Deployment still waiting for its images an hour
+    # after the dispatch a failure (`images never arrived, dispatch again`),
+    # so a lost image shows, and dispatching again rebuilds it.
+    #
+    # GHCR refuses to delete a package's last tagged version (HTTP 400): that
+    # one stays until a later sweep. A 404 is a version already deleted.
+    steps:
+      - name: Delete the images of Slugs that are down
+        id: sweep
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          errors="$(mktemp)"
+          listed="$(mktemp -d)"
+          # Each Slug's newest Deployment, by created_at and then ID.
+          newest_of() {
+            gh api --paginate "repos/$GITHUB_REPOSITORY/deployments?environment=slug-preview&per_page=100" </dev/null \
+              | jq -rs --arg slug "$1" '
+                def payload: .payload | (if type == "string" then (try fromjson catch {}) else . end) | (if type == "object" then . else {} end);
+                add // [] | map(select(payload.slug == $slug)) | max_by([.created_at, .id]) // empty | .id
+              '
+          }
+          # Whether the Slug is down right now: its newest Deployment is inactive, or it has none.
+          still_down() {
+            local id state
+            id="$(newest_of "$1")"
+            if [ -z "$id" ]; then return 0; fi
+            state="$(gh api "repos/$GITHUB_REPOSITORY/deployments/$id/statuses?per_page=1" </dev/null | jq -r '.[0].state // "none"')"
+            [ "$state" = inactive ]
+          }
+          for pkg in banki-api banki-web; do
+            if ! gh api --paginate "users/$owner/packages/container/$pkg/versions?per_page=100" >"$listed/$pkg" 2>"$errors"; then
+              if grep -q "(HTTP 404)" "$errors"; then
+                echo "$pkg: no package, nothing to delete"
+                echo "[]" >"$listed/$pkg"
+                continue
+              fi
+              cat "$errors" >&2
+              exit 1
+            fi
+          done
+
+          deployments="$(gh api --paginate "repos/$GITHUB_REPOSITORY/deployments?environment=slug-preview&per_page=100")"
+          newest="$(jq -rs '
+            def payload: .payload | (if type == "string" then (try fromjson catch {}) else . end) | (if type == "object" then . else {} end);
+            add // [] | map(select(payload.slug | type == "string")) | group_by(payload.slug)
+            | .[] | max_by([.created_at, .id]) | "\(payload.slug)\t\(.id)"
+          ' <<<"$deployments")"
+          live="[]"
+          while IFS=$'\t' read -r slug id; do
+            [ -n "$slug" ] || continue
+            state="$(gh api "repos/$GITHUB_REPOSITORY/deployments/$id/statuses?per_page=1" | jq -r '.[0].state // "none"')"
+            if [ "$state" != inactive ]; then
+              live="$(jq -c --arg slug "$slug" '. + [$slug]' <<<"$live")"
+            fi
+          done <<<"$newest"
+          echo "Slugs that are up: $live"
+
+          for pkg in banki-api banki-web; do
+            versions="users/$owner/packages/container/$pkg/versions"
+            # Pages arrive as concatenated arrays. The slug is everything
+            # between slug- and the 40-hex SHA at the end.
+            matches="$(jq -rs --argjson live "$live" '
+              add // []
+              | .[]
+              | (.metadata.container.tags // []) as $tags
+              | select(
+                  ($tags | length > 0)
+                  and all($tags[]; test("^slug-[a-z0-9-]+-[0-9a-f]{40}$"))
+                  and all(
+                    $tags[] | capture("^slug-(?<s>[a-z0-9-]+)-[0-9a-f]{40}$") | .s;
+                    . as $s | $live | any(. == $s) | not
+                  )
+                )
+              | "\(.id)\t\($tags | join(" "))\t\([$tags[] | capture("^slug-(?<s>[a-z0-9-]+)-[0-9a-f]{40}$") | .s] | unique | join(" "))"
+            ' "$listed/$pkg")"
+            if [ -z "$matches" ]; then
+              echo "$pkg: no versions of Slugs that are down"
+              continue
+            fi
+            while IFS=$'\t' read -r id tags slugs; do
+              up=""
+              for slug in $slugs; do
+                if ! still_down "$slug"; then up="$slug"; break; fi
+              done
+              if [ -n "$up" ]; then
+                echo "$pkg: slug $up is up again, keeping version $id"
+                continue
+              fi
+              echo "$pkg: deleting version $id ($tags)"
+              if ! gh api --method DELETE "$versions/$id" --silent </dev/null 2>"$errors"; then
+                if grep "(HTTP 400)" "$errors" | grep -q "You cannot delete the last tagged version of a package"; then
+                  echo "$pkg: kept version $id, GHCR won't delete a package's last tagged version"
+                  continue
+                fi
+                if grep -q "(HTTP 404)" "$errors"; then
+                  echo "$pkg: version $id is already deleted"
+                  continue
+                fi
+                cat "$errors" >&2
+                exit 1
+              fi
+            done <<<"$matches"
+          done

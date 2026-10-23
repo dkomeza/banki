@@ -40,7 +40,9 @@ services:
       # secret files from there.
       BANKI_PREVIEW_SECRETS: ${BANKI_PREVIEW_SECRETS:-${HOME}/.config/banki-preview}
     # PANGOLIN_API_URL, PANGOLIN_ORG_ID and PANGOLIN_SITE: not secret.
-    # PREVIEW_CAP and PREVIEW_IDLE_DAYS, if set: the limits on Previews.
+    # PREVIEW_CAP and PREVIEW_IDLE_DAYS, if set: the limits on PR Previews.
+    # SLUG_PREVIEW_CAP and SLUG_PREVIEW_{API,WEB}_{MEMORY,CPUS}, if set: the
+    # limits on Slug Previews.
     env_file: ${BANKI_PREVIEW_SECRETS:-${HOME}/.config/banki-preview}/agent.env
     # Files under /run/secrets, so none of them is in its environment in
     # `docker inspect`.

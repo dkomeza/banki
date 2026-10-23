@@ -30,8 +30,18 @@ _Avoid_: onboarding, registration, sign-up
 A one-time code that Banki prints to its logs while Setup isn't done, and that the Setup page asks for. It proves that whoever does Setup can see the server, so a stranger who reaches a fresh installation first can't claim it.
 
 **Preview**:
-A disposable installation of Banki built from one pull request, already set up and holding Seed data, so the change can be tried on any device. It is rebuilt from scratch on every push. It is removed when the pull request closes, when it goes a while without a push, or when it is evicted to make room for newer ones; a removed Preview of an open pull request comes back on its next push. Its User is the only account it has.
+A disposable installation of Banki built from one commit of a branch, already set up and holding Seed data, so the change can be tried on any device. Its User is the only account it has. Every Preview is either a PR Preview or a Slug Preview, and the two never make room for each other.
 _Avoid_: staging, review app, preview account
+
+**PR Preview**:
+The Preview of an open pull request. It is rebuilt from scratch on every push. It is removed when the pull request closes, when it goes a while without a push, or when it is evicted to make room for newer ones; a removed PR Preview of an open pull request comes back on its next push.
+
+**Slug Preview**:
+A Preview of any branch, without a pull request, asked for by its Slug: for example one per variant of a prototype. It is rebuilt only when it is asked for again. It is removed when it is asked to go, when its time to live runs out, or when it is evicted to make room for newer ones, and it doesn't come back by itself.
+_Avoid_: prototype preview, branch preview
+
+**Slug**:
+The short name a Slug Preview is asked for by and reached at. One branch holds a Slug at a time, and the Slug is free again once its Slug Preview is removed.
 
 **Seed data**:
 The fixed sample content a Preview, or a developer's local copy, starts with: the same on every run, so two builds can be compared screen by screen.

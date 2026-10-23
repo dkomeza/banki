@@ -114,7 +114,8 @@ newt_secret="$(ask "Newt secret" "$(current_env newt.env NEWT_SECRET)" "secret e
 current_email="$(current_file preview-email)"
 # Set by hand in agent.env, if at all: never asked for, but kept.
 limits=""
-for key in PREVIEW_CAP PREVIEW_IDLE_DAYS; do
+for key in PREVIEW_CAP PREVIEW_IDLE_DAYS SLUG_PREVIEW_CAP SLUG_PREVIEW_API_MEMORY \
+  SLUG_PREVIEW_API_CPUS SLUG_PREVIEW_WEB_MEMORY SLUG_PREVIEW_WEB_CPUS; do
   value="$(current_env agent.env "$key")"
   if [ -n "$value" ]; then limits+=$'\n'"$key=$value"; fi
 done

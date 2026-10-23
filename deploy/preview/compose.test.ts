@@ -2,6 +2,8 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PR_PREVIEW_RESOURCES, slugPreviewLimits } from "./agent/config";
+import { type ComposeTarget, composeEnv } from "./agent/docker";
 import { isRecord } from "./agent/parse";
 
 // Renders the Preview template and agent.compose.yaml with `docker compose
@@ -11,13 +13,23 @@ import { isRecord } from "./agent/parse";
 
 const hasDocker = Bun.which("docker") !== null;
 
-const SAMPLE = {
-  PREVIEW_PR: "5",
-  PREVIEW_SHA: "a".repeat(40),
-  PREVIEW_DEPLOYED_AT: "2026-10-20T12:00:00.000Z",
-  API_DIGEST: `sha256:${"1".repeat(64)}`,
-  WEB_DIGEST: `sha256:${"2".repeat(64)}`,
+const PR_TARGET: ComposeTarget = {
+  key: 5,
+  sha: "a".repeat(40),
+  deployedAt: new Date("2026-10-20T12:00:00.000Z"),
+  digests: { api: `sha256:${"1".repeat(64)}`, web: `sha256:${"2".repeat(64)}` },
+  resources: PR_PREVIEW_RESOURCES,
 };
+
+/** What the agent sets for PR 5's Preview. */
+const SAMPLE = composeEnv(PR_TARGET);
+
+/** What the agent sets for the Slug Preview `blue`, with the slug pool's default limits. */
+const SLUG_SAMPLE = composeEnv({
+  ...PR_TARGET,
+  key: "blue",
+  resources: slugPreviewLimits({}).resources,
+});
 
 // A fake value, built at runtime so secret scanners don't flag it.
 const NEWT_SECRET = ["fake", "newt", "secret"].join("-");
@@ -156,16 +168,53 @@ describe.skipIf(!hasDocker)("the Preview template", () => {
     const { services, networks, volumes } = await config("compose.yaml", SAMPLE);
     const labels = {
       "banki.preview.pr": "5",
-      "banki.preview.sha": SAMPLE.PREVIEW_SHA,
-      "banki.preview.deployed-at": SAMPLE.PREVIEW_DEPLOYED_AT,
-      "banki.preview.api-digest": SAMPLE.API_DIGEST,
-      "banki.preview.web-digest": SAMPLE.WEB_DIGEST,
+      "banki.preview.sha": PR_TARGET.sha,
+      "banki.preview.deployed-at": PR_TARGET.deployedAt.toISOString(),
+      "banki.preview.api-digest": PR_TARGET.digests.api,
+      "banki.preview.web-digest": PR_TARGET.digests.web,
     };
 
     expect(services.api?.labels).toEqual(labels);
     expect(services.web?.labels).toEqual(labels);
     expect(networks.default?.labels).toEqual(labels);
     expect(volumes?.["banki-data"]?.labels).toEqual(labels);
+  });
+});
+
+describe.skipIf(!hasDocker)("the Preview template for a Slug Preview", () => {
+  test("sets the Slug Preview's origin on both", async () => {
+    const { services } = await config("compose.yaml", SLUG_SAMPLE);
+
+    expect(services.api?.environment).toEqual({ ORIGIN: "https://blue.banki.dkomeza.com" });
+    expect(services.web?.environment).toEqual({
+      BANKI_ORIGIN: "https://blue.banki.dkomeza.com",
+      BANKI_TRUSTED_PROXIES: "172.31.255.2",
+    });
+  });
+
+  test("limits api to 128m and half a CPU, and web to 48m and a quarter, with the same hardening", async () => {
+    const { services, networks } = await config("compose.yaml", SLUG_SAMPLE);
+
+    expect(services.api).toMatchObject({ ...HARDENING, cpus: 0.5, pids_limit: 128 });
+    expect(megabytes(services.api?.mem_limit)).toBe(128);
+    expect(services.web).toMatchObject({ ...HARDENING, cpus: 0.25, pids_limit: 64 });
+    expect(megabytes(services.web?.mem_limit)).toBe(48);
+    expect(networks.default?.internal).toBe(true);
+    expect(Object.keys(services.api?.networks ?? {})).toEqual(["default"]);
+  });
+
+  test("labels every object with the Slug instead of a PR", async () => {
+    const { services, networks, volumes } = await config("compose.yaml", SLUG_SAMPLE);
+
+    for (const labels of [
+      services.api?.labels,
+      services.web?.labels,
+      networks.default?.labels,
+      volumes?.["banki-data"]?.labels,
+    ]) {
+      expect(labels).toMatchObject({ "banki.preview.slug": "blue" });
+      expect(labels).not.toHaveProperty("banki.preview.pr");
+    }
   });
 });
 
@@ -255,19 +304,24 @@ describe.skipIf(!hasDocker)("agent.compose.yaml", () => {
     expect(volumes?.["banki-preview-src"]).toMatchObject({ name: "banki-preview-src" });
   });
 
-  test("passes the Preview limits from agent.env to the agent", async () => {
+  test("passes the Preview limits from agent.env to the agent, the slug pool's too", async () => {
     const withLimits = mkdtempSync(join(tmpdir(), "banki-preview-secrets-"));
     for (const file of ["github-token", "pangolin-api-key", "preview-email", "preview-password"]) {
       writeFileSync(join(withLimits, file), "dummy\n", { mode: 0o600 });
     }
     writeFileSync(join(withLimits, "newt.env"), "NEWT_ID=id\n");
-    writeFileSync(join(withLimits, "agent.env"), "PREVIEW_CAP=2\nPREVIEW_IDLE_DAYS=0.01\n");
+    writeFileSync(
+      join(withLimits, "agent.env"),
+      "PREVIEW_CAP=2\nPREVIEW_IDLE_DAYS=0.01\nSLUG_PREVIEW_CAP=3\nSLUG_PREVIEW_API_MEMORY=96m\n",
+    );
     try {
       const { services } = await render({ BANKI_PREVIEW_SECRETS: withLimits });
 
       expect(services.agent?.environment).toMatchObject({
         PREVIEW_CAP: "2",
         PREVIEW_IDLE_DAYS: "0.01",
+        SLUG_PREVIEW_CAP: "3",
+        SLUG_PREVIEW_API_MEMORY: "96m",
       });
     } finally {
       rmSync(withLimits, { recursive: true, force: true });

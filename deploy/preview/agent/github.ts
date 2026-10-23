@@ -1,5 +1,13 @@
-import { ENVIRONMENT, REPO } from "./naming";
-import { asArray, asNumber, asObject, asOptionalString, asString, parseJson } from "./parse";
+import { ENVIRONMENT, REPO, SLUG_ENVIRONMENT } from "./naming";
+import {
+  asArray,
+  asNumber,
+  asObject,
+  asOptionalString,
+  asString,
+  isRecord,
+  parseJson,
+} from "./parse";
 import {
   type Deployment,
   type DeploymentStatus,
@@ -7,6 +15,7 @@ import {
   type PullRequest,
   readEnoughDeployments,
 } from "./planner";
+import { readEnoughSlugDeployments, type SlugDeployment, type SlugProject } from "./slug-planner";
 
 // The GitHub adapter. Every call uses the token: the anonymous limit of 60
 // calls an hour is less than one poll every 30 s needs. The token is a
@@ -48,6 +57,49 @@ export function gitHub(token: string) {
     return parseJson(await res.text(), `GitHub ${method} ${url}`);
   };
 
+  /**
+   * One environment's Deployments with their latest statuses, newest first,
+   * until `enough` says so or there are none left, up to the page cap.
+   * GraphQL gets them with their statuses 100 at a time; REST would need one
+   * call per Deployment.
+   */
+  async function deploymentsOf<D>(
+    environment: string,
+    parse: (node: unknown) => D | undefined,
+    enough: (read: D[], batch: D[]) => boolean,
+  ): Promise<D[]> {
+    const deployments: D[] = [];
+    let after: string | null = null;
+    for (let page = 1; page <= MAX_DEPLOYMENT_PAGES; page++) {
+      const body = asObject(
+        await json("POST", "/graphql", {
+          query: DEPLOYMENTS_QUERY,
+          variables: { owner: OWNER, name: NAME, environment, after },
+        }),
+        "graphql",
+      );
+      if (body.errors !== undefined) {
+        throw new Error(`GitHub GraphQL: ${JSON.stringify(body.errors).slice(0, 300)}`);
+      }
+      const connection = asObject(
+        asObject(asObject(body.data, "data").repository, "repository").deployments,
+        "deployments",
+      );
+      const batch = asArray(connection.nodes, "deployments.nodes").flatMap(
+        (node) => parse(node) ?? [],
+      );
+      deployments.push(...batch);
+      const pageInfo = asObject(connection.pageInfo, "pageInfo");
+      if (pageInfo.hasNextPage !== true) return deployments;
+      if (enough(deployments, batch)) return deployments;
+      after = asString(pageInfo.endCursor, "pageInfo.endCursor");
+    }
+    console.warn(
+      `Read the newest ${MAX_DEPLOYMENT_PAGES * 100} ${environment} Deployments and stopped there: older ones aren't planned for`,
+    );
+    return deployments;
+  }
+
   return {
     /** Every open pull request, targets or not: the planner picks the targets. */
     async openPullRequests(): Promise<PullRequest[]> {
@@ -70,42 +122,44 @@ export function gitHub(token: string) {
      * GraphQL gets them with their statuses 100 at a time; REST would need one
      * call per Deployment.
      */
-    async previewDeployments(
+    previewDeployments(
       pullRequests: PullRequest[],
       projects: DockerProject[],
       { full }: { full: boolean },
     ): Promise<Deployment[]> {
-      const deployments: Deployment[] = [];
-      let after: string | null = null;
-      for (let page = 1; page <= MAX_DEPLOYMENT_PAGES; page++) {
-        const body = asObject(
-          await json("POST", "/graphql", {
-            query: DEPLOYMENTS_QUERY,
-            variables: { owner: OWNER, name: NAME, environment: ENVIRONMENT, after },
-          }),
-          "graphql",
-        );
-        if (body.errors !== undefined) {
-          throw new Error(`GitHub GraphQL: ${JSON.stringify(body.errors).slice(0, 300)}`);
-        }
-        const connection = asObject(
-          asObject(asObject(body.data, "data").repository, "repository").deployments,
-          "deployments",
-        );
-        const batch = asArray(connection.nodes, "deployments.nodes").flatMap(
-          (node) => parseDeployment(node) ?? [],
-        );
-        deployments.push(...batch);
-        const pageInfo = asObject(connection.pageInfo, "pageInfo");
-        if (pageInfo.hasNextPage !== true) return deployments;
-        if (!full && readEnoughDeployments(pullRequests, projects, deployments, batch))
-          return deployments;
-        after = asString(pageInfo.endCursor, "pageInfo.endCursor");
-      }
-      console.warn(
-        `Read the newest ${MAX_DEPLOYMENT_PAGES * 100} preview Deployments and stopped there: older ones aren't planned for`,
+      return deploymentsOf(
+        ENVIRONMENT,
+        (node) => parseDeployment(node),
+        (read, batch) => !full && readEnoughDeployments(pullRequests, projects, read, batch),
       );
-      return deployments;
+    },
+
+    /**
+     * The `slug-preview` Deployments with their latest statuses, newest
+     * first, every one of them with its payload, good or not: as far back as
+     * the slug planner needs for these Docker projects (see
+     * {@link readEnoughSlugDeployments}), or all of them when `full`.
+     */
+    slugPreviewDeployments(
+      projects: SlugProject[],
+      { full }: { full: boolean },
+    ): Promise<SlugDeployment[]> {
+      return deploymentsOf(
+        SLUG_ENVIRONMENT,
+        parseSlugDeployment,
+        (read, batch) => !full && readEnoughSlugDeployments(projects, read, batch),
+      );
+    },
+
+    /** A Deployment's latest status, or undefined when it has none. */
+    async latestStatus(deploymentId: number): Promise<DeploymentStatus | undefined> {
+      const statuses = asArray(
+        await json("GET", `/repos/${REPO}/deployments/${deploymentId}/statuses?per_page=1`),
+        "statuses",
+      );
+      if (statuses[0] === undefined) return undefined;
+      const state = asString(asObject(statuses[0], "status").state, "status.state");
+      return STATUSES[state.toUpperCase()] ?? "error";
     },
 
     /** A Deployment of `sha` for PR `pr`; its ID. */
@@ -182,17 +236,49 @@ function parseDeployment(value: unknown): Deployment | undefined {
   const node = asObject(value, "deployment");
   const pr = prOfPayload(node.payload);
   if (pr === undefined) return undefined;
+  return { pr, ...deploymentFields(node) };
+}
+
+/**
+ * Every `slug-preview` Deployment, its payload decoded and left for the slug
+ * planner to check. Anyone with write access can create one, so a node that
+ * doesn't parse never fails the whole read: one with an ID comes back with no
+ * payload, which the planner marks invalid, and one without is skipped.
+ */
+export function parseSlugDeployment(value: unknown): SlugDeployment | undefined {
+  try {
+    const node = asObject(value, "deployment");
+    return { payload: decodePayload(node.payload), ...deploymentFields(node) };
+  } catch (error) {
+    const id = isRecord(value) ? value.databaseId : undefined;
+    if (typeof id !== "number" || !Number.isInteger(id)) {
+      console.warn(`Skipped a slug-preview Deployment that doesn't parse: ${String(error)}`);
+      return undefined;
+    }
+    const latest = isRecord(value) && isRecord(value.latestStatus) ? value.latestStatus : undefined;
+    const state = typeof latest?.state === "string" ? latest.state : undefined;
+    return {
+      id,
+      sha: isRecord(value) && typeof value.commitOid === "string" ? value.commitOid : "",
+      createdAt: new Date(0),
+      status: state === undefined ? undefined : (STATUSES[state] ?? "error"),
+      description: undefined,
+      payload: undefined,
+    };
+  }
+}
+
+function deploymentFields(node: Record<string, unknown>) {
   const latest =
     node.latestStatus === null ? undefined : asObject(node.latestStatus, "latestStatus");
   const state = latest === undefined ? undefined : asString(latest.state, "latestStatus.state");
   return {
     id: asNumber(node.databaseId, "deployment.databaseId"),
-    pr,
     sha: asString(node.commitOid, "deployment.commitOid"),
     createdAt: new Date(asString(node.createdAt, "deployment.createdAt")),
-    // An unknown state is left to the next push, like a failure.
+    // An unknown state is left alone, like a failure.
     status: state === undefined ? undefined : (STATUSES[state] ?? "error"),
-    // Says whether an inactive one was evicted or went idle (see the planner).
+    // Says why an inactive one went inactive (see the planners).
     description:
       latest === undefined
         ? undefined
@@ -201,11 +287,12 @@ function parseDeployment(value: unknown): Deployment | undefined {
 }
 
 /**
- * The `pr` of a Deployment's payload. GraphQL gives the payload JSON-encoded
- * twice (a JSON string holding the JSON object), so it is decoded until it is
- * no longer a string, a few times at most.
+ * A Deployment's payload, decoded. GraphQL gives it JSON-encoded twice (a
+ * JSON string holding the JSON object), so it is decoded until it is no
+ * longer a string, a few times at most; undefined when it isn't JSON, or
+ * still a string after that.
  */
-export function prOfPayload(payload: unknown): number | undefined {
+export function decodePayload(payload: unknown): unknown {
   let parsed: unknown = payload;
   for (let decoded = 0; typeof parsed === "string" && decoded < 3; decoded++) {
     try {
@@ -214,6 +301,12 @@ export function prOfPayload(payload: unknown): number | undefined {
       return undefined;
     }
   }
+  return typeof parsed === "string" ? undefined : parsed;
+}
+
+/** The `pr` of a Deployment's payload, a positive integer, or undefined. */
+export function prOfPayload(payload: unknown): number | undefined {
+  const parsed = decodePayload(payload);
   if (typeof parsed !== "object" || parsed === null) return undefined;
   const pr = (parsed as { pr?: unknown }).pr;
   return typeof pr === "number" && Number.isInteger(pr) && pr > 0 ? pr : undefined;

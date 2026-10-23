@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { projectsFrom } from "./docker";
+import { PR_PREVIEW_RESOURCES } from "./config";
+import { composeEnv, projectsFrom, slugProjectsFrom, targetOf } from "./docker";
 
 // `docker ps`, `docker volume ls` and `docker network ls` print one line per
 // object in the agent's format: the project, the Preview labels, and for a
@@ -146,5 +147,119 @@ describe("projectsFrom", () => {
     });
 
     expect(projects.map((project) => project.pr)).toEqual([3, 12]);
+  });
+});
+
+describe("slugProjectsFrom", () => {
+  test("a running Slug Preview, from its containers, volume and network", () => {
+    const projects = slugProjectsFrom({
+      containers: [
+        container("banki-slug-blue", "api", "running"),
+        container("banki-slug-blue", "web", "restarting"),
+      ].join("\n"),
+      volumes: labels("banki-slug-blue"),
+      networks: labels("banki-slug-blue"),
+    });
+
+    expect(projects).toEqual([
+      {
+        slug: "blue",
+        sha: SHA,
+        deployedAt: new Date(AT),
+        digests: { api: API, web: WEB },
+        api: "running",
+        web: "restarting",
+      },
+    ]);
+  });
+
+  test("the two pools never see each other's projects, ordered by Slug", () => {
+    const listed = {
+      containers: [
+        container("banki-pr-5", "api", "running"),
+        container("banki-slug-cyan", "api", "running"),
+      ].join("\n"),
+      volumes: [labels("banki-slug-blue"), labels("banki-pr-7")].join("\n"),
+      networks: "",
+    };
+
+    expect(projectsFrom(listed).map((project) => project.pr)).toEqual([5, 7]);
+    expect(slugProjectsFrom(listed).map((project) => project.slug)).toEqual(["blue", "cyan"]);
+  });
+
+  test("a project named for an invalid or reserved Slug is ignored", () => {
+    const projects = slugProjectsFrom({
+      containers: [
+        container("banki-slug-", "api", "running"),
+        container("banki-slug-www", "api", "running"),
+        container("banki-slug-Blue", "api", "running"),
+        container("banki-slug-pr-5", "api", "running"),
+      ].join("\n"),
+      volumes: "",
+      networks: "",
+    });
+
+    expect(projects).toEqual([]);
+  });
+});
+
+describe("the template's variables", () => {
+  const resources = { apiMemory: "128m", apiCpus: "0.5", webMemory: "48m", webCpus: "0.25" };
+  const at = new Date(AT);
+
+  test("name a PR Preview's pool, host and limits", () => {
+    const target = targetOf(
+      {
+        pr: 5,
+        sha: SHA,
+        deployedAt: at,
+        digests: { api: API, web: WEB },
+        api: "running",
+        web: "running",
+      },
+      at,
+      PR_PREVIEW_RESOURCES,
+    );
+
+    expect(composeEnv(target)).toEqual({
+      PREVIEW_POOL: "pr",
+      PREVIEW_KEY: "5",
+      PREVIEW_HOST: "pr-5.banki.dkomeza.com",
+      PREVIEW_SHA: SHA,
+      PREVIEW_DEPLOYED_AT: AT,
+      API_DIGEST: API,
+      WEB_DIGEST: WEB,
+      API_MEMORY: "256m",
+      API_CPUS: "1.0",
+      WEB_MEMORY: "128m",
+      WEB_CPUS: "0.5",
+    });
+  });
+
+  test("name a Slug Preview's pool, host and limits", () => {
+    const target = targetOf(
+      {
+        slug: "blue",
+        sha: undefined,
+        deployedAt: undefined,
+        digests: undefined,
+        api: "missing",
+        web: "missing",
+      },
+      at,
+      resources,
+    );
+
+    expect(composeEnv(target)).toMatchObject({
+      PREVIEW_POOL: "slug",
+      PREVIEW_KEY: "blue",
+      PREVIEW_HOST: "blue.banki.dkomeza.com",
+      PREVIEW_SHA: "unknown",
+      PREVIEW_DEPLOYED_AT: AT,
+      API_MEMORY: "128m",
+      API_CPUS: "0.5",
+      WEB_MEMORY: "48m",
+      WEB_CPUS: "0.25",
+    });
   });
 });
