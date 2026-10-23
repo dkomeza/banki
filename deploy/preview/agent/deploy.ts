@@ -118,7 +118,18 @@ async function finish(
     }
   }
 
-  if (await takenDown(action, services)) {
+  let down: boolean;
+  try {
+    down = await takenDown(action, services);
+  } catch (error) {
+    // Unknown, so nothing is written over what may be a `down`. A failed
+    // deploy is still left stopped; a good one runs unrecorded until the next
+    // loop confirms it.
+    console.error(`${projectName(key)}: couldn't read its Deployment's status, so writing nothing`);
+    if (reason !== undefined) await stopQuietly(target, services);
+    throw error;
+  }
+  if (down) {
     // A success would bring it back until its time to live runs out, and a
     // failure would keep the Slug held and its images swept never.
     console.log(`${projectName(key)}: taken down while it deployed, so writing nothing`);
@@ -183,8 +194,10 @@ async function stopQuietly(target: docker.ComposeTarget, services: Services): Pr
 
 async function takenDown(action: DeployAction | ConfirmAction, services: Services) {
   if (!("slug" in action)) return false;
-  const status = await services.github.latestStatus(action.deploymentId).catch(() => undefined);
-  return status === "inactive";
+  // A failed read throws: counting it as "not taken down" could write over a
+  // `down` or an expiry. Before a deploy or a confirm writes anything, that
+  // fails the action, and the next loop tries again.
+  return (await services.github.latestStatus(action.deploymentId)) === "inactive";
 }
 
 // `up --wait` waits for `web` to run, not for Caddy to listen (it has no

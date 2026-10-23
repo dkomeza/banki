@@ -39,7 +39,7 @@ function fakes(results: Partial<Record<Step, RunResult | RunResult[]>> = {}) {
   const log: string[] = [];
   const passwords: string[] = [];
   const targets: ComposeTarget[] = [];
-  let latest: (DeploymentStatus | undefined)[] = ["queued"];
+  let latest: (DeploymentStatus | undefined | Error)[] = ["queued"];
   let sleeps = 0;
   const queues = new Map<Step, RunResult[]>();
   const result = (step: Step, target: ComposeTarget): Promise<RunResult> => {
@@ -62,7 +62,7 @@ function fakes(results: Partial<Record<Step, RunResult | RunResult[]>> = {}) {
       latestStatus: (id: number) => {
         log.push(`latest status ${id}`);
         const state = latest.length > 1 ? latest.shift() : latest[0];
-        return Promise.resolve(state);
+        return state instanceof Error ? Promise.reject(state) : Promise.resolve(state);
       },
     },
     pangolin: {
@@ -106,7 +106,7 @@ function fakes(results: Partial<Record<Step, RunResult | RunResult[]>> = {}) {
     targets,
     services,
     /** What GitHub says the Deployment's latest status is, one read after another; the last repeats. */
-    setLatest: (...states: (DeploymentStatus | undefined)[]) => {
+    setLatest: (...states: (DeploymentStatus | undefined | Error)[]) => {
       latest = states;
     },
     sleeps: () => sleeps,
@@ -452,6 +452,75 @@ describe("a Slug Preview's deploy", () => {
     expect(fake.log.filter((line) => line.startsWith("status "))).toEqual([
       "status 7 in_progress starting aaaaaaa",
     ]);
+  });
+
+  test("whose status can't be read fails before it writes or runs anything", async () => {
+    const fake = fakes();
+    fake.setLatest(new Error("GitHub 502"));
+
+    const outcome = await deploy(slugDeploy(), fake.services).then(
+      () => "done",
+      () => "failed",
+    );
+
+    expect(outcome).toBe("failed");
+    expect(fake.log).toEqual(["latest status 7"]);
+  });
+
+  test("failing, whose status then can't be read, is stopped and marked nothing", async () => {
+    const fake = fakes({ health: healthy("b".repeat(40)) });
+    fake.setLatest("queued", new Error("GitHub 502"));
+
+    const outcome = await deploy(slugDeploy(), fake.services).then(
+      () => "done",
+      () => "failed",
+    );
+
+    expect(outcome).toBe("failed");
+    expect(fake.log).toContain("docker stop aaaaaaa");
+    expect(fake.log.filter((line) => line.startsWith("status "))).toEqual([
+      "status 7 in_progress starting aaaaaaa",
+    ]);
+  });
+
+  test("succeeding, whose status then can't be read, runs on unrecorded for the next loop to confirm", async () => {
+    const fake = fakes();
+    fake.setLatest("queued", new Error("GitHub 502"));
+
+    const outcome = await deploy(slugDeploy(), fake.services).then(
+      () => "done",
+      () => "failed",
+    );
+
+    expect(outcome).toBe("failed");
+    expect(fake.log).not.toContain("docker stop aaaaaaa");
+    expect(fake.log.filter((line) => line.startsWith("status "))).toEqual([
+      "status 7 in_progress starting aaaaaaa",
+    ]);
+  });
+
+  test("a confirm whose status can't be read fails before it writes or checks anything", async () => {
+    const fake = fakes();
+    fake.setLatest(new Error("GitHub 502"));
+
+    const outcome = await confirm(
+      {
+        pool: "slug",
+        kind: "confirm",
+        slug: "blue",
+        sha: SHA,
+        deploymentId: 7,
+        project: { ...slugPrevious, sha: SHA },
+        supersedes: [3],
+      },
+      fake.services,
+    ).then(
+      () => "done",
+      () => "failed",
+    );
+
+    expect(outcome).toBe("failed");
+    expect(fake.log).toEqual(["latest status 7"]);
   });
 
   test("a confirm of one taken down touches nothing", async () => {
