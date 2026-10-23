@@ -219,8 +219,22 @@ export function planSlugParts(input: SlugPlanInput): PlanParts<SlugAction> {
     return head !== undefined && head.status !== "inactive" && !expiring.has(slug);
   };
 
-  // A done (or now expiring) newest Deployment's deploy took down whatever
-  // Preview the older ones made.
+  // A failed newest Deployment means nothing serves its Slug: a failed deploy
+  // left its own project stopped, but a failed build never deployed, so a
+  // project at another commit, an older Deployment's, goes too. The Slug
+  // stays held until the failed one goes inactive.
+  const stale = (project: SlugProject) => {
+    const head = newest.get(project.slug);
+    return (
+      head !== undefined &&
+      (head.status === "failure" || head.status === "error") &&
+      project.sha !== head.sha
+    );
+  };
+
+  // Once the newest Deployment is done (or now expiring), the older ones are
+  // done with: its deploy took down whatever Preview they made, or, when it
+  // never deployed, its failure does (see `stale`).
   const superseded: SlugAction[] = [];
   for (const head of newest.values()) {
     if (isWaiting(head) && !expiring.has(head.slug)) continue;
@@ -298,7 +312,7 @@ export function planSlugParts(input: SlugPlanInput): PlanParts<SlugAction> {
   // this plan goes only when nothing else can. The running Previews being
   // torn down or removed in this plan count as gone; should those fail, a
   // deploy needs as many of them as it has no spare room for.
-  const leaving = (project: SlugProject) => !wanted(project.slug);
+  const leaving = (project: SlugProject) => !wanted(project.slug) || stale(project);
   const cleanups = input.projects.filter((project) => holdsRoom(project) && leaving(project));
   const redeploying = new Set(deploys.map((action) => action.slug));
   const deploysMakingRoom: SlugAction[] = [];
@@ -337,8 +351,10 @@ export function planSlugParts(input: SlugPlanInput): PlanParts<SlugAction> {
   // it isn't being removed. A removal deletes its Slug's resources itself,
   // after marking the Deployment.
   const removing = new Set([...expiries, ...evictions].map((action) => action.slug));
-  const wantsResource = (slug: string) =>
-    wanted(slug) && projectOf.get(slug)?.web === "running" && !removing.has(slug);
+  const wantsResource = (slug: string) => {
+    const project = projectOf.get(slug);
+    return wanted(slug) && project?.web === "running" && !stale(project) && !removing.has(slug);
+  };
 
   const deleteResources: SlugAction[] = owned
     .filter(

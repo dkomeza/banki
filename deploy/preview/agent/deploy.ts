@@ -59,6 +59,12 @@ export async function deploy(action: DeployAction, services: Services): Promise<
     digests: action.digests,
     resources: services.resourcesFor(key),
   };
+  // The loop's upkeep ran since this was planned: an `in_progress` written
+  // over a `down` would hide it, and the deploy would bring the Preview back.
+  if (await takenDown(action, services)) {
+    console.log(`${projectName(key)}: taken down before it deployed, so not deploying it`);
+    return;
+  }
   await services.github.setStatus(
     action.deploymentId,
     "in_progress",
@@ -74,6 +80,10 @@ export async function deploy(action: DeployAction, services: Services): Promise<
 export async function confirm(action: ConfirmAction, services: Services): Promise<void> {
   const key = keyOf(action);
   const target = docker.targetOf(action.project, new Date(), services.resourcesFor(key));
+  if (await takenDown(action, services)) {
+    console.log(`${projectName(key)}: taken down before it was confirmed, so not confirming it`);
+    return;
+  }
   console.log(`${projectName(key)}: already running ${shortSha(action.sha)}, confirming it`);
   await finish(action, target, services, async () => {
     await checkHealth(target, services);
@@ -84,7 +94,9 @@ export async function confirm(action: ConfirmAction, services: Services): Promis
 /**
  * Runs `body`, then marks the Deployment a success, or stops the Preview and
  * marks it a failure. Either way the Deployments it supersedes go inactive:
- * whatever they made is gone.
+ * whatever they made is gone. A Slug Preview taken down meanwhile gets
+ * neither: its `inactive` stays the last word, and the next loop tears it
+ * down.
  */
 async function finish(
   action: DeployAction | ConfirmAction,
@@ -106,11 +118,14 @@ async function finish(
     }
   }
 
-  if (reason === undefined && (await takenDown(action, services))) {
-    // A success now would bring it back until its time to live runs out. The
-    // next loop finds it inactive and tears it down.
-    console.log(`${projectName(key)}: taken down while it deployed, so not marking it a success`);
-  } else if (reason === undefined) {
+  if (await takenDown(action, services)) {
+    // A success would bring it back until its time to live runs out, and a
+    // failure would keep the Slug held and its images swept never.
+    console.log(`${projectName(key)}: taken down while it deployed, so writing nothing`);
+    if (reason !== undefined) await stopQuietly(target, services);
+    return;
+  }
+  if (reason === undefined) {
     console.log(`${projectName(key)}: deployed ${shortSha(sha)} at ${previewUrl(key)}`);
     await services.github.setStatus(
       deploymentId,
@@ -122,9 +137,7 @@ async function finish(
     // Left stopped, never retried: it waits for the next push or the PR's
     // close, or for its Slug to be dispatched again or its time to live.
     console.log(`${projectName(key)}: deploy of ${shortSha(sha)} failed: ${reason}`);
-    await services.docker.stop(target).catch((error: unknown) => {
-      console.error(`${projectName(key)}: couldn't stop it: ${errorText(error)}`);
-    });
+    await stopQuietly(target, services);
     await services.github.setStatus(deploymentId, "failure", reason);
   }
   for (const older of action.supersedes) {
@@ -162,6 +175,12 @@ async function steps(action: DeployAction, target: docker.ComposeTarget, service
  * success written over that would bring it back. A PR Preview's Deployment
  * only the agent itself marks.
  */
+async function stopQuietly(target: docker.ComposeTarget, services: Services): Promise<void> {
+  await services.docker.stop(target).catch((error: unknown) => {
+    console.error(`${projectName(target.key)}: couldn't stop it: ${errorText(error)}`);
+  });
+}
+
 async function takenDown(action: DeployAction | ConfirmAction, services: Services) {
   if (!("slug" in action)) return false;
   const status = await services.github.latestStatus(action.deploymentId).catch(() => undefined);

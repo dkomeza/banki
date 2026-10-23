@@ -93,6 +93,10 @@ jq -cn --arg method "$method" --arg path "$path" --arg body "$body" \\
 key="$(printf '%s %s' "$method" "$path" | od -An -tx1 | tr -d ' \\n')"
 dir="$GH_FIXTURES/$key"
 if [ -d "$dir" ]; then
+  # The nth call of a key answers stdout.<n> when there is one.
+  echo >>"$dir/calls"
+  n="$(wc -l <"$dir/calls" | tr -d ' ')"
+  if [ -f "$dir/stdout.$n" ]; then cat "$dir/stdout.$n"; exit 0; fi
   if [ -f "$dir/stdout" ]; then cat "$dir/stdout"; fi
   if [ -f "$dir/stderr" ]; then cat "$dir/stderr" >&2; fi
   exit "$(cat "$dir/exit" 2>/dev/null || echo 0)"
@@ -105,10 +109,14 @@ chmodSync(join(bin, "gh"), 0o755);
 
 /** What the fake `gh` prints and exits with, or else the JSON it answers. */
 type Raw = { stdout?: string; stderr?: string; exit?: number };
-type Answer = Raw | unknown[] | Record<string, unknown>;
+/** JSON answers, one per call in turn; the last repeats. */
+type Sequence = { sequence: unknown[] };
+type Answer = Raw | Sequence | unknown[] | Record<string, unknown>;
 
 const isRaw = (answer: Answer): answer is Raw =>
   !Array.isArray(answer) && ("stdout" in answer || "stderr" in answer || "exit" in answer);
+const isSequence = (answer: Answer): answer is Sequence =>
+  !Array.isArray(answer) && "sequence" in answer;
 
 type Call = { method: string; path: string; body: unknown };
 
@@ -128,6 +136,13 @@ async function runStep(
   for (const [key, answer] of Object.entries(fixtures)) {
     const answerDir = join(fixturesDir, Buffer.from(key).toString("hex"));
     mkdirSync(answerDir);
+    if (isSequence(answer)) {
+      answer.sequence.forEach((json, index) => {
+        writeFileSync(join(answerDir, `stdout.${index + 1}`), JSON.stringify(json));
+      });
+      writeFileSync(join(answerDir, "stdout"), JSON.stringify(answer.sequence.at(-1)));
+      continue;
+    }
     const raw = isRaw(answer) ? answer : { stdout: JSON.stringify(answer) };
     if (raw.stdout !== undefined) writeFileSync(join(answerDir, "stdout"), raw.stdout);
     if (raw.stderr !== undefined) writeFileSync(join(answerDir, "stderr"), raw.stderr);
@@ -507,6 +522,7 @@ describe("taking a Slug down", () => {
   });
 });
 
+const foo = (id: number, createdAt: string) => deployment(id, "foo", "proto/foo", createdAt);
 const version = (id: number, tags: string[]) => ({ id, metadata: { container: { tags } } });
 const deleteOf = (pkg: string, id: number) =>
   `DELETE users/dkomeza/packages/container/${pkg}/versions/${id}`;
@@ -555,6 +571,49 @@ describe("the image sweep", () => {
       deleteOf("banki-api", 7),
       deleteOf("banki-api", 9),
       deleteOf("banki-web", 21),
+    ]);
+  });
+
+  test("keeps the images of a Slug dispatched again while it swept, which its build reuses", async () => {
+    const result = await runStep(
+      "sweep",
+      "sweep",
+      {},
+      {
+        [DEPLOYMENTS]: {
+          sequence: [
+            [foo(30, "2026-10-20T10:00:00Z")],
+            [foo(31, "2026-10-20T12:00:00Z"), foo(30, "2026-10-20T10:00:00Z")],
+          ],
+        },
+        [statuses(30)]: status("inactive"),
+        [statuses(31)]: status("queued"),
+        [versions("banki-api")]: [version(1, [`slug-foo-${SHA}`])],
+      },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.out).toContain("slug foo is up again, keeping version 1");
+    expect(writes(result.calls)).toEqual([]);
+  });
+
+  test("reads the Slug's newest Deployment again right before deleting its images", async () => {
+    const result = await runStep(
+      "sweep",
+      "sweep",
+      {},
+      {
+        ...down,
+        [versions("banki-api")]: [version(1, [`slug-blue-${SHA}`])],
+      },
+    );
+
+    const paths = result.calls.map((call) => `${call.method} ${call.path}`);
+    const lastRead = paths.lastIndexOf(DEPLOYMENTS);
+    expect(paths.indexOf(DEPLOYMENTS)).toBeLessThan(lastRead);
+    expect(paths.slice(lastRead + 1)).toEqual([
+      statuses(10),
+      `DELETE users/dkomeza/packages/container/banki-api/versions/1`,
     ]);
   });
 

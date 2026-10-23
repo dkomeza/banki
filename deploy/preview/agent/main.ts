@@ -1,4 +1,4 @@
-import { type AnyAction, orderPlans, type Pool, runActions } from "./act";
+import { type AnyAction, NO_PLAN, orderPlans, orSkip, type Pool, runActions } from "./act";
 import * as clone from "./clone";
 import {
   ConfigError,
@@ -24,6 +24,7 @@ import {
   imagesToCheck,
   isFullReadLoop,
   type Limits,
+  type PlanParts,
   planParts,
 } from "./planner";
 import { isCommit, updateDecision } from "./self-update";
@@ -139,52 +140,51 @@ async function reconcile(settings: Settings, loop: number): Promise<void> {
   // Read on every loop, so a token `bootstrap` rewrites applies without a restart.
   const github = gitHub(readSecret(SECRETS.githubToken));
   // The Deployments are read only as far back as the open PRs and the Docker
-  // projects need, so those come first (Docker is local and quick).
-  const [pullRequests, projects] = await Promise.all([
-    github.openPullRequests(),
-    docker.discoverProjects(),
-  ]);
+  // projects need, so Docker comes first (it is local and quick). Docker and
+  // Pangolin serve both pools, so failing them fails the loop; each pool's
+  // own GitHub reads fail only that pool, which then waits, untouched.
+  const projects = await docker.discoverProjects();
   const full = isFullReadLoop(loop);
-  const [deployments, slugDeployments, resources] = await Promise.all([
-    github.previewDeployments(pullRequests, projects.prs, { full }),
-    github.slugPreviewDeployments(projects.slugs, { full }),
+  const [prRead, slugDeployments, resources] = await Promise.all([
+    orSkip("PR Previews", async () => {
+      const pullRequests = await github.openPullRequests();
+      const deployments = await github.previewDeployments(pullRequests, projects.prs, { full });
+      return { pullRequests, deployments };
+    }),
+    orSkip("Slug Previews", () => github.slugPreviewDeployments(projects.slugs, { full })),
     previews.resources(),
   ]);
   const now = new Date();
-  const observed = {
-    pullRequests,
-    deployments,
-    projects: projects.prs,
-    resources,
-    siteId: previews.siteId,
-    limits,
-    now,
-  };
-  const slugObserved = {
-    deployments: slugDeployments,
-    projects: projects.slugs,
-    resources,
-    siteId: previews.siteId,
-    limits: { cap: slugLimits.cap },
-    now,
-  };
+  const shared = { resources, siteId: previews.siteId, now };
 
-  const images: ImagesReady[] = [];
-  for (const { pr, sha } of imagesToCheck(observed)) {
-    const digests = await lookUp(pr, sha);
-    if (digests !== undefined) images.push({ pr, sha, digests });
-  }
-  const slugImages: SlugImagesReady[] = [];
-  for (const { slug, sha } of slugImagesToCheck(slugObserved)) {
-    const digests = await lookUp(slug, sha);
-    if (digests !== undefined) slugImages.push({ slug, sha, digests });
+  let prPlan: PlanParts<Action> = NO_PLAN;
+  if (prRead !== undefined) {
+    const observed = { ...prRead, ...shared, projects: projects.prs, limits };
+    const images: ImagesReady[] = [];
+    for (const { pr, sha } of imagesToCheck(observed)) {
+      const digests = await lookUp(pr, sha);
+      if (digests !== undefined) images.push({ pr, sha, digests });
+    }
+    prPlan = planParts({ ...observed, images });
   }
 
-  const ordered = orderPlans(
-    planParts({ ...observed, images }),
-    planSlugParts({ ...slugObserved, images: slugImages }),
-    turn,
-  );
+  let slugPlan: PlanParts<SlugAction> = NO_PLAN;
+  if (slugDeployments !== undefined) {
+    const observed = {
+      ...shared,
+      deployments: slugDeployments,
+      projects: projects.slugs,
+      limits: { cap: slugLimits.cap },
+    };
+    const images: SlugImagesReady[] = [];
+    for (const { slug, sha } of slugImagesToCheck(observed)) {
+      const digests = await lookUp(slug, sha);
+      if (digests !== undefined) images.push({ slug, sha, digests });
+    }
+    slugPlan = planSlugParts({ ...observed, images });
+  }
+
+  const ordered = orderPlans(prPlan, slugPlan, turn);
   turn = ordered.turn;
   const resourcesFor = (key: PreviewKey) =>
     typeof key === "number" ? PR_PREVIEW_RESOURCES : slugLimits.resources;

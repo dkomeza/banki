@@ -1,5 +1,13 @@
 import { ENVIRONMENT, REPO, SLUG_ENVIRONMENT } from "./naming";
-import { asArray, asNumber, asObject, asOptionalString, asString, parseJson } from "./parse";
+import {
+  asArray,
+  asNumber,
+  asObject,
+  asOptionalString,
+  asString,
+  isRecord,
+  parseJson,
+} from "./parse";
 import {
   type Deployment,
   type DeploymentStatus,
@@ -138,7 +146,7 @@ export function gitHub(token: string) {
     ): Promise<SlugDeployment[]> {
       return deploymentsOf(
         SLUG_ENVIRONMENT,
-        (node) => parseSlugDeployment(node),
+        parseSlugDeployment,
         (read, batch) => !full && readEnoughSlugDeployments(projects, read, batch),
       );
     },
@@ -231,10 +239,33 @@ function parseDeployment(value: unknown): Deployment | undefined {
   return { pr, ...deploymentFields(node) };
 }
 
-/** Every `slug-preview` Deployment, its payload decoded and left for the slug planner to check. */
-function parseSlugDeployment(value: unknown): SlugDeployment {
-  const node = asObject(value, "deployment");
-  return { payload: decodePayload(node.payload), ...deploymentFields(node) };
+/**
+ * Every `slug-preview` Deployment, its payload decoded and left for the slug
+ * planner to check. Anyone with write access can create one, so a node that
+ * doesn't parse never fails the whole read: one with an ID comes back with no
+ * payload, which the planner marks invalid, and one without is skipped.
+ */
+export function parseSlugDeployment(value: unknown): SlugDeployment | undefined {
+  try {
+    const node = asObject(value, "deployment");
+    return { payload: decodePayload(node.payload), ...deploymentFields(node) };
+  } catch (error) {
+    const id = isRecord(value) ? value.databaseId : undefined;
+    if (typeof id !== "number" || !Number.isInteger(id)) {
+      console.warn(`Skipped a slug-preview Deployment that doesn't parse: ${String(error)}`);
+      return undefined;
+    }
+    const latest = isRecord(value) && isRecord(value.latestStatus) ? value.latestStatus : undefined;
+    const state = typeof latest?.state === "string" ? latest.state : undefined;
+    return {
+      id,
+      sha: isRecord(value) && typeof value.commitOid === "string" ? value.commitOid : "",
+      createdAt: new Date(0),
+      status: state === undefined ? undefined : (STATUSES[state] ?? "error"),
+      description: undefined,
+      payload: undefined,
+    };
+  }
 }
 
 function deploymentFields(node: Record<string, unknown>) {

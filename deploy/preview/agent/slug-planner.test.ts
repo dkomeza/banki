@@ -319,6 +319,66 @@ describe("a deployed Slug Preview", () => {
   });
 });
 
+describe("a failed newest Deployment", () => {
+  test("whose build failed takes down the Preview an older one left running, and its resource", () => {
+    const live = deployment("blue", SHA_A, "success");
+    const failed = deployment("blue", SHA_B, "failure", {
+      createdAt: NOW,
+      description: "build failed",
+    });
+    const running = project("blue");
+
+    const actions = planSlugs(
+      input({
+        projects: [running],
+        deployments: [live, failed],
+        resources: [resource(40, host("blue"))],
+      }),
+    );
+
+    expect(actions).toEqual([
+      { pool: "slug", kind: "delete-resource", slug: "blue", resourceId: 40 },
+      { pool: "slug", kind: "teardown", project: running },
+      {
+        pool: "slug",
+        kind: "mark-inactive",
+        slug: "blue",
+        deploymentId: live.id,
+        reason: "superseded",
+      },
+    ]);
+  });
+
+  test("whose deploy failed leaves its own stopped project alone", () => {
+    const failed = deployment("blue", SHA_B, "failure");
+
+    const actions = planSlugs(
+      input({
+        projects: [project("blue", { sha: SHA_B, api: "stopped", web: "stopped" })],
+        deployments: [failed],
+      }),
+    );
+
+    expect(actions).toEqual([]);
+  });
+
+  test("still holds the Slug: a project of another commit doesn't count against the cap", () => {
+    const queued = deployment("cyan", SHA_B, "queued");
+
+    const actions = planSlugs(
+      input({
+        projects: [project("blue")],
+        deployments: [deployment("blue", SHA_B, "failure"), queued],
+        images: [ready("cyan", SHA_B)],
+        limits: { cap: 1 },
+      }),
+    );
+
+    expect(kinds(actions)).toEqual(["teardown", "deploy"]);
+    expect(actions.at(-1)).toMatchObject({ slug: "cyan", needs: ["blue"] });
+  });
+});
+
 describe("an inactive Slug Preview", () => {
   test("taken down: loses its resource and its project, with volumes and images", () => {
     const down = deployment("blue", SHA_A, "inactive", { description: "taken down" });

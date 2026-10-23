@@ -347,9 +347,15 @@ jobs:
     # any other tag, a PR's or a release's, is never touched, and PR cleanup
     # never touches these.
     #
-    # The versions are listed before the Deployments are read. A deploy
-    # creates its Deployment before it pushes, so an image pushed after the
-    # listing isn't deleted, and one listed belongs to a Deployment read.
+    # The versions are listed before the Deployments are read, so an image
+    # pushed after the listing is never deleted. A Slug dispatched again while
+    # the sweep runs, at a head whose images are already pushed, reuses them
+    # without pushing: so right before deleting a version, the sweep reads
+    # its Slugs' newest Deployments again, and keeps it unless they are still
+    # down. A dispatch creates its Deployment before its build checks for the
+    # images, which comes many seconds later; a delete right after a read
+    # that just missed that Deployment is done by then, and the build pushes
+    # the images again.
     #
     # GHCR refuses to delete a package's last tagged version (HTTP 400): that
     # one stays until a later sweep. A 404 is a version already deleted.
@@ -361,6 +367,22 @@ jobs:
           owner="${GITHUB_REPOSITORY_OWNER,,}"
           errors="$(mktemp)"
           listed="$(mktemp -d)"
+          # Each Slug's newest Deployment, by created_at and then ID.
+          newest_of() {
+            gh api --paginate "repos/$GITHUB_REPOSITORY/deployments?environment=slug-preview&per_page=100" </dev/null \
+              | jq -rs --arg slug "$1" '
+                def payload: .payload | (if type == "string" then (try fromjson catch {}) else . end) | (if type == "object" then . else {} end);
+                add // [] | map(select(payload.slug == $slug)) | max_by([.created_at, .id]) // empty | .id
+              '
+          }
+          # Whether the Slug is down right now: its newest Deployment is inactive, or it has none.
+          still_down() {
+            local id state
+            id="$(newest_of "$1")"
+            if [ -z "$id" ]; then return 0; fi
+            state="$(gh api "repos/$GITHUB_REPOSITORY/deployments/$id/statuses?per_page=1" </dev/null | jq -r '.[0].state // "none"')"
+            [ "$state" = inactive ]
+          }
           for pkg in banki-api banki-web; do
             if ! gh api --paginate "users/$owner/packages/container/$pkg/versions?per_page=100" >"$listed/$pkg" 2>"$errors"; then
               if grep -q "(HTTP 404)" "$errors"; then
@@ -405,13 +427,21 @@ jobs:
                     . as $s | $live | any(. == $s) | not
                   )
                 )
-              | "\(.id)\t\($tags | join(" "))"
+              | "\(.id)\t\($tags | join(" "))\t\([$tags[] | capture("^slug-(?<s>[a-z0-9-]+)-[0-9a-f]{40}$") | .s] | unique | join(" "))"
             ' "$listed/$pkg")"
             if [ -z "$matches" ]; then
               echo "$pkg: no versions of Slugs that are down"
               continue
             fi
-            while IFS=$'\t' read -r id tags; do
+            while IFS=$'\t' read -r id tags slugs; do
+              up=""
+              for slug in $slugs; do
+                if ! still_down "$slug"; then up="$slug"; break; fi
+              done
+              if [ -n "$up" ]; then
+                echo "$pkg: slug $up is up again, keeping version $id"
+                continue
+              fi
               echo "$pkg: deleting version $id ($tags)"
               if ! gh api --method DELETE "$versions/$id" --silent </dev/null 2>"$errors"; then
                 if grep "(HTTP 400)" "$errors" | grep -q "You cannot delete the last tagged version of a package"; then

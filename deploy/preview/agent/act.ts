@@ -1,3 +1,4 @@
+import { ConfigError } from "./config";
 import { keyOf, type PreviewKey } from "./naming";
 import type { Action, PlanParts } from "./planner";
 import type { SlugAction } from "./slug-planner";
@@ -12,6 +13,26 @@ const errorText = (error: unknown) => (error instanceof Error ? error.message : 
 export type AnyAction = Action | SlugAction;
 
 export type Pool = "pr" | "slug";
+
+/** A pool that plans nothing this loop. */
+export const NO_PLAN: PlanParts<never> = { upkeep: [], deploys: [] };
+
+/**
+ * One pool's observations, or undefined when reading them failed: that is
+ * logged, and only that pool sits this loop out, untouched, while the other
+ * plans and acts as usual. A broken setting still stops the agent.
+ */
+export async function orSkip<T>(pool: string, read: () => Promise<T>): Promise<T | undefined> {
+  try {
+    return await read();
+  } catch (error) {
+    if (error instanceof ConfigError) throw error;
+    console.error(
+      `${pool}: couldn't observe them, so they wait for the next loop: ${errorText(error)}`,
+    );
+    return undefined;
+  }
+}
 
 /**
  * Both pools' plans as one: every upkeep first, then the deploys of the pool

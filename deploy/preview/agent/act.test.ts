@@ -1,5 +1,6 @@
 import { describe, expect, spyOn, test } from "bun:test";
-import { type AnyAction, orderPlans, runActions } from "./act";
+import { type AnyAction, NO_PLAN, orderPlans, orSkip, runActions } from "./act";
+import { ConfigError } from "./config";
 import type { Action, DockerProject } from "./planner";
 import type { SlugAction, SlugProject } from "./slug-planner";
 
@@ -238,5 +239,33 @@ describe("ordering the two pools", () => {
       "remove amber",
       "deploy blue",
     ]);
+  });
+});
+
+describe("observing one pool", () => {
+  test("that fails leaves only that pool out: the other's plan runs as usual", async () => {
+    const error = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const slugs = await orSkip("Slug Previews", () => Promise.reject(new Error("GraphQL down")));
+      const prs = await orSkip("PR Previews", () => Promise.resolve("observed"));
+
+      expect(slugs).toBeUndefined();
+      expect(prs).toBe("observed");
+      const pr = { upkeep: [], deploys: [deploy(3)] };
+      expect(await ran(orderPlans(pr, NO_PLAN, "slug").actions)).toEqual(["deploy 3"]);
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  test("still stops the agent on a broken setting", async () => {
+    const failing = orSkip("Slug Previews", () => Promise.reject(new ConfigError("no token")));
+
+    const outcome = await failing.then(
+      () => "observed",
+      (error: unknown) => (error instanceof ConfigError ? "stopped" : "skipped"),
+    );
+
+    expect(outcome).toBe("stopped");
   });
 });

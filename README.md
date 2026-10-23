@@ -430,7 +430,7 @@ Slug Previews are limited apart from PR Previews:
 - **At most 9 run at once**, with the same rules as the PR Previews' cap: a deploy that would make a tenth evicts the Slug Preview whose last deploy is the oldest first (a tie goes to the Slug first in the alphabet).
 - **Each runs with less memory and CPU** than a PR Preview: api 128m and half a CPU, web 48m and a quarter, against 256m and 1 CPU, and 128m and half a CPU. The api peaks at about 80 MiB on `banki setup` and on every sign-in, hashing the Password, and is killed for running out of memory at 64m; `web` peaks at about 21 MiB.
 
-An evicted, expired or taken-down Slug Preview doesn't come back by itself: dispatch it again.
+An evicted, expired or taken-down Slug Preview doesn't come back by itself: dispatch it again. When a dispatch fails, to build or to deploy, the Slug's earlier Preview goes too, so nothing serves the Slug until it is dispatched again; the Slug stays its branch's until the failed dispatch's time to live runs out or it is taken down.
 
 ### How Previews run
 

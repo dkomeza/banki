@@ -6,6 +6,7 @@ import type { PreviewKey } from "./naming";
 import { PangolinError } from "./pangolin";
 import type { Action, DeploymentStatus, DockerProject } from "./planner";
 import type { RunResult } from "./run";
+import type { SlugProject } from "./slug-planner";
 
 // The deploy and confirm sequences against fakes of Docker, GitHub and
 // Pangolin that record every call in one log, in order, so a test reads
@@ -38,7 +39,7 @@ function fakes(results: Partial<Record<Step, RunResult | RunResult[]>> = {}) {
   const log: string[] = [];
   const passwords: string[] = [];
   const targets: ComposeTarget[] = [];
-  let latest: DeploymentStatus | undefined;
+  let latest: (DeploymentStatus | undefined)[] = ["queued"];
   let sleeps = 0;
   const queues = new Map<Step, RunResult[]>();
   const result = (step: Step, target: ComposeTarget): Promise<RunResult> => {
@@ -60,7 +61,8 @@ function fakes(results: Partial<Record<Step, RunResult | RunResult[]>> = {}) {
       },
       latestStatus: (id: number) => {
         log.push(`latest status ${id}`);
-        return Promise.resolve(latest);
+        const state = latest.length > 1 ? latest.shift() : latest[0];
+        return Promise.resolve(state);
       },
     },
     pangolin: {
@@ -103,9 +105,9 @@ function fakes(results: Partial<Record<Step, RunResult | RunResult[]>> = {}) {
     passwords,
     targets,
     services,
-    /** What GitHub says the Deployment's latest status is, by the time the deploy ends. */
-    setLatest: (state: DeploymentStatus | undefined) => {
-      latest = state;
+    /** What GitHub says the Deployment's latest status is, one read after another; the last repeats. */
+    setLatest: (...states: (DeploymentStatus | undefined)[]) => {
+      latest = states;
     },
     sleeps: () => sleeps,
     failPangolin: (error: unknown) => {
@@ -365,6 +367,15 @@ describe("confirm", () => {
   });
 });
 
+const slugPrevious: SlugProject = {
+  slug: "blue",
+  sha: OLD_SHA,
+  deployedAt: NOW,
+  digests: { api: OLD_API, web: OLD_WEB },
+  api: "running",
+  web: "running",
+};
+
 /** A Slug Preview's deploy, over the project its previous deploy made. */
 const slugDeploy = (): DeployAction => ({
   pool: "slug",
@@ -373,14 +384,7 @@ const slugDeploy = (): DeployAction => ({
   sha: SHA,
   deploymentId: 7,
   digests: { api: API_DIGEST, web: WEB_DIGEST },
-  previous: {
-    slug: "blue",
-    sha: OLD_SHA,
-    deployedAt: NOW,
-    digests: { api: OLD_API, web: OLD_WEB },
-    api: "running",
-    web: "running",
-  },
+  previous: slugPrevious,
   supersedes: [3],
   deployedAt: NOW,
   needs: [],
@@ -393,6 +397,7 @@ describe("a Slug Preview's deploy", () => {
     await deploy(slugDeploy(), fake.services);
 
     expect(fake.log).toEqual([
+      "latest status 7",
       "status 7 in_progress starting aaaaaaa",
       `docker down ${OLD_API}`,
       "docker pull aaaaaaa",
@@ -419,13 +424,54 @@ describe("a Slug Preview's deploy", () => {
 
   test("taken down while it deployed isn't marked a success, which would bring it back", async () => {
     const fake = fakes();
+    fake.setLatest("queued", "inactive");
+
+    await deploy(slugDeploy(), fake.services);
+
+    expect(fake.log.filter((line) => line.startsWith("status "))).toEqual([
+      "status 7 in_progress starting aaaaaaa",
+    ]);
+  });
+
+  test("taken down before it started touches nothing: no in_progress over the down, no Docker", async () => {
+    const fake = fakes();
     fake.setLatest("inactive");
 
     await deploy(slugDeploy(), fake.services);
 
-    expect(fake.log.filter((line) => line.startsWith("status 7"))).toEqual([
+    expect(fake.log).toEqual(["latest status 7"]);
+  });
+
+  test("taken down while it deployed, then failing, is stopped and marked nothing", async () => {
+    const fake = fakes({ health: healthy("b".repeat(40)) });
+    fake.setLatest("queued", "inactive");
+
+    await deploy(slugDeploy(), fake.services);
+
+    expect(fake.log).toContain("docker stop aaaaaaa");
+    expect(fake.log.filter((line) => line.startsWith("status "))).toEqual([
       "status 7 in_progress starting aaaaaaa",
     ]);
+  });
+
+  test("a confirm of one taken down touches nothing", async () => {
+    const fake = fakes();
+    fake.setLatest("inactive");
+
+    await confirm(
+      {
+        pool: "slug",
+        kind: "confirm",
+        slug: "blue",
+        sha: SHA,
+        deploymentId: 7,
+        project: { ...slugPrevious, sha: SHA },
+        supersedes: [3],
+      },
+      fake.services,
+    );
+
+    expect(fake.log).toEqual(["latest status 7"]);
   });
 
   test("a PR Preview's deploy runs under the PR Previews' limits, and never asks", async () => {
