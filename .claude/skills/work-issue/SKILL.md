@@ -95,13 +95,13 @@ Every push to the PR is reviewed by two bots:
 - **Claude review** (the merge gate): the `claude-review` check (`.github/workflows/claude-review.yml`). It reviews the whole PR fresh at the head commit, posts inline comments for new findings, and keeps one summary comment (marked `<!-- claude-review -->`) listing every finding as `new`, `open` or `fixed`. The check fails while a blocker or major finding is open.
 - **Codex** (advisory): inline comments only.
 
-Run at most **2 rounds**. Each round:
+Run rounds until every finding is fixed or dismissed. Each round:
 
-1. Wait with a background `until` loop until the `claude-review` check has finished on the PR's head SHA (`gh pr checks <n>`), and Codex has reviewed it (a review from `chatgpt-codex-connector[bot]` whose `commit_id` is the head SHA, or its 👍 reaction on the PR).
+1. Wait with a background `until` loop until **both** bots have reviewed the PR's head SHA: the `claude-review` check has finished on it (`gh pr checks <n>`), and Codex has reviewed it (a review from `chatgpt-codex-connector[bot]` whose `commit_id` is the head SHA, or a 👍 reaction on the PR made after that push). Never act on one bot alone: Codex often posts a minute or more after the gate.
 2. Triage the `new` and `open` findings from the summary comment, and Codex's new inline comments, as in step 5. Spec questions go to the user.
-3. Resume the implementer with the confirmed ones, verify green, and push **once**: every push re-runs both reviews. When the round's fixes touched `apps/web/`, refresh the shots (`references/ui.md` § Step 8).
+3. If nothing was confirmed, the round pushes nothing. Otherwise resume the implementer with the confirmed ones, verify green, and push **once**: every push re-runs both reviews, so the next round waits for both again. When the round's fixes touched `apps/web/`, refresh the shots (`references/ui.md` § Step 8).
 4. Reply in the thread of each finding you handled: a fixed one with the commit that fixed it, a dismissed one with the reason. Then resolve the thread (`resolveReviewThread` through `gh api graphql`): `main` blocks merging while any review thread is unresolved. The gate weighs replies as arguments on its next run, but only the user can override it.
 
-The round loop ends when `claude-review` passes, Codex has nothing new worth fixing, and every review thread is resolved.
+The loop ends when, on one head SHA, `claude-review` passes, Codex has reviewed it with nothing new worth fixing, and every review thread is resolved. Ask the user instead of running another round when it stops converging: a finding comes back after it was fixed or dismissed, or the gate won't accept a dismissed blocker (that needs the user's admin bypass).
 
-**Checkpoint 2.** Hand over to the user with the PR link and the state: gate passing, or what's still open after 2 rounds (a dismissed blocker the gate won't accept needs the user's admin bypass). The user merges. Linear moves the issue to `Done`, and the next run's step 0 removes the worktree.
+**Checkpoint 2.** Hand over to the user with the PR link and the state, only after step 1's wait has seen both bots on the final head: the gate passing, no thread unresolved, and how many rounds it took. The user merges. Linear moves the issue to `Done`, and the next run's step 0 removes the worktree.
