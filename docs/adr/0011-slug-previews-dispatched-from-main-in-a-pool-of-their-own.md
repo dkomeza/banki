@@ -6,7 +6,7 @@ A branch can get a Preview without a pull request: a Slug Preview, reached at `<
 
 - **Throwaway draft pull requests**, one per prototype variant: rejected. Each one runs CI, Codex and `claude-review`, and clutters the pull requests with branches that are never meant to merge.
 - **One Preview with a `?variant=` switch in the app's code**: rejected. Prototype code would have to live in the app behind a switch, and the variants couldn't differ in anything the switch doesn't reach.
-- **Dispatching with `--ref <branch>`**: rejected. GitHub runs the branch's own copy of the workflow, which the branch can change, with the token that writes packages and Deployments. Run from `main`, the workflow only checks the branch out to build it.
+- **Dispatching with `--ref <branch>`**: rejected. Each branch would run its own copy of the workflow, so the Slug rule, the held-Slug check and the sweep would differ from branch to branch, and a branch cut before the workflow existed would have none. Run from `main`, there is one definition.
 - **One shared pool with PR Previews**: rejected. A batch of prototype variants would evict the PR Previews under review, or the reverse.
 - **A second agent for Slug Previews**: rejected. Two processes would hold the Docker socket and share the Previews' Newt; the deploy, health check, Pangolin and self-update code is the same.
 - **Hosts under `slug.banki.dkomeza.com`, or prefixed `slug-<slug>`**: rejected for short, readable links. A second level needs its own Pangolin domain and certificate. The bare host shares its namespace with future subdomains of `banki.dkomeza.com`, so Slugs follow a fixed pattern, never start with `pr-`, and a short list of names is reserved.

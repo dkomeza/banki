@@ -10,9 +10,10 @@ name: Slug Preview
 # every Slug that is down; so does a daily run.
 #
 # It must be dispatched from `main` (the default): with `--ref <branch>`
-# GitHub would run the branch's own copy of this file, with a token that
-# writes packages and Deployments. From `main`, the branch is only checked
-# out to be built, and no step runs any of its code.
+# GitHub would run the branch's own copy of this file, so the Slug rule, the
+# held-Slug check and the sweep would differ from branch to branch. From
+# `main` there is one definition, and the branch is only checked out to be
+# built.
 #
 #   gh workflow run slug-preview.yml -f branch=<branch> -f slug=<slug> [-f ttl_hours=72]
 #   gh workflow run slug-preview.yml -f slug=<slug> -f down=true
