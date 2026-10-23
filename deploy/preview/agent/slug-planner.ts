@@ -219,16 +219,17 @@ export function planSlugParts(input: SlugPlanInput): PlanParts<SlugAction> {
     return head !== undefined && head.status !== "inactive" && !expiring.has(slug);
   };
 
-  // A failed newest Deployment means nothing serves its Slug: a failed deploy
-  // left its own project stopped, but a failed build never deployed, so a
-  // project at another commit, an older Deployment's, goes too. The Slug
-  // stays held until the failed one goes inactive.
+  // A failed newest Deployment means nothing serves its Slug. A failed deploy
+  // left its own project stopped, which holds no room and is left alone; but
+  // a failed build never deployed, so a project an older Deployment left
+  // running goes, whatever its commit (a dispatch at the same head fails in
+  // the workflow too). The Slug stays held until the failed one goes inactive.
   const stale = (project: SlugProject) => {
     const head = newest.get(project.slug);
     return (
       head !== undefined &&
       (head.status === "failure" || head.status === "error") &&
-      project.sha !== head.sha
+      holdsRoom(project)
     );
   };
 

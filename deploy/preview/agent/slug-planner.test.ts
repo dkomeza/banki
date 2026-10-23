@@ -349,6 +349,36 @@ describe("a failed newest Deployment", () => {
     ]);
   });
 
+  test("of a dispatch at the same head takes down the Preview still running at it, and its resource", () => {
+    const live = deployment("blue", SHA_A, "success");
+    const failed = deployment("blue", SHA_A, "failure", {
+      createdAt: NOW,
+      description: "build failed",
+    });
+    const running = project("blue");
+
+    const actions = planSlugs(
+      input({
+        projects: [running],
+        deployments: [live, failed],
+        images: [ready("blue", SHA_A)],
+        resources: [resource(40, host("blue"))],
+      }),
+    );
+
+    expect(actions).toEqual([
+      { pool: "slug", kind: "delete-resource", slug: "blue", resourceId: 40 },
+      { pool: "slug", kind: "teardown", project: running },
+      {
+        pool: "slug",
+        kind: "mark-inactive",
+        slug: "blue",
+        deploymentId: live.id,
+        reason: "superseded",
+      },
+    ]);
+  });
+
   test("whose deploy failed leaves its own stopped project alone", () => {
     const failed = deployment("blue", SHA_B, "failure");
 
@@ -362,7 +392,7 @@ describe("a failed newest Deployment", () => {
     expect(actions).toEqual([]);
   });
 
-  test("still holds the Slug: a project of another commit doesn't count against the cap", () => {
+  test("still holds the Slug: a running project it left doesn't count against the cap", () => {
     const queued = deployment("cyan", SHA_B, "queued");
 
     const actions = planSlugs(
@@ -811,7 +841,7 @@ describe("Pangolin resources", () => {
     const actions = planSlugs(
       input({
         projects: [project("blue", { web: "stopped" })],
-        deployments: [deployment("blue", SHA_A, "failure")],
+        deployments: [deployment("blue", SHA_A, "success")],
         resources: [resource(40, host("blue"))],
       }),
     );
