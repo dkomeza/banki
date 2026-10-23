@@ -9,7 +9,7 @@ function Dash({ title, current }: { title: string; current: boolean }) {
     <span
       aria-hidden
       className={cn(
-        "block h-[3px] rounded-full transition-colors",
+        "block h-[3px] rounded-full transition-colors motion-reduce:transition-none",
         current ? "bg-primary" : "bg-input/45",
       )}
       // Longer names, longer dashes, up to a point.
@@ -90,13 +90,13 @@ export function SectionIndex({ label, sections }: { label: string; sections: rea
         <div aria-hidden className="absolute -inset-y-8 right-0" style={{ left: -gutter }} />
         <div
           aria-hidden
-          className="relative flex flex-col gap-2.5 py-3 transition-opacity group-focus-within/index:opacity-0 group-hover/index:opacity-0"
+          className="relative flex flex-col gap-2.5 py-3 transition-opacity motion-reduce:transition-none group-focus-within/index:opacity-0 group-hover/index:opacity-0"
         >
           {sections.map(({ id, title }) => (
             <Dash key={id} title={title} current={id === current} />
           ))}
         </div>
-        <ul className="pointer-events-none absolute top-0 -left-3 z-20 flex w-max min-w-48 flex-col gap-1 rounded-xl border bg-popover p-2.5 text-popover-foreground opacity-0 shadow-lg transition-opacity duration-150 group-focus-within/index:pointer-events-auto group-focus-within/index:opacity-100 group-hover/index:pointer-events-auto group-hover/index:opacity-100">
+        <ul className="pointer-events-none absolute top-0 -left-3 z-20 flex w-max min-w-48 flex-col gap-1 rounded-xl border bg-popover p-2.5 text-popover-foreground opacity-0 shadow-lg transition-opacity duration-150 motion-reduce:transition-none group-focus-within/index:pointer-events-auto group-focus-within/index:opacity-100 group-hover/index:pointer-events-auto group-hover/index:opacity-100">
           {sections.map(({ id, title }) => (
             <li key={id}>
               <a

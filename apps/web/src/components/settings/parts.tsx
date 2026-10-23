@@ -107,7 +107,8 @@ export function Done({ children }: { children: ReactNode }) {
   return (
     <p role="status" className="flex items-start gap-2.5 rounded-xl bg-accent p-3.5 text-[0.95rem]">
       <Check aria-hidden className="mt-0.5 size-4 shrink-0 text-primary" />
-      <span>{children}</span>
+      {/* A long Email breaks anywhere rather than run out of the box. */}
+      <span className="min-w-0 [overflow-wrap:anywhere]">{children}</span>
     </p>
   );
 }

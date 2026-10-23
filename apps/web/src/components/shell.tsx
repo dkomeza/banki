@@ -45,7 +45,7 @@ function Sidebar() {
               <Link
                 to={to}
                 activeOptions={{ exact: true }}
-                className="flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-sm text-sidebar-foreground no-underline transition-colors outline-none hover:bg-sidebar-accent focus-visible:outline-2 focus-visible:outline-sidebar-ring focus-visible:outline-solid aria-[current=page]:bg-sidebar-accent aria-[current=page]:font-medium aria-[current=page]:text-sidebar-primary"
+                className="flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-sm text-sidebar-foreground no-underline transition-colors motion-reduce:transition-none outline-none hover:bg-sidebar-accent focus-visible:outline-2 focus-visible:outline-sidebar-ring focus-visible:outline-solid aria-[current=page]:bg-sidebar-accent aria-[current=page]:font-medium aria-[current=page]:text-sidebar-primary"
               >
                 <Icon aria-hidden className="size-4" />
                 {label}
@@ -67,7 +67,7 @@ function SignedInAs() {
     <Link
       to="/settings"
       aria-label={email === undefined ? "Settings" : `Signed in as ${email}. Settings`}
-      className="flex w-full items-center gap-2.5 rounded-lg p-2 text-left text-sm text-sidebar-foreground no-underline transition-colors outline-none hover:bg-sidebar-accent focus-visible:outline-2 focus-visible:outline-sidebar-ring focus-visible:outline-solid"
+      className="flex w-full items-center gap-2.5 rounded-lg p-2 text-left text-sm text-sidebar-foreground no-underline transition-colors motion-reduce:transition-none outline-none hover:bg-sidebar-accent focus-visible:outline-2 focus-visible:outline-sidebar-ring focus-visible:outline-solid"
     >
       <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/12 text-primary">
         <UserRound aria-hidden className="size-4" />
@@ -93,7 +93,7 @@ function TabBar() {
             key={to}
             to={to}
             activeOptions={{ exact: true }}
-            className="flex flex-1 flex-col items-center justify-center gap-0.5 rounded-lg text-xs font-medium text-muted-foreground no-underline transition-colors outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid aria-[current=page]:text-primary"
+            className="flex flex-1 flex-col items-center justify-center gap-0.5 rounded-lg text-xs font-medium text-muted-foreground no-underline transition-colors motion-reduce:transition-none outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid aria-[current=page]:text-primary"
           >
             <Icon aria-hidden className="size-5" />
             {label}

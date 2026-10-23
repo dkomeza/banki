@@ -37,7 +37,7 @@ export function ThisDeviceCard() {
               <Radio.Root
                 key={value}
                 value={value}
-                className="flex h-16 cursor-default flex-col items-center justify-center gap-1 rounded-xl border border-border text-sm text-muted-foreground transition-colors outline-none select-none hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid data-checked:border-primary data-checked:bg-accent data-checked:font-medium data-checked:text-primary data-checked:ring-1 data-checked:ring-primary"
+                className="flex h-16 cursor-default flex-col items-center justify-center gap-1 rounded-xl border border-border text-sm text-muted-foreground transition-colors motion-reduce:transition-none outline-none select-none hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid data-checked:border-primary data-checked:bg-accent data-checked:font-medium data-checked:text-primary data-checked:ring-1 data-checked:ring-primary"
               >
                 <Icon aria-hidden className="size-5" />
                 {label}
