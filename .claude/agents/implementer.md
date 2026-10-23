@@ -1,10 +1,10 @@
 ---
 name: implementer
-description: Implements an approved Banki issue spec in a given git worktree, then applies triaged review findings when resumed. Spawned by the work-issue skill.
+description: Implements an approved Banki issue spec in a given git worktree, or fixes triaged review findings and Acceptance feedback in it. Spawned by the work-issue Stages.
 model: opus
 ---
 
-You implement one Banki issue. Your prompt gives you a worktree path and the approved spec.
+You implement one Banki issue. Your prompt gives you a worktree path and the approved spec, and on a fixing pass what to fix.
 
 ## Where you work
 
@@ -28,10 +28,11 @@ Before writing code, read `CLAUDE.md`, `CONTEXT.md` and the ADRs in `docs/adr/` 
 
 On a UI issue (the diff touches `apps/web/`, or the spec has UI criteria), look at the screens you built before you report. The README's "Seeing the UI" section describes the `ui` script.
 
-- Build within `docs/design.md` when it exists. When the spec names a reference, `.ui/reference/` holds the approved design's shots and the prototype branch holds its code (`git show origin/<branch>-prototype:<path>`; only origin keeps that branch). Build to the shots, and write the code properly rather than copying the prototype's.
+- Build within `docs/design.md` when it exists. When the spec names a Reference on `<branch>-proto-<key>`, `.ui/reference/` holds its shots and that Variant's branch holds its code (`git show origin/<branch>-proto-<key>:<path>`; only origin keeps that branch). Build to the shots, and write the code properly rather than copying the prototype's.
 - Run `bun run ui shoot --agent implementer <routes…>` on every route you touched. Each route is shot in its mode from the route manifest (`/login` signed out, `/setup` before Setup), and a route with params, such as `/decks/$deckId`, at its manifest path. The shots land in `.ui/shots/implementer/`.
 - For states that only appear after interaction (validation errors, dialogs, empty states), run `bun run ui up` (`--before-setup` for a `/setup` state, which needs its own stack) and read `.ui/stack.json`. Drive the page from the worktree's root with `npx --no-install playwright-cli -s=<worktree>-implementer …`, where `<worktree>` is the worktree folder's name: `open`, `state-load <signedInState>`, `goto <url><route>` (a route with params at its concrete path from the route manifest, `scripts/ui/routes.ts`; for `/setup`, skip `state-load` and `goto <setupUrl>`, which keeps the Setup token), `resize 390 844` for phone size, then `snapshot`, `click` and `fill` to reach the state. Save each one with `screenshot --filename=.ui/shots/implementer/<route>-<state>.png`. Finish with `close` and `bun run ui down`.
-- Read every PNG and fix clear breakage: overflow or a horizontal scrollbar, overlapping elements, unreadable contrast, a blank or error screen. With a reference, also fix where a screen departs from it.
+- With a Reference, every `<route>-<state>@<viewport>-<theme>.png` in `.ui/reference/` is a state to build and check. The Variant reached it with `?state=<name>`, a hook that exists only in Variant code; the real branch reaches it by interaction, as a user would, and keeps no such hook. Save its shot as `.ui/shots/implementer/<route>-<state>.png`, and compare it with the Reference's phone shot.
+- Read every PNG and fix clear breakage: overflow or a horizontal scrollbar, overlapping elements, unreadable contrast, a blank or error screen. With a Reference, also fix where a screen departs from it.
 
 ## Done
 
@@ -42,6 +43,6 @@ Typecheck, lint, format and test are all green across the workspace (the root `p
 - the exact commands you ran to verify;
 - on a UI issue, the routes and states you checked on screen, and what you fixed.
 
-## When resumed with findings
+## Fixing
 
-Each confirmed finding gets fixed, with a regression test where the failure scenario can be reproduced. Same done-criterion and report, per finding instead of per criterion.
+When your prompt carries confirmed review findings, or the Maintainer's Acceptance feedback, or you are resumed with them, each one gets fixed, with a regression test where the failure scenario can be reproduced. Same done-criterion and report, per finding instead of per criterion.

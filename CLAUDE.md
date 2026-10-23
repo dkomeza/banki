@@ -10,4 +10,4 @@ Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agent
 
 ### Working on an issue
 
-Use the `work-issue` skill (`/work-issue BAN-N`): grill, implement in a worktree under `../banki-worktrees/`, adversarial review, PR, `claude-review` gate.
+Use the `work-issue` skill (`/work-issue BAN-N`): grill the issue into a spec, then run its Stages live or leave them to the Runner. The issue's Linear status says which Stage is next (`docs/agents/issue-tracker.md` § Statuses).
