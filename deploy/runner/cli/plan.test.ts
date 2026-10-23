@@ -30,7 +30,7 @@ describe("the per-run MCP config", () => {
 });
 
 describe("the claude invocation", () => {
-  test("is headless, streams JSON events, skips permissions, and reads only the per-run MCP config", () => {
+  test("is headless, streams JSON events, skips permissions, reads only the per-run MCP config, and may work in the worktrees", () => {
     expect(claudeArgs("the prompt", "/tmp/stage-x/mcp.json")).toEqual([
       "claude",
       "-p",
@@ -42,6 +42,8 @@ describe("the claude invocation", () => {
       "--strict-mcp-config",
       "--mcp-config",
       "/tmp/stage-x/mcp.json",
+      "--add-dir",
+      "/work/banki-worktrees",
     ]);
   });
 });

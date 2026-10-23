@@ -51,11 +51,19 @@ services:
         # The commit of `main` it is built from, which the tick loop compares
         # with `main` to say when the image needs rebuilding.
         BANKI_RUNNER_COMMIT: ${BANKI_RUNNER_COMMIT:-}
+    # Docker mounts a tmpfs noexec, and the Stages' tests write scripts to
+    # /tmp and run them, as they do on the laptop.
+    tmpfs:
+      - /tmp:exec
     environment:
       # ~/.claude, bun's cache and Playwright's browsers, on the volume.
       HOME: /work/home
       PLAYWRIGHT_BROWSERS_PATH: /work/home/ms-playwright
       BANKI_BROKER_SOCKET: /run/banki-broker/broker.sock
+      # Its network has no IPv6 address, so glibc leaves ::1 out when Node
+      # connects to `localhost`, though Node still listens there on ::1: the
+      # `ui` script would never reach Vite. IPv4 first puts both on 127.0.0.1.
+      NODE_OPTIONS: --dns-result-order=ipv4first
     # The Claude token alone. It asks the broker for GitHub and Linear tokens.
     secrets: [claude-token]
     volumes:

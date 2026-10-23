@@ -16,10 +16,11 @@ FROM node:24.22.1-trixie-slim@sha256:43b9ba1142b8dcf33fa8f922ca1be85714adc444e05
 
 ARG TARGETARCH
 
-# git, and curl for the wrappers that reach the broker's socket. From the
-# Debian release the base image pins.
+# git; curl, for the wrappers that reach the broker's socket; jq, which the
+# workflows' scripts (and their tests) use; and ps, with which the `ui` script
+# finds its running stacks. From the Debian release the base image pins.
 RUN apt-get update \
-  && apt-get install --yes --no-install-recommends ca-certificates curl git \
+  && apt-get install --yes --no-install-recommends ca-certificates curl git jq procps \
   && rm -rf /var/lib/apt/lists/*
 
 # gh, from its release, checked against the release's checksums. It goes
@@ -75,6 +76,7 @@ RUN mkdir -p /work /run/banki-broker && chmod 1777 /work /run/banki-broker
 ENV PATH=/opt/banki-runner/bin:$PATH \
   DISABLE_AUTOUPDATER=1 \
   GH_NO_UPDATE_NOTIFIER=1 \
+  NPM_CONFIG_UPDATE_NOTIFIER=false \
   GH_PROMPT_DISABLED=1
 
 # The commit of `main` this image is built from, last, so a new one rebuilds

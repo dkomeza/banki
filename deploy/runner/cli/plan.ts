@@ -38,6 +38,11 @@ export function claudeArgs(prompt: string, mcpConfigPath: string): string[] {
     "--strict-mcp-config",
     "--mcp-config",
     mcpConfigPath,
+    // What .claude/settings.json grants as `additionalDirectories`, which
+    // `claude` ignores in a workspace nobody has trusted interactively, as
+    // the Runner's clone never is.
+    "--add-dir",
+    WORKTREES,
   ];
 }
 

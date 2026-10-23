@@ -104,15 +104,20 @@ describe.skipIf(!hasDocker)("compose.yaml", () => {
       expect(await service(name)).toMatchObject({
         user: "1000:1001",
         read_only: true,
-        tmpfs: ["/tmp"],
         security_opt: ["no-new-privileges:true"],
         cap_drop: ["ALL"],
         init: true,
         restart: "unless-stopped",
       });
       expect(await service(name)).not.toHaveProperty("cap_add");
+      expect((await service(name)).tmpfs).toHaveLength(1);
       expect(await service(name)).not.toHaveProperty("privileged");
     }
+  });
+
+  test("lets the runner run what its tests write to /tmp, and keeps the broker's noexec", async () => {
+    expect((await service("runner")).tmpfs).toEqual(["/tmp:exec"]);
+    expect((await service("broker")).tmpfs).toEqual(["/tmp"]);
   });
 
   test("refuses to render before bootstrap has recorded the uid and gid", async () => {
@@ -181,8 +186,15 @@ describe.skipIf(!hasDocker)("compose.yaml", () => {
     expect(Object.keys(services.runner?.environment ?? {}).toSorted()).toEqual([
       "BANKI_BROKER_SOCKET",
       "HOME",
+      "NODE_OPTIONS",
       "PLAYWRIGHT_BROWSERS_PATH",
     ]);
+  });
+
+  test("has Node resolve localhost to IPv4 first, where Vite then listens and the `ui` script looks", async () => {
+    expect((await service("runner")).environment?.NODE_OPTIONS).toBe(
+      "--dns-result-order=ipv4first",
+    );
   });
 
   test("puts the runner's HOME and Playwright's browsers on the work volume", async () => {
