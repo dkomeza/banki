@@ -14,9 +14,6 @@ export type ComboboxOption = {
   detail?: string;
 };
 
-/** At most this many matches are drawn; typing narrows the rest. */
-const SHOWN = 200;
-
 /**
  * A searchable picker: an input (`role="combobox"`) over a list of options.
  * Focusing or clicking it opens the list; typing narrows it with `search`;
@@ -57,14 +54,25 @@ export function Combobox({
   const [active, setActive] = useState(0);
   const listRef = useRef<HTMLUListElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const results = useMemo(() => search(query).slice(0, SHOWN), [search, query]);
+  // Every match is drawn (about 420 zones at most), so the whole list can be browsed.
+  const results = useMemo(() => search(query), [search, query]);
   const picked = options.find((option) => option.value === value);
 
+  // Opening centres the current choice in the list.
+  const centre = useRef(false);
+
+  // Keeps the active option in view, scrolling only the list, never the page.
   useEffect(() => {
-    if (!open) return;
-    listRef.current
-      ?.querySelector<HTMLElement>(`[data-index="${active}"]`)
-      ?.scrollIntoView({ block: "nearest" });
+    const list = listRef.current;
+    const item = list?.querySelector<HTMLElement>(`[data-index="${active}"]`);
+    if (!open || !list || !item) return;
+    if (centre.current) {
+      centre.current = false;
+      list.scrollTop = item.offsetTop - (list.clientHeight - item.offsetHeight) / 2;
+    } else if (item.offsetTop < list.scrollTop) list.scrollTop = item.offsetTop;
+    else if (item.offsetTop + item.offsetHeight > list.scrollTop + list.clientHeight) {
+      list.scrollTop = item.offsetTop + item.offsetHeight - list.clientHeight;
+    }
   }, [open, active]);
 
   const close = () => {
@@ -73,13 +81,12 @@ export function Combobox({
   };
   /** Opens the whole list, starting at the current choice. */
   const openList = () => {
+    centre.current = true;
     setOpen(true);
     setQuery("");
     setActive(
       Math.max(
-        search("")
-          .slice(0, SHOWN)
-          .findIndex((option) => option.value === value),
+        search("").findIndex((option) => option.value === value),
         0,
       ),
     );
