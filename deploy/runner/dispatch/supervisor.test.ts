@@ -86,6 +86,37 @@ const done = {
   pr: 3,
 };
 
+/** Supervises a Stage whose issue changed since the tick looked, and checks it started nothing. */
+const abandoned = async (
+  issue: FakeIssue,
+  kind: "implement" | "design",
+  resume: boolean,
+  paused?: boolean,
+) => {
+  let ran = false;
+  const lines: string[] = [];
+  const { deps, linear, records, log } = setup(issue, () => {
+    ran = true;
+    return { result: done };
+  });
+  deps.log = (line) => lines.push(line);
+  if (paused) {
+    records.saveActive({
+      issue: "BAN-1",
+      kind,
+      state: "running",
+      pid: null,
+      sessionId: "sess-1",
+      resetsAt: "2026-10-24T01:00:00.000Z",
+      runs: [],
+    });
+  }
+  expect(await supervise(kind, "BAN-1", { log, resume }, deps)).toBe(1);
+  expect(ran).toBe(false);
+  expect(linear.calls).toEqual([]);
+  return { records, lines };
+};
+
 describe("a supervised Stage", () => {
   test("sets In Progress, runs the Stage within its limit, posts the closing comment and sets the next status", async () => {
     const issue = fakeIssue("BAN-1");
@@ -275,5 +306,59 @@ describe("a supervised Stage", () => {
     expect(ran).toBe(false);
     expect(linear.calls).toEqual([]);
     expect(records.activeRecords()).toEqual([]);
+  });
+
+  // The issue may change between the tick's survey and the supervisor's
+  // fresh look, while the gate's reading takes its time.
+  describe("abandons the start, touching nothing in Linear, when the issue changed since the tick looked", () => {
+    test("the Maintainer took the issue", async () => {
+      const { records, lines } = await abandoned(
+        fakeIssue("BAN-1", { assigneeId: MAINTAINER.linearId }),
+        "implement",
+        false,
+      );
+      expect(records.activeRecords()).toEqual([]);
+      expect(lines.join("\n")).toContain("assigned");
+    });
+
+    test("a fresh start's issue left the status its Stage runs in", async () => {
+      const { records, lines } = await abandoned(
+        fakeIssue("BAN-1", { status: "Backlog" }),
+        "implement",
+        false,
+      );
+      expect(records.activeRecords()).toEqual([]);
+      expect(lines.join("\n")).toContain("Backlog");
+    });
+
+    test("a fresh design start whose issue is in Todo", async () => {
+      const { records } = await abandoned(fakeIssue("BAN-1"), "design", false);
+      expect(records.activeRecords()).toEqual([]);
+    });
+
+    test("a resume's issue is no longer In Progress, and it stays paused", async () => {
+      const { records, lines } = await abandoned(
+        fakeIssue("BAN-1", { status: "Todo" }),
+        "implement",
+        true,
+        true,
+      );
+      expect(records.activeRecord("BAN-1")).toMatchObject({
+        state: "paused",
+        pid: null,
+        sessionId: "sess-1",
+      });
+      expect(lines.join("\n")).toContain("Todo");
+    });
+
+    test("a resume's issue was assigned, and it stays paused", async () => {
+      const { records } = await abandoned(
+        fakeIssue("BAN-1", { status: "In Progress", assigneeId: MAINTAINER.linearId }),
+        "implement",
+        true,
+        true,
+      );
+      expect(records.activeRecord("BAN-1")).toMatchObject({ state: "paused", pid: null });
+    });
   });
 });

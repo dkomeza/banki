@@ -6,8 +6,8 @@ import { errorText } from "../lib/config";
 import { closingComment, MAINTAINER } from "./closing";
 import type { Reading } from "./gate";
 import { type ActiveRecord, ending, type Outcome, type RunRecord, timeLeft } from "./lifecycle";
-import { type Linear, moveTo } from "./linear";
-import { STATUS } from "./select";
+import { type Linear, type LinearIssue, moveTo } from "./linear";
+import { RUNS_IN, STATUS } from "./select";
 import { redactTokens } from "./secrets";
 import { logFacts } from "./stage-log";
 import { openSession, type SessionDeps } from "./session";
@@ -15,7 +15,8 @@ import type { Store } from "./store";
 
 // `runner supervise <kind> BAN-N --log <path> [--resume]` (ADR-0013): one
 // Stage under its supervisor, detached from the tick that started it. It
-// takes the gate's reading before the Stage, sets the issue In Progress, runs
+// takes the gate's reading before the Stage, looks at the issue afresh (and
+// starts nothing if it was assigned or moved since), sets it In Progress, runs
 // the Stage as `runner stage` does with what is left of its 3 hours, takes
 // the reading after, records the run, and then either pauses the Stage (the
 // five-hour limit cut it short), or posts its closing comment and sets the
@@ -67,13 +68,22 @@ export async function supervise(
   }
 
   try {
-    await withLinear(deps, async (linear, session) => {
+    const unfit = await withLinear(deps, async (linear, session) => {
       const found = await linear.issue(issue);
       if (found === undefined) throw new Error(`Linear has no issue ${issue}`);
+      // The tick surveyed the issue before the reading; it may have moved since.
+      const why = unfitToStart(kind, found, options.resume);
+      if (why !== undefined) return why;
       if (!options.resume) await moveTo(linear, found, STATUS.inProgress);
       // The branch's tip as the Stage first starts, from GitHub, not the Stage.
       record.headBefore ??= await tipOf(session, found.branch, say);
+      return undefined;
     });
+    if (unfit !== undefined) {
+      say(`The ${kind} Stage on ${issue} doesn't start: ${unfit}`);
+      giveBack(deps.records, record, options.resume);
+      return 1;
+    }
   } catch (error) {
     say(`Couldn't ready ${issue} in Linear, so the Stage doesn't start: ${errorText(error)}`);
     giveBack(deps.records, record, options.resume);
@@ -183,6 +193,22 @@ export async function supervise(
     runs: record.runs,
   });
   return 0;
+}
+
+/**
+ * Why the issue, as Linear has it now, can't take this Stage, or undefined
+ * when it can: it is assigned, or it isn't in the status the Stage starts
+ * from (the one its kind runs in, or In Progress for a paused one resuming).
+ */
+function unfitToStart(
+  kind: StageKind,
+  found: Pick<LinearIssue, "status" | "assigneeId">,
+  resume: boolean,
+): string | undefined {
+  if (found.assigneeId !== null) return "the issue is assigned now";
+  const from = resume ? STATUS.inProgress : RUNS_IN[kind];
+  if (found.status !== from) return `the issue is ${found.status} now, not ${from}`;
+  return undefined;
 }
 
 /** The tip of origin's `branch`, or undefined when GitHub can't say. */

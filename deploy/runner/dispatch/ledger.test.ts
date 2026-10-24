@@ -30,6 +30,13 @@ const stage = (kind: StageKind, runs: RunRecord[]): StageRecord => ({
 const round = (values: (number | undefined)[]) =>
   values.map((value) => (value === undefined ? value : Math.round(value * 1000) / 1000));
 
+/** A Stage whose first run lost its reading after, and whose resume was measured. */
+const unmeasuredThenResumed = (from: number) =>
+  stage("implement", [
+    { ...run(from, from + 2, 0.1), after: null },
+    run(from + 3, from + 4, 0.3, 0.301),
+  ]);
+
 describe("the ledger", () => {
   test("costs a paused Stage the sum over its runs", () => {
     const { costs } = ledger(
@@ -58,6 +65,26 @@ describe("the ledger", () => {
     expect(ledger([stage("implement", [{ ...run(1, 2, 0.1), after: null }])], []).costs).toEqual([
       undefined,
     ]);
+  });
+
+  test("has no cost for a Stage with any run whose reading is missing, however its other runs were measured", () => {
+    const { costs, estimates } = ledger(
+      [unmeasuredThenResumed(0), unmeasuredThenResumed(5), unmeasuredThenResumed(10)],
+      [],
+    );
+
+    expect(costs).toEqual([undefined, undefined, undefined]);
+    // Three cheap-looking samples would drag the median far below the default.
+    expect(estimates.implement).toBe(0.05);
+  });
+
+  test("has no cost for a Stage with a run that has no reading before it", () => {
+    expect(
+      ledger(
+        [stage("implement", [{ ...run(1, 2, 0.1, 0.2), before: null }, run(3, 4, 0.2, 0.21)])],
+        [],
+      ).costs,
+    ).toEqual([undefined]);
   });
 
   test("estimates each kind from its known costs, the default until it has three", () => {

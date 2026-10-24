@@ -77,10 +77,23 @@ export const stageDeps = (): StageDeps => ({
 const clock = () => new Date().toISOString().slice(11, 19);
 
 /**
+ * Sends `signal` to `claude`'s whole process group, which it leads: what it
+ * started goes down with it. Once the group is gone, to `claude` alone.
+ */
+function signalGroup(proc: Subprocess, signal: NodeJS.Signals): void {
+  try {
+    process.kill(-proc.pid, signal);
+  } catch {
+    proc.kill(signal);
+  }
+}
+
+/**
  * SIGINT, SIGTERM and SIGHUP, from the moment the Stage starts until its
  * cleanup is done: a signal never kills `runner` with a token out or the MCP
- * config on disk. While `claude` runs it gets the signal; before, the step
- * under way is cut short where it can be, and the Stage stops after it.
+ * config on disk. While `claude` runs its process group gets the signal;
+ * before, the step under way is cut short where it can be, and the Stage
+ * stops after it.
  */
 class Interrupt {
   signal: Signal | undefined;
@@ -90,7 +103,7 @@ class Interrupt {
     if (!isSignal(signal)) return;
     this.signal ??= signal;
     if (this.child === undefined) this.controller.abort(new Error(`stopped by ${signal}`));
-    else this.child.kill(signal);
+    else signalGroup(this.child, signal);
   };
 
   install(): void {
@@ -112,9 +125,11 @@ export type StageOptions = {
   resume?: string;
   /** The log to write, instead of one named by the start time. */
   log?: string;
-  /** How long `claude` may run before it gets SIGTERM, and SIGKILL `killAfterMs` later. */
+  /** How long `claude` may run before its group gets SIGTERM, and SIGKILL `killAfterMs` later. */
   timeLimitMs?: number;
   killAfterMs?: number;
+  /** How long, once `claude` has ended, its output is read while something else still holds it open. */
+  drainMs?: number;
 };
 
 export type StageRun = {
@@ -220,10 +235,16 @@ export async function executeStage(
   }
 }
 
+/** How long `claude`'s output is read after it ends, by default. */
+const DRAIN_MS = 5_000;
+
 /**
  * `claude`, with its events printed one line each and appended whole to the
  * log, as they come. Its stderr goes to the terminal and, as `runner` events,
- * to the log, which stays one JSON object per line.
+ * to the log, which stays one JSON object per line. It runs in a process
+ * group of its own, so its time limit and a forwarded signal reach what it
+ * started too; and its output is read only for a grace after it ends, so a
+ * process that outlived it and holds the output open never holds the Stage.
  */
 async function runClaude(
   argv: string[],
@@ -245,10 +266,12 @@ async function runClaude(
     stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",
+    // The leader of a process group of its own.
+    detached: true,
   });
   stop.child = proc;
   // A signal that came while it was being started.
-  if (stop.signal !== undefined) proc.kill(stop.signal);
+  if (stop.signal !== undefined) signalGroup(proc, stop.signal);
   let timedOut = false;
   const timers: Timer[] = [];
   if (limit.timeLimitMs !== undefined) {
@@ -257,45 +280,82 @@ async function runClaude(
         timedOut = true;
         note({ event: "time limit", signal: "SIGTERM" });
         deps.err(`${clock()} The Stage reached its time limit: SIGTERM`);
-        proc.kill("SIGTERM");
+        signalGroup(proc, "SIGTERM");
         timers.push(
           setTimeout(() => {
             note({ event: "time limit", signal: "SIGKILL" });
             deps.err(`${clock()} The Stage is still running: SIGKILL`);
-            proc.kill("SIGKILL");
+            signalGroup(proc, "SIGKILL");
           }, limit.killAfterMs ?? 60_000),
         );
       }, limit.timeLimitMs),
     );
   }
+  const drained = new AbortController();
+  let reading = true;
+  void proc.exited.then(() => {
+    if (!reading) return;
+    timers.push(
+      setTimeout(() => {
+        note({ event: "output still open", afterMs: limit.drainMs ?? DRAIN_MS });
+        deps.err(`${clock()} claude ended, but something it started still holds its output`);
+        drained.abort();
+      }, limit.drainMs ?? DRAIN_MS),
+    );
+  });
   try {
     await Promise.all([
-      eachLine(proc.stdout, (line) => {
-        record(line);
-        deps.out(`${clock()} ${summarize(line)}`);
-      }),
-      eachLine(proc.stderr, (line) => {
-        note({ event: "stderr", line });
-        deps.err(`${clock()} [stderr] ${line}`);
-      }),
+      eachLine(
+        proc.stdout,
+        (line) => {
+          record(line);
+          deps.out(`${clock()} ${summarize(line)}`);
+        },
+        drained.signal,
+      ),
+      eachLine(
+        proc.stderr,
+        (line) => {
+          note({ event: "stderr", line });
+          deps.err(`${clock()} [stderr] ${line}`);
+        },
+        drained.signal,
+      ),
     ]);
     const exitCode = await proc.exited;
     note({ event: "exit", exitCode, signal: proc.signalCode ?? null });
     return { exitCode, timedOut };
   } finally {
+    reading = false;
     for (const timer of timers) clearTimeout(timer);
+    // A stopped `claude` takes along what it started that outlived it.
+    if (timedOut || stop.signal !== undefined) signalGroup(proc, "SIGKILL");
     stop.child = undefined;
     closeSync(fd);
   }
 }
 
-async function eachLine(stream: ReadableStream<Uint8Array>, onLine: (line: string) => void) {
+/** Each line of `stream` as it comes, until it ends or `stop` aborts. */
+async function eachLine(
+  stream: ReadableStream<Uint8Array>,
+  onLine: (line: string) => void,
+  stop: AbortSignal,
+) {
+  const reader = stream.getReader();
+  const cancel = () => void reader.cancel().catch(() => undefined);
+  stop.addEventListener("abort", cancel, { once: true });
   const decoder = new TextDecoder();
   let partial = "";
-  for await (const chunk of stream) {
-    const lines = `${partial}${decoder.decode(chunk, { stream: true })}`.split("\n");
-    partial = lines.pop() ?? "";
-    for (const line of lines) if (line.trim() !== "") onLine(line);
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const lines = `${partial}${decoder.decode(value, { stream: true })}`.split("\n");
+      partial = lines.pop() ?? "";
+      for (const line of lines) if (line.trim() !== "") onLine(line);
+    }
+  } finally {
+    stop.removeEventListener("abort", cancel);
   }
   const rest = `${partial}${decoder.decode()}`;
   if (rest.trim() !== "") onLine(rest);

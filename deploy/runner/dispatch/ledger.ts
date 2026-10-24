@@ -7,7 +7,7 @@ import type { ActiveRecord, StageRecord } from "./lifecycle";
 // back the cost of every run it overlapped. Pure, so it is unit-tested.
 
 export type Ledger = {
-  /** Each ended Stage's cost, in the order given, or undefined while it isn't known. */
+  /** Each ended Stage's cost, in the order given, or undefined while it isn't known (or never will be). */
   costs: (number | undefined)[];
   estimates: Record<StageKind, number>;
 };
@@ -20,12 +20,15 @@ export function ledger(stages: readonly StageRecord[], active: readonly ActiveRe
     ),
   ];
   const known = runCosts(runs);
+  // A Stage with any run whose reading is missing has no known cost: summing
+  // only its measured runs would make it look cheaper than it was.
   const costs = stages.map((stage, i) => {
-    const measured = stage.runs
-      .map((run, j) => ({ run, key: `s${i}:${j}` }))
-      .filter(({ run }) => run.before != null && run.after != null);
-    if (measured.length === 0 || measured.some(({ key }) => !known.has(key))) return undefined;
-    return measured.reduce((sum, { key }) => sum + (known.get(key) ?? 0), 0);
+    const keys = stage.runs.map((_, j) => `s${i}:${j}`);
+    const measured = stage.runs.every(
+      (run, j) => run.before != null && run.after != null && known.has(keys[j] ?? ""),
+    );
+    if (keys.length === 0 || !measured) return undefined;
+    return keys.reduce((sum, key) => sum + (known.get(key) ?? 0), 0);
   });
   const of = (kind: StageKind) =>
     estimate(
