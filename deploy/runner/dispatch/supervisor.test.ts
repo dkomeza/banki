@@ -219,6 +219,32 @@ describe("a supervised Stage", () => {
     expect(records.stageRecords()[0]?.runs).toHaveLength(2);
   });
 
+  test("when the Stage fails before claude starts, says why, and leaves its cost unknown", async () => {
+    const issue = fakeIssue("BAN-1", { status: "Todo" });
+    let readings = 0;
+    const { deps, records, log } = setup(
+      issue,
+      () => {
+        throw new Error("Linear: couldn't read BAN-1");
+      },
+      {
+        reading: async () => {
+          readings += 1;
+          return reading();
+        },
+      },
+    );
+
+    await supervise("implement", "BAN-1", { log, resume: false }, deps);
+
+    expect(issue.comments[0]?.body).toContain(
+      "The implement Stage failed before claude started: Linear: couldn't read BAN-1",
+    );
+    // Only the reading before: a Stage that never started spent nothing to measure.
+    expect(readings).toBe(1);
+    expect(records.stageRecords()[0]?.runs[0]?.after).toBeNull();
+  });
+
   test("after a timeout, restores the status from before In Progress and stops on the Maintainer with the log's tail", async () => {
     const issue = fakeIssue("BAN-1", { status: "In Review" });
     const { deps, linear, log } = setup(issue, (_options, path) => {

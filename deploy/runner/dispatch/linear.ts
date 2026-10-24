@@ -8,6 +8,7 @@ import {
   isRecord,
   parseJson,
 } from "../lib/parse";
+import { seeing } from "../cli/linear";
 import type { Comment } from "./closing";
 import type { Ended } from "./housekeeping";
 import type { Transition } from "./select";
@@ -53,29 +54,37 @@ const toIssue = (node: Record<string, unknown>): LinearIssue => ({
 
 export type Linear = ReturnType<typeof linear>;
 
-export function linear(token: string, options: { fetch?: Fetch; signal?: AbortSignal } = {}) {
+export function linear(
+  token: string,
+  options: { fetch?: Fetch; signal?: AbortSignal; sleep?: (ms: number) => Promise<unknown> } = {},
+) {
   const fetchFn: Fetch = options.fetch ?? fetch;
 
   async function query(
     text: string,
     variables: Record<string, unknown> = {},
   ): Promise<Record<string, unknown>> {
-    const res = await fetchFn(API, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-        "User-Agent": "banki-runner",
-      },
-      body: JSON.stringify({ query: text, variables }),
-      signal: AbortSignal.any([
-        AbortSignal.timeout(30_000),
-        ...(options.signal ? [options.signal] : []),
-      ]),
-    });
-    const body = await res.text();
-    if (!res.ok) throw new Error(`Linear: HTTP ${res.status}`);
-    const parsed = asObject(parseJson(body, "Linear"), "Linear");
+    const parsed = await seeing(async () => {
+      const res = await fetchFn(API, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          "User-Agent": "banki-runner",
+        },
+        body: JSON.stringify({ query: text, variables }),
+        signal: AbortSignal.any([
+          AbortSignal.timeout(30_000),
+          ...(options.signal ? [options.signal] : []),
+        ]),
+      });
+      const body = await res.text();
+      // A fresh token's blindness comes as a 400 at times, and a 200 at others.
+      if (!res.ok && !(res.status === 400 && body.includes("Entity not found"))) {
+        throw new Error(`Linear: HTTP ${res.status}`);
+      }
+      return asObject(parseJson(body, "Linear"), "Linear");
+    }, options.sleep);
     if (parsed.errors !== undefined) {
       throw new Error(`Linear: ${JSON.stringify(parsed.errors).slice(0, 300)}`);
     }
