@@ -30,6 +30,10 @@ export function claudeArgs(prompt: string, mcpConfigPath: string, resume?: strin
     "-p",
     prompt,
     ...(resume === undefined ? [] : ["--resume", resume]),
+    // A Stage builds itself (stages.md § Builders), so it runs on the model
+    // the builders' agent files name, not the account's default.
+    "--model",
+    "opus",
     "--output-format",
     "stream-json",
     "--verbose",
@@ -68,6 +72,10 @@ export type Identity = { name: string; email: string };
  * The Stage's environment: the Runner's own, with the Claude token, and the
  * App's bot as the author and committer. Never ANTHROPIC_API_KEY, which would
  * outrank the token.
+ *
+ * Subagents always run in the background, so a Stage ends its turn to wait
+ * for one, and `claude -p` stops them 10 minutes after the last turn unless
+ * told to wait: a Stage waits as long as its own time limit allows.
  */
 export function stageEnv(
   base: Record<string, string | undefined>,
@@ -81,6 +89,7 @@ export function stageEnv(
   return {
     ...env,
     CLAUDE_CODE_OAUTH_TOKEN: claudeToken,
+    CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: "0",
     GIT_AUTHOR_NAME: identity.name,
     GIT_AUTHOR_EMAIL: identity.email,
     GIT_COMMITTER_NAME: identity.name,

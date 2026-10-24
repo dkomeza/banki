@@ -32,11 +32,13 @@ describe("the per-run MCP config", () => {
 });
 
 describe("the claude invocation", () => {
-  test("is headless, streams JSON events, skips permissions, reads only the per-run MCP config, and may work in the worktrees", () => {
+  test("is headless, on Opus, streams JSON events, skips permissions, reads only the per-run MCP config, and may work in the worktrees", () => {
     expect(claudeArgs("the prompt", "/tmp/stage-x/mcp.json")).toEqual([
       "claude",
       "-p",
       "the prompt",
+      "--model",
+      "opus",
       "--output-format",
       "stream-json",
       "--verbose",
@@ -88,7 +90,7 @@ describe("the Stage's environment", () => {
     email: "9+banki-runner[bot]@users.noreply.github.com",
   };
 
-  test("passes the Claude token, commits as the App's bot, and drops any API key", () => {
+  test("passes the Claude token, waits out its subagents, commits as the App's bot, and drops any API key", () => {
     const env = stageEnv(
       { PATH: "/usr/bin", HOME: "/work/home", ANTHROPIC_API_KEY: "outranks-the-token" },
       CLAUDE_TOKEN,
@@ -99,6 +101,7 @@ describe("the Stage's environment", () => {
       PATH: "/usr/bin",
       HOME: "/work/home",
       CLAUDE_CODE_OAUTH_TOKEN: CLAUDE_TOKEN,
+      CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: "0",
       GIT_AUTHOR_NAME: "banki-runner[bot]",
       GIT_AUTHOR_EMAIL: "9+banki-runner[bot]@users.noreply.github.com",
       GIT_COMMITTER_NAME: "banki-runner[bot]",

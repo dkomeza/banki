@@ -34,7 +34,7 @@ Done when every finding has a verdict.
 
 ## 4. Fix
 
-If nothing was confirmed, the round pushes nothing. Otherwise spawn a fresh `implementer` with `<wt>`, the spec, the confirmed findings and any spec answers (on a UI issue, `ui.md` § Step 3 too). Verify green yourself in `<wt>`, run `bun run ui down`, and push **once**: every push re-runs `claude-review`, so the next round waits for it again. When the round's fixes touched `apps/web/`, refresh the shots (`ui.md` § Refreshing the shots).
+If nothing was confirmed, the round pushes nothing. Otherwise a fresh `implementer` fixes them (`stages.md` § Builders), its prompt carrying `<wt>`, the spec, the confirmed findings and any spec answers (on a UI issue, `ui.md` § Step 3 too). Verify green yourself in `<wt>`, run `bun run ui down`, and push **once**: every push re-runs `claude-review`, so the next round waits for it again. When the round's fixes touched `apps/web/`, refresh the shots (`ui.md` § Refreshing the shots).
 
 ## 5. Answer the findings
 
