@@ -12,6 +12,7 @@ import {
   worktreesToRemove,
 } from "./housekeeping";
 import { ledger } from "./ledger";
+import { type Closing, MAINTAINER } from "./closing";
 import { type ActiveRecord, reconcile, type StageRecord } from "./lifecycle";
 import { type LinearIssue, moveTo } from "./linear";
 import { plan, type Ready, type Verdict } from "./queue";
@@ -47,7 +48,8 @@ export type DispatcherDeps = SessionDeps & {
   records: Store;
   config: DispatcherConfig;
   takeReading: () => Promise<Reading>;
-  startSupervisor: (start: Start) => number;
+  /** Starts a supervisor; `onError` hears of a failure that comes after it returns. */
+  startSupervisor: (start: Start, onError: (error: Error) => void) => number;
   alive: (record: ActiveRecord) => boolean;
   redact: (text: string) => string;
   housekeeper: Housekeeper;
@@ -96,9 +98,11 @@ async function dispatch(session: Session, deps: DispatcherDeps): Promise<void> {
   for (const verdict of await planWithReading(deps, { resumes, ready })) {
     if (verdict.start) {
       const log = begin(deps, verdict.ready, now);
-      deps.log(
-        `Started the ${verdict.ready.stage} Stage on ${verdict.ready.issue} (${verdict.why}): ${log}`,
-      );
+      if (log !== undefined) {
+        deps.log(
+          `Started the ${verdict.ready.stage} Stage on ${verdict.ready.issue} (${verdict.why}): ${log}`,
+        );
+      }
     } else {
       deps.log(`${verdict.ready.issue} ${verdict.ready.stage} waits: ${verdict.why}`);
     }
@@ -145,25 +149,48 @@ async function planWithReading(
   });
 }
 
-/** Writes the Stage's active record and starts its supervisor, which records its own pid. Returns the Stage's log. */
-function begin(deps: DispatcherDeps, ready: Ready, now: Date): string {
+/**
+ * Writes the Stage's active record and starts its supervisor, which records
+ * its own pid. Returns the Stage's log, or undefined when the supervisor
+ * can't be started: then the record is put back as it was, gone or paused.
+ */
+function begin(deps: DispatcherDeps, ready: Ready, now: Date): string | undefined {
   const log = logPath(ready.issue, ready.stage, now, deps.logs);
   const existing = deps.records.activeRecord(ready.issue);
+  const resuming = ready.resume === true && existing !== undefined;
+  const since = now.toISOString();
   deps.records.saveActive(
-    ready.resume === true && existing !== undefined
-      ? { ...existing, state: "running", pid: null }
-      : { issue: ready.issue, kind: ready.stage, state: "running", pid: null, runs: [] },
+    resuming
+      ? { ...existing, state: "running", pid: null, since }
+      : { issue: ready.issue, kind: ready.stage, state: "running", pid: null, runs: [], since },
   );
-  deps.startSupervisor({
-    issue: ready.issue,
-    kind: ready.stage,
-    resume: ready.resume === true,
-    log,
-  });
+  const giveBack = (error: unknown) => {
+    deps.log(`Couldn't start the supervisor of ${ready.issue}: ${errorText(error)}`);
+    if (resuming) deps.records.saveActive({ ...existing, state: "paused", pid: null });
+    else deps.records.removeActive(ready.issue);
+  };
+  try {
+    deps.startSupervisor(
+      { issue: ready.issue, kind: ready.stage, resume: ready.resume === true, log },
+      giveBack,
+    );
+  } catch (error) {
+    giveBack(error);
+    return undefined;
+  }
   return log;
 }
 
-/** Crashes and left-behind paused Stages are dealt with; the paused Stages that are due come back to be resumed. */
+/** The issue's newest closing comment, read only when a gone supervisor may have posted one. */
+async function newestClosing(session: Session, issue: LinearIssue): Promise<Closing | undefined> {
+  return (await session.facts(issue)).closings.at(-1);
+}
+
+/**
+ * Crashes, gone supervisors and left-behind paused Stages are dealt with; the
+ * paused Stages that are due, unassigned and still In Progress come back to
+ * be resumed.
+ */
 async function reconcileActive(
   session: Session,
   deps: DispatcherDeps,
@@ -176,7 +203,12 @@ async function reconcileActive(
       const issue =
         issues.find((found) => found.identifier === record.issue) ??
         (await session.linear.issue(record.issue));
-      const state = reconcile(record, deps.alive(record), issue?.status, now);
+      const alive = deps.alive(record);
+      const closing =
+        record.state === "running" && !alive && issue?.status === STATUS.inProgress
+          ? await newestClosing(session, issue)
+          : undefined;
+      const state = reconcile(record, { alive, issue, closing, now });
       if (state.type === "crashed") {
         deps.log(`The ${record.kind} Stage on ${record.issue} crashed: its supervisor is gone`);
         await session.crashed(
@@ -185,9 +217,28 @@ async function reconcileActive(
           deps.redact,
         );
         deps.records.finish(ended(record, "crashed", now));
+      } else if (state.type === "closed" && issue !== undefined) {
+        const { result } = state.closing;
+        deps.log(
+          `The ${record.kind} Stage on ${record.issue} posted its closing comment, and its supervisor went before moving the issue on: moving it to ${result.nextStatus}`,
+        );
+        await moveTo(
+          session.linear,
+          issue,
+          result.nextStatus,
+          result.outcome === "stopped" ? MAINTAINER.linearId : undefined,
+        );
+        deps.records.finish(ended(record, result.outcome, now));
+      } else if (state.type === "gone") {
+        deps.log(
+          `The ${record.kind} Stage on ${record.issue} has no supervisor any more, and ${state.why}: ending its record`,
+        );
+        deps.records.finish(ended(record, "lost", now));
       } else if (state.type === "abandoned") {
         deps.log(`Dropping the paused ${record.kind} Stage on ${record.issue}: ${state.why}`);
         deps.records.finish(ended(record, "abandoned", now));
+      } else if (state.type === "held") {
+        deps.log(`The paused ${record.kind} Stage on ${record.issue} waits: ${state.why}`);
       } else if (state.type === "paused" && state.due && issue !== undefined) {
         resumes.push({
           issue: record.issue,
@@ -420,6 +471,14 @@ export async function runNow(
       );
       if (issue === undefined) return { why: `${identifier} isn't an open issue of project Banki` };
       if (record?.state === "paused") {
+        // The same rules as a fresh start: never on an assigned issue, and
+        // only while it is In Progress.
+        const state = reconcile(record, { alive: false, issue, now });
+        if (state.type === "abandoned") {
+          deps.records.finish(ended(record, "abandoned", now));
+          return { why: `its paused Stage is dropped: ${state.why}` };
+        }
+        if (state.type === "held") return { why: `its paused Stage waits: ${state.why}` };
         resumes.push({
           issue: identifier,
           status: issue.status,
@@ -446,7 +505,8 @@ export async function runNow(
       const [verdict] = await planWithReading(deps, { resumes, ready }, force);
       if (verdict === undefined || !verdict.start)
         return { why: verdict?.why ?? "nothing is ready" };
-      return { log: begin(deps, verdict.ready, now) };
+      const log = begin(deps, verdict.ready, now);
+      return log === undefined ? { why: "its supervisor couldn't be started" } : { log };
     } finally {
       await session.end();
     }

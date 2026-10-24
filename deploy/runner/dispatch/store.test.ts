@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ActiveRecord } from "./lifecycle";
@@ -66,6 +66,25 @@ describe("the lock", () => {
     expect(records.lock()).toBeUndefined();
     release?.();
     expect(records.lock()).toBeDefined();
+  });
+
+  test("counts an empty lock, one being written, as held for a few seconds, and stale after", () => {
+    const records = fresh();
+    const path = join(records.dir, "lock");
+    records.lock()?.();
+    writeFileSync(path, "");
+
+    expect(records.lock()).toBeUndefined();
+    const old = new Date(Date.now() - 60_000);
+    utimesSync(path, old, old);
+    expect(records.lock()).toBeDefined();
+  });
+
+  test("is never seen empty: the pid is in it from the moment it exists", () => {
+    const records = fresh();
+    records.lock();
+
+    expect(readFileSync(join(records.dir, "lock"), "utf8")).toBe(String(process.pid));
   });
 
   test("is taken over from a process that is gone", () => {

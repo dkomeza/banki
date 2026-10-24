@@ -8,6 +8,7 @@ import type { Reading } from "./gate";
 import { type ActiveRecord, ending, type Outcome, type RunRecord, timeLeft } from "./lifecycle";
 import { type Linear, moveTo } from "./linear";
 import { STATUS } from "./select";
+import { redactTokens } from "./secrets";
 import { logFacts } from "./stage-log";
 import { openSession, type SessionDeps } from "./session";
 import type { Store } from "./store";
@@ -65,18 +66,18 @@ export async function supervise(
     return 1;
   }
 
-  if (!options.resume) {
-    try {
-      await withLinear(deps, async (linear) => {
-        const found = await linear.issue(issue);
-        if (found === undefined) throw new Error(`Linear has no issue ${issue}`);
-        await moveTo(linear, found, STATUS.inProgress);
-      });
-    } catch (error) {
-      say(`Couldn't set ${issue} In Progress, so the Stage doesn't start: ${errorText(error)}`);
-      giveBack(deps.records, record, false);
-      return 1;
-    }
+  try {
+    await withLinear(deps, async (linear, session) => {
+      const found = await linear.issue(issue);
+      if (found === undefined) throw new Error(`Linear has no issue ${issue}`);
+      if (!options.resume) await moveTo(linear, found, STATUS.inProgress);
+      // The branch's tip as the Stage first starts, from GitHub, not the Stage.
+      record.headBefore ??= await tipOf(session, found.branch, say);
+    });
+  } catch (error) {
+    say(`Couldn't ready ${issue} in Linear, so the Stage doesn't start: ${errorText(error)}`);
+    giveBack(deps.records, record, options.resume);
+    return 1;
   }
 
   const earlier = record.runs.filter((run) => run.endedAt !== undefined);
@@ -142,12 +143,21 @@ export async function supervise(
     }
   }
 
+  // A crash's tail never shows the Linear token the Stage was given.
+  const redact = (text: string) => redactTokens(deps.redact(text), run.tokens ?? []);
   const outcome = await withLinear(deps, async (linear, session): Promise<Outcome> => {
     const found = await linear.issue(issue);
     if (found === undefined) throw new Error(`Linear has no issue ${issue}`);
     if (end.type === "closing") {
-      const { result } = end;
-      await linear.comment(found.id, closingComment(result, end.json));
+      // The branch's real tip, and whether it moved, over what the Stage wrote.
+      const headAfter = await tipOf(session, found.branch, say);
+      const pushed =
+        record.headBefore !== undefined && headAfter !== undefined
+          ? record.headBefore !== headAfter
+          : end.result.pushed;
+      const headSha = headAfter ?? end.result.headSha;
+      const result = { ...end.result, headSha, pushed };
+      await linear.comment(found.id, closingComment(result, { ...end.json, headSha, pushed }));
       const assignee = result.outcome === "stopped" ? MAINTAINER.linearId : undefined;
       if (found.status === STATUS.inProgress && result.nextStatus !== found.status) {
         await moveTo(linear, found, result.nextStatus, assignee);
@@ -161,7 +171,7 @@ export async function supervise(
       end.type === "paused"
         ? "The five-hour limit cut the Stage short, and its log has no session to resume."
         : end.why;
-    await session.crashed(record, why, deps.redact);
+    await session.crashed(record, why, redact);
     say(`The Stage stopped on the Maintainer: ${why}`);
     return end.type === "paused" ? "no-result" : end.outcome;
   });
@@ -173,6 +183,20 @@ export async function supervise(
     runs: record.runs,
   });
   return 0;
+}
+
+/** The tip of origin's `branch`, or undefined when GitHub can't say. */
+async function tipOf(
+  session: Awaited<ReturnType<typeof openSession>>,
+  branch: string,
+  say: (line: string) => void,
+): Promise<string | undefined> {
+  try {
+    return await session.github.branchHead(branch);
+  } catch (error) {
+    say(`Couldn't read the tip of ${branch} from GitHub: ${errorText(error)}`);
+    return undefined;
+  }
 }
 
 /** The active record the tick wrote just before starting this supervisor. */

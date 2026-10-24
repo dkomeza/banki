@@ -1,4 +1,3 @@
-import { redact } from "../broker/redact";
 import { broker } from "../cli/broker-client";
 import { CLONE, LOGS, WORKTREES } from "../cli/plan";
 import { executeStage, stageDeps } from "../cli/stage";
@@ -9,6 +8,7 @@ import type { DispatcherDeps } from "./dispatcher";
 import { github } from "./github";
 import { linear } from "./linear";
 import { startSupervisor } from "./spawn";
+import { redactTokens } from "./secrets";
 import { store, supervisorAlive } from "./store";
 import type { SupervisorDeps } from "./supervisor";
 import { listWorktrees, logFiles, removeLogs, removeWorktree, worktreeFacts } from "./tidy";
@@ -18,7 +18,7 @@ import { listWorktrees, logFiles, removeLogs, removeWorktree, worktreeFacts } fr
 
 const claudeToken = () => readSecret(SECRETS.claudeToken);
 /** The Claude token is the one secret the runner holds; a log's tail never shows it. */
-const hide = (text: string) => redact(text, [claudeToken()]);
+const hide = (text: string) => redactTokens(text, [claudeToken()]);
 const log = (line: string) => console.log(line);
 
 export function dispatcherDeps(): DispatcherDeps {
@@ -30,7 +30,7 @@ export function dispatcherDeps(): DispatcherDeps {
     records: store(),
     config: dispatcherConfig(process.env),
     takeReading: () => takeReading(claudeToken()),
-    startSupervisor: (start) => startSupervisor(start),
+    startSupervisor: (start, onError) => startSupervisor(start, onError),
     alive: supervisorAlive,
     redact: hide,
     housekeeper: {

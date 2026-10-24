@@ -65,7 +65,7 @@ const moved = (at: string, from: string | null, to: string): Transition => ({ at
 
 function review(fields: Partial<ReviewFacts> = {}): ReviewFacts {
   return {
-    pr: { number: 12, headSha: HEAD, open: true },
+    pr: { number: 12, headSha: HEAD, open: true, createdAt: ago(600) },
     pushedAt: ago(30),
     check: { status: "completed", conclusion: "success" },
     summary: { sha: HEAD.slice(0, 7), findings: [] },
@@ -107,6 +107,14 @@ const round = (at: string) =>
     nextStatus: STATUS.inDesign,
     routes: ["/decks"],
     variants: [variant("a"), variant("b")],
+  });
+
+/** Review facts with no check suite yet, on a PR opened `minutes` ago. */
+const unchecked = (minutes: number) =>
+  review({
+    pushedAt: null,
+    check: null,
+    pr: { number: 12, headSha: HEAD, open: true, createdAt: ago(minutes) },
   });
 
 const stageOf = (decision: Decision): string =>
@@ -409,6 +417,57 @@ describe("In Review", () => {
     });
 
     expect(stopOf(decision).summary).toContain("the rounds haven't ended");
+  });
+
+  test("counts a round that pushed nothing since the push as a round on its SHA, whatever headSha it wrote", () => {
+    for (const headSha of [null, "abc"]) {
+      const written = closing(ago(10), {
+        stage: "review-round",
+        nextStatus: STATUS.inReview,
+        headSha,
+        pushed: false,
+      });
+      const decision = decide(inReview({ closings: [written] }), NOW, {
+        review: review({ openThreads: 1, pushedAt: ago(30) }),
+      });
+
+      expect(stopOf(decision).summary).toContain("the rounds haven't ended");
+    }
+  });
+
+  test("doesn't count a round from before the push as one on the new SHA", () => {
+    const older = closing(ago(60), {
+      stage: "review-round",
+      nextStatus: STATUS.inReview,
+      headSha: null,
+      pushed: false,
+    });
+
+    expect(
+      stageOf(
+        decide(inReview({ closings: [older] }), NOW, {
+          review: review({ openThreads: 1, pushedAt: ago(30) }),
+        }),
+      ),
+    ).toBe("review-round");
+  });
+
+  test("without GitHub's push time, counts the claude-review deadline from the PR's creation", () => {
+    expect(decide(inReview(), NOW, { review: unchecked(40) }).type).toBe("wait");
+    expect(stopOf(decide(inReview(), NOW, { review: unchecked(50) }))).toMatchObject({
+      wait: "claude-review",
+    });
+  });
+
+  test("without it, counts from the newest implement or Acceptance-fix closing comment when that is later", () => {
+    const fix = closing(ago(20), { stage: "acceptance-fix", nextStatus: STATUS.inReview });
+    const facts = review({
+      pushedAt: null,
+      check: null,
+      pr: { number: 12, headSha: HEAD, open: true, createdAt: ago(600) },
+    });
+
+    expect(decide(inReview({ closings: [fix] }), NOW, { review: facts }).type).toBe("wait");
   });
 
   test("is a round on the new head SHA after a round that pushed", () => {

@@ -13,7 +13,11 @@ export type Start = { issue: string; kind: StageKind; resume: boolean; log: stri
 /** The supervisor's own lines, beside the Stage's stream-json log. */
 export const supervisorLog = (log: string) => log.replace(/\.jsonl$/, ".log");
 
-export function startSupervisor(start: Start, runner = "runner"): number {
+export function startSupervisor(
+  start: Start,
+  onError: (error: Error) => void,
+  runner = "runner",
+): number {
   const lines = supervisorLog(start.log);
   mkdirSync(dirname(lines), { recursive: true });
   const fd = openSync(lines, "a", 0o600);
@@ -30,6 +34,8 @@ export function startSupervisor(start: Start, runner = "runner"): number {
       ],
       { detached: true, stdio: ["ignore", fd, fd] },
     );
+    // spawn reports a command it couldn't run as an event, after it returns.
+    child.once("error", onError);
     child.unref();
     if (child.pid === undefined)
       throw new Error(`couldn't start ${runner} supervise for ${start.issue}`);

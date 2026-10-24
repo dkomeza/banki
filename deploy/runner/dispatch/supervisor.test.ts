@@ -39,7 +39,10 @@ const rejected = JSON.stringify({
 function setup(
   issue: FakeIssue,
   stage: (options: StageOptions, log: string) => Partial<StageRun>,
-  options: { reading?: () => Promise<ReturnType<typeof reading>> } = {},
+  options: {
+    reading?: () => Promise<ReturnType<typeof reading>>;
+    heads?: (string | undefined)[];
+  } = {},
 ) {
   const dir = mkdtempSync(join(tmpdir(), "banki-supervisor-"));
   const linear = fakeLinear([issue]);
@@ -56,7 +59,10 @@ function setup(
       githubToken: async () => "gh",
     },
     linear: () => linear.client,
-    github: () => fakeGitHub(),
+    github: () => ({
+      ...fakeGitHub(),
+      branchHead: async () => (options.heads === undefined ? undefined : options.heads.shift()),
+    }),
     log: () => undefined,
     records,
     takeReading: options.reading ?? (async () => reading()),
@@ -199,6 +205,53 @@ describe("a supervised Stage", () => {
       outcome: "stopped",
       wait: null,
     });
+  });
+
+  test("posts the real tip of the issue's branch, before and after, over what the Stage wrote", async () => {
+    const issue = fakeIssue("BAN-1", { status: "In Review" });
+    const tip = "c".repeat(40);
+    const { deps, log } = setup(
+      issue,
+      () => ({ result: { ...done, stage: "review-round", headSha: "abc", pushed: true } }),
+      { heads: [tip, tip] },
+    );
+
+    await supervise("review-round", "BAN-1", { log, resume: false }, deps);
+
+    expect(resultIn(issue.comments[0]?.body ?? "")).toMatchObject({ headSha: tip, pushed: false });
+  });
+
+  test("says it pushed when the branch moved, whatever the Stage wrote", async () => {
+    const issue = fakeIssue("BAN-1", { status: "In Review" });
+    const { deps, log } = setup(
+      issue,
+      () => ({ result: { ...done, stage: "review-round", headSha: null, pushed: false } }),
+      { heads: ["a".repeat(40), "b".repeat(40)] },
+    );
+
+    await supervise("review-round", "BAN-1", { log, resume: false }, deps);
+
+    expect(resultIn(issue.comments[0]?.body ?? "")).toMatchObject({
+      headSha: "b".repeat(40),
+      pushed: true,
+    });
+  });
+
+  test("keeps the Stage's own Linear token out of a crash's tail", async () => {
+    const issue = fakeIssue("BAN-1");
+    const stageToken = ["stage", "linear", "token", "0123456789"].join("-");
+    const { deps, log } = setup(issue, (_options, path) => {
+      writeFileSync(
+        path,
+        `${JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: "Bash", input: { command: `echo ${stageToken}` } }] } })}\n`,
+      );
+      return { exitCode: 1, tokens: [stageToken] };
+    });
+
+    await supervise("implement", "BAN-1", { log, resume: false }, deps);
+
+    expect(issue.comments[0]?.body).toContain("tool: Bash echo [redacted]");
+    expect(issue.comments[0]?.body).not.toContain(stageToken);
   });
 
   test("starts nothing when the gate's reading fails", async () => {

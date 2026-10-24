@@ -128,6 +128,8 @@ export type StageRun = {
   resultError?: string;
   /** Whether the time limit stopped it. */
   timedOut: boolean;
+  /** The Linear token the Stage was given, revoked by now: what its log must never show. */
+  tokens?: string[];
 };
 
 /** Runs the Stage and returns `claude`'s exit code, or 128 + the signal's number when one stopped it. */
@@ -148,6 +150,7 @@ export async function executeStage(
 ): Promise<StageRun> {
   const startedAt = new Date();
   let log: string | undefined;
+  const tokens: string[] = [];
   const stop = new Interrupt();
   stop.install();
   try {
@@ -157,6 +160,7 @@ export async function executeStage(
     // Not cut short by a signal: the Broker mints the token either way, and
     // only its ID ends it, so it is waited for and revoked at once.
     const linear = await deps.broker.linearToken();
+    tokens.push(linear.token);
     let configDir: string | undefined;
     try {
       stop.check();
@@ -194,6 +198,7 @@ export async function executeStage(
         exitCode,
         log,
         timedOut,
+        tokens,
         ...readResult(join(worktree, ".ui", "stage-result.json"), startedAt, deps),
       };
     } finally {
@@ -209,7 +214,7 @@ export async function executeStage(
   } catch (error) {
     if (stop.signal === undefined) throw error;
     deps.err(`The ${kind} Stage on ${issue} stopped on ${stop.signal}`);
-    return { exitCode: 128 + SIGNALS[stop.signal], log, timedOut: false };
+    return { exitCode: 128 + SIGNALS[stop.signal], log, timedOut: false, tokens };
   } finally {
     stop.remove();
   }

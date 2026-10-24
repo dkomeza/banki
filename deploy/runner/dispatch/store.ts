@@ -2,6 +2,7 @@ import {
   appendFileSync,
   closeSync,
   existsSync,
+  linkSync,
   mkdirSync,
   openSync,
   readdirSync,
@@ -25,6 +26,8 @@ import { type ActiveRecord, isActive, isStageRecord, type StageRecord } from "./
 export const DISPATCHER = "/work/dispatcher";
 /** How old a lock must be before it counts as left by a tick that died. */
 const STALE_LOCK_MS = 15 * 60_000;
+/** How long a lock without a readable pid counts as held. */
+const UNREADABLE_LOCK_MS = 10_000;
 
 export type GateFile = { reading?: Reading; error?: string; at: string };
 
@@ -136,24 +139,33 @@ export function store(dir = DISPATCHER) {
       ensure();
       const path = join(dir, "lock");
       for (let attempt = 0; attempt < 2; attempt++) {
+        // Written whole beside it, then linked into place, which fails if the
+        // lock exists: so no one ever sees it without its pid.
+        const tmp = `${path}.${process.pid}.tmp`;
+        writeAtomic(tmp, String(process.pid));
         try {
-          const fd = openSync(path, "wx", 0o600);
-          writeSync(fd, String(process.pid));
-          closeSync(fd);
+          linkSync(tmp, path);
           return () => rmSync(path, { force: true });
         } catch (error) {
           if (codeOf(error) !== "EEXIST") throw error;
-          let holder = Number.NaN;
-          let modified = 0;
-          try {
-            holder = Number(readFileSync(path, "utf8"));
-            modified = statSync(path).mtimeMs;
-          } catch {
-            continue;
-          }
-          if (processAlive(holder) && Date.now() - modified < STALE_LOCK_MS) return undefined;
-          rmSync(path, { force: true });
+        } finally {
+          rmSync(tmp, { force: true });
         }
+        let holder = Number.NaN;
+        let modified = 0;
+        try {
+          holder = Number.parseInt(readFileSync(path, "utf8"), 10);
+          modified = statSync(path).mtimeMs;
+        } catch {
+          continue;
+        }
+        const age = Date.now() - modified;
+        // A lock with no pid in it, from a Dispatcher before this one, is held until it is a few seconds old.
+        const held = Number.isNaN(holder)
+          ? age < UNREADABLE_LOCK_MS
+          : processAlive(holder) && age < STALE_LOCK_MS;
+        if (held) return undefined;
+        rmSync(path, { force: true });
       }
       return undefined;
     },

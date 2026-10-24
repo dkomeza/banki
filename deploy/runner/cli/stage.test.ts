@@ -190,7 +190,13 @@ describe("a Stage", () => {
 
     const run = await executeStage("implement", "BAN-1", deps, { log });
 
-    expect(run).toEqual({ exitCode: 0, log, timedOut: false, result: { outcome: "done" } });
+    expect(run).toEqual({
+      exitCode: 0,
+      log,
+      timedOut: false,
+      tokens: [LINEAR_TOKEN],
+      result: { outcome: "done" },
+    });
     expect(existsSync(log)).toBe(true);
   });
 

@@ -8,6 +8,9 @@ import {
   statusBefore,
   timeLeft,
 } from "./lifecycle";
+import type { StageKind } from "../cli/args";
+import type { Closing } from "./closing";
+import { parseResult } from "./result";
 import { STATUS } from "./select";
 import type { LogFacts } from "./stage-log";
 
@@ -66,6 +69,13 @@ describe("how a run ends", () => {
     expect(end({ timedOut: true, result })).toMatchObject({ type: "crash", outcome: "timed-out" });
   });
 
+  test("as a crash when its result names a status its Stage can't send the issue to", () => {
+    const outcome = end({ result: { ...result, nextStatus: "Acceptance" } });
+
+    expect(outcome).toMatchObject({ type: "crash", outcome: "no-result" });
+    expect(outcome.type === "crash" ? outcome.why : "").toContain('nextStatus is "Acceptance"');
+  });
+
   test("as a crash without a result, or with another Stage's", () => {
     expect(end({ exitCode: 1 })).toMatchObject({ type: "crash", outcome: "no-result" });
     const other = end({ result: { ...result, stage: "design" } });
@@ -107,35 +117,106 @@ const record = (fields: Partial<ActiveRecord>): ActiveRecord => ({
   ...fields,
 });
 
+const inProgress = { status: STATUS.inProgress, assigneeId: null };
+const at = (status: string, assigneeId: string | null = null) => ({ status, assigneeId });
+const closingSince = (stage: StageKind, iso: string): Closing => ({
+  id: "c",
+  at: iso,
+  replies: [],
+  result: parseResult({
+    stage,
+    issue: "BAN-7",
+    outcome: "done",
+    nextStatus: "In Review",
+    summary: "",
+  }),
+});
+const RUN_START = "2026-10-24T01:00:00.000Z";
+const started = (fields: Partial<ActiveRecord> = {}) =>
+  record({ runs: [{ startedAt: RUN_START, log: "/x.jsonl", before: null }], ...fields });
+
 describe("an active record, each tick", () => {
   test("is running while its supervisor is", () => {
-    expect(reconcile(record({}), true, STATUS.inProgress, NOW)).toEqual({ type: "running" });
+    expect(reconcile(started(), { alive: true, issue: inProgress, now: NOW })).toEqual({
+      type: "running",
+    });
   });
 
-  test("crashed when its supervisor is gone", () => {
-    expect(reconcile(record({}), false, STATUS.inProgress, NOW)).toEqual({ type: "crashed" });
-    expect(reconcile(record({}), false, STATUS.todo, NOW)).toEqual({ type: "crashed" });
+  test("crashed when its supervisor is gone with the issue still In Progress", () => {
+    expect(reconcile(started(), { alive: false, issue: inProgress, now: NOW })).toEqual({
+      type: "crashed",
+    });
+  });
+
+  test("ended quietly when its supervisor is gone and the issue has left In Progress", () => {
+    expect(reconcile(started(), { alive: false, issue: at(STATUS.inReview), now: NOW }).type).toBe(
+      "gone",
+    );
+    expect(reconcile(started(), { alive: false, issue: undefined, now: NOW }).type).toBe("gone");
+  });
+
+  test("closed when its supervisor posted the closing comment and died before setting the status", () => {
+    const closing = closingSince("implement", "2026-10-24T02:00:00.000Z");
+
+    expect(reconcile(started(), { alive: false, issue: inProgress, closing, now: NOW })).toEqual({
+      type: "closed",
+      closing,
+    });
+  });
+
+  test("crashed all the same when the closing comment is an earlier run's, or another Stage's", () => {
+    const earlier = closingSince("implement", "2026-10-24T00:30:00.000Z");
+    const other = closingSince("design", "2026-10-24T02:00:00.000Z");
+
+    expect(
+      reconcile(started(), { alive: false, issue: inProgress, closing: earlier, now: NOW }).type,
+    ).toBe("crashed");
+    expect(
+      reconcile(started(), { alive: false, issue: inProgress, closing: other, now: NOW }).type,
+    ).toBe("crashed");
+  });
+
+  test("starting, for 2 minutes after it was written, while its supervisor hasn't recorded its pid", () => {
+    const fresh = record({ pid: null, since: "2026-10-24T02:59:00.000Z" });
+    const stale = record({ pid: null, since: "2026-10-24T02:57:00.000Z" });
+
+    expect(reconcile(fresh, { alive: false, issue: at(STATUS.todo), now: NOW })).toEqual({
+      type: "starting",
+    });
+    expect(reconcile(stale, { alive: false, issue: at(STATUS.todo), now: NOW }).type).toBe("gone");
+    expect(reconcile(stale, { alive: false, issue: inProgress, now: NOW }).type).toBe("crashed");
   });
 
   test("paused until its reset time, and due from then", () => {
     const paused = record({ state: "paused", pid: null, resetsAt: "2026-10-24T03:30:00.000Z" });
 
-    expect(reconcile(paused, false, STATUS.inProgress, NOW)).toEqual({
+    expect(reconcile(paused, { alive: false, issue: inProgress, now: NOW })).toEqual({
       type: "paused",
       due: false,
     });
     expect(
-      reconcile(paused, false, STATUS.inProgress, new Date("2026-10-24T03:30:00.000Z")),
-    ).toEqual({
-      type: "paused",
-      due: true,
-    });
+      reconcile(paused, {
+        alive: false,
+        issue: inProgress,
+        now: new Date("2026-10-24T03:30:00.000Z"),
+      }),
+    ).toEqual({ type: "paused", due: true });
+  });
+
+  test("held, never resumed, while its issue is assigned", () => {
+    const paused = record({ state: "paused", pid: null, resetsAt: "2026-10-24T01:00:00.000Z" });
+
+    expect(
+      reconcile(paused, { alive: false, issue: at(STATUS.inProgress, "someone"), now: NOW }).type,
+    ).toBe("held");
   });
 
   test("left behind once its issue isn't In Progress any more", () => {
     const paused = record({ state: "paused", pid: null, resetsAt: "2026-10-24T03:30:00.000Z" });
 
-    expect(reconcile(paused, false, STATUS.todo, NOW).type).toBe("abandoned");
+    expect(reconcile(paused, { alive: false, issue: at(STATUS.todo), now: NOW }).type).toBe(
+      "abandoned",
+    );
   });
 });
 

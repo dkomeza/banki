@@ -114,7 +114,7 @@ describe("a tick", () => {
       history: [{ at: "2026-10-01T00:00:00.000Z", from: "In Progress", to: "In Review" }],
     });
     const github = fakeGitHub({
-      pr: { number: 12, headSha: HEAD, open: true },
+      pr: { number: 12, headSha: HEAD, open: true, createdAt: "2026-10-20T00:00:00.000Z" },
       pushedAt: "2026-10-21T11:00:00.000Z",
       check: { status: "completed", conclusion: "success" },
       summary: { sha: HEAD.slice(0, 7), findings: [] },
@@ -134,7 +134,7 @@ describe("a tick", () => {
       history: [{ at: "2026-10-01T00:00:00.000Z", from: "In Progress", to: "In Review" }],
     });
     const github = fakeGitHub({
-      pr: { number: 12, headSha: HEAD, open: true },
+      pr: { number: 12, headSha: HEAD, open: true, createdAt: "2026-10-20T00:00:00.000Z" },
       pushedAt: "2026-10-21T10:00:00.000Z",
       check: { status: "completed", conclusion: "cancelled" },
     });
@@ -211,6 +211,126 @@ describe("a tick", () => {
     ]);
   });
 
+  test("never resumes a paused Stage while its issue is assigned", async () => {
+    const { deps, started } = dispatcher([
+      fakeIssue("BAN-1", { status: "In Progress", assigneeId: MAINTAINER.linearId }),
+    ]);
+    deps.records.saveActive({
+      issue: "BAN-1",
+      kind: "implement",
+      state: "paused",
+      pid: null,
+      sessionId: "s",
+      resetsAt: "2026-10-24T01:00:00.000Z",
+      runs: [],
+    });
+
+    await tick(deps);
+
+    expect(started).toEqual([]);
+    expect(deps.records.activeRecord("BAN-1")?.state).toBe("paused");
+  });
+
+  test("ends a gone supervisor's record quietly once its issue has left In Progress", async () => {
+    const issue = fakeIssue("BAN-1", { status: "Acceptance" });
+    const { deps, linear } = dispatcher([issue], { alive: false, now: WEDNESDAY });
+    deps.records.saveActive({
+      issue: "BAN-1",
+      kind: "implement",
+      state: "running",
+      pid: 99,
+      runs: [{ startedAt: "2026-10-21T10:00:00.000Z", log: "/x.jsonl", before: reading() }],
+    });
+
+    await tick(deps);
+
+    expect(linear.calls).toEqual([]);
+    expect(deps.records.activeRecords()).toEqual([]);
+    expect(deps.records.stageRecords()[0]?.outcome).toBe("lost");
+  });
+
+  test("applies the closing comment's status when its supervisor died before setting it", async () => {
+    const result = {
+      stage: "implement",
+      issue: "BAN-1",
+      outcome: "done",
+      nextStatus: "In Review",
+      summary: "Opened PR #3.",
+    };
+    const issue = fakeIssue("BAN-1", {
+      status: "In Progress",
+      history: [{ at: "2026-10-21T10:00:00.000Z", from: "Todo", to: "In Progress" }],
+      comments: [
+        {
+          id: "c",
+          body: closingComment(parseResult(result), result),
+          createdAt: "2026-10-21T11:00:00.000Z",
+          userId: RUNNER_ID,
+          parentId: null,
+        },
+      ],
+    });
+    const { deps, linear } = dispatcher([issue], { alive: false, now: WEDNESDAY });
+    deps.records.saveActive({
+      issue: "BAN-1",
+      kind: "implement",
+      state: "running",
+      pid: 99,
+      runs: [{ startedAt: "2026-10-21T10:00:00.000Z", log: "/x.jsonl", before: reading() }],
+    });
+
+    await tick(deps);
+
+    expect(linear.calls).toEqual(["BAN-1 → In Review"]);
+    expect(deps.records.stageRecords()[0]?.outcome).toBe("done");
+  });
+
+  test("gives a record its supervisor hasn't claimed yet 2 minutes before calling it a crash", async () => {
+    const issue = fakeIssue("BAN-1", { status: "In Progress" });
+    const { deps, linear } = dispatcher([issue], { alive: false, now: WEDNESDAY });
+    deps.records.saveActive({
+      issue: "BAN-1",
+      kind: "implement",
+      state: "running",
+      pid: null,
+      since: "2026-10-21T11:59:00.000Z",
+      runs: [],
+    });
+
+    await tick(deps);
+
+    expect(linear.calls).toEqual([]);
+    expect(deps.records.activeRecord("BAN-1")).toBeDefined();
+  });
+
+  test("leaves no record behind when the supervisor can't be started", async () => {
+    const { deps, lines } = dispatcher([fakeIssue("BAN-1")], { spawnFails: true });
+
+    await tick(deps);
+
+    expect(deps.records.activeRecords()).toEqual([]);
+    expect(lines.join("\n")).toContain("spawn runner ENOENT");
+  });
+
+  test("puts a paused Stage back paused when its supervisor can't be started", async () => {
+    const { deps } = dispatcher([fakeIssue("BAN-1", { status: "In Progress" })], {
+      spawnFails: true,
+    });
+    deps.records.saveActive({
+      issue: "BAN-1",
+      kind: "implement",
+      state: "paused",
+      pid: null,
+      sessionId: "s",
+      resetsAt: "2026-10-24T01:00:00.000Z",
+      runs: [],
+    });
+
+    await tick(deps);
+
+    expect(deps.records.activeRecord("BAN-1")?.state).toBe("paused");
+  });
+
   test("leaves a paused Stage paused before its window starts over", async () => {
     const { deps, started } = dispatcher([fakeIssue("BAN-1", { status: "In Progress" })]);
     deps.records.saveActive({
@@ -252,6 +372,31 @@ describe("run-now", () => {
       reading: async () => reading(0.1, 0.9),
     });
     expect((await runNow("BAN-2", true, tired.deps)).why).toContain("five-hour");
+  });
+
+  test("resumes a paused Stage only while its issue is In Progress and unassigned", async () => {
+    const paused = {
+      kind: "implement" as const,
+      state: "paused" as const,
+      pid: null,
+      sessionId: "s",
+      resetsAt: "2026-10-24T01:00:00.000Z",
+      runs: [],
+    };
+    const held = dispatcher(
+      [fakeIssue("BAN-1", { status: "In Progress", assigneeId: "someone" })],
+      { now: WEDNESDAY },
+    );
+    held.deps.records.saveActive({ issue: "BAN-1", ...paused });
+
+    expect((await runNow("BAN-1", false, held.deps)).why).toContain("assigned");
+    expect(held.started).toEqual([]);
+
+    const left = dispatcher([fakeIssue("BAN-2", { status: "Todo" })], { now: WEDNESDAY });
+    left.deps.records.saveActive({ issue: "BAN-2", ...paused });
+
+    expect((await runNow("BAN-2", false, left.deps)).why).toContain("not In Progress");
+    expect(left.deps.records.activeRecords()).toEqual([]);
   });
 
   test("says why nothing starts on an assigned issue or one that waits", async () => {

@@ -1,5 +1,6 @@
 import type { StageKind } from "../cli/args";
 import { parseResult, type StageResult } from "./result";
+import { badNextStatus } from "./statuses";
 
 // The closing comment, the Dispatcher's memory (ADR-0013): each Stage ends
 // with a top-level comment on its issue holding its summary and its whole
@@ -30,6 +31,15 @@ export type Closing = {
 
 const SECTION = "+++ Stage result";
 
+/**
+ * Text a Stage wrote, made safe to post: a line that starts with `+++`
+ * would open or close a collapsed section, so it is escaped, and a forged
+ * result section can never stand in for the real one.
+ */
+export function defuse(text: string): string {
+  return text.replaceAll(/^(\s*)\+\+\+/gm, "$1\\+++");
+}
+
 export const TITLES: Record<StageKind, string> = {
   design: "Design",
   implement: "Implement",
@@ -54,16 +64,16 @@ export function closingComment(
     parts.push(`**${title} Stage: done.** The issue is ${result.nextStatus}.`);
   } else {
     parts.push(`**${title} Stage: stopped on @${MAINTAINER.handle}.**`);
-    if (result.question !== null) parts.push(`**Question:** ${result.question}`);
+    if (result.question !== null) parts.push(`**Question:** ${defuse(result.question)}`);
     if (result.options.length > 0) {
       parts.push(
         result.options
-          .map((option, i) => `${i + 1}. ${option}${i === 0 ? " (recommended)" : ""}`)
+          .map((option, i) => `${i + 1}. ${defuse(option)}${i === 0 ? " (recommended)" : ""}`)
           .join("\n"),
       );
     }
   }
-  if (result.summary.trim() !== "") parts.push(result.summary.trim());
+  if (result.summary.trim() !== "") parts.push(defuse(result.summary.trim()));
   if (result.keptCommits.length > 0) {
     parts.push(
       `Local commits it kept, on the Runner and not pushed: ${result.keptCommits
@@ -72,7 +82,9 @@ export function closingComment(
     );
   }
   if (tail.length > 0) {
-    parts.push(`The log's last ${tail.length} events:\n\n\`\`\`\n${tail.join("\n")}\n\`\`\``);
+    parts.push(
+      `The log's last ${tail.length} events:\n\n\`\`\`\n${defuse(tail.join("\n"))}\n\`\`\``,
+    );
   }
   if (result.outcome === "stopped") {
     parts.push("Reply in this comment's thread to hand the issue back.");
@@ -81,10 +93,14 @@ export function closingComment(
   return parts.join("\n\n");
 }
 
-/** The result a closing comment holds, or undefined when it holds none it can read. */
+/**
+ * The result a closing comment holds, or undefined when it holds none it can
+ * read. The Runner's section is always the comment's last, after everything a
+ * Stage wrote, so the last one is read.
+ */
 export function resultIn(body: string): StageResult | undefined {
   const lines = body.split("\n");
-  const start = lines.findIndex((line) => line.trim() === SECTION);
+  const start = lines.findLastIndex((line) => line.trim() === SECTION);
   if (start === -1) return undefined;
   const length = lines.slice(start + 1).findIndex((line) => line.trim() === "+++");
   if (length === -1) return undefined;
@@ -115,6 +131,8 @@ export function closingsOf(
     .flatMap((comment) => {
       const result = resultIn(comment.body);
       if (result === undefined || result.issue.toUpperCase() !== ids.issue.toUpperCase()) return [];
+      // A result that would send the issue where its Stage can't is no record of it.
+      if (badNextStatus(result) !== undefined) return [];
       const replies = comments
         .filter(
           (reply) =>

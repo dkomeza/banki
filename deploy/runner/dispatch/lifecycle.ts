@@ -1,7 +1,9 @@
 import { STAGE_KINDS, type StageKind } from "../cli/args";
 import { asObject, isRecord } from "../lib/parse";
 import type { Reading } from "./gate";
+import type { Closing } from "./closing";
 import { parseResult, type StageResult } from "./result";
+import { badNextStatus } from "./statuses";
 import { STATUS, type Stop, type Transition } from "./select";
 import type { LogFacts } from "./stage-log";
 
@@ -32,9 +34,21 @@ export type ActiveRecord = {
   runs: RunRecord[];
   sessionId?: string;
   resetsAt?: string;
+  /** When the tick or `run-now` wrote it, to start or resume the Stage. */
+  since?: string;
+  /** The tip of origin's branch when the Stage first started, which says whether it pushed. */
+  headBefore?: string;
 };
 
-export type Outcome = "done" | "stopped" | "timed-out" | "no-result" | "crashed" | "abandoned";
+export type Outcome =
+  | "done"
+  | "stopped"
+  | "timed-out"
+  | "no-result"
+  | "crashed"
+  /** Its supervisor went, after the issue had moved on. */
+  | "lost"
+  | "abandoned";
 /** A Stage that has ended, kept for its cost. */
 export type StageRecord = {
   issue: string;
@@ -86,10 +100,14 @@ export function ending(input: {
   if (input.result !== undefined) {
     try {
       const result = parseResult(input.result);
-      if (result.stage === input.kind && result.issue.toUpperCase() === input.issue.toUpperCase()) {
+      const bad = badNextStatus(result);
+      if (result.stage !== input.kind || result.issue.toUpperCase() !== input.issue.toUpperCase()) {
+        problem = `its result is for the ${result.stage} Stage on ${result.issue}`;
+      } else if (bad !== undefined) {
+        problem = bad;
+      } else {
         return { type: "closing", result, json: asObject(input.result, "result") };
       }
-      problem = `its result is for the ${result.stage} Stage on ${result.issue}`;
     } catch (error) {
       problem = `its result can't be read: ${error instanceof Error ? error.message : String(error)}`;
     }
@@ -145,22 +163,80 @@ export function crashStop(input: {
 
 export type Reconcile =
   | { type: "running" }
+  /** Just written, and its supervisor hasn't recorded its pid yet. */
+  | { type: "starting" }
   | { type: "crashed" }
+  /** Its supervisor posted the closing comment and died before setting the status. */
+  | { type: "closed"; closing: Closing }
+  /** Its supervisor is gone, and the issue has left In Progress: nothing to restore. */
+  | { type: "gone"; why: string }
   | { type: "paused"; due: boolean }
+  /** Paused, and not to be resumed while its issue is assigned. */
+  | { type: "held"; why: string }
   | { type: "abandoned"; why: string };
 
-/** What the tick makes of an active record: still running, crashed, paused (and whether it is due), or left behind. */
+/** How long a record may wait for its supervisor to record its pid. */
+export const START_GRACE_MS = 2 * 60_000;
+
+/**
+ * What the tick makes of an active record: still running, starting, crashed,
+ * closed but not moved on, gone, paused (and whether it is due), held, or
+ * left behind. A supervisor that is gone is a crash only while the issue is
+ * In Progress, and not when its own closing comment is there.
+ */
 export function reconcile(
   record: ActiveRecord,
-  alive: boolean,
-  /** The issue's status now, or undefined when it couldn't be read. */
-  status: string | undefined,
-  now: Date,
+  input: {
+    alive: boolean;
+    /** The issue now, or undefined when Linear has no such issue. */
+    issue: { status: string; assigneeId: string | null } | undefined;
+    /** The issue's newest closing comment, if it has any. */
+    closing?: Closing;
+    now: Date;
+  },
 ): Reconcile {
-  if (record.state === "running") return alive ? { type: "running" } : { type: "crashed" };
-  if (status !== undefined && status !== STATUS.inProgress) {
-    return { type: "abandoned", why: `the issue is ${status} now, not In Progress` };
+  const { issue, now } = input;
+  if (record.state === "running") {
+    if (input.alive) return { type: "running" };
+    const since = record.since ?? record.runs.at(-1)?.startedAt;
+    if (
+      record.pid === null &&
+      since !== undefined &&
+      now.getTime() - Date.parse(since) < START_GRACE_MS
+    ) {
+      return { type: "starting" };
+    }
+    if (issue?.status !== STATUS.inProgress) {
+      return {
+        type: "gone",
+        why:
+          issue === undefined
+            ? "Linear has no such issue"
+            : `the issue is ${issue.status}, not In Progress`,
+      };
+    }
+    const runStart = record.runs.at(-1)?.startedAt ?? since;
+    const { closing } = input;
+    if (
+      closing !== undefined &&
+      closing.result.stage === record.kind &&
+      runStart !== undefined &&
+      closing.at >= runStart
+    ) {
+      return { type: "closed", closing };
+    }
+    return { type: "crashed" };
   }
+  if (issue === undefined || issue.status !== STATUS.inProgress) {
+    return {
+      type: "abandoned",
+      why:
+        issue === undefined
+          ? "Linear has no such issue"
+          : `the issue is ${issue.status} now, not In Progress`,
+    };
+  }
+  if (issue.assigneeId !== null) return { type: "held", why: "its issue is assigned" };
   return {
     type: "paused",
     due: record.resetsAt === undefined || Date.parse(record.resetsAt) <= now.getTime(),

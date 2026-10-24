@@ -49,12 +49,12 @@ An issue is handed off to Acceptance at most once per head SHA. Back In Review w
 
 Every wait has a deadline. Live, it is a background `until` loop; headless, the Dispatcher checks it on each tick, without spending tokens. A wait that reaches a failure state, or its deadline, has failed: headless, that is a stop on the Maintainer saying what happened, and their reply in its thread restarts the wait; live, ask the Maintainer what to do, with the options the wait names. The push time is GitHub's check suite on the head SHA. A deadline counts from the Maintainer's reply to a stop instead, when that is later.
 
-| Wait                                                                   | Done when                                 | Fails on                                                    | Deadline                  |
-| ---------------------------------------------------------------------- | ----------------------------------------- | ----------------------------------------------------------- | ------------------------- |
-| Each Variant's Slug Preview is claimed (`design.md` § 3)               | Its deployment exists                     | No deployment, and the dispatch's `slug-preview` run failed | 15 min after the dispatch |
-| Each Variant's Slug Preview is up (`ui.md` § Live mode: Design Review) | Its newest deployment status is `success` | `failure` or `inactive`                                     | 60 min after the dispatch |
-| `claude-review` on the head SHA (`review-round.md` § 2)                | Its check has finished                    | `claude-review` cancelled or skipped on the head SHA        | 45 min after the push     |
-| The head SHA's PR Preview is up (`SKILL.md` § Live mode)               | Its newest deployment status is `success` | `failure` or `inactive`                                     | 60 min after the push     |
+| Wait                                                                   | Done when                                 | Fails on                                                    | Deadline                                |
+| ---------------------------------------------------------------------- | ----------------------------------------- | ----------------------------------------------------------- | --------------------------------------- |
+| Each Variant's Slug Preview is claimed (`design.md` § 3)               | Its deployment exists                     | No deployment, and the dispatch's `slug-preview` run failed | 15 min after the dispatch               |
+| Each Variant's Slug Preview is up (`ui.md` § Live mode: Design Review) | Its newest deployment status is `success` | `failure` or `inactive`                                     | 60 min after the design closing comment |
+| `claude-review` on the head SHA (`review-round.md` § 2)                | Its check has finished                    | `claude-review` cancelled or skipped on the head SHA        | 45 min after the push                   |
+| The head SHA's PR Preview is up (`SKILL.md` § Live mode)               | Its newest deployment status is `success` | `failure` or `inactive`                                     | 60 min after the push                   |
 
 ## Start
 

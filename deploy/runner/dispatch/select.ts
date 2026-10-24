@@ -1,6 +1,7 @@
 import type { StageKind } from "../cli/args";
 import { type Closing, MAINTAINER } from "./closing";
 import type { StageResult, Variant, Wait } from "./result";
+import { RUNS_IN, STATUS } from "./statuses";
 
 // What comes next on one issue (ADR-0013), from its status, its assignee, its
 // status history, its closing comments and, for the waits, what GitHub says:
@@ -8,23 +9,7 @@ import type { StageResult, Variant, Wait } from "./result";
 // stop on them, or nothing. No LLM, and no tokens. Pure, so it is
 // unit-tested; tick.ts gathers the facts and acts.
 
-export const STATUS = {
-  backlog: "Backlog",
-  inDesign: "In Design",
-  designReview: "Design Review",
-  todo: "Todo",
-  inReview: "In Review",
-  acceptance: "Acceptance",
-  inProgress: "In Progress",
-} as const;
-
-/** The status each kind of Stage runs in. */
-export const RUNS_IN: Record<StageKind, string> = {
-  design: STATUS.inDesign,
-  implement: STATUS.todo,
-  "review-round": STATUS.inReview,
-  "acceptance-fix": STATUS.inReview,
-};
+export { RUNS_IN, STATUS } from "./statuses";
 
 /** How long each wait may take (`references/stages.md` § Waits). */
 export const DEADLINES_MS: Record<Wait, number> = {
@@ -57,7 +42,7 @@ export type Deployment = { state: string | null; description: string; url: strin
 export type Finding = { status: string; severity: string };
 
 export type ReviewFacts = {
-  pr: { number: number; headSha: string; open: boolean } | null;
+  pr: { number: number; headSha: string; open: boolean; createdAt: string } | null;
   /** When the head SHA was pushed: its check suite's creation. */
   pushedAt: string | null;
   /** The `claude-review` check run on the head SHA, or null before there is one. */
@@ -247,9 +232,17 @@ function inReview(
     return fitsNone(`The issue is In Review, but \`${issue.branch}\` has no pull request.`);
   if (!pr.open) return fitsNone(`The issue is In Review, but PR #${pr.number} is closed.`);
   const head = pr.headSha;
-  if (review.pushedAt === null)
-    return { type: "wait", why: `waiting for GitHub to check \`${short(head)}\`` };
-  const pushed = later(review.pushedAt, replyAt);
+  // Without GitHub's check suite, the push is no earlier than the PR, nor than
+  // the newest Stage that pushes to it, so the deadlines still hold.
+  const pushedAt =
+    review.pushedAt ??
+    issue.closings
+      .filter(
+        (closing) =>
+          closing.result.stage === "implement" || closing.result.stage === "acceptance-fix",
+      )
+      .reduce((latest, closing) => later(latest, closing.at), pr.createdAt);
+  const pushed = later(pushedAt, replyAt);
 
   const { check } = review;
   if (check === null || check.status !== "completed") {
@@ -273,11 +266,13 @@ function inReview(
     );
   }
 
+  // A round that pushed nothing is on this SHA if it says so, or if it came
+  // after this SHA's push: its headSha is the Stage's own, and may be wrong.
   const round = issue.closings.findLast(
     (closing) =>
       closing.result.stage === "review-round" &&
       !closing.result.pushed &&
-      sameSha(closing.result.headSha, head),
+      (sameSha(closing.result.headSha, head) || closing.at > pushedAt),
   );
   const findings =
     review.summary !== null && sameSha(review.summary.sha, head)
@@ -295,11 +290,7 @@ function inReview(
   }
 
   if (check.conclusion === "success" && review.openThreads === 0) {
-    if (
-      issue.history.some(
-        (change) => change.to === STATUS.acceptance && change.at > review.pushedAt!,
-      )
-    ) {
+    if (issue.history.some((change) => change.to === STATUS.acceptance && change.at > pushedAt)) {
       return fitsNone(
         `\`${short(head)}\` was handed off to Acceptance already, and the issue is back In Review with no new push and no Acceptance fix to make.`,
       );

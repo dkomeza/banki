@@ -173,7 +173,12 @@ export function github(token: () => Promise<string>, options: { fetch?: Fetch } 
       if (pull === undefined) return empty;
       const number = asNumber(pull.number, "pull.number");
       const headSha = asString(asObject(pull.head, "pull.head").sha, "pull.head.sha");
-      const pr = { number, headSha, open: pull.state === "open" };
+      const pr = {
+        number,
+        headSha,
+        open: pull.state === "open",
+        createdAt: asString(pull.created_at, "pull.created_at"),
+      };
       if (!pr.open) return { ...empty, pr };
 
       const suites = (
@@ -268,6 +273,24 @@ export function github(token: () => Promise<string>, options: { fetch?: Fetch } 
         ref: "main",
         inputs: { slug, down: "true" },
       });
+    },
+
+    /** The commit at the tip of origin's `branch`, or undefined when it has none. */
+    async branchHead(branch: string): Promise<string | undefined> {
+      const res = await fetchFn(`${API}/repos/${REPO}/branches/${encodeURIComponent(branch)}`, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${await token()}`,
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+          "User-Agent": "banki-runner",
+        },
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (res.status === 404) return undefined;
+      if (!res.ok) throw new Error(`GitHub GET /repos/${REPO}/branches/…: HTTP ${res.status}`);
+      const body = asObject(parseJson(await res.text(), "GitHub branch"), "branch");
+      return asString(asObject(body.commit, "branch.commit").sha, "branch.commit.sha");
     },
 
     /** The open or newest pull request's number for a branch, for housekeeping. */

@@ -127,6 +127,7 @@ export function fakeGitHub(review: Partial<ReviewFacts> = {}): GitHub {
     newestStatus: async () => ({ state: null, description: "", url: null }),
     takeDown: async () => undefined,
     pullNumber: async () => undefined,
+    branchHead: async () => undefined,
   };
 }
 
@@ -142,7 +143,13 @@ export const WEDNESDAY = new Date("2026-10-21T12:00:00.000Z");
 
 export function dispatcher(
   issues: FakeIssue[],
-  options: { now?: Date; github?: GitHub; reading?: () => Promise<Reading>; alive?: boolean } = {},
+  options: {
+    now?: Date;
+    github?: GitHub;
+    reading?: () => Promise<Reading>;
+    alive?: boolean;
+    spawnFails?: boolean;
+  } = {},
 ) {
   const dir = mkdtempSync(join(tmpdir(), "banki-dispatch-"));
   const linear = fakeLinear(issues);
@@ -169,6 +176,7 @@ export function dispatcher(
     },
     takeReading: options.reading ?? (async () => reading()),
     startSupervisor: (start) => {
+      if (options.spawnFails === true) throw new Error("spawn runner ENOENT");
       started.push(start);
       return 4242;
     },
