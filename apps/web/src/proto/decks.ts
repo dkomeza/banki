@@ -70,7 +70,7 @@ export function useDeck(id: string): Deck | undefined {
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
 export function sortDecks(list: readonly Deck[], sort: DeckSort): Deck[] {
-  return [...list].sort((a, b) =>
+  return list.toSorted((a, b) =>
     sort === "newest" ? b.createdAt - a.createdAt : collator.compare(a.name, b.name),
   );
 }

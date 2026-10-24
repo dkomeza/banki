@@ -14,6 +14,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as SetupRouteImport } from './routes/setup'
 import { Route as ShellIndexRouteImport } from './routes/_shell/index'
 import { Route as ShellSettingsRouteImport } from './routes/_shell/settings'
+import { Route as ShellDecksDeckIdRouteImport } from './routes/_shell/decks.$deckId'
 
 const ShellRoute = ShellRouteImport.update({
   id: '/_shell',
@@ -39,18 +40,25 @@ const ShellSettingsRoute = ShellSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => ShellRoute,
 } as any)
+const ShellDecksDeckIdRoute = ShellDecksDeckIdRouteImport.update({
+  id: '/decks/$deckId',
+  path: '/decks/$deckId',
+  getParentRoute: () => ShellRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof ShellIndexRoute
   '/login': typeof LoginRoute
   '/setup': typeof SetupRoute
   '/settings': typeof ShellSettingsRoute
+  '/decks/$deckId': typeof ShellDecksDeckIdRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/setup': typeof SetupRoute
   '/settings': typeof ShellSettingsRoute
   '/': typeof ShellIndexRoute
+  '/decks/$deckId': typeof ShellDecksDeckIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -59,12 +67,13 @@ export interface FileRoutesById {
   '/setup': typeof SetupRoute
   '/_shell/settings': typeof ShellSettingsRoute
   '/_shell/': typeof ShellIndexRoute
+  '/_shell/decks/$deckId': typeof ShellDecksDeckIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login' | '/setup' | '/settings'
+  fullPaths: '/' | '/login' | '/setup' | '/settings' | '/decks/$deckId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/login' | '/setup' | '/settings' | '/'
+  to: '/login' | '/setup' | '/settings' | '/' | '/decks/$deckId'
   id:
     | '__root__'
     | '/_shell'
@@ -72,6 +81,7 @@ export interface FileRouteTypes {
     | '/setup'
     | '/_shell/settings'
     | '/_shell/'
+    | '/_shell/decks/$deckId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -117,17 +127,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellSettingsRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/decks/$deckId': {
+      id: '/_shell/decks/$deckId'
+      path: '/decks/$deckId'
+      fullPath: '/decks/$deckId'
+      preLoaderRoute: typeof ShellDecksDeckIdRouteImport
+      parentRoute: typeof ShellRoute
+    }
   }
 }
 
 interface ShellRouteChildren {
   ShellSettingsRoute: typeof ShellSettingsRoute
   ShellIndexRoute: typeof ShellIndexRoute
+  ShellDecksDeckIdRoute: typeof ShellDecksDeckIdRoute
 }
 
 const ShellRouteChildren: ShellRouteChildren = {
   ShellSettingsRoute: ShellSettingsRoute,
   ShellIndexRoute: ShellIndexRoute,
+  ShellDecksDeckIdRoute: ShellDecksDeckIdRoute,
 }
 
 const ShellRouteWithChildren = ShellRoute._addFileChildren(ShellRouteChildren)
