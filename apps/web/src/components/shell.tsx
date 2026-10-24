@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useLocation } from "@tanstack/react-router";
 import { ChevronRight, House, type LucideIcon, Settings, UserRound } from "lucide-react";
 import type { ReactNode } from "react";
 import { Logo } from "@/components/logo";
@@ -32,6 +32,7 @@ export function Shell({ children }: { children: ReactNode }) {
 }
 
 function Sidebar() {
+  const pathname = useLocation({ select: (l) => l.pathname });
   return (
     <aside className="sticky top-0 hidden h-svh flex-col gap-6 border-r border-sidebar-border bg-sidebar pt-[max(1.25rem,env(safe-area-inset-top))] pr-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pl-[max(0.75rem,env(safe-area-inset-left))] text-sidebar-foreground lg:flex">
       <div className="flex items-center gap-2.5 px-2">
@@ -45,6 +46,7 @@ function Sidebar() {
               <Link
                 to={to}
                 activeOptions={{ exact: true }}
+                {...activeProps(to, pathname)}
                 className="flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-sm text-sidebar-foreground no-underline transition-colors motion-reduce:transition-none outline-none hover:bg-sidebar-accent focus-visible:outline-2 focus-visible:outline-sidebar-ring focus-visible:outline-solid aria-[current=page]:bg-sidebar-accent aria-[current=page]:font-medium aria-[current=page]:text-sidebar-primary"
               >
                 <Icon aria-hidden className="size-4" />
@@ -82,6 +84,7 @@ function SignedInAs() {
 }
 
 function TabBar() {
+  const pathname = useLocation({ select: (l) => l.pathname });
   return (
     <nav
       aria-label="Main"
@@ -93,6 +96,7 @@ function TabBar() {
             key={to}
             to={to}
             activeOptions={{ exact: true }}
+                {...activeProps(to, pathname)}
             className="flex flex-1 flex-col items-center justify-center gap-0.5 rounded-lg text-xs font-medium text-muted-foreground no-underline transition-colors motion-reduce:transition-none outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid aria-[current=page]:text-primary"
           >
             <Icon aria-hidden className="size-5" />
@@ -102,4 +106,9 @@ function TabBar() {
       </div>
     </nav>
   );
+}
+
+/** A deck page belongs to Home, so Home stays current on it. */
+function activeProps(to: NavItem["to"], pathname: string) {
+  return to === "/" && pathname.startsWith("/decks/") ? { "aria-current": "page" as const } : {};
 }
