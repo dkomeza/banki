@@ -579,6 +579,8 @@ A client-credentials token sees the workspace's public teams only. Keep the Bank
 
 A headless Stage reaches Linear through the `linear-banki` MCP server, authenticated as the Runner app (`docs/agents/issue-tracker.md`).
 
+Linear names an issue's branch after whoever asks: `dkomeza/ban-11-…` for you, `bankirunner/ban-11-…` for the app. The issue's branch is the one on origin with that name under any prefix, so the Runner carries on a branch you started live, and you one it started; when origin has none, the Runner's first push creates `bankirunner/…`. When origin has it under several prefixes, the Dispatcher logs `Couldn't decide on BAN-N` on each tick and a Stage stops on you: delete the ones that aren't the issue's. The worktree is the name without its prefix, whoever started it.
+
 ### GitHub: the App
 
 On GitHub the Runner is a private App installed on this repo only. In **Settings → Developer settings → GitHub Apps → New GitHub App**:

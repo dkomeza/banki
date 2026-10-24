@@ -293,6 +293,13 @@ export function github(token: () => Promise<string>, options: { fetch?: Fetch } 
       return asString(asObject(body.commit, "branch.commit").sha, "branch.commit.sha");
     },
 
+    /** Every branch's name on origin. */
+    async branches(): Promise<string[]> {
+      return (await pages(`/repos/${REPO}/branches?per_page=100`)).map((branch) =>
+        asString(branch.name, "branch.name"),
+      );
+    },
+
     /** The open or newest pull request's number for a branch, for housekeeping. */
     async pullNumber(branch: string): Promise<number | undefined> {
       const pulls = asArray(

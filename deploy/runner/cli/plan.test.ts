@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   claudeArgs,
   freshResult,
+  issueBranchOf,
   logPath,
   mcpConfig,
   resumePrompt,
@@ -121,11 +122,36 @@ describe("the Stage's log", () => {
   });
 });
 
-describe("the issue's worktree", () => {
-  test("is its branch without the dkomeza/ prefix, beside the clone", () => {
-    expect(worktreeOf("dkomeza/ban-94-runner-container-github-app-and-credentials")).toBe(
-      "/work/banki-worktrees/ban-94-runner-container-github-app-and-credentials",
+describe("the issue's branch", () => {
+  test("is the one on origin under any prefix, whoever asks", () => {
+    const onOrigin = ["main", "dkomeza/ban-11-decks", "dkomeza/ban-11-decks-proto-a"];
+    expect(issueBranchOf("bankirunner/ban-11-decks", onOrigin)).toBe("dkomeza/ban-11-decks");
+    expect(issueBranchOf("dkomeza/ban-11-decks", onOrigin)).toBe("dkomeza/ban-11-decks");
+  });
+
+  test("is Linear's own when origin has none, for the first push to create", () => {
+    expect(issueBranchOf("bankirunner/ban-12-cards", ["main", "dkomeza/ban-11-decks"])).toBe(
+      "bankirunner/ban-12-cards",
     );
+  });
+
+  test("is refused when origin has it under several prefixes", () => {
+    expect(() =>
+      issueBranchOf("bankirunner/ban-11-decks", [
+        "dkomeza/ban-11-decks",
+        "bankirunner/ban-11-decks",
+      ]),
+    ).toThrow(/several branches/);
+  });
+});
+
+describe("the issue's worktree", () => {
+  test("is its branch without its owner's prefix, beside the clone", () => {
+    for (const owner of ["dkomeza", "bankirunner"]) {
+      expect(worktreeOf(`${owner}/ban-94-runner-container-github-app-and-credentials`)).toBe(
+        "/work/banki-worktrees/ban-94-runner-container-github-app-and-credentials",
+      );
+    }
   });
 
   test("is refused for a branch that would leave banki-worktrees/", () => {

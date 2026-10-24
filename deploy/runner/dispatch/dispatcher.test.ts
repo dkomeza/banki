@@ -128,6 +128,27 @@ describe("a tick", () => {
     expect(issue.comments[0]?.body).toContain("https://pr-12.banki.dkomeza.com");
   });
 
+  test("reads the PR of the issue's branch on origin, under whoever's prefix started it", async () => {
+    // Linear names the branch after whoever asks: the Runner's app, here.
+    const issue = fakeIssue("BAN-1", {
+      status: "In Review",
+      branch: "bankirunner/ban-1-x",
+      history: [{ at: "2026-10-01T00:00:00.000Z", from: "In Progress", to: "In Review" }],
+    });
+    const asked: string[] = [];
+    const github = fakeGitHub();
+    github.branches = async () => ["main", "dkomeza/ban-1-x"];
+    github.review = async (branch) => {
+      asked.push(branch);
+      return fakeGitHub().review(branch);
+    };
+    const { deps } = dispatcher([issue], { now: WEDNESDAY, github });
+
+    await tick(deps);
+
+    expect(asked).toEqual(["dkomeza/ban-1-x"]);
+  });
+
   test("stops on the Maintainer when a wait fails, assigning them", async () => {
     const issue = fakeIssue("BAN-1", {
       status: "In Review",

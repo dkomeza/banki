@@ -98,12 +98,38 @@ export function logPath(issue: string, kind: StageKind, startedAt: Date, logs = 
 }
 
 /**
+ * A branch's name without its owner's prefix (`dkomeza/`, `bankirunner/`, …).
+ * Linear names an issue's branch after whoever asks, so only this part is the
+ * same for everyone.
+ */
+export function unprefixed(branch: string): string {
+  return branch.replace(/^[A-Za-z0-9][A-Za-z0-9._-]*\//, "");
+}
+
+/**
+ * The issue's branch (`references/stages.md` § Paths): the one on origin
+ * with Linear's name for it under any prefix, so a branch someone else
+ * started is carried on; or Linear's own, which the first push creates, when
+ * origin has none. Several are refused: none of them is plainly the issue's.
+ */
+export function issueBranchOf(linearBranch: string, onOrigin: readonly string[]): string {
+  const name = unprefixed(linearBranch);
+  const found = onOrigin.filter((branch) => branch === name || branch.endsWith(`/${name}`));
+  const [only, ...more] = found;
+  if (only === undefined) return linearBranch;
+  if (more.length === 0) return only;
+  throw new Error(
+    `Origin has several branches named ${JSON.stringify(name)}: ${found.join(", ")}. Delete the ones that aren't the issue's.`,
+  );
+}
+
+/**
  * The issue's worktree (`references/stages.md` § Paths): its branch without
- * the `dkomeza/` prefix, in banki-worktrees/ beside the clone. A branch that
+ * its owner's prefix, in banki-worktrees/ beside the clone. A branch that
  * would lead anywhere else is refused.
  */
 export function worktreeOf(branch: string, worktrees = WORKTREES): string {
-  const name = branch.replace(/^dkomeza\//, "");
+  const name = unprefixed(branch);
   if (!/^[A-Za-z0-9._-]+$/.test(name) || name.startsWith(".")) {
     throw new Error(`The issue's branch ${JSON.stringify(branch)} has no worktree name`);
   }
