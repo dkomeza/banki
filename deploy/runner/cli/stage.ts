@@ -24,6 +24,7 @@ import {
   LOGS,
   logPath,
   mcpConfig,
+  resumePrompt,
   stageEnv,
   stagePrompt,
   WORKTREES,
@@ -36,7 +37,9 @@ import {
 // config, prints one line per event and keeps every event in the Stage's log,
 // prints the Stage's result, and revokes the token whatever happens, a signal
 // included. It never changes the issue's status or assignee: that is the
-// Dispatcher's (BAN-95).
+// Dispatcher's. Its supervisor (dispatch/supervisor.ts) runs the same Stage
+// through executeStage, with a time limit, a log path of its own and, for a
+// paused Stage, the session to go on in.
 
 const SIGNALS = { SIGHUP: 1, SIGINT: 2, SIGTERM: 15 } as const;
 type Signal = keyof typeof SIGNALS;
@@ -74,10 +77,23 @@ export const stageDeps = (): StageDeps => ({
 const clock = () => new Date().toISOString().slice(11, 19);
 
 /**
+ * Sends `signal` to `claude`'s whole process group, which it leads: what it
+ * started goes down with it. Once the group is gone, to `claude` alone.
+ */
+function signalGroup(proc: Subprocess, signal: NodeJS.Signals): void {
+  try {
+    process.kill(-proc.pid, signal);
+  } catch {
+    proc.kill(signal);
+  }
+}
+
+/**
  * SIGINT, SIGTERM and SIGHUP, from the moment the Stage starts until its
  * cleanup is done: a signal never kills `runner` with a token out or the MCP
- * config on disk. While `claude` runs it gets the signal; before, the step
- * under way is cut short where it can be, and the Stage stops after it.
+ * config on disk. While `claude` runs its process group gets the signal;
+ * before, the step under way is cut short where it can be, and the Stage
+ * stops after it.
  */
 class Interrupt {
   signal: Signal | undefined;
@@ -87,7 +103,7 @@ class Interrupt {
     if (!isSignal(signal)) return;
     this.signal ??= signal;
     if (this.child === undefined) this.controller.abort(new Error(`stopped by ${signal}`));
-    else this.child.kill(signal);
+    else signalGroup(this.child, signal);
   };
 
   install(): void {
@@ -104,13 +120,52 @@ class Interrupt {
   }
 }
 
+export type StageOptions = {
+  /** A paused Stage's `claude` session, to go on in with a "go on" prompt. */
+  resume?: string;
+  /** The log to write, instead of one named by the start time. */
+  log?: string;
+  /** How long `claude` may run before its group gets SIGTERM, and SIGKILL `killAfterMs` later. */
+  timeLimitMs?: number;
+  killAfterMs?: number;
+  /** How long, once `claude` has ended, its output is read while something else still holds it open. */
+  drainMs?: number;
+};
+
+export type StageRun = {
+  /** `claude`'s exit code, or 128 + the signal's number when one stopped the Stage. */
+  exitCode: number;
+  /** The Stage's log, once it had one. */
+  log?: string;
+  /** The result the Stage wrote, as JSON, when it wrote one this run. */
+  result?: unknown;
+  /** Why a result it wrote can't be read. */
+  resultError?: string;
+  /** Whether the time limit stopped it. */
+  timedOut: boolean;
+  /** The Linear token the Stage was given, revoked by now: what its log must never show. */
+  tokens?: string[];
+};
+
 /** Runs the Stage and returns `claude`'s exit code, or 128 + the signal's number when one stopped it. */
 export async function runStage(
   kind: StageKind,
   issue: string,
   deps: StageDeps = stageDeps(),
 ): Promise<number> {
+  return (await executeStage(kind, issue, deps)).exitCode;
+}
+
+/** Runs the Stage, and says how it went. */
+export async function executeStage(
+  kind: StageKind,
+  issue: string,
+  deps: StageDeps = stageDeps(),
+  options: StageOptions = {},
+): Promise<StageRun> {
   const startedAt = new Date();
+  let log: string | undefined;
+  const tokens: string[] = [];
   const stop = new Interrupt();
   stop.install();
   try {
@@ -120,6 +175,7 @@ export async function runStage(
     // Not cut short by a signal: the Broker mints the token either way, and
     // only its ID ends it, so it is waited for and revoked at once.
     const linear = await deps.broker.linearToken();
+    tokens.push(linear.token);
     let configDir: string | undefined;
     try {
       stop.check();
@@ -132,22 +188,34 @@ export async function runStage(
       const config = join(configDir, "mcp.json");
       writeFileSync(config, JSON.stringify(mcpConfig(linear.token)), { mode: 0o600 });
 
-      const log = logPath(issue, kind, startedAt, deps.logs);
+      log = options.log ?? logPath(issue, kind, startedAt, deps.logs);
       mkdirSync(dirname(log), { recursive: true });
-      deps.out(`The ${kind} Stage on ${issue}, as ${identity.name}, in ${deps.clone}. Log: ${log}`);
+      deps.out(
+        `The ${kind} Stage on ${issue}${options.resume === undefined ? "" : `, going on in session ${options.resume}`}, as ${identity.name}, in ${deps.clone}. Log: ${log}`,
+      );
 
-      const [, ...args] = claudeArgs(stagePrompt(kind, issue), config);
-      const exitCode = await runClaude(
+      const prompt =
+        options.resume === undefined ? stagePrompt(kind, issue) : resumePrompt(kind, issue);
+      const [, ...args] = claudeArgs(prompt, config, options.resume);
+      const { exitCode, timedOut } = await runClaude(
         [deps.claude, ...args],
         stageEnv(process.env, claudeToken, identity),
         log,
         deps,
         stop,
+        options,
       );
-      deps.out(`${clock()} claude exited ${exitCode}`);
+      deps.out(
+        `${clock()} claude exited ${exitCode}${timedOut ? ", stopped at its time limit" : ""}`,
+      );
       stop.check();
-      printResult(join(worktree, ".ui", "stage-result.json"), startedAt, deps);
-      return exitCode;
+      return {
+        exitCode,
+        log,
+        timedOut,
+        tokens,
+        ...readResult(join(worktree, ".ui", "stage-result.json"), startedAt, deps),
+      };
     } finally {
       if (configDir !== undefined) rmSync(configDir, { recursive: true, force: true });
       await deps.broker.endLinearToken(linear.id).then(
@@ -161,16 +229,22 @@ export async function runStage(
   } catch (error) {
     if (stop.signal === undefined) throw error;
     deps.err(`The ${kind} Stage on ${issue} stopped on ${stop.signal}`);
-    return 128 + SIGNALS[stop.signal];
+    return { exitCode: 128 + SIGNALS[stop.signal], log, timedOut: false, tokens };
   } finally {
     stop.remove();
   }
 }
 
+/** How long `claude`'s output is read after it ends, by default. */
+const DRAIN_MS = 5_000;
+
 /**
  * `claude`, with its events printed one line each and appended whole to the
  * log, as they come. Its stderr goes to the terminal and, as `runner` events,
- * to the log, which stays one JSON object per line.
+ * to the log, which stays one JSON object per line. It runs in a process
+ * group of its own, so its time limit and a forwarded signal reach what it
+ * started too; and its output is read only for a grace after it ends, so a
+ * process that outlived it and holds the output open never holds the Stage.
  */
 async function runClaude(
   argv: string[],
@@ -178,7 +252,8 @@ async function runClaude(
   log: string,
   deps: StageDeps,
   stop: Interrupt,
-): Promise<number> {
+  limit: StageOptions,
+): Promise<{ exitCode: number; timedOut: boolean }> {
   const fd = openSync(log, "a", 0o600);
   const record = (line: string) => writeSync(fd, `${line}\n`);
   const note = (fields: Record<string, unknown>) =>
@@ -191,43 +266,107 @@ async function runClaude(
     stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",
+    // The leader of a process group of its own.
+    detached: true,
   });
   stop.child = proc;
   // A signal that came while it was being started.
-  if (stop.signal !== undefined) proc.kill(stop.signal);
+  if (stop.signal !== undefined) signalGroup(proc, stop.signal);
+  let timedOut = false;
+  const timers: Timer[] = [];
+  if (limit.timeLimitMs !== undefined) {
+    timers.push(
+      setTimeout(() => {
+        timedOut = true;
+        note({ event: "time limit", signal: "SIGTERM" });
+        deps.err(`${clock()} The Stage reached its time limit: SIGTERM`);
+        signalGroup(proc, "SIGTERM");
+        timers.push(
+          setTimeout(() => {
+            note({ event: "time limit", signal: "SIGKILL" });
+            deps.err(`${clock()} The Stage is still running: SIGKILL`);
+            signalGroup(proc, "SIGKILL");
+          }, limit.killAfterMs ?? 60_000),
+        );
+      }, limit.timeLimitMs),
+    );
+  }
+  const drained = new AbortController();
+  let reading = true;
+  void proc.exited.then(() => {
+    if (!reading) return;
+    timers.push(
+      setTimeout(() => {
+        note({ event: "output still open", afterMs: limit.drainMs ?? DRAIN_MS });
+        deps.err(`${clock()} claude ended, but something it started still holds its output`);
+        drained.abort();
+      }, limit.drainMs ?? DRAIN_MS),
+    );
+  });
   try {
     await Promise.all([
-      eachLine(proc.stdout, (line) => {
-        record(line);
-        deps.out(`${clock()} ${summarize(line)}`);
-      }),
-      eachLine(proc.stderr, (line) => {
-        note({ event: "stderr", line });
-        deps.err(`${clock()} [stderr] ${line}`);
-      }),
+      eachLine(
+        proc.stdout,
+        (line) => {
+          record(line);
+          deps.out(`${clock()} ${summarize(line)}`);
+        },
+        drained.signal,
+      ),
+      eachLine(
+        proc.stderr,
+        (line) => {
+          note({ event: "stderr", line });
+          deps.err(`${clock()} [stderr] ${line}`);
+        },
+        drained.signal,
+      ),
     ]);
     const exitCode = await proc.exited;
     note({ event: "exit", exitCode, signal: proc.signalCode ?? null });
-    return exitCode;
+    return { exitCode, timedOut };
   } finally {
+    reading = false;
+    for (const timer of timers) clearTimeout(timer);
+    // A stopped `claude` takes along what it started that outlived it.
+    if (timedOut || stop.signal !== undefined) signalGroup(proc, "SIGKILL");
     stop.child = undefined;
     closeSync(fd);
   }
 }
 
-async function eachLine(stream: ReadableStream<Uint8Array>, onLine: (line: string) => void) {
+/** Each line of `stream` as it comes, until it ends or `stop` aborts. */
+async function eachLine(
+  stream: ReadableStream<Uint8Array>,
+  onLine: (line: string) => void,
+  stop: AbortSignal,
+) {
+  const reader = stream.getReader();
+  const cancel = () => void reader.cancel().catch(() => undefined);
+  stop.addEventListener("abort", cancel, { once: true });
   const decoder = new TextDecoder();
   let partial = "";
-  for await (const chunk of stream) {
-    const lines = `${partial}${decoder.decode(chunk, { stream: true })}`.split("\n");
-    partial = lines.pop() ?? "";
-    for (const line of lines) if (line.trim() !== "") onLine(line);
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const lines = `${partial}${decoder.decode(value, { stream: true })}`.split("\n");
+      partial = lines.pop() ?? "";
+      for (const line of lines) if (line.trim() !== "") onLine(line);
+    }
+  } finally {
+    stop.removeEventListener("abort", cancel);
   }
   const rest = `${partial}${decoder.decode()}`;
   if (rest.trim() !== "") onLine(rest);
 }
 
-function printResult(path: string, startedAt: Date, deps: StageDeps): void {
+/** Prints the result this run wrote, and returns it as JSON, or why it can't be read. */
+function readResult(
+  path: string,
+  startedAt: Date,
+  deps: StageDeps,
+): { result?: unknown; resultError?: string } {
   let modified: Date | undefined;
   try {
     modified = statSync(path).mtime;
@@ -236,7 +375,13 @@ function printResult(path: string, startedAt: Date, deps: StageDeps): void {
   }
   if (!freshResult(modified, startedAt)) {
     deps.out(`The Stage wrote no result (${path})`);
-    return;
+    return {};
   }
-  deps.out(`The Stage's result (${path}):\n${readFileSync(path, "utf8").trimEnd()}`);
+  const text = readFileSync(path, "utf8");
+  deps.out(`The Stage's result (${path}):\n${text.trimEnd()}`);
+  try {
+    return { result: JSON.parse(text) };
+  } catch {
+    return { resultError: `${path} isn't JSON` };
+  }
 }

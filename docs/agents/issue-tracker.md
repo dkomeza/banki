@@ -6,7 +6,7 @@ In a session, use the `linear-banki` MCP server (`mcp__linear-banki__*`) for all
 
 **Ask before creating, closing, or relabelling issues.** This is a solo project with no cycles. An issue's status drives the agent pipeline (below, and ADR-0013). The one integration is GitHub: a branch named after the issue's `gitBranchName` links its PR to the issue, and merging the PR moves the issue to `Done`.
 
-The **Maintainer** (`CONTEXT.md`) is the Linear user Dawid Komęza (`dkomeza`). Only their comments, and the Runner app's own, count as input to a Stage.
+The **Maintainer** (`CONTEXT.md`) is the Linear user Dawid Komęza (`dkomeza`). Only their comments, and the Runner app's own, count as input to a Stage or to the Dispatcher.
 
 Linear is the source of truth for requirements (there's no manifest in the repo). The project document **"Banki — Overview"** (https://linear.app/banki-group/document/banki-overview-de9b92093f2e) gives the big picture; read it before working on any issue. Each issue holds the detailed requirements for its own piece.
 
@@ -47,7 +47,9 @@ A non-UI issue goes through the same statuses, skipping In Design and Design Rev
 
 **Live mode** is the one exception to "unassigned": a live `/work-issue` keeps the issue assigned to the Maintainer from the grill to its Checkpoint 2, Design Review and Acceptance included, and ends by unassigning it in Acceptance. A live session that ends early hands the issue to the Runner by unassigning it where it stands.
 
-**Handing back a stop.** A stopped Stage asks its question in a top-level comment. Only the Maintainer's reply in that comment's thread answers it and hands the issue back: the Dispatcher unassigns the issue and queues the Stage again. A top-level comment never hands an issue back, so the comments live mode posts (verdicts, feedback, hand-offs) leave its assignment alone.
+**Closing comments.** Each Stage ends with a top-level comment holding its summary and its whole result (`.claude/skills/work-issue/references/stages.md` § The closing comment). Headless the Dispatcher posts it, and live mode posts the same one. What already ran on an issue is read back from these comments, by the Runner app or the Maintainer, so a live session that ends early hands over exactly where it stood.
+
+**Handing back a stop.** A stop asks its question in a top-level closing comment. Only the Maintainer's reply in that comment's thread answers it and hands the issue back: the Dispatcher unassigns the issue and runs the Stage again. A top-level comment never hands an issue back, so the comments live mode posts (verdicts, feedback, hand-offs) leave its assignment alone.
 
 ## When a skill says "publish to the issue tracker"
 

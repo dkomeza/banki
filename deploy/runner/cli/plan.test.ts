@@ -4,6 +4,7 @@ import {
   freshResult,
   logPath,
   mcpConfig,
+  resumePrompt,
   stageEnv,
   stagePrompt,
   worktreeOf,
@@ -45,6 +46,23 @@ describe("the claude invocation", () => {
       "--add-dir",
       "/work/banki-worktrees",
     ]);
+  });
+});
+
+describe("a paused Stage's invocation", () => {
+  test("goes on in its own session, with the same per-run MCP config", () => {
+    const args = claudeArgs("go on", "/tmp/stage-y/mcp.json", "sess-1");
+
+    expect(args.slice(0, 5)).toEqual(["claude", "-p", "go on", "--resume", "sess-1"]);
+    expect(args).toContain("/tmp/stage-y/mcp.json");
+    expect(args).toContain("--dangerously-skip-permissions");
+  });
+
+  test("is told to go on where it left off", () => {
+    const prompt = resumePrompt("implement", "BAN-9");
+
+    expect(prompt).toStartWith("Go on with the implement Stage on BAN-9");
+    expect(prompt).toContain("headless");
   });
 });
 

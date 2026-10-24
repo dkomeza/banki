@@ -12,7 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { asObject, asString } from "../lib/parse";
-import { runStage, type StageDeps } from "./stage";
+import { executeStage, runStage, type StageDeps } from "./stage";
 
 // One Stage run with a stand-in Broker, Linear lookup and `claude`, and
 // signals sent to `runner` at each step: whatever step it is in, the Linear
@@ -87,6 +87,25 @@ function setup(overrides: Partial<StageDeps> = {}) {
 
 /** Lets pending promises and timers run. */
 const tick = (ms = 20) => Bun.sleep(ms);
+
+/** Whether a process with this pid is still there. */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** `promise`, or a rejection once `ms` have gone by without it settling. */
+function within<T>(ms: number, promise: Promise<T>): Promise<T> {
+  let timer: Timer | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`still running after ${ms} ms`)), ms);
+  });
+  return Promise.race([promise, late]).finally(() => clearTimeout(timer));
+}
 
 describe("a Stage", () => {
   test("runs claude, logs its events, prints its result, and revokes the token", async () => {
@@ -182,6 +201,152 @@ describe("a Stage", () => {
     await runStage("implement", "BAN-1", deps);
 
     expect(process.listenerCount("SIGINT")).toBe(before);
+  });
+
+  test("hands its supervisor the log and the result it wrote", async () => {
+    const { deps, paths } = setup();
+    const log = join(paths.logs, "BAN-1", "chosen.jsonl");
+
+    const run = await executeStage("implement", "BAN-1", deps, { log });
+
+    expect(run).toEqual({
+      exitCode: 0,
+      log,
+      timedOut: false,
+      tokens: [LINEAR_TOKEN],
+      result: { outcome: "done" },
+    });
+    expect(existsSync(log)).toBe(true);
+  });
+
+  test("goes on in a paused Stage's session, with a go-on prompt", async () => {
+    const ARGS = fakeClaude(
+      "claude-args",
+      `mkdir -p "$RESULT_DIR" && printf '%s\n' "$@" > "$RESULT_DIR/args"`,
+    );
+    const { deps, paths } = setup({ claude: ARGS });
+
+    await executeStage("implement", "BAN-1", deps, { resume: "sess-9" });
+
+    const args = readFileSync(join(paths.worktrees, "ban-1-x", ".ui", "args"), "utf8").split("\n");
+    expect(args[0]).toBe("-p");
+    expect(args[1]).toStartWith("Go on with the implement Stage on BAN-1");
+    expect(args.slice(2, 4)).toEqual(["--resume", "sess-9"]);
+  });
+
+  test("stopped at its time limit gets SIGTERM, then SIGKILL if it hangs on, and says it timed out", async () => {
+    const STUBBORN = fakeClaude(
+      "claude-stubborn",
+      `exec bun -e 'process.on("SIGTERM", () => {}); console.log(JSON.stringify({ type: "system", subtype: "init" })); setInterval(() => {}, 1000)'`,
+    );
+    const { deps, ended, out } = setup({ claude: STUBBORN });
+
+    const run = await executeStage("implement", "BAN-1", deps, {
+      timeLimitMs: 1500,
+      killAfterMs: 200,
+    });
+
+    expect(run.timedOut).toBe(true);
+    expect(run.exitCode).not.toBe(0);
+    expect(out.join("\n")).toContain("SIGTERM");
+    expect(out.join("\n")).toContain("SIGKILL");
+    expect(ended).toEqual(["token-id"]);
+  });
+
+  // A child of `claude`'s that ignores SIGTERM and keeps its output open
+  // would hold the Stage, and its supervisor's slot, forever.
+  test("stopped at its time limit takes claude's children down with it, and returns promptly", async () => {
+    const PARENT = fakeClaude(
+      "claude-parent",
+      `trap '' TERM\necho '{"type":"system","subtype":"init"}'\nsleep 30\necho '{"type":"system","subtype":"late"}'`,
+    );
+    const { deps, ended, out } = setup({ claude: PARENT });
+
+    // Time enough for the stand-in to set its trap, then a short grace.
+    const run = await within(
+      4_000,
+      executeStage("implement", "BAN-1", deps, { timeLimitMs: 1_000, killAfterMs: 100 }),
+    );
+
+    expect(run.timedOut).toBe(true);
+    expect(out.join("\n")).toContain("SIGKILL");
+    expect(out.join("\n")).not.toContain("late");
+    expect(ended).toEqual(["token-id"]);
+  });
+
+  test("stopped while claude runs, passes the signal on to its children too", async () => {
+    const PARENT = fakeClaude(
+      "claude-parent-int",
+      `echo '{"type":"system","subtype":"init"}'\nsleep 30`,
+    );
+    const { deps, ended, out } = setup({ claude: PARENT });
+
+    const run = within(3_000, runStage("acceptance-fix", "BAN-1", deps));
+    for (let i = 0; i < 100 && !out.some((line) => line.includes("system: init")); i++)
+      await tick();
+    process.emit("SIGINT", "SIGINT");
+
+    expect(await run).toBe(130);
+    expect(ended).toEqual(["token-id"]);
+  });
+
+  test("stops waiting on output a process outside claude's group still holds, a grace after claude ends", async () => {
+    const ESCAPED = fakeClaude(
+      "claude-escaped",
+      `exec bun -e 'const c = Bun.spawn(["sleep", "30"], { stdio: ["ignore", "inherit", "inherit"], detached: true }); console.error("escaped " + c.pid); c.unref(); process.on("SIGTERM", () => {}); console.log(JSON.stringify({ type: "system", subtype: "init" })); setInterval(() => {}, 1000)'`,
+    );
+    const { deps, ended, out } = setup({ claude: ESCAPED });
+
+    try {
+      const run = await within(
+        4_000,
+        executeStage("implement", "BAN-1", deps, {
+          timeLimitMs: 1_500,
+          killAfterMs: 100,
+          drainMs: 100,
+        }),
+      );
+
+      expect(run.timedOut).toBe(true);
+      expect(ended).toEqual(["token-id"]);
+    } finally {
+      const pid = /escaped (\d+)/.exec(out.join("\n"))?.[1];
+      if (pid !== undefined && alive(Number(pid))) process.kill(Number(pid), "SIGKILL");
+    }
+  });
+
+  test("once claude ends at its time limit, a child of its group that outlived it is killed", async () => {
+    const LINGERING = fakeClaude(
+      "claude-lingering",
+      [
+        `trap 'exit 143' TERM`,
+        `echo '{"type":"system","subtype":"init"}'`,
+        `( trap '' TERM; exec sleep 30 ) &`,
+        `echo "child $!" >&2`,
+        `wait`,
+      ].join("\n"),
+    );
+    const { deps, out } = setup({ claude: LINGERING });
+    let pid: number | undefined;
+
+    try {
+      const run = await within(
+        4_000,
+        executeStage("implement", "BAN-1", deps, {
+          timeLimitMs: 1_000,
+          killAfterMs: 60_000,
+          drainMs: 100,
+        }),
+      );
+      pid = Number(/child (\d+)/.exec(out.join("\n"))?.[1]);
+
+      expect(run.timedOut).toBe(true);
+      expect(pid).toBeGreaterThan(0);
+      for (let i = 0; i < 50 && alive(pid); i++) await tick();
+      expect(alive(pid)).toBe(false);
+    } finally {
+      if (pid !== undefined && pid > 0 && alive(pid)) process.kill(pid, "SIGKILL");
+    }
   });
 
   test("a failure that isn't a signal still revokes the token, and is thrown", async () => {

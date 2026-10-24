@@ -22,7 +22,11 @@ const noEnvFile = join(secrets, "empty.env");
 writeFileSync(noEnvFile, "");
 afterAll(() => rmSync(secrets, { recursive: true, force: true }));
 
-const IDS = { BANKI_RUNNER_UID: "1000", BANKI_RUNNER_GID: "1001" };
+const IDS = {
+  BANKI_RUNNER_UID: "1000",
+  BANKI_RUNNER_GID: "1001",
+  BANKI_RUNNER_TZ: "Europe/Warsaw",
+};
 /** The runner's subnet, which compose.yaml and the host's firewall rules both name. */
 const RUNNER_SUBNET = "10.213.94.0/24";
 
@@ -202,10 +206,50 @@ describe.skipIf(!hasDocker)("compose.yaml", () => {
     ]);
     expect(Object.keys(services.runner?.environment ?? {}).toSorted()).toEqual([
       "BANKI_BROKER_SOCKET",
+      "BANKI_RUNNER_CEILING",
+      "BANKI_RUNNER_MAX_STAGES",
+      "BANKI_RUNNER_NIGHT",
+      "BANKI_RUNNER_OPEN_DAYS",
       "HOME",
       "NODE_OPTIONS",
       "PLAYWRIGHT_BROWSERS_PATH",
+      "TZ",
     ]);
+  });
+
+  test("gives the runner the host's timezone, and the Dispatcher's window, Ceiling and cap with their defaults", async () => {
+    expect((await service("runner")).environment).toMatchObject({
+      TZ: "Europe/Warsaw",
+      BANKI_RUNNER_NIGHT: "01:00-07:00",
+      BANKI_RUNNER_OPEN_DAYS: "sat,sun",
+      BANKI_RUNNER_CEILING: "0.60",
+      BANKI_RUNNER_MAX_STAGES: "2",
+    });
+    const { services } = await render({
+      ...IDS,
+      BANKI_RUNNER_CEILING: "0.45",
+      BANKI_RUNNER_NIGHT: "23:00-06:00",
+    });
+
+    expect(services.runner?.environment).toMatchObject({
+      BANKI_RUNNER_CEILING: "0.45",
+      BANKI_RUNNER_NIGHT: "23:00-06:00",
+    });
+  });
+
+  test("keeps the open days empty when they are set empty, for no open days", async () => {
+    const { services } = await render({ ...IDS, BANKI_RUNNER_OPEN_DAYS: "" });
+
+    expect(services.runner?.environment?.BANKI_RUNNER_OPEN_DAYS).toBe("");
+  });
+
+  test("refuses to render before bootstrap has recorded the host's timezone", async () => {
+    const outcome = await render({ BANKI_RUNNER_UID: "1000", BANKI_RUNNER_GID: "1001" }).then(
+      () => "rendered",
+      (error: unknown) => String(error),
+    );
+
+    expect(outcome).toContain("run deploy/runner/bootstrap");
   });
 
   test("has Node resolve localhost to IPv4 first, where Vite then listens and the `ui` script looks", async () => {

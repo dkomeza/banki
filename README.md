@@ -536,7 +536,7 @@ A future production at `banki.dkomeza.com` would share its parent domain with th
 
 ## Runner
 
-The [Runner](CONTEXT.md) runs the `/work-issue` [Stages](CONTEXT.md) unattended, at night, on the home server ([ADR-0012](docs/adr/0012-stages-run-unattended-in-a-runner-container-on-the-home-server.md)). It sits beside the pull agent and shares nothing with it: no Docker socket, not on `banki-previews`, none of `~/.config/banki-preview`. Which Stage runs when is the Dispatcher's job, which comes with BAN-95; until then the Runner keeps its clone of `main` current and runs a Stage when you ask it to ([below](#running-one-stage-by-hand)).
+The [Runner](CONTEXT.md) runs the `/work-issue` [Stages](CONTEXT.md) unattended, at night, on the home server ([ADR-0012](docs/adr/0012-stages-run-unattended-in-a-runner-container-on-the-home-server.md)). It sits beside the pull agent and shares nothing with it: no Docker socket, not on `banki-previews`, none of `~/.config/banki-preview`. Which Stage runs when is the [Dispatcher](CONTEXT.md)'s job ([ADR-0013](docs/adr/0013-linear-statuses-drive-the-stages-through-a-dispatcher-without-an-llm.md)): a plain program, no LLM, that goes by the issues' statuses, assignees and closing comments, waits on CI and the Previews without spending tokens, and starts Stages only inside a window and under a usage gate ([below](#the-dispatcher)).
 
 It is one Compose project, `banki-runner`, with two containers from one image:
 
@@ -545,7 +545,7 @@ It is one Compose project, `banki-runner`, with two containers from one image:
 
 They share only the volume holding the Broker's socket. A Stage runs `claude` with permission prompts skipped and reads untrusted text, so it could be talked into sending whatever it can read: it can mint tokens through the socket, but it can't read the key that makes them, and every token it can get dies on its own. A GitHub token lasts an hour. A Linear token is minted when its Stage starts and revoked when it ends, or 4 hours after it was minted, whichever comes first.
 
-A Stage still holds the Claude, GitHub and Linear tokens while it runs, and has open internet access: there is no egress allowlist (ADR-0012 records the trade-off). The host's firewall rules for the runner's network keep a Stage from the home server's ports and the home LAN ([below](#keeping-it-off-the-host-and-the-lan)), and the Previews' internal networks keep it from the Previews, but nothing keeps it from sending what it reads, so the Stages take input only from the Maintainer in Linear, and from `claude-review` and Codex on GitHub (`.claude/skills/work-issue/references/stages.md` § Input).
+A Stage still holds the Claude, GitHub and Linear tokens while it runs, and has open internet access: there is no egress allowlist (ADR-0012 records the trade-off). The host's firewall rules for the runner's network keep a Stage from the home server's ports and the home LAN ([below](#keeping-it-off-the-host-and-the-lan)), and the Previews' internal networks keep it from the Previews, but nothing keeps it from sending what it reads, so the Stages and the Dispatcher take input only from the Maintainer in Linear, and from `claude-review` on GitHub: its check, its summary comment by `github-actions[bot]` and its inline threads by `claude[bot]` (`.claude/skills/work-issue/references/stages.md` § Input).
 
 | Path                          | What it is                                                                                                                                                               |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -554,12 +554,13 @@ A Stage still holds the Claude, GitHub and Linear tokens while it runs, and has 
 | `deploy/runner/broker/`       | The Broker (Bun, no npm dependencies): the App's JWT, the GitHub token cache and the Linear tokens' revoke schedule are pure and unit-tested; the rest are thin adapters |
 | `deploy/runner/loop/`         | The tick loop: brings the clone onto `main`, runs `tick.ts`, and says when the image is behind `main`                                                                    |
 | `deploy/runner/bin/`          | What is on the runner's PATH: `gh` and git's credential helper, which ask the Broker for a token on every call, and `runner`                                             |
-| `deploy/runner/tick.ts`       | The tick, run from the clone: the Dispatcher's place (BAN-95). It only logs for now                                                                                      |
-| `deploy/runner/cli/`          | `runner stage`, run from the clone                                                                                                                                       |
+| `deploy/runner/tick.ts`       | The tick, run from the clone: it runs the Dispatcher                                                                                                                     |
+| `deploy/runner/dispatch/`     | The Dispatcher and the Stages' supervisors. Which Stage is next, the window, the gate, the costs and the waits are pure and unit-tested; the rest are thin adapters      |
+| `deploy/runner/cli/`          | `runner status`, `runner run-now` and `runner stage`, run from the clone                                                                                                 |
 | `deploy/runner/bootstrap`     | Asks for the Runner's secrets and writes them outside the clone                                                                                                          |
 | `deploy/runner/host-firewall` | The host's firewall rules that keep the runner's network off the home server and the LAN                                                                                 |
 
-The Broker, the tick loop and the wrappers on PATH are baked into the image. The tick script and the CLI run from the clone of `main` in the volume, so a merged change to them applies on the next tick.
+The Broker, the tick loop and the wrappers on PATH are baked into the image. The tick script, the Dispatcher and the CLI run from the clone of `main` in the volume, so a merged change to them applies on the next tick.
 
 ### Linear: the statuses and the app
 
@@ -610,10 +611,6 @@ body="$(gh api "$ruleset" | jq '
 
 The read-back should show `required_approving_review_count: 1`, `dismiss_stale_reviews_on_push: true` and `require_last_push_approval: true`, the other rules as they were, and the one bypass actor, `RepositoryRole` 5.
 
-### Codex
-
-Set Codex's code review for this repo to **All PRs** (in Codex's settings, under code review), so it reviews the pull requests the App opens too. Whether Codex reviews a pull request an App opened isn't documented; the first headless Stage that opens one settles it.
-
 ### Setting it up
 
 You need Docker with Compose v2 on the home server, and a Claude token made for the Runner alone, so it can be revoked without touching anything else:
@@ -629,18 +626,19 @@ deploy/runner/bootstrap
 BANKI_RUNNER_COMMIT="$(git rev-parse HEAD)" docker compose -f deploy/runner/compose.yaml up -d --build
 ```
 
-`bootstrap` asks for the Claude token, the App's ID and the path to its private key (which it copies in), and the Linear app's client ID and secret; the secrets are read without echo. It writes them to `$BANKI_RUNNER_SECRETS`, by default `~/.config/banki-runner`, outside the clone (a `0700` directory of `0600` files), and refuses a directory inside a git work tree. It also writes your uid and gid, and that directory's path, to `deploy/runner/.env` (gitignored), which Compose reads: both containers run as you, so they can read your `0600` files with no extra capability, and Compose refuses to start them until `bootstrap` has run. Run it again to change a value: each one it has is the default, so Enter keeps it. The Broker reads its settings only on start, so afterwards run `docker compose -f deploy/runner/compose.yaml up -d --force-recreate`.
+`bootstrap` asks for the Claude token, the App's ID and the path to its private key (which it copies in), and the Linear app's client ID and secret; the secrets are read without echo. It writes them to `$BANKI_RUNNER_SECRETS`, by default `~/.config/banki-runner`, outside the clone (a `0700` directory of `0600` files), and refuses a directory inside a git work tree. It also writes your uid and gid, the server's timezone, and that directory's path, to `deploy/runner/.env` (gitignored), which Compose reads: both containers run as you, so they can read your `0600` files with no extra capability, the Dispatcher's window runs on the server's clock (`TZ`, from `TZ`, `timedatectl`, `/etc/timezone` or `/etc/localtime`, in that order), and Compose refuses to start them until `bootstrap` has run. It keeps every other line in that file, so the Dispatcher's settings you put there ([below](#the-window)) survive a re-run. A Runner set up before the Dispatcher came needs `bootstrap` run once more, for the timezone. Run it again to change a value: each one it has is the default, so Enter keeps it. The Broker reads its settings only on start, so afterwards run `docker compose -f deploy/runner/compose.yaml up -d --force-recreate`.
 
 The Broker gets the App's key and the Linear client secret, and the runner the Claude token, as compose secrets: files under `/run/secrets/`, so none is in an environment in `docker inspect`, and each container gets only its own. Both containers run with a read-only root filesystem, `no-new-privileges`, every capability dropped, and each on its own network with internet access; neither publishes a port. The runner has an 8 GB memory cap, no CPU cap and a 1 GB `/dev/shm` for Chromium; the Broker has 128 MB.
 
 The runner's volume, `banki-runner-work`, is mounted at `/work`:
 
-| Path                     | What it is                                                                             |
-| ------------------------ | -------------------------------------------------------------------------------------- |
-| `/work/banki`            | The clone of `main`, and each Stage's working directory                                |
-| `/work/banki-worktrees/` | The issues' worktrees, as on the laptop                                                |
-| `/work/logs/`            | Each Stage's log                                                                       |
-| `/work/home/`            | HOME: `~/.claude`, bun's cache, and Playwright's browsers (`PLAYWRIGHT_BROWSERS_PATH`) |
+| Path                     | What it is                                                                                                                  |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| `/work/banki`            | The clone of `main`, and each Stage's working directory                                                                     |
+| `/work/banki-worktrees/` | The issues' worktrees, as on the laptop                                                                                     |
+| `/work/logs/`            | Each Stage's logs, kept 30 days                                                                                             |
+| `/work/dispatcher/`      | The Dispatcher's records: the gate's last reading, the Stages running or paused, and the Stages that ended, for their costs |
+| `/work/home/`            | HOME: `~/.claude`, bun's cache, and Playwright's browsers (`PLAYWRIGHT_BROWSERS_PATH`)                                      |
 
 Chromium isn't in the image: each worktree installs the build its own Playwright wants with `npx playwright install chromium`, a no-op once it is there, so a Playwright bump on `main` needs no rebuild.
 
@@ -684,7 +682,7 @@ docker compose -f deploy/runner/compose.yaml exec runner curl -sS -m 5 http://19
 
 ### The tick
 
-Every 5 minutes the runner runs `git fetch origin main` and `git reset --hard origin/main` in `/work/banki`, in place, even while a Stage runs there, and then runs `deploy/runner/tick.ts` from the clone. Each sync first makes sure the clone's `origin` is the repo, and removes the locks a git killed mid-write left in the clone's own git dir once they are 10 minutes old (never a worktree's). A failed sync skips the tick, so it never runs on a half-synced clone, and after three in a row the log says plainly that the clone is stuck. A failed tick is logged too, and the loop goes on:
+Every 5 minutes the runner runs `git fetch origin main` and `git reset --hard origin/main` in `/work/banki`, in place, even while a Stage runs there, and then runs `deploy/runner/tick.ts` from the clone, which runs the [Dispatcher](#the-dispatcher). Each sync first makes sure the clone's `origin` is the repo, and removes the locks a git killed mid-write left in the clone's own git dir once they are 10 minutes old (never a worktree's). A failed sync skips the tick, so it never runs on a half-synced clone, and after three in a row the log says plainly that the clone is stuck. A failed tick is logged too, and the loop goes on:
 
 ```sh
 docker compose -f deploy/runner/compose.yaml logs -f runner
@@ -699,20 +697,79 @@ BANKI_RUNNER_COMMIT="$(git rev-parse HEAD)" docker compose -f deploy/runner/comp
 
 An image built without `BANKI_RUNNER_COMMIT` counts as behind, since nothing says what it holds.
 
+### The Dispatcher
+
+Each tick, the Dispatcher looks at the issues of project Banki and decides each one's next move from its status, its assignee, its closing comments and GitHub, with no LLM ([ADR-0013](docs/adr/0013-linear-statuses-drive-the-stages-through-a-dispatcher-without-an-llm.md); `docs/agents/issue-tracker.md` § Statuses):
+
+| Status    | Next                                                                                                                                                                                                                                                                                                                                  |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Todo      | The implement Stage                                                                                                                                                                                                                                                                                                                   |
+| In Design | The design Stage, unless a round is built since the issue came in from Backlog or Design Review: then the wait for its Variants' Slug Previews, and the hand-off to Design Review                                                                                                                                                     |
+| In Review | The Acceptance fix, after a move back from Acceptance. Otherwise a review round, once `claude-review` has finished on the head SHA, with something to triage and no round on that SHA yet. Otherwise the wait for the PR Preview, and the hand-off to Acceptance, once `claude-review` passes and every thread it started is resolved |
+
+It leaves alone any issue that is assigned, and any In Progress issue none of its supervisors started. The waits, the hand-offs and the stops cost no tokens, so they happen on every tick, in or out of the window; a wait that fails, or runs past its deadline (`.claude/skills/work-issue/references/stages.md` § Waits), is a stop on you. A state that fits none of the rows, such as a round that ran on this head SHA without the rounds ending, is a stop too, saying what it found.
+
+Ready Stages start closest to Done first (In Review, then Todo, then In Design), then by Linear priority, then oldest. Each one runs under a **supervisor**, a detached `runner supervise`, which outlives the tick: it takes the gate's reading, looks at the issue again (and starts nothing if it was assigned or moved since the tick looked), sets it In Progress, runs the Stage as `runner stage` does for at most 3 hours of running time (SIGTERM to `claude` and everything it started, then SIGKILL a minute later), takes the reading again, and posts the Stage's closing comment and sets the next status from its result. At most `BANKI_RUNNER_MAX_STAGES` (2) run at once, paused ones included, and never two on one issue.
+
+- **A crash or a timeout.** A supervisor that is gone while its issue is In Progress, or a Stage that ran out of time or left no result, puts back the status from before In Progress, posts a stop comment with the last 30 lines of its log (one per event, never the raw JSON), and assigns you.
+- **The five-hour limit.** A Stage it cuts short is paused, not failed: its issue stays In Progress, unassigned, and the Stage goes on in its own `claude` session, its worktree as it left it, at the first tick in the window after that window starts over, ahead of the queue and still behind the gate. A paused Stage holds its place under the cap.
+
+Each tick also deletes Stage logs older than 30 days, takes down a canceled issue's Variant Slug Previews, and removes the worktrees of Done or Canceled issues, Variants' included, once they are clean and every commit is on origin.
+
+### The window
+
+Stages start only inside the window, in server time:
+
+| Variable                  | Default       | What it is                                                          |
+| ------------------------- | ------------- | ------------------------------------------------------------------- |
+| `BANKI_RUNNER_NIGHT`      | `01:00-07:00` | Every night, `HH:MM-HH:MM`; it may cross midnight                   |
+| `BANKI_RUNNER_OPEN_DAYS`  | `sat,sun`     | Days open all day, and on into the night after them; empty for none |
+| `BANKI_RUNNER_MAX_STAGES` | `2`           | How many Stages may run or wait paused at once                      |
+
+An open day runs until the night after it ends, so with the defaults Saturday 00:00 to Monday 07:00 is one stretch. A Stage that is running finishes past the window. Set any of them, or the Ceiling's, in `deploy/runner/.env`, then `docker compose -f deploy/runner/compose.yaml up -d`.
+
+### The Ceiling
+
+Before it starts or resumes a Stage, the gate reads how much of each usage window is used, from the `rate_limit_event` of a one-line Haiku call with the Runner's Claude token. A Stage starts only if the week's utilization, plus the estimates of the Stages running, plus its own, stays within the [Ceiling](CONTEXT.md), and the five-hour window is under 80%. If the next Stage doesn't fit, a cheaper ready one may still start. A reading that fails starts nothing.
+
+| Variable               | Default | What it is                                                 |
+| ---------------------- | ------- | ---------------------------------------------------------- |
+| `BANKI_RUNNER_CEILING` | `0.60`  | The share of the weekly window above which no Stage starts |
+
+Your own use counts toward it, so whatever is above the Ceiling stays yours. A Stage's cost is how far the week moved between the readings before and after it, your use while it ran included; Stages that overlapped split their move by each one's dollar cost. A Stage with any run whose reading is missing has no known cost. Each kind of Stage is estimated at the median of its known costs, and at 5% until it has three.
+
+### `runner status` and `runner run-now`
+
+```sh
+docker compose -f deploy/runner/compose.yaml exec runner runner status
+docker compose -f deploy/runner/compose.yaml exec runner runner run-now BAN-N [--force]
+```
+
+`status` shows the Stages running and paused, the ready queue in order with why each one would or wouldn't start now, what the Dispatcher is waiting on, the gate's last reading and the estimates, the recent Stages with their costs, and the In Progress issues none of its supervisors started. It takes no reading and changes nothing.
+
+`run-now` starts the issue's next Stage now, or resumes its paused one, even outside the window. It still keeps the cap, the five-hour check and the rule that skips an issue that is assigned or running; `--force` skips the Ceiling, and only that. It prints the Stage's log, or why nothing starts.
+
+### When a Stage stops on you
+
+A stop is a closing comment on the issue that asks you something, with the options it sees, the recommended one first, and the issue assigned to you. Answer it **in that comment's thread**: your reply hands the issue back, and on the next tick the Dispatcher unassigns it and runs that Stage again, which takes your reply as the answer. A stop from a wait that failed starts the wait over instead, counting its deadline from your reply. A top-level comment never hands an issue back. To take the issue yourself, run it live with `/work-issue BAN-N`, which keeps it assigned.
+
+In Design Review and Acceptance a comment alone starts nothing: moving the issue back does, and the next Stage reads every comment of yours since the hand-off.
+
 ### Running one Stage by hand
 
 ```sh
 docker compose -f deploy/runner/compose.yaml exec runner runner stage <design|implement|review-round|acceptance-fix> BAN-N
 ```
 
-It runs the Stage's prompt (`.claude/skills/work-issue/stages/<kind>.md`) on the issue, headless, in the clone of `main`, as a Dispatcher-started one would. It gets a Linear token from the Broker for this Stage alone and gives `claude` a per-run MCP config (`0600`, deleted afterwards) whose one server is `linear-banki`, then runs `claude -p --output-format stream-json --verbose --dangerously-skip-permissions --strict-mcp-config --mcp-config <file> --add-dir /work/banki-worktrees` with the Claude token and no `ANTHROPIC_API_KEY`. It runs in the foreground and prints one line per event, prints the Stage's result (`<wt>/.ui/stage-result.json`) at the end, and revokes the Linear token whatever happens, Ctrl-C included. It never changes the issue's status or assignee: that is the Dispatcher's job. `exec -d` instead of `exec` runs it detached.
+It runs the Stage's prompt (`.claude/skills/work-issue/stages/<kind>.md`) on the issue, headless, in the clone of `main`, as a Dispatcher-started one would. It gets a Linear token from the Broker for this Stage alone and gives `claude` a per-run MCP config (`0600`, deleted afterwards) whose one server is `linear-banki`, then runs `claude -p --output-format stream-json --verbose --dangerously-skip-permissions --strict-mcp-config --mcp-config <file> --add-dir /work/banki-worktrees` with the Claude token and no `ANTHROPIC_API_KEY`. It runs in the foreground and prints one line per event, prints the Stage's result (`<wt>/.ui/stage-result.json`) at the end, and revokes the Linear token whatever happens, Ctrl-C included. It never changes the issue's status or assignee, and posts no closing comment: that is the Dispatcher's job, so prefer `run-now`. `exec -d` instead of `exec` runs it detached.
 
 ### Reading a Stage's log
 
-Every event of a Stage is kept in `/work/logs/BAN-N/<start time>-<kind>.jsonl`, one JSON object per line: `claude`'s stream-json events, and `runner` events for its start, its stderr and its exit.
+Every event of a Stage is kept in `/work/logs/BAN-N/<start time>-<kind>.jsonl`, one JSON object per line: `claude`'s stream-json events, and `runner` events for its start, its stderr, its time limit and its exit. A Stage the Dispatcher started has its supervisor's lines beside it, in `<start time>-<kind>.log`: one per event, as `runner stage` prints them, and what the supervisor did. A paused Stage has a pair for each run. Each tick deletes the logs older than 30 days.
 
 ```sh
 docker compose -f deploy/runner/compose.yaml exec runner ls /work/logs/BAN-94
+docker compose -f deploy/runner/compose.yaml exec runner tail -f /work/logs/BAN-94/2026-10-24T01-00-00Z-implement.log
 docker compose -f deploy/runner/compose.yaml exec runner tail -f /work/logs/BAN-94/2026-10-24T01-00-00Z-implement.jsonl
 docker compose -f deploy/runner/compose.yaml exec runner sh -c 'grep "\"type\":\"result\"" /work/logs/BAN-94/*.jsonl'
 ```

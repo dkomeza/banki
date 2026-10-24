@@ -1,10 +1,21 @@
+import { errorText } from "./lib/config";
+
 // The Runner's tick (ADR-0012, ADR-0013), run from the clone of `main` every
 // 5 minutes by the loop baked into the image, right after it has brought the
-// clone onto `main`: a change here applies on the next tick. The Dispatcher
-// (BAN-95) lives here; until then the tick only logs.
+// clone onto `main`: a change here applies on the next tick. It runs the
+// Dispatcher (dispatch/dispatcher.ts), whose Stages run under supervisors of
+// their own, detached, so they outlive the tick's 10 minutes.
 
 const main = process.env.BANKI_RUNNER_MAIN ?? "";
+console.log(`Tick on main ${main === "" ? "(not fetched)" : main.slice(0, 7)}`);
 
-console.log(
-  `Tick on main ${main === "" ? "(not fetched)" : main.slice(0, 7)}: no Dispatcher yet, so no Stage starts`,
-);
+try {
+  const [{ tick }, { dispatcherDeps }] = await Promise.all([
+    import("./dispatch/dispatcher"),
+    import("./dispatch/wiring"),
+  ]);
+  await tick(dispatcherDeps());
+} catch (error) {
+  console.error(`The Dispatcher failed: ${errorText(error)}`);
+  process.exit(1);
+}

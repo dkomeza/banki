@@ -5,6 +5,8 @@ import { runStage } from "./stage";
 // `runner <command>`, run from the clone of `main` by the `runner` wrapper on
 // PATH (bin/runner), so a merged change applies on the next tick:
 //
+//   docker compose -f deploy/runner/compose.yaml exec runner runner status
+//   docker compose -f deploy/runner/compose.yaml exec runner runner run-now BAN-94
 //   docker compose -f deploy/runner/compose.yaml exec runner runner stage implement BAN-94
 
 const parsed = parseArgs(process.argv.slice(2));
@@ -23,4 +25,59 @@ switch (parsed.command) {
       console.error(`The ${parsed.kind} Stage on ${parsed.issue} failed: ${errorText(error)}`);
       process.exit(1);
     }
+    break;
+  case "status": {
+    const [{ status }, { dispatcherDeps }] = await Promise.all([
+      import("../dispatch/dispatcher"),
+      import("../dispatch/wiring"),
+    ]);
+    try {
+      console.log(await status(dispatcherDeps()));
+    } catch (error) {
+      console.error(`runner status failed: ${errorText(error)}`);
+      process.exit(1);
+    }
+    break;
+  }
+  case "run-now": {
+    const [{ runNow }, { dispatcherDeps }] = await Promise.all([
+      import("../dispatch/dispatcher"),
+      import("../dispatch/wiring"),
+    ]);
+    try {
+      const started = await runNow(parsed.issue, parsed.force, dispatcherDeps());
+      if (started.log === undefined) {
+        console.log(`Nothing starts on ${parsed.issue}: ${started.why ?? "nothing is ready"}`);
+        process.exit(1);
+      }
+      console.log(
+        `Started ${parsed.issue}'s Stage under its supervisor.\n  The Stage's log: ${started.log}\n  The supervisor's: ${started.log.replace(/\.jsonl$/, ".log")}`,
+      );
+    } catch (error) {
+      console.error(`runner run-now ${parsed.issue} failed: ${errorText(error)}`);
+      process.exit(1);
+    }
+    break;
+  }
+  case "supervise": {
+    const [{ supervise }, { supervisorDeps }] = await Promise.all([
+      import("../dispatch/supervisor"),
+      import("../dispatch/wiring"),
+    ]);
+    try {
+      process.exit(
+        await supervise(
+          parsed.kind,
+          parsed.issue,
+          { log: parsed.log, resume: parsed.resume },
+          supervisorDeps(),
+        ),
+      );
+    } catch (error) {
+      console.error(
+        `The supervisor of the ${parsed.kind} Stage on ${parsed.issue} failed: ${errorText(error)}`,
+      );
+      process.exit(1);
+    }
+  }
 }

@@ -17,10 +17,12 @@ FROM node:24.22.1-trixie-slim@sha256:43b9ba1142b8dcf33fa8f922ca1be85714adc444e05
 ARG TARGETARCH
 
 # git; curl, for the wrappers that reach the Broker's socket; jq, which the
-# workflows' scripts (and their tests) use; and ps, with which the `ui` script
-# finds its running stacks. From the Debian release the base image pins.
+# workflows' scripts (and their tests) use; ps, with which the `ui` script
+# finds its running stacks; and tzdata, for the server time (TZ) the
+# Dispatcher's window and the Stages' logs run on. From the Debian release the
+# base image pins.
 RUN apt-get update \
-  && apt-get install --yes --no-install-recommends ca-certificates curl git jq procps \
+  && apt-get install --yes --no-install-recommends ca-certificates curl git jq procps tzdata \
   && rm -rf /var/lib/apt/lists/*
 
 # gh, from its release, checked against the release's checksums. It goes
