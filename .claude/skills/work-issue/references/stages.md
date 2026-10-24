@@ -18,8 +18,8 @@ Stages hand over through origin and the issue tracker only. The issue's descript
 ## Paths
 
 - `<n>`: the issue's number (`93` for `BAN-93`).
-- `<branch>`: the issue's `gitBranchName` from the issue tracker (e.g. `dkomeza/ban-74-walking-skeleton-…`).
-- `<wt>`: the issue's worktree, `../banki-worktrees/<branch without the "dkomeza/" prefix>`, as an absolute path.
+- `<branch>`: the issue's branch. The issue tracker's `gitBranchName` starts with the name of whoever asks (`dkomeza/ban-74-walking-skeleton-…` live, `bankirunner/ban-74-…` on the Runner), so the issue's branch is the one on origin with the same name after its prefix, whoever started it: `git ls-remote --heads origin <gitBranchName without its prefix>`. One listed is `<branch>`. None listed, `<branch>` is `gitBranchName` as it is, and the first push creates it. Several listed, stop on the Maintainer, naming them.
+- `<wt>`: the issue's worktree, `../banki-worktrees/<branch without its prefix>`, as an absolute path.
 - `<pr>`: the PR's number, once there is one (`gh pr view <branch> --json number`).
 - A **Variant** (`CONTEXT.md`) has a key, one lowercase letter (`a`, `b`, `c`, …), never reused on the issue: a later round's Variants take the next free letters. Its branch is `<branch>-proto-<key>`, its worktree `<wt>-proto-<key>`, and its Slug `ban-<n>-<key>`.
 

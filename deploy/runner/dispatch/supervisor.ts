@@ -76,7 +76,7 @@ export async function supervise(
       if (why !== undefined) return why;
       if (!options.resume) await moveTo(linear, found, STATUS.inProgress);
       // The branch's tip as the Stage first starts, from GitHub, not the Stage.
-      record.headBefore ??= await tipOf(session, found.branch, say);
+      record.headBefore ??= await tipOf(session, found, say);
       return undefined;
     });
     if (unfit !== undefined) {
@@ -160,7 +160,7 @@ export async function supervise(
     if (found === undefined) throw new Error(`Linear has no issue ${issue}`);
     if (end.type === "closing") {
       // The branch's real tip, and whether it moved, over what the Stage wrote.
-      const headAfter = await tipOf(session, found.branch, say);
+      const headAfter = await tipOf(session, found, say);
       const pushed =
         record.headBefore !== undefined && headAfter !== undefined
           ? record.headBefore !== headAfter
@@ -211,16 +211,16 @@ function unfitToStart(
   return undefined;
 }
 
-/** The tip of origin's `branch`, or undefined when GitHub can't say. */
+/** The tip of the issue's branch on origin, or undefined when GitHub can't say. */
 async function tipOf(
   session: Awaited<ReturnType<typeof openSession>>,
-  branch: string,
+  issue: LinearIssue,
   say: (line: string) => void,
 ): Promise<string | undefined> {
   try {
-    return await session.github.branchHead(branch);
+    return await session.github.branchHead(await session.branchOf(issue));
   } catch (error) {
-    say(`Couldn't read the tip of ${branch} from GitHub: ${errorText(error)}`);
+    say(`Couldn't read the tip of ${issue.identifier}'s branch from GitHub: ${errorText(error)}`);
     return undefined;
   }
 }

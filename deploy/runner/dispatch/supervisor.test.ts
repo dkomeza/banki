@@ -42,6 +42,10 @@ function setup(
   options: {
     reading?: () => Promise<ReturnType<typeof reading>>;
     heads?: (string | undefined)[];
+    /** The branches on origin. */
+    branches?: string[];
+    /** The branches whose tips were read. */
+    tipsOf?: string[];
   } = {},
 ) {
   const dir = mkdtempSync(join(tmpdir(), "banki-supervisor-"));
@@ -61,7 +65,11 @@ function setup(
     linear: () => linear.client,
     github: () => ({
       ...fakeGitHub(),
-      branchHead: async () => (options.heads === undefined ? undefined : options.heads.shift()),
+      branches: async () => options.branches ?? [],
+      branchHead: async (branch) => {
+        options.tipsOf?.push(branch);
+        return options.heads === undefined ? undefined : options.heads.shift();
+      },
     }),
     log: () => undefined,
     records,
@@ -250,6 +258,20 @@ describe("a supervised Stage", () => {
     await supervise("review-round", "BAN-1", { log, resume: false }, deps);
 
     expect(resultIn(issue.comments[0]?.body ?? "")).toMatchObject({ headSha: tip, pushed: false });
+  });
+
+  test("reads the tips of the issue's branch on origin, under whoever's prefix started it", async () => {
+    const issue = fakeIssue("BAN-1", { status: "In Review", branch: "bankirunner/ban-1-x" });
+    const tipsOf: string[] = [];
+    const { deps, log } = setup(
+      issue,
+      () => ({ result: { ...done, stage: "review-round", headSha: null, pushed: false } }),
+      { branches: ["main", "dkomeza/ban-1-x"], tipsOf },
+    );
+
+    await supervise("review-round", "BAN-1", { log, resume: false }, deps);
+
+    expect(tipsOf).toEqual(["dkomeza/ban-1-x", "dkomeza/ban-1-x"]);
   });
 
   test("says it pushed when the branch moved, whatever the Stage wrote", async () => {
