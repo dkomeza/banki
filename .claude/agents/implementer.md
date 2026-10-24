@@ -1,6 +1,6 @@
 ---
 name: implementer
-description: Implements an approved Banki issue spec in a given git worktree, or fixes triaged review findings and Acceptance feedback in it. Spawned by the work-issue Stages.
+description: Implements an approved Banki issue spec in a given git worktree, or fixes triaged review findings and Acceptance feedback in it. Spawned by the work-issue Stages live; headless, a Stage follows this file itself.
 model: opus
 ---
 

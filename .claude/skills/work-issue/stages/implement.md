@@ -16,13 +16,13 @@ On a UI issue with a Prototype section whose spec names no Reference yet: read t
 
 ## 3. Implement
 
-Spawn the `implementer` agent. Its prompt carries `<wt>` and the spec verbatim (the issue's description), plus the UI parts on a UI issue (`ui.md` § Step 3). Keep its agent ID: you resume it in step 6.
+The `implementer` builds it (`stages.md` § Builders: spawned live, followed yourself headless). Its prompt carries `<wt>` and the spec verbatim (the issue's description), plus the UI parts on a UI issue (`ui.md` § Step 3). Live, keep its agent ID: you resume it in step 6.
 
-Done when it reports typecheck, lint, format and test green, with its work committed in `<wt>`. Verify that yourself in `<wt>` before moving on, then run `bun run ui down` in `<wt>`.
+Done when typecheck, lint, format and test are green, with the work committed in `<wt>`. Verify that yourself in `<wt>` before moving on, then run `bun run ui down` in `<wt>`.
 
 ## 4. Review
 
-Spawn `spec-reviewer` and `correctness-reviewer` in parallel (one message, two Agent calls), and on a UI issue `ui-reviewer` with them (three calls; `ui.md` § Step 4). Each prompt carries `<wt>`, the base `main`, and the spec. Give them nothing from the implementer, including its screenshots: its summary frames the code the way its author sees it, and the reviews must stay independent of that.
+Spawn `spec-reviewer` and `correctness-reviewer` in parallel (one message, two Agent calls), and on a UI issue `ui-reviewer` with them (three calls; `ui.md` § Step 4). Each prompt carries `<wt>`, the base `main`, and the spec. Give them nothing from the build, including its screenshots and its report: it frames the code the way its author sees it, and the reviews must stay independent of that.
 
 Done when all of them have reported. Then run `bun run ui down` in `<wt>`.
 
@@ -38,7 +38,7 @@ Done when every finding has a verdict.
 
 ## 6. Fix
 
-Resume the implementer (SendMessage to its ID) with the confirmed findings and any spec answers. If it is gone (e.g. a new session), spawn a fresh `implementer` with the spec plus the findings. Same done-criterion as step 3, including `bun run ui down` in `<wt>` afterwards. The review rounds against the bots are the next review.
+Fix the confirmed findings and any spec answers as the implementer's § Fixing says. Live, resume the implementer (SendMessage to its ID) with them, or, if it is gone (e.g. a new session), spawn a fresh `implementer` with the spec plus the findings; headless, fix them yourself. Same done-criterion as step 3, including `bun run ui down` in `<wt>` afterwards. The review rounds against the bots are the next review.
 
 ## 7. Open the PR
 

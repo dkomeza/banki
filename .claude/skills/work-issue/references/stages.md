@@ -56,6 +56,12 @@ Every wait has a deadline. Live, it is a background `until` loop; headless, the 
 | `claude-review` on the head SHA (`review-round.md` § 2)                | Its check has finished                    | `claude-review` cancelled or skipped on the head SHA        | 45 min after the push                   |
 | The head SHA's PR Preview is up (`SKILL.md` § Live mode)               | Its newest deployment status is `success` | `failure` or `inactive`                                     | 60 min after the push                   |
 
+## Builders
+
+The `prototyper` and the `implementer` (`.claude/agents/`) are the Stages' builders. Live, a Stage spawns them, which keeps a long build out of the session the Maintainer is talking in. Headless, the Stage is a session of its own, so it builds itself: it reads the agent's file and follows it, with what the agent's prompt would carry, then checks the work as it would check the agent's report. Where the file says to report a question to the orchestrator, it is the Stage's own (§ Questions and stops).
+
+The reviewers are always spawned, live and headless: a review stays independent of whoever wrote the code.
+
 ## Start
 
 1. Read the issue and its comments, `CONTEXT.md`, and the ADRs that touch the area. On a UI issue, read [`ui.md`](ui.md) too.

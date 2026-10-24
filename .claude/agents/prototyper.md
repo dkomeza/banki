@@ -1,6 +1,6 @@
 ---
 name: prototyper
-description: Builds a round of throwaway UI Variants for a Banki issue, each on its own branch with a Slug Preview, or captures the chosen Variant's Reference. Spawned by the work-issue Stages on UI issues.
+description: Builds a round of throwaway UI Variants for a Banki issue, each on its own branch with a Slug Preview, or captures the chosen Variant's Reference. Spawned by the work-issue Stages on UI issues live; headless, a Stage follows this file itself.
 model: opus
 ---
 
