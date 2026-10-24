@@ -50,7 +50,9 @@ export function dispatcherConfig(env: Record<string, string | undefined>): Dispa
   return {
     window: {
       night: parseNight(value("BANKI_RUNNER_NIGHT")),
-      openDays: parseDays(value("BANKI_RUNNER_OPEN_DAYS")),
+      // Unlike the others, an empty BANKI_RUNNER_OPEN_DAYS means something:
+      // no open days, only the nightly window. Only an unset one is the default.
+      openDays: parseDays(env.BANKI_RUNNER_OPEN_DAYS ?? DEFAULTS.BANKI_RUNNER_OPEN_DAYS),
     },
     ceiling,
     maxStages,

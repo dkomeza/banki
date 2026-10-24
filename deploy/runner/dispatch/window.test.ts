@@ -29,6 +29,14 @@ describe("the window", () => {
     expect(at("2026-10-26T07:00:00")).toBe(false);
   });
 
+  test("with no open days, is open only at night, the weekend too", () => {
+    const nightly: Window = { night: parseNight("01:00-07:00"), openDays: parseDays("") };
+
+    expect(at("2026-10-24T12:00:00", nightly)).toBe(false); // Saturday noon
+    expect(at("2026-10-25T03:00:00", nightly)).toBe(true); // Sunday night
+    expect(at("2026-10-26T00:30:00", nightly)).toBe(false); // Monday, before the night starts
+  });
+
   test("takes a night that crosses midnight", () => {
     const late: Window = { night: parseNight("23:00-02:00"), openDays: parseDays("") };
 

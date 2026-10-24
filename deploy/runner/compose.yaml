@@ -75,9 +75,10 @@ services:
       # deploy/runner/.env to change it. Stages start every night and all day
       # on the open days, at most BANKI_RUNNER_MAX_STAGES at once, running or
       # paused, and only while the week's usage, with what they are estimated
-      # to take, stays within the Ceiling.
+      # to take, stays within the Ceiling. The open days take `-`, not `:-`:
+      # set empty, they are none, and only the nightly window is left.
       BANKI_RUNNER_NIGHT: ${BANKI_RUNNER_NIGHT:-01:00-07:00}
-      BANKI_RUNNER_OPEN_DAYS: ${BANKI_RUNNER_OPEN_DAYS:-sat,sun}
+      BANKI_RUNNER_OPEN_DAYS: ${BANKI_RUNNER_OPEN_DAYS-sat,sun}
       BANKI_RUNNER_CEILING: ${BANKI_RUNNER_CEILING:-0.60}
       BANKI_RUNNER_MAX_STAGES: ${BANKI_RUNNER_MAX_STAGES:-2}
     # The Claude token alone. It asks the Broker for GitHub and Linear tokens.

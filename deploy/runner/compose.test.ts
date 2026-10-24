@@ -237,6 +237,12 @@ describe.skipIf(!hasDocker)("compose.yaml", () => {
     });
   });
 
+  test("keeps the open days empty when they are set empty, for no open days", async () => {
+    const { services } = await render({ ...IDS, BANKI_RUNNER_OPEN_DAYS: "" });
+
+    expect(services.runner?.environment?.BANKI_RUNNER_OPEN_DAYS).toBe("");
+  });
+
   test("refuses to render before bootstrap has recorded the host's timezone", async () => {
     const outcome = await render({ BANKI_RUNNER_UID: "1000", BANKI_RUNNER_GID: "1001" }).then(
       () => "rendered",

@@ -30,6 +30,12 @@ describe("the Dispatcher's settings", () => {
     });
   });
 
+  test("open the weekend when the open days are unset, and no day when they are set empty", () => {
+    expect(dispatcherConfig({}).window.openDays).toEqual(new Set([6, 0]));
+    expect(dispatcherConfig({ BANKI_RUNNER_OPEN_DAYS: "" }).window.openDays).toEqual(new Set());
+    expect(dispatcherConfig({ BANKI_RUNNER_OPEN_DAYS: "  " }).window.openDays).toEqual(new Set());
+  });
+
   test("refuse a Ceiling that isn't a share, a cap that isn't a whole number, and a TZ that isn't a timezone", () => {
     expect(() => dispatcherConfig({ BANKI_RUNNER_CEILING: "60" })).toThrow("BANKI_RUNNER_CEILING");
     expect(() => dispatcherConfig({ BANKI_RUNNER_CEILING: "0" })).toThrow("BANKI_RUNNER_CEILING");
