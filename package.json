@@ -12,7 +12,7 @@
     "lint": "oxlint --type-aware --deny-warnings",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
-    "test": "bun run --workspaces test && node --test 'scripts/ui/*.test.ts' && bun test ./deploy/preview",
+    "test": "bun run --workspaces test && node --test 'scripts/ui/*.test.ts' && bun test ./deploy/preview && bun test ./deploy/runner",
     "smoke:docker": "bun scripts/docker-smoke.ts",
     "docker:buildx": "docker buildx build --platform linux/amd64,linux/arm64 --output type=cacheonly --file apps/api/Dockerfile . && docker buildx build --platform linux/amd64,linux/arm64 --output type=cacheonly --file apps/web/Dockerfile .",
     "ui": "node scripts/ui/main.ts"

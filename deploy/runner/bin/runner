@@ -1,0 +1,16 @@
+#!/bin/sh
+# `runner <command>` (ADR-0012): runs the Runner's CLI from the clone of `main`
+# in the volume, not from the image, so a change merged to `main` applies on
+# the next tick without a rebuild.
+#
+#   docker compose -f deploy/runner/compose.yaml exec runner runner stage implement BAN-94
+set -eu
+
+clone="${BANKI_RUNNER_CLONE:-/work/banki}"
+cli="$clone/deploy/runner/cli/main.ts"
+if [ ! -f "$cli" ]; then
+  printf 'runner: no %s yet: the first tick makes the clone of main\n' "$cli" >&2
+  exit 1
+fi
+cd "$clone"
+exec bun "$cli" "$@"

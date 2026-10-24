@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Keeps the Runner's Stages off the home server and the home LAN (ADR-0012).
+# A Stage runs code from branches with permission prompts skipped, so its
+# network, the fixed subnet in compose.yaml, may reach the internet and
+# nothing private:
+#
+# - forwarded traffic, through Docker's DOCKER-USER chain: every private
+#   range (the LAN, the other Docker networks, CGNAT, link-local) is dropped;
+# - traffic to the host itself, at any of its addresses, through INPUT, which
+#   DOCKER-USER never sees: all of it is dropped.
+#
+# DNS (port 53) is let through both, for an upstream resolver on the LAN or on
+# the host: Docker's embedded DNS (127.0.0.11) sits in the container's own
+# namespace, but it sends the queries it forwards from there too. Run it as
+# root after Docker has started, and again after every boot (README § Runner).
+# Running it again changes nothing.
+#
+# Usage: sudo deploy/runner/host-firewall
+set -euo pipefail
+
+# The runner's network in compose.yaml. Change both together.
+subnet="10.213.94.0/24"
+private=(10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 169.254.0.0/16)
+
+ipt() {
+  "${IPTABLES:-iptables}" -w "$@"
+}
+
+# A chain of the Runner's own, made or emptied, so its rules are only ever these.
+fresh_chain() {
+  if ! ipt -N "$1" 2>/dev/null; then ipt -F "$1"; fi
+}
+
+# The jump to one of those chains for the runner's subnet, first in `from`, once.
+jump_first() {
+  local from="$1" to="$2"
+  if ! ipt -C "$from" -s "$subnet" -j "$to" 2>/dev/null; then
+    ipt -I "$from" 1 -s "$subnet" -j "$to"
+  fi
+}
+
+fresh_chain BANKI-RUNNER-FORWARD
+ipt -A BANKI-RUNNER-FORWARD -p udp --dport 53 -j RETURN
+ipt -A BANKI-RUNNER-FORWARD -p tcp --dport 53 -j RETURN
+for range in "${private[@]}"; do
+  ipt -A BANKI-RUNNER-FORWARD -d "$range" -j DROP
+done
+
+fresh_chain BANKI-RUNNER-INPUT
+ipt -A BANKI-RUNNER-INPUT -p udp --dport 53 -j RETURN
+ipt -A BANKI-RUNNER-INPUT -p tcp --dport 53 -j RETURN
+ipt -A BANKI-RUNNER-INPUT -j DROP
+
+# Docker makes DOCKER-USER when it starts, and keeps the rules in it.
+if ! ipt -N DOCKER-USER 2>/dev/null; then :; fi
+jump_first DOCKER-USER BANKI-RUNNER-FORWARD
+jump_first INPUT BANKI-RUNNER-INPUT
+
+printf 'host-firewall: %s reaches the internet, and not the host or the private ranges, DNS aside.\n' "$subnet" >&2

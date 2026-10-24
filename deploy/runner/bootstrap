@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+# Writes the Runner's secrets (ADR-0012), asking for each one. Re-runnable:
+# every value it already has is the default, so Enter keeps it.
+#
+# The secrets go to $BANKI_RUNNER_SECRETS (default ~/.config/banki-runner),
+# outside the clone: the directory is 0700 and every file 0600. GitHub never
+# holds any of it. compose.yaml hands the Broker the App's key and the Linear
+# client secret, and the runner the Claude token, as compose secrets, and the
+# Broker the two IDs, which aren't secret, as its environment (broker.env).
+#
+# It also records the host user's uid and gid, and where the secrets are, in
+# deploy/runner/.env (gitignored), which Compose reads: both containers run as
+# that user, so they can read its 0600 files with no capability.
+#
+# Usage: deploy/runner/bootstrap
+set -euo pipefail
+
+dir="${BANKI_RUNNER_SECRETS:-$HOME/.config/banki-runner}"
+compose_env="${BANKI_RUNNER_COMPOSE_ENV:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/.env}"
+
+die() {
+  printf 'bootstrap: %s\n' "$1" >&2
+  exit 1
+}
+
+# Checked on the nearest directory that exists, before anything is created.
+probe="$dir"
+while [ ! -d "$probe" ]; do probe="$(dirname "$probe")"; done
+if command -v git >/dev/null 2>&1 && git -C "$probe" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  die "$dir is inside a git work tree. Keep the secrets outside the clone (set BANKI_RUNNER_SECRETS)."
+fi
+
+umask 077
+mkdir -p "$dir"
+chmod 700 "$dir"
+dir="$(cd "$dir" && pwd)"
+
+# A value file's content, or nothing when it doesn't exist yet.
+current_file() {
+  if [ -f "$dir/$1" ]; then
+    printf '%s' "$(<"$dir/$1")"
+  fi
+}
+
+# KEY's value in an env file of this script's, or nothing.
+current_env() {
+  local file="$dir/$1" key="$2" line
+  [ -f "$file" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    if [ "${line%%=*}" = "$key" ]; then
+      printf '%s' "${line#*=}"
+      return 0
+    fi
+  done <"$file"
+}
+
+# Asks for a value and prints the answer, or the current value on Enter.
+# FLAGS holds `secret` for a value read without echo, whose current value is
+# never shown, `env` for one written to broker.env (Compose interpolates `$`
+# in it, so it would silently change the value), and `digits` for a number.
+ask() {
+  local prompt="$1" current="$2" flags=" ${3:-} " secret="" env="" digits="" answer hint="" eof=""
+  if [[ "$flags" == *" secret "* ]]; then secret=1; fi
+  if [[ "$flags" == *" env "* ]]; then env=1; fi
+  if [[ "$flags" == *" digits "* ]]; then digits=1; fi
+  if [ -n "$current" ]; then
+    if [ -n "$secret" ]; then hint=" [set, Enter keeps it]"; else hint=" [$current]"; fi
+  fi
+  while :; do
+    answer=""
+    if [ -n "$secret" ]; then
+      read -r -s -p "$prompt$hint: " answer || eof=1
+      printf '\n' >&2
+    else
+      read -r -p "$prompt$hint: " answer || eof=1
+    fi
+    answer="${answer:-$current}"
+    if [ -z "$answer" ]; then
+      printf 'A value is needed.\n' >&2
+    elif [[ "$answer" =~ [[:space:]\'\"] ]]; then
+      printf 'No spaces or quotes, please.\n' >&2
+    elif [ -n "$env" ] && [[ "$answer" == *'$'* ]]; then
+      printf 'No $, please: Compose would read it as a variable.\n' >&2
+    elif [ -n "$digits" ] && ! [[ "$answer" =~ ^[0-9]+$ ]]; then
+      printf 'A number, please.\n' >&2
+    else
+      printf '%s' "$answer"
+      return 0
+    fi
+    [ -z "$eof" ] || die "no answer for: $prompt"
+  done
+}
+
+# Asks for the path of the GitHub App's private key and prints it, or nothing
+# on Enter when a copy is already here, which keeps it. The file is checked to
+# be a PEM private key; its content is never shown.
+ask_key() {
+  local prompt="Path to the GitHub App's private key (.pem), which is copied in" hint="" answer eof=""
+  if [ -f "$dir/github-app-key" ]; then hint=" [copied in already, Enter keeps it]"; fi
+  while :; do
+    answer=""
+    read -r -p "$prompt$hint: " answer || eof=1
+    if [ -z "$answer" ] && [ -n "$hint" ]; then
+      return 0
+    fi
+    answer="${answer/#\~/$HOME}"
+    if [ -z "$answer" ]; then
+      printf 'A path is needed.\n' >&2
+    elif [ ! -f "$answer" ] || [ ! -r "$answer" ]; then
+      printf 'No file to read at %s.\n' "$answer" >&2
+    elif ! grep -q -e '-----BEGIN \(RSA \)\{0,1\}PRIVATE KEY-----' "$answer"; then
+      printf "%s isn't a PEM private key.\n" "$answer" >&2
+    else
+      printf '%s' "$answer"
+      return 0
+    fi
+    [ -z "$eof" ] || die "no answer for: $prompt"
+  done
+}
+
+# Writes a file in place (the same inode), so a bind-mounted secret sees the
+# new value too.
+write() {
+  printf '%s\n' "$2" >"$dir/$1"
+  chmod 600 "$dir/$1"
+}
+
+printf 'Writing the Runner secrets to %s\n\n' "$dir" >&2
+
+claude_token="$(ask "Claude token (claude setup-token, made for the Runner alone)" "$(current_file claude-token)" secret)"
+app_id="$(ask "GitHub App ID" "$(current_env broker.env GITHUB_APP_ID)" "env digits")"
+key_path="$(ask_key)"
+linear_client_id="$(ask "Linear app client ID" "$(current_env broker.env LINEAR_CLIENT_ID)" env)"
+linear_client_secret="$(ask "Linear app client secret" "$(current_file linear-client-secret)" secret)"
+
+write claude-token "$claude_token"
+if [ -n "$key_path" ]; then write github-app-key "$(<"$key_path")"; fi
+write linear-client-secret "$linear_client_secret"
+write broker.env "GITHUB_APP_ID=$app_id
+LINEAR_CLIENT_ID=$linear_client_id"
+
+# Not secret, and read by Compose from beside compose.yaml.
+printf 'BANKI_RUNNER_UID=%s\nBANKI_RUNNER_GID=%s\nBANKI_RUNNER_SECRETS=%s\n' \
+  "$(id -u)" "$(id -g)" "$dir" >"$compose_env"
+
+printf '\nSaved to %s, and the uid, gid and that path to %s.\n' "$dir" "$compose_env" >&2
+# The command is printed as it is to be typed, so nothing in it expands here.
+# shellcheck disable=SC2016
+printf '\nStart or update the Runner with:\n  BANKI_RUNNER_COMMIT="$(git rev-parse HEAD)" docker compose -f deploy/runner/compose.yaml up -d --build\n' >&2
