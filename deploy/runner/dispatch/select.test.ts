@@ -348,6 +348,29 @@ describe("In Review", () => {
     expect(decide(inReview({ history, closings: [fix] }), NOW).type).toBe("need");
   });
 
+  test("is still the Acceptance fix after one that stopped, once a newer stop is on the issue", () => {
+    const history = [moved(ago(300), STATUS.acceptance, STATUS.inReview)];
+    const stoppedFix = closing(ago(100), {
+      stage: "acceptance-fix",
+      outcome: "stopped",
+      nextStatus: STATUS.inReview,
+    });
+    const waitStop = closing(
+      ago(50),
+      {
+        stage: "review-round",
+        outcome: "stopped",
+        nextStatus: STATUS.inReview,
+        wait: "claude-review",
+      },
+      [{ createdAt: ago(5) }],
+    );
+
+    expect(stageOf(decide(inReview({ history, closings: [stoppedFix, waitStop] }), NOW))).toBe(
+      "acceptance-fix",
+    );
+  });
+
   test("reads the move back across a pause in In Progress", () => {
     const history = [
       moved(ago(300), STATUS.acceptance, STATUS.inReview),
@@ -433,6 +456,75 @@ describe("In Review", () => {
 
       expect(stopOf(decision).summary).toContain("the rounds haven't ended");
     }
+  });
+
+  test("doesn't count a Dispatcher's stop on the head SHA as a round that ran", () => {
+    // claude-review was cancelled, the Dispatcher stopped on the wait, and the
+    // Maintainer re-ran the check and replied: the first round is still to run.
+    const waitStop = closing(
+      ago(20),
+      {
+        stage: "review-round",
+        outcome: "stopped",
+        nextStatus: STATUS.inReview,
+        wait: "claude-review",
+        pushed: false,
+      },
+      [{ createdAt: ago(5) }],
+    );
+    const summary = { sha: HEAD.slice(0, 7), findings: [{ status: "new", severity: "major" }] };
+
+    expect(
+      stageOf(
+        decide(inReview({ closings: [waitStop] }), NOW, {
+          review: review({ check: { status: "completed", conclusion: "failure" }, summary }),
+        }),
+      ),
+    ).toBe("review-round");
+  });
+
+  test("doesn't count a stopped round on the head SHA as one that ran, once a newer stop is on the issue", () => {
+    const stoppedRound = closing(ago(25), {
+      stage: "review-round",
+      outcome: "stopped",
+      nextStatus: STATUS.inReview,
+      headSha: HEAD,
+      pushed: false,
+    });
+    const waitStop = closing(
+      ago(20),
+      {
+        stage: "review-round",
+        outcome: "stopped",
+        nextStatus: STATUS.inReview,
+        wait: "claude-review",
+      },
+      [{ createdAt: ago(5) }],
+    );
+
+    expect(
+      stageOf(
+        decide(inReview({ closings: [stoppedRound, waitStop] }), NOW, {
+          review: review({ openThreads: 1 }),
+        }),
+      ),
+    ).toBe("review-round");
+  });
+
+  test("goes on to the PR Preview and Acceptance after a round that pushed nothing, while the summary still lists findings but no thread is open", () => {
+    // The round triaged them, and answered the summary-only ones in its PR comment.
+    const summary = { sha: HEAD.slice(0, 7), findings: [{ status: "open", severity: "minor" }] };
+    const closings = [roundOn(HEAD, false)];
+    const building = { state: "in_progress", description: "", url: null };
+
+    expect(
+      decide(inReview({ closings }), NOW, { review: review({ summary, openThreads: 0 }) }).type,
+    ).toBe("hand-off");
+    expect(
+      decide(inReview({ closings }), NOW, {
+        review: review({ summary, openThreads: 0, preview: building }),
+      }).type,
+    ).toBe("wait");
   });
 
   test("doesn't count a round from before the push as one on the new SHA", () => {

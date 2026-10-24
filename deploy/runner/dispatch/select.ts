@@ -126,6 +126,14 @@ export function decide(issue: IssueFacts, now: Date, facts: Facts = {}): Decisio
   return inReview(issue, now, facts.review, replyAt);
 }
 
+/**
+ * Whether this closing comment is a `stage` that ran to its end. A stop (the
+ * Stage's own, or the Dispatcher's on a wait, a crash or a timeout) isn't: it
+ * runs again through the hand-back.
+ */
+const ran = (closing: Closing, stage: StageKind) =>
+  closing.result.stage === stage && closing.result.outcome === "done";
+
 /** When the issue last moved into `status` from one of `from` (any, when empty), or undefined. */
 function lastEntry(issue: IssueFacts, status: string, from: readonly string[] = []) {
   return issue.history.findLast(
@@ -145,10 +153,7 @@ function inDesign(
   const entered =
     lastEntry(issue, STATUS.inDesign, [STATUS.backlog, STATUS.designReview])?.at ?? issue.createdAt;
   const round = issue.closings.findLast(
-    (closing) =>
-      closing.result.stage === "design" &&
-      closing.result.outcome === "done" &&
-      closing.at > entered,
+    (closing) => ran(closing, "design") && closing.at > entered,
   );
   if (round === undefined)
     return {
@@ -206,9 +211,7 @@ function inReview(
   const entered = lastEntry(issue, STATUS.inReview);
   if (
     entered?.from === STATUS.acceptance &&
-    !issue.closings.some(
-      (closing) => closing.result.stage === "acceptance-fix" && closing.at > entered.at,
-    )
+    !issue.closings.some((closing) => ran(closing, "acceptance-fix") && closing.at > entered.at)
   ) {
     return { type: "stage", stage: "acceptance-fix", why: "back from Acceptance" };
   }
@@ -270,7 +273,7 @@ function inReview(
   // after this SHA's push: its headSha is the Stage's own, and may be wrong.
   const round = issue.closings.findLast(
     (closing) =>
-      closing.result.stage === "review-round" &&
+      ran(closing, "review-round") &&
       !closing.result.pushed &&
       (sameSha(closing.result.headSha, head) || closing.at > pushedAt),
   );
@@ -289,6 +292,8 @@ function inReview(
     };
   }
 
+  // After a round on this SHA, summary-only findings don't hold it back: the
+  // round triaged them and answered them in its PR comment.
   if (check.conclusion === "success" && review.openThreads === 0) {
     if (issue.history.some((change) => change.to === STATUS.acceptance && change.at > pushedAt)) {
       return fitsNone(
