@@ -24,6 +24,7 @@ import {
   LOGS,
   logPath,
   mcpConfig,
+  resumePrompt,
   stageEnv,
   stagePrompt,
   WORKTREES,
@@ -36,7 +37,9 @@ import {
 // config, prints one line per event and keeps every event in the Stage's log,
 // prints the Stage's result, and revokes the token whatever happens, a signal
 // included. It never changes the issue's status or assignee: that is the
-// Dispatcher's (BAN-95).
+// Dispatcher's. Its supervisor (dispatch/supervisor.ts) runs the same Stage
+// through executeStage, with a time limit, a log path of its own and, for a
+// paused Stage, the session to go on in.
 
 const SIGNALS = { SIGHUP: 1, SIGINT: 2, SIGTERM: 15 } as const;
 type Signal = keyof typeof SIGNALS;
@@ -104,13 +107,47 @@ class Interrupt {
   }
 }
 
+export type StageOptions = {
+  /** A paused Stage's `claude` session, to go on in with a "go on" prompt. */
+  resume?: string;
+  /** The log to write, instead of one named by the start time. */
+  log?: string;
+  /** How long `claude` may run before it gets SIGTERM, and SIGKILL `killAfterMs` later. */
+  timeLimitMs?: number;
+  killAfterMs?: number;
+};
+
+export type StageRun = {
+  /** `claude`'s exit code, or 128 + the signal's number when one stopped the Stage. */
+  exitCode: number;
+  /** The Stage's log, once it had one. */
+  log?: string;
+  /** The result the Stage wrote, as JSON, when it wrote one this run. */
+  result?: unknown;
+  /** Why a result it wrote can't be read. */
+  resultError?: string;
+  /** Whether the time limit stopped it. */
+  timedOut: boolean;
+};
+
 /** Runs the Stage and returns `claude`'s exit code, or 128 + the signal's number when one stopped it. */
 export async function runStage(
   kind: StageKind,
   issue: string,
   deps: StageDeps = stageDeps(),
 ): Promise<number> {
+  return (await executeStage(kind, issue, deps)).exitCode;
+}
+
+/** Runs the Stage, and says how it went. */
+export async function executeStage(
+  kind: StageKind,
+  issue: string,
+  deps: StageDeps = stageDeps(),
+  options: StageOptions = {},
+): Promise<StageRun> {
   const startedAt = new Date();
+  let log: string | undefined;
   const stop = new Interrupt();
   stop.install();
   try {
@@ -132,22 +169,33 @@ export async function runStage(
       const config = join(configDir, "mcp.json");
       writeFileSync(config, JSON.stringify(mcpConfig(linear.token)), { mode: 0o600 });
 
-      const log = logPath(issue, kind, startedAt, deps.logs);
+      log = options.log ?? logPath(issue, kind, startedAt, deps.logs);
       mkdirSync(dirname(log), { recursive: true });
-      deps.out(`The ${kind} Stage on ${issue}, as ${identity.name}, in ${deps.clone}. Log: ${log}`);
+      deps.out(
+        `The ${kind} Stage on ${issue}${options.resume === undefined ? "" : `, going on in session ${options.resume}`}, as ${identity.name}, in ${deps.clone}. Log: ${log}`,
+      );
 
-      const [, ...args] = claudeArgs(stagePrompt(kind, issue), config);
-      const exitCode = await runClaude(
+      const prompt =
+        options.resume === undefined ? stagePrompt(kind, issue) : resumePrompt(kind, issue);
+      const [, ...args] = claudeArgs(prompt, config, options.resume);
+      const { exitCode, timedOut } = await runClaude(
         [deps.claude, ...args],
         stageEnv(process.env, claudeToken, identity),
         log,
         deps,
         stop,
+        options,
       );
-      deps.out(`${clock()} claude exited ${exitCode}`);
+      deps.out(
+        `${clock()} claude exited ${exitCode}${timedOut ? ", stopped at its time limit" : ""}`,
+      );
       stop.check();
-      printResult(join(worktree, ".ui", "stage-result.json"), startedAt, deps);
-      return exitCode;
+      return {
+        exitCode,
+        log,
+        timedOut,
+        ...readResult(join(worktree, ".ui", "stage-result.json"), startedAt, deps),
+      };
     } finally {
       if (configDir !== undefined) rmSync(configDir, { recursive: true, force: true });
       await deps.broker.endLinearToken(linear.id).then(
@@ -161,7 +209,7 @@ export async function runStage(
   } catch (error) {
     if (stop.signal === undefined) throw error;
     deps.err(`The ${kind} Stage on ${issue} stopped on ${stop.signal}`);
-    return 128 + SIGNALS[stop.signal];
+    return { exitCode: 128 + SIGNALS[stop.signal], log, timedOut: false };
   } finally {
     stop.remove();
   }
@@ -178,7 +226,8 @@ async function runClaude(
   log: string,
   deps: StageDeps,
   stop: Interrupt,
-): Promise<number> {
+  limit: StageOptions,
+): Promise<{ exitCode: number; timedOut: boolean }> {
   const fd = openSync(log, "a", 0o600);
   const record = (line: string) => writeSync(fd, `${line}\n`);
   const note = (fields: Record<string, unknown>) =>
@@ -195,6 +244,25 @@ async function runClaude(
   stop.child = proc;
   // A signal that came while it was being started.
   if (stop.signal !== undefined) proc.kill(stop.signal);
+  let timedOut = false;
+  const timers: Timer[] = [];
+  if (limit.timeLimitMs !== undefined) {
+    timers.push(
+      setTimeout(() => {
+        timedOut = true;
+        note({ event: "time limit", signal: "SIGTERM" });
+        deps.err(`${clock()} The Stage reached its time limit: SIGTERM`);
+        proc.kill("SIGTERM");
+        timers.push(
+          setTimeout(() => {
+            note({ event: "time limit", signal: "SIGKILL" });
+            deps.err(`${clock()} The Stage is still running: SIGKILL`);
+            proc.kill("SIGKILL");
+          }, limit.killAfterMs ?? 60_000),
+        );
+      }, limit.timeLimitMs),
+    );
+  }
   try {
     await Promise.all([
       eachLine(proc.stdout, (line) => {
@@ -208,8 +276,9 @@ async function runClaude(
     ]);
     const exitCode = await proc.exited;
     note({ event: "exit", exitCode, signal: proc.signalCode ?? null });
-    return exitCode;
+    return { exitCode, timedOut };
   } finally {
+    for (const timer of timers) clearTimeout(timer);
     stop.child = undefined;
     closeSync(fd);
   }
@@ -227,7 +296,12 @@ async function eachLine(stream: ReadableStream<Uint8Array>, onLine: (line: strin
   if (rest.trim() !== "") onLine(rest);
 }
 
-function printResult(path: string, startedAt: Date, deps: StageDeps): void {
+/** Prints the result this run wrote, and returns it as JSON, or why it can't be read. */
+function readResult(
+  path: string,
+  startedAt: Date,
+  deps: StageDeps,
+): { result?: unknown; resultError?: string } {
   let modified: Date | undefined;
   try {
     modified = statSync(path).mtime;
@@ -236,7 +310,13 @@ function printResult(path: string, startedAt: Date, deps: StageDeps): void {
   }
   if (!freshResult(modified, startedAt)) {
     deps.out(`The Stage wrote no result (${path})`);
-    return;
+    return {};
   }
-  deps.out(`The Stage's result (${path}):\n${readFileSync(path, "utf8").trimEnd()}`);
+  const text = readFileSync(path, "utf8");
+  deps.out(`The Stage's result (${path}):\n${text.trimEnd()}`);
+  try {
+    return { result: JSON.parse(text) };
+  } catch {
+    return { resultError: `${path} isn't JSON` };
+  }
 }

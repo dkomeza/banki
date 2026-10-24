@@ -12,7 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { asObject, asString } from "../lib/parse";
-import { runStage, type StageDeps } from "./stage";
+import { executeStage, runStage, type StageDeps } from "./stage";
 
 // One Stage run with a stand-in Broker, Linear lookup and `claude`, and
 // signals sent to `runner` at each step: whatever step it is in, the Linear
@@ -182,6 +182,50 @@ describe("a Stage", () => {
     await runStage("implement", "BAN-1", deps);
 
     expect(process.listenerCount("SIGINT")).toBe(before);
+  });
+
+  test("hands its supervisor the log and the result it wrote", async () => {
+    const { deps, paths } = setup();
+    const log = join(paths.logs, "BAN-1", "chosen.jsonl");
+
+    const run = await executeStage("implement", "BAN-1", deps, { log });
+
+    expect(run).toEqual({ exitCode: 0, log, timedOut: false, result: { outcome: "done" } });
+    expect(existsSync(log)).toBe(true);
+  });
+
+  test("goes on in a paused Stage's session, with a go-on prompt", async () => {
+    const ARGS = fakeClaude(
+      "claude-args",
+      `mkdir -p "$RESULT_DIR" && printf '%s\n' "$@" > "$RESULT_DIR/args"`,
+    );
+    const { deps, paths } = setup({ claude: ARGS });
+
+    await executeStage("implement", "BAN-1", deps, { resume: "sess-9" });
+
+    const args = readFileSync(join(paths.worktrees, "ban-1-x", ".ui", "args"), "utf8").split("\n");
+    expect(args[0]).toBe("-p");
+    expect(args[1]).toStartWith("Go on with the implement Stage on BAN-1");
+    expect(args.slice(2, 4)).toEqual(["--resume", "sess-9"]);
+  });
+
+  test("stopped at its time limit gets SIGTERM, then SIGKILL if it hangs on, and says it timed out", async () => {
+    const STUBBORN = fakeClaude(
+      "claude-stubborn",
+      `exec bun -e 'process.on("SIGTERM", () => {}); console.log(JSON.stringify({ type: "system", subtype: "init" })); setInterval(() => {}, 1000)'`,
+    );
+    const { deps, ended, out } = setup({ claude: STUBBORN });
+
+    const run = await executeStage("implement", "BAN-1", deps, {
+      timeLimitMs: 1500,
+      killAfterMs: 200,
+    });
+
+    expect(run.timedOut).toBe(true);
+    expect(run.exitCode).not.toBe(0);
+    expect(out.join("\n")).toContain("SIGTERM");
+    expect(out.join("\n")).toContain("SIGKILL");
+    expect(ended).toEqual(["token-id"]);
   });
 
   test("a failure that isn't a signal still revokes the token, and is thrown", async () => {

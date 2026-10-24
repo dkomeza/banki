@@ -43,6 +43,11 @@ export function broker(socket = brokerSocket()) {
       await call("DELETE", `/linear/tokens/${encodeURIComponent(id)}`);
     },
 
+    /** An installation token for the repo, which lasts an hour: the Dispatcher's GitHub calls. */
+    async githubToken(signal?: AbortSignal): Promise<string> {
+      return (await call("GET", "/github/token", signal)).trim();
+    },
+
     /** The App's bot, which the Stage commits as. */
     async identity(signal?: AbortSignal): Promise<Identity> {
       const body = asObject(

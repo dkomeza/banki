@@ -43,13 +43,18 @@ const answers = (key: string) => [CLAUDE_TOKEN, "123456", key, "linear-client-id
 /** Enter for every question, keeping each value. */
 const KEEP_ALL = ["", "", "", "", ""];
 
-async function bootstrap(paths: { dir: string; composeEnv: string }, input: string[]) {
+async function bootstrap(
+  paths: { dir: string; composeEnv: string },
+  input: string[],
+  env: Record<string, string> = { TZ: "Europe/Warsaw" },
+) {
   const proc = Bun.spawn(["bash", SCRIPT], {
     env: {
       PATH: process.env.PATH ?? "",
       HOME: tmpdir(),
       BANKI_RUNNER_SECRETS: paths.dir,
       BANKI_RUNNER_COMPOSE_ENV: paths.composeEnv,
+      ...env,
     },
     stdin: "pipe",
     stdout: "pipe",
@@ -105,15 +110,44 @@ describe("bootstrap", () => {
     );
   });
 
-  test("records the host user's uid and gid, and where the secrets are, for Compose", async () => {
+  test("records the host user's uid and gid, the host's timezone, and where the secrets are, for Compose", async () => {
     const paths = setup();
 
     await bootstrap(paths, answers(paths.key));
 
     const { uid, gid } = userInfo();
     expect(readFileSync(paths.composeEnv, "utf8")).toBe(
-      `BANKI_RUNNER_UID=${uid}\nBANKI_RUNNER_GID=${gid}\nBANKI_RUNNER_SECRETS=${paths.dir}\n`,
+      `BANKI_RUNNER_UID=${uid}\nBANKI_RUNNER_GID=${gid}\nBANKI_RUNNER_TZ=Europe/Warsaw\nBANKI_RUNNER_SECRETS=${paths.dir}\n`,
     );
+  });
+
+  test("reads the host's timezone from the system when TZ isn't set", async () => {
+    const paths = setup();
+
+    await bootstrap(paths, answers(paths.key), {});
+
+    const line = readFileSync(paths.composeEnv, "utf8")
+      .split("\n")
+      .find((found) => found.startsWith("BANKI_RUNNER_TZ="));
+    const timezone = line?.slice("BANKI_RUNNER_TZ=".length) ?? "";
+    expect(() => Intl.DateTimeFormat("en-US", { timeZone: timezone })).not.toThrow();
+    expect(timezone).not.toBe("");
+  });
+
+  test("keeps the other settings in that file, such as the Dispatcher's, on a re-run", async () => {
+    const paths = setup();
+    await bootstrap(paths, answers(paths.key));
+    writeFileSync(
+      paths.composeEnv,
+      `${readFileSync(paths.composeEnv, "utf8")}BANKI_RUNNER_CEILING=0.45\n`,
+    );
+
+    await bootstrap(paths, KEEP_ALL, { TZ: "UTC" });
+
+    const lines = readFileSync(paths.composeEnv, "utf8").split("\n");
+    expect(lines).toContain("BANKI_RUNNER_CEILING=0.45");
+    expect(lines).toContain("BANKI_RUNNER_TZ=UTC");
+    expect(lines.filter((found) => found.startsWith("BANKI_RUNNER_TZ="))).toHaveLength(1);
   });
 
   test("never prints a secret", async () => {

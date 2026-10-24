@@ -23,11 +23,13 @@ export function mcpConfig(linearToken: string) {
   };
 }
 
-export function claudeArgs(prompt: string, mcpConfigPath: string): string[] {
+/** The `claude` invocation; `resume` is a paused Stage's session, which it goes on in. */
+export function claudeArgs(prompt: string, mcpConfigPath: string, resume?: string): string[] {
   return [
     "claude",
     "-p",
     prompt,
+    ...(resume === undefined ? [] : ["--resume", resume]),
     "--output-format",
     "stream-json",
     "--verbose",
@@ -53,6 +55,11 @@ export function stagePrompt(kind: StageKind, issue: string): string {
     "This directory is the Runner's clone of main, and the worktrees go beside it, in ../banki-worktrees/.",
     "Playwright's Chromium isn't in the image: in a worktree, run `npx playwright install chromium` after `bun install` and before the `ui` script or playwright-cli (a no-op once it is there).",
   ].join("\n\n");
+}
+
+/** What a paused Stage is told when it goes on in its own session (ADR-0013). */
+export function resumePrompt(kind: StageKind, issue: string): string {
+  return `Go on with the ${kind} Stage on ${issue}: the five-hour usage limit paused it, and the window has started over. Your worktree is as you left it. Carry on from where you were, headless as before, and follow the Stage to its end.`;
 }
 
 export type Identity = { name: string; email: string };

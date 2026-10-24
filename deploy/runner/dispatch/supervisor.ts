@@ -1,0 +1,210 @@
+import { readFileSync } from "node:fs";
+import type { StageKind } from "../cli/args";
+import type { Broker } from "../cli/broker-client";
+import type { StageOptions, StageRun } from "../cli/stage";
+import { errorText } from "../lib/config";
+import { closingComment, MAINTAINER } from "./closing";
+import type { Reading } from "./gate";
+import { type ActiveRecord, ending, type Outcome, type RunRecord, timeLeft } from "./lifecycle";
+import { type Linear, moveTo } from "./linear";
+import { STATUS } from "./select";
+import { logFacts } from "./stage-log";
+import { openSession, type SessionDeps } from "./session";
+import type { Store } from "./store";
+
+// `runner supervise <kind> BAN-N --log <path> [--resume]` (ADR-0013): one
+// Stage under its supervisor, detached from the tick that started it. It
+// takes the gate's reading before the Stage, sets the issue In Progress, runs
+// the Stage as `runner stage` does with what is left of its 3 hours, takes
+// the reading after, records the run, and then either pauses the Stage (the
+// five-hour limit cut it short), or posts its closing comment and sets the
+// next status from its result, or stops on the Maintainer after a timeout or
+// a Stage that left no result. Headless, the Stage itself leaves Linear's
+// statuses, assignees and comments to this.
+
+export type SupervisorDeps = SessionDeps & {
+  records: Store;
+  broker: Pick<Broker, "linearToken" | "endLinearToken" | "githubToken">;
+  takeReading: () => Promise<Reading>;
+  executeStage: (kind: StageKind, issue: string, options: StageOptions) => Promise<StageRun>;
+  redact: (text: string) => string;
+  now: () => Date;
+  pid: number;
+};
+
+export type SuperviseOptions = { log: string; resume: boolean };
+
+export async function supervise(
+  kind: StageKind,
+  issue: string,
+  options: SuperviseOptions,
+  deps: SupervisorDeps,
+): Promise<number> {
+  const say = (line: string) => deps.log(`${deps.now().toISOString()} ${line}`);
+  const record: ActiveRecord = (await recordOf(deps.records, issue)) ?? {
+    issue,
+    kind,
+    state: "running",
+    pid: deps.pid,
+    runs: [],
+  };
+  record.kind = kind;
+  record.state = "running";
+  record.pid = deps.pid;
+  deps.records.saveActive(record);
+
+  let before: Reading;
+  try {
+    before = await deps.takeReading();
+  } catch (error) {
+    // A reading that fails starts nothing.
+    say(
+      `The gate's reading failed, so the ${kind} Stage on ${issue} doesn't start: ${errorText(error)}`,
+    );
+    giveBack(deps.records, record, options.resume);
+    return 1;
+  }
+
+  if (!options.resume) {
+    try {
+      await withLinear(deps, async (linear) => {
+        const found = await linear.issue(issue);
+        if (found === undefined) throw new Error(`Linear has no issue ${issue}`);
+        await moveTo(linear, found, STATUS.inProgress);
+      });
+    } catch (error) {
+      say(`Couldn't set ${issue} In Progress, so the Stage doesn't start: ${errorText(error)}`);
+      giveBack(deps.records, record, false);
+      return 1;
+    }
+  }
+
+  const earlier = record.runs.filter((run) => run.endedAt !== undefined);
+  const current: RunRecord = { startedAt: deps.now().toISOString(), log: options.log, before };
+  record.runs = [...earlier, current];
+  deps.records.saveActive(record);
+  say(
+    `${options.resume ? "Resuming" : "Starting"} the ${kind} Stage on ${issue}, with ${Math.round(timeLeft(earlier) / 60_000)} minutes left of its limit`,
+  );
+
+  let run: StageRun;
+  try {
+    run = await deps.executeStage(kind, issue, {
+      log: options.log,
+      resume: options.resume ? record.sessionId : undefined,
+      timeLimitMs: timeLeft(earlier),
+    });
+  } catch (error) {
+    say(`The Stage failed to run: ${errorText(error)}`);
+    run = { exitCode: 1, timedOut: false };
+  }
+
+  const after = await deps.takeReading().catch((error: unknown) => {
+    say(`The gate's reading after the Stage failed, so its cost isn't known: ${errorText(error)}`);
+    return null;
+  });
+  let lines: string[] = [];
+  try {
+    lines = readFileSync(options.log, "utf8").split("\n");
+  } catch {
+    lines = [];
+  }
+  const facts = logFacts(lines);
+  current.endedAt = deps.now().toISOString();
+  current.after = after;
+  current.costUsd = facts.costUsd;
+  record.sessionId ??= facts.sessionId;
+  deps.records.saveActive(record);
+
+  const end = ending({
+    kind,
+    issue,
+    result: run.result,
+    timedOut: run.timedOut,
+    exitCode: run.exitCode,
+    log: facts,
+    now: deps.now(),
+  });
+  if (end.type === "paused") {
+    if (record.sessionId === undefined) {
+      say(
+        "The five-hour limit cut the Stage short, but its log has no session to resume, so it stops instead",
+      );
+    } else {
+      record.state = "paused";
+      record.pid = null;
+      record.resetsAt = end.resetsAt;
+      deps.records.saveActive(record);
+      say(
+        `The five-hour limit paused the Stage until ${end.resetsAt}; it resumes in session ${record.sessionId}`,
+      );
+      return 0;
+    }
+  }
+
+  const outcome = await withLinear(deps, async (linear, session): Promise<Outcome> => {
+    const found = await linear.issue(issue);
+    if (found === undefined) throw new Error(`Linear has no issue ${issue}`);
+    if (end.type === "closing") {
+      const { result } = end;
+      await linear.comment(found.id, closingComment(result, end.json));
+      const assignee = result.outcome === "stopped" ? MAINTAINER.linearId : undefined;
+      if (found.status === STATUS.inProgress && result.nextStatus !== found.status) {
+        await moveTo(linear, found, result.nextStatus, assignee);
+      } else if (assignee !== undefined) {
+        await linear.update(found.id, { assigneeId: assignee });
+      }
+      say(`The Stage ended ${result.outcome}; ${issue} is ${result.nextStatus}`);
+      return result.outcome;
+    }
+    const why =
+      end.type === "paused"
+        ? "The five-hour limit cut the Stage short, and its log has no session to resume."
+        : end.why;
+    await session.crashed(record, why, deps.redact);
+    say(`The Stage stopped on the Maintainer: ${why}`);
+    return end.type === "paused" ? "no-result" : end.outcome;
+  });
+  deps.records.finish({
+    issue,
+    kind,
+    outcome,
+    endedAt: deps.now().toISOString(),
+    runs: record.runs,
+  });
+  return 0;
+}
+
+/** The active record the tick wrote just before starting this supervisor. */
+async function recordOf(records: Store, issue: string): Promise<ActiveRecord | undefined> {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const found = records.activeRecord(issue);
+    if (found !== undefined) return found;
+    await Bun.sleep(200);
+  }
+  return undefined;
+}
+
+/** Puts a Stage that never started back as it was: gone, or paused again. */
+function giveBack(records: Store, record: ActiveRecord, resume: boolean): void {
+  if (!resume) {
+    records.removeActive(record.issue);
+    return;
+  }
+  record.state = "paused";
+  record.pid = null;
+  records.saveActive(record);
+}
+
+/** Runs `work` with a Linear session of this supervisor's own, revoked at its end. */
+async function withLinear<T>(
+  deps: SupervisorDeps,
+  work: (linear: Linear, session: Awaited<ReturnType<typeof openSession>>) => Promise<T>,
+): Promise<T> {
+  const session = await openSession(deps);
+  try {
+    return await work(session.linear, session);
+  } finally {
+    await session.end();
+  }
+}

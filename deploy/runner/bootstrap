@@ -8,9 +8,11 @@
 # client secret, and the runner the Claude token, as compose secrets, and the
 # Broker the two IDs, which aren't secret, as its environment (broker.env).
 #
-# It also records the host user's uid and gid, and where the secrets are, in
-# deploy/runner/.env (gitignored), which Compose reads: both containers run as
-# that user, so they can read its 0600 files with no capability.
+# It also records the host user's uid and gid, the host's timezone, and where
+# the secrets are, in deploy/runner/.env (gitignored), which Compose reads:
+# both containers run as that user, so they can read its 0600 files with no
+# capability, and the Runner's window runs on the host's clock. Any other line
+# in that file, such as a setting of the Dispatcher's, is kept.
 #
 # Usage: deploy/runner/bootstrap
 set -euo pipefail
@@ -139,11 +141,51 @@ write linear-client-secret "$linear_client_secret"
 write broker.env "GITHUB_APP_ID=$app_id
 LINEAR_CLIENT_ID=$linear_client_id"
 
-# Not secret, and read by Compose from beside compose.yaml.
-printf 'BANKI_RUNNER_UID=%s\nBANKI_RUNNER_GID=%s\nBANKI_RUNNER_SECRETS=%s\n' \
-  "$(id -u)" "$(id -g)" "$dir" >"$compose_env"
+# The host's timezone, by its name: TZ when it is set, then what systemd,
+# /etc/timezone or the /etc/localtime link says, and UTC when none does.
+host_timezone() {
+  local tz link
+  if [ -n "${TZ:-}" ]; then
+    printf '%s' "${TZ#:}"
+    return 0
+  fi
+  if command -v timedatectl >/dev/null 2>&1; then
+    tz="$(timedatectl show --property=Timezone --value 2>/dev/null || true)"
+    if [ -n "$tz" ]; then
+      printf '%s' "$tz"
+      return 0
+    fi
+  fi
+  if [ -s /etc/timezone ]; then
+    IFS= read -r tz </etc/timezone || true
+    if [ -n "$tz" ]; then
+      printf '%s' "$tz"
+      return 0
+    fi
+  fi
+  link="$(readlink /etc/localtime 2>/dev/null || true)"
+  case "$link" in
+    *zoneinfo/*) printf '%s' "${link##*zoneinfo/}" ;;
+    *) printf 'UTC' ;;
+  esac
+}
+timezone="$(host_timezone)"
 
-printf '\nSaved to %s, and the uid, gid and that path to %s.\n' "$dir" "$compose_env" >&2
+# Not secret, and read by Compose from beside compose.yaml. The lines this
+# script doesn't write are kept, after its own.
+kept=""
+if [ -f "$compose_env" ]; then
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "${line%%=*}" in
+      BANKI_RUNNER_UID | BANKI_RUNNER_GID | BANKI_RUNNER_TZ | BANKI_RUNNER_SECRETS) ;;
+      *) kept="$kept$line"$'\n' ;;
+    esac
+  done <"$compose_env"
+fi
+printf 'BANKI_RUNNER_UID=%s\nBANKI_RUNNER_GID=%s\nBANKI_RUNNER_TZ=%s\nBANKI_RUNNER_SECRETS=%s\n%s' \
+  "$(id -u)" "$(id -g)" "$timezone" "$dir" "$kept" >"$compose_env"
+
+printf '\nSaved to %s, and the uid, gid, timezone (%s) and that path to %s.\n' "$dir" "$timezone" "$compose_env" >&2
 # The command is printed as it is to be typed, so nothing in it expands here.
 # shellcheck disable=SC2016
 printf '\nStart or update the Runner with:\n  BANKI_RUNNER_COMMIT="$(git rev-parse HEAD)" docker compose -f deploy/runner/compose.yaml up -d --build\n' >&2

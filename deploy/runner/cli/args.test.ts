@@ -45,10 +45,63 @@ describe("runner's arguments", () => {
   });
 
   test("refuse an unknown command with the usage", () => {
-    expect(parseArgs(["run-now", "BAN-1"])).toEqual({
+    expect(parseArgs(["deploy", "BAN-1"])).toEqual({
       command: "error",
-      message: `No command run-now.\n\n${USAGE}`,
+      message: `No command deploy.\n\n${USAGE}`,
     });
+  });
+
+  test("run-now BAN-N starts the issue's next Stage, --force skipping the Ceiling", () => {
+    expect(parseArgs(["run-now", "ban-12"])).toEqual({
+      command: "run-now",
+      issue: "BAN-12",
+      force: false,
+    });
+    expect(parseArgs(["run-now", "BAN-12", "--force"])).toEqual({
+      command: "run-now",
+      issue: "BAN-12",
+      force: true,
+    });
+    expect(parseArgs(["run-now", "--force", "BAN-12"])).toEqual({
+      command: "run-now",
+      issue: "BAN-12",
+      force: true,
+    });
+  });
+
+  test("run-now refuses a missing issue, a second one, or another flag", () => {
+    for (const argv of [
+      ["run-now"],
+      ["run-now", "BAN-1", "BAN-2"],
+      ["run-now", "BAN-1", "--now"],
+    ]) {
+      expect(parseArgs(argv)).toEqual({ command: "error", message: USAGE });
+    }
+    expect(parseArgs(["run-now", "12"])).toMatchObject({ command: "error" });
+  });
+
+  test("status takes nothing", () => {
+    expect(parseArgs(["status"])).toEqual({ command: "status" });
+    expect(parseArgs(["status", "BAN-1"])).toEqual({ command: "error", message: USAGE });
+  });
+
+  test("supervise is the Dispatcher's: a Stage, an issue, its log, and whether it resumes", () => {
+    expect(
+      parseArgs(["supervise", "design", "BAN-3", "--log", "/work/logs/BAN-3/x.jsonl"]),
+    ).toEqual({
+      command: "supervise",
+      kind: "design",
+      issue: "BAN-3",
+      log: "/work/logs/BAN-3/x.jsonl",
+      resume: false,
+    });
+    expect(
+      parseArgs(["supervise", "design", "BAN-3", "--log", "/x.jsonl", "--resume"]),
+    ).toMatchObject({ resume: true });
+    expect(parseArgs(["supervise", "design", "BAN-3"])).toMatchObject({ command: "error" });
+    expect(parseArgs(["supervise", "design", "BAN-3", "--log", "/x.jsonl", "--now"])).toMatchObject(
+      { command: "error" },
+    );
   });
 
   test("show the usage for no arguments, help, -h or --help", () => {

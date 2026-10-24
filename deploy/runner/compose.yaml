@@ -6,8 +6,9 @@
 #
 # Its secrets come from `deploy/runner/bootstrap`, which writes them to
 # $BANKI_RUNNER_SECRETS (default ~/.config/banki-runner), outside the clone,
-# and the host user's uid and gid to deploy/runner/.env, which Compose reads
-# from here. See "Runner" in the README. No service publishes a host port.
+# and the host user's uid and gid and the host's timezone to
+# deploy/runner/.env, which Compose reads from here. See "Runner" in the
+# README. No service publishes a host port.
 
 name: banki-runner
 
@@ -68,10 +69,21 @@ services:
       # connects to `localhost`, though Node still listens there on ::1: the
       # `ui` script would never reach Vite. IPv4 first puts both on 127.0.0.1.
       NODE_OPTIONS: --dns-result-order=ipv4first
+      # Server time, the host's, which bootstrap records: the window's clock.
+      TZ: ${BANKI_RUNNER_TZ:?run deploy/runner/bootstrap}
+      # The Dispatcher's (README § Runner), each with its default; set one in
+      # deploy/runner/.env to change it. Stages start every night and all day
+      # on the open days, at most BANKI_RUNNER_MAX_STAGES at once, running or
+      # paused, and only while the week's usage, with what they are estimated
+      # to take, stays within the Ceiling.
+      BANKI_RUNNER_NIGHT: ${BANKI_RUNNER_NIGHT:-01:00-07:00}
+      BANKI_RUNNER_OPEN_DAYS: ${BANKI_RUNNER_OPEN_DAYS:-sat,sun}
+      BANKI_RUNNER_CEILING: ${BANKI_RUNNER_CEILING:-0.60}
+      BANKI_RUNNER_MAX_STAGES: ${BANKI_RUNNER_MAX_STAGES:-2}
     # The Claude token alone. It asks the Broker for GitHub and Linear tokens.
     secrets: [claude-token]
     volumes:
-      # The clone of main, the worktrees, the logs and HOME.
+      # The clone of main, the worktrees, the logs, the Dispatcher's records and HOME.
       - banki-runner-work:/work
       - banki-runner-broker:/run/banki-broker
     # The Stages run tests, the `ui` stack and Chromium. No CPU cap.
