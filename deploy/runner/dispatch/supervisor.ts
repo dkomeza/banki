@@ -5,7 +5,14 @@ import type { StageOptions, StageRun } from "../cli/stage";
 import { errorText } from "../lib/config";
 import { closingComment, MAINTAINER } from "./closing";
 import type { Reading } from "./gate";
-import { type ActiveRecord, ending, type Outcome, type RunRecord, timeLeft } from "./lifecycle";
+import {
+  type ActiveRecord,
+  type Ending,
+  ending,
+  type Outcome,
+  type RunRecord,
+  timeLeft,
+} from "./lifecycle";
 import { type Linear, type LinearIssue, moveTo } from "./linear";
 import { RUNS_IN, STATUS } from "./select";
 import { redactTokens } from "./secrets";
@@ -99,6 +106,8 @@ export async function supervise(
   );
 
   let run: StageRun;
+  /** Why the Stage failed before `claude` started, if it did. */
+  let failedToRun: string | undefined;
   try {
     run = await deps.executeStage(kind, issue, {
       log: options.log,
@@ -106,14 +115,22 @@ export async function supervise(
       timeLimitMs: timeLeft(earlier),
     });
   } catch (error) {
-    say(`The Stage failed to run: ${errorText(error)}`);
+    failedToRun = errorText(error);
+    say(`The Stage failed to run: ${failedToRun}`);
     run = { exitCode: 1, timedOut: false };
   }
 
-  const after = await deps.takeReading().catch((error: unknown) => {
-    say(`The gate's reading after the Stage failed, so its cost isn't known: ${errorText(error)}`);
-    return null;
-  });
+  // A Stage that never started spent nothing of its own: with no reading
+  // after, its cost isn't known, so it stays out of its kind's estimate.
+  const after =
+    failedToRun === undefined
+      ? await deps.takeReading().catch((error: unknown) => {
+          say(
+            `The gate's reading after the Stage failed, so its cost isn't known: ${errorText(error)}`,
+          );
+          return null;
+        })
+      : null;
   let lines: string[] = [];
   try {
     lines = readFileSync(options.log, "utf8").split("\n");
@@ -127,15 +144,22 @@ export async function supervise(
   record.sessionId ??= facts.sessionId;
   deps.records.saveActive(record);
 
-  const end = ending({
-    kind,
-    issue,
-    result: run.result,
-    timedOut: run.timedOut,
-    exitCode: run.exitCode,
-    log: facts,
-    now: deps.now(),
-  });
+  const end: Ending =
+    failedToRun === undefined
+      ? ending({
+          kind,
+          issue,
+          result: run.result,
+          timedOut: run.timedOut,
+          exitCode: run.exitCode,
+          log: facts,
+          now: deps.now(),
+        })
+      : {
+          type: "crash",
+          outcome: "no-result",
+          why: `The ${kind} Stage failed before claude started: ${failedToRun}`,
+        };
   if (end.type === "paused") {
     if (record.sessionId === undefined) {
       say(

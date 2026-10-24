@@ -579,6 +579,8 @@ A client-credentials token sees the workspace's public teams only. Keep the Bank
 
 A headless Stage reaches Linear through the `linear-banki` MCP server, authenticated as the Runner app (`docs/agents/issue-tracker.md`).
 
+A token minted just after another of the app's was revoked is blind for under a second: it authenticates, but Linear answers `Entity not found` for every issue. The Runner's reads retry that for up to about 8 seconds, and `runner stage` reads the issue's branch with the Stage's own token before `claude` starts, so the Stage's MCP server never gets a blind one.
+
 Linear names an issue's branch after whoever asks: `dkomeza/ban-11-…` for you, `bankirunner/ban-11-…` for the app. The issue's branch is the one on origin with that name under any prefix, so the Runner carries on a branch you started live, and you one it started; when origin has none, the Runner's first push creates `bankirunner/…`. When origin has it under several prefixes, the Dispatcher logs `Couldn't decide on BAN-N` on each tick and a Stage stops on you: delete the ones that aren't the issue's. The worktree is the name without its prefix, whoever started it.
 
 ### GitHub: the App
