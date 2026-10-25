@@ -1,5 +1,5 @@
-# e: Stack
+# i: Index card
 
-Bet: builds on b, Shelf, and leans into the deck itself: Home is a wall of paper stacks, each with only its name and date on the top card so the wall reads at a glance, under one toolbar holding an A–Z/Newest switch and "New deck" (b's dialog, a sheet on phones); the deck page drops b's cover card for a plain title, description and a quiet Edit/Delete row, with the cards waiting in the same stack below.
+Bet: e's paper stack where the top card carries the whole deck, like an index card: f's cover as a ruled band across its top, then the name, the first three lines of the description and "date · 0 cards", all on the card; e's toolbar above; the deck page opens with that same card at full size, the name as the title, the whole description and Edit/Delete in its footer.
 
 States: `/`: `empty`, `create`, `create-taken`, `newest`. `/decks/$deckId`: `edit`, `delete`, `no-description`, `not-found`.

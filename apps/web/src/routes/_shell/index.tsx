@@ -5,6 +5,7 @@ import { Page } from "@/components/page";
 import { PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { Cover, Stack } from "@/proto/cover";
 import { DeckDialog } from "@/proto/deck-dialog";
 import {
   type Deck,
@@ -18,11 +19,11 @@ import {
   useProtoState,
 } from "@/proto/decks";
 
-// Variant e, "Stack" (builds on b, Shelf): every deck is drawn as what it is, a
-// stack of paper cards, with only its name on the top card, so the wall reads
-// at a glance; descriptions wait for the deck page. One toolbar under the
-// title holds the sort, as a two-way switch, and "New deck", which opens b's
-// dialog.
+// Variant i, "Index card" (builds on e, Stack, with f's covers): every deck
+// is a stack of index cards, and the top card carries the whole deck: its
+// cover across the top, then its name and the first lines of its description.
+// One toolbar under the title holds the sort, as a two-way switch, and "New
+// deck", which opens b's dialog.
 
 export const Route = createFileRoute("/_shell/")({
   component: Home,
@@ -114,34 +115,38 @@ function SortSwitch({ value, onChange }: { value: DeckSort; onChange: (s: DeckSo
   );
 }
 
-/** A deck as a stack: the top card with its name, two more peeking out under it. */
+/**
+ * A deck as a stack of index cards. The top one carries the whole deck: its
+ * cover across the top, f's monogram on ruled paper, and under it the name
+ * and the first lines of the description, written on the card itself.
+ */
 function StackTile({ deck }: { deck: Deck }) {
   return (
     <Link
       to="/decks/$deckId"
       params={{ deckId: deck.id }}
-      className="group relative isolate flex aspect-[4/3] w-full rounded-2xl lg:aspect-[16/10] text-card-foreground no-underline outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring focus-visible:outline-solid"
+      className="group flex w-full rounded-2xl text-card-foreground no-underline outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring focus-visible:outline-solid"
     >
-      <span
-        aria-hidden
-        className="absolute inset-0 -z-20 translate-x-2 translate-y-2 rotate-[2.5deg] rounded-2xl border bg-muted transition-transform group-hover:translate-x-3 group-hover:rotate-[4deg] motion-reduce:transition-none"
-      />
-      <span
-        aria-hidden
-        className="absolute inset-0 -z-10 translate-x-1 translate-y-1 rotate-[1deg] rounded-2xl border bg-card transition-transform group-hover:translate-x-1.5 group-hover:rotate-[1.75deg] motion-reduce:transition-none"
-      />
-      <span className="flex w-full flex-col justify-between gap-2 rounded-2xl border bg-card p-4 transition-[border-color,translate] group-hover:-translate-y-1 group-hover:border-primary/50 motion-reduce:transition-none sm:p-5">
-        {/* The ruled line an index card has under its heading. */}
-        <span className="flex flex-col gap-2.5">
-          <span className="line-clamp-3 text-[1.05rem] leading-snug font-semibold tracking-tight [overflow-wrap:anywhere] sm:text-lg">
-            {deck.name}
+      <Stack className="w-full">
+        <span className="flex w-full flex-col overflow-hidden rounded-2xl border bg-card transition-[border-color,translate] group-hover:-translate-y-1 group-hover:border-primary/50 motion-reduce:transition-none">
+          <Cover name={deck.name} className="aspect-[16/7] w-full border-b text-4xl sm:text-5xl" />
+          <span className="flex flex-1 flex-col gap-1.5 p-4 sm:p-5">
+            <span className="line-clamp-2 leading-snug font-semibold tracking-tight [overflow-wrap:anywhere] sm:text-[1.05rem]">
+              {deck.name}
+            </span>
+            {deck.description !== null ? (
+              <span className="line-clamp-3 text-sm leading-relaxed text-muted-foreground">
+                {deck.description}
+              </span>
+            ) : (
+              <span className="text-sm text-muted-foreground/80 italic">No description</span>
+            )}
+            <span className="mt-auto pt-3 text-xs text-muted-foreground tabular-nums">
+              {createdLabel(deck.createdAt)} · 0 cards
+            </span>
           </span>
-          <span aria-hidden className="h-px w-10 bg-primary/60" />
         </span>
-        <span className="text-xs text-muted-foreground tabular-nums">
-          {createdLabel(deck.createdAt)}
-        </span>
-      </span>
+      </Stack>
     </Link>
   );
 }
