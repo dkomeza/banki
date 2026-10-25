@@ -23,9 +23,9 @@ Done when you can write the brief: the question, the routes and states, what is 
 
 ## 3. Build the Variants
 
-Spawn the `prototyper` agent to build the round. Its prompt carries `<wt>`, `<branch>`, `<n>` and the brief.
+The `prototyper` builds the round (`stages.md` § Builders: spawned live, followed yourself headless). Its prompt carries `<wt>`, `<branch>`, `<n>` and the brief.
 
-Done when it reports every Variant pushed and its Slug Preview dispatched. Check that yourself, for each Variant:
+Done when every Variant is pushed and its Slug Preview dispatched. Check that yourself, for each Variant:
 
 - `origin/<branch>-proto-<key>` is at the commit it reports, and that commit has a `variant.md`;
 - its Slug Preview is claimed: the issue's Slug Preview deployments (`ui.md` § The issue's Slug Previews) have one for `ban-<n>-<key>` at that commit, created after the dispatch. Wait for it as `stages.md` § Waits says. A Slug with no deployment and a failed `slug-preview` run was refused: dispatch it once more, and if that is refused too, the wait has failed.

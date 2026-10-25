@@ -42,6 +42,10 @@ function setup(
   options: {
     reading?: () => Promise<ReturnType<typeof reading>>;
     heads?: (string | undefined)[];
+    /** The branches on origin. */
+    branches?: string[];
+    /** The branches whose tips were read. */
+    tipsOf?: string[];
   } = {},
 ) {
   const dir = mkdtempSync(join(tmpdir(), "banki-supervisor-"));
@@ -61,7 +65,11 @@ function setup(
     linear: () => linear.client,
     github: () => ({
       ...fakeGitHub(),
-      branchHead: async () => (options.heads === undefined ? undefined : options.heads.shift()),
+      branches: async () => options.branches ?? [],
+      branchHead: async (branch) => {
+        options.tipsOf?.push(branch);
+        return options.heads === undefined ? undefined : options.heads.shift();
+      },
     }),
     log: () => undefined,
     records,
@@ -211,6 +219,32 @@ describe("a supervised Stage", () => {
     expect(records.stageRecords()[0]?.runs).toHaveLength(2);
   });
 
+  test("when the Stage fails before claude starts, says why, and leaves its cost unknown", async () => {
+    const issue = fakeIssue("BAN-1", { status: "Todo" });
+    let readings = 0;
+    const { deps, records, log } = setup(
+      issue,
+      () => {
+        throw new Error("Linear: couldn't read BAN-1");
+      },
+      {
+        reading: async () => {
+          readings += 1;
+          return reading();
+        },
+      },
+    );
+
+    await supervise("implement", "BAN-1", { log, resume: false }, deps);
+
+    expect(issue.comments[0]?.body).toContain(
+      "The implement Stage failed before claude started: Linear: couldn't read BAN-1",
+    );
+    // Only the reading before: a Stage that never started spent nothing to measure.
+    expect(readings).toBe(1);
+    expect(records.stageRecords()[0]?.runs[0]?.after).toBeNull();
+  });
+
   test("after a timeout, restores the status from before In Progress and stops on the Maintainer with the log's tail", async () => {
     const issue = fakeIssue("BAN-1", { status: "In Review" });
     const { deps, linear, log } = setup(issue, (_options, path) => {
@@ -250,6 +284,20 @@ describe("a supervised Stage", () => {
     await supervise("review-round", "BAN-1", { log, resume: false }, deps);
 
     expect(resultIn(issue.comments[0]?.body ?? "")).toMatchObject({ headSha: tip, pushed: false });
+  });
+
+  test("reads the tips of the issue's branch on origin, under whoever's prefix started it", async () => {
+    const issue = fakeIssue("BAN-1", { status: "In Review", branch: "bankirunner/ban-1-x" });
+    const tipsOf: string[] = [];
+    const { deps, log } = setup(
+      issue,
+      () => ({ result: { ...done, stage: "review-round", headSha: null, pushed: false } }),
+      { branches: ["main", "dkomeza/ban-1-x"], tipsOf },
+    );
+
+    await supervise("review-round", "BAN-1", { log, resume: false }, deps);
+
+    expect(tipsOf).toEqual(["dkomeza/ban-1-x", "dkomeza/ban-1-x"]);
   });
 
   test("says it pushed when the branch moved, whatever the Stage wrote", async () => {

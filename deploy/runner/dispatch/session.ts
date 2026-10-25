@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import type { Broker } from "../cli/broker-client";
+import { issueBranchOf } from "../cli/plan";
 import { errorText } from "../lib/config";
 import { closingComment, closingsOf, MAINTAINER } from "./closing";
 import { type GitHub, newestFor, type SlugDeployment } from "./github";
@@ -40,6 +41,12 @@ export async function openSession(deps: SessionDeps) {
       slugs ??= github.slugDeployments();
       return slugs;
     };
+    let branches: Promise<string[]> | undefined;
+    /** The issue's branch on origin, whoever started it, from Linear's name for it. */
+    const branchOf = async (issue: LinearIssue): Promise<string> => {
+      branches ??= github.branches();
+      return issueBranchOf(issue.branch, await branches);
+    };
 
     /** Posts a stop's closing comment and assigns the Maintainer, with the status the stop names, if it changed. */
     async function stop(
@@ -58,6 +65,7 @@ export async function openSession(deps: SessionDeps) {
       github,
       runnerId,
       slugDeployments,
+      branchOf,
 
       async end(): Promise<void> {
         await deps.broker
@@ -71,9 +79,10 @@ export async function openSession(deps: SessionDeps) {
 
       /** What the issue's decision is made from in Linear. */
       async facts(issue: LinearIssue): Promise<IssueFacts> {
-        const [history, comments] = await Promise.all([
+        const [history, comments, branch] = await Promise.all([
           linear.history(issue.id),
           linear.comments(issue.id),
+          branchOf(issue),
         ]);
         return {
           identifier: issue.identifier,
@@ -82,7 +91,7 @@ export async function openSession(deps: SessionDeps) {
           status: issue.status,
           assigneeId: issue.assigneeId,
           assignedAt: history.assignedAt,
-          branch: issue.branch,
+          branch,
           description: issue.description,
           history: history.statuses,
           closings: closingsOf(comments, { runner: runnerId, issue: issue.identifier }),
