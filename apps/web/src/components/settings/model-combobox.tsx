@@ -38,10 +38,14 @@ export function Ratings({ model, className }: { model: Model; className?: string
             </span>
           ) : (
             <span aria-hidden className="font-medium tracking-[0.12em]">
-              {(rating.marks === "dots" ? "●" : "$").repeat(rating.filled)}
-              <span className="text-muted-foreground/60">
-                {(rating.marks === "dots" ? "○" : "$").repeat(3 - rating.filled)}
-              </span>
+              {rating.marks === "dots" ? (
+                <>
+                  {"●".repeat(rating.filled)}
+                  <span className="text-muted-foreground">{"○".repeat(3 - rating.filled)}</span>
+                </>
+              ) : (
+                "$".repeat(rating.filled)
+              )}
             </span>
           )}
         </span>
