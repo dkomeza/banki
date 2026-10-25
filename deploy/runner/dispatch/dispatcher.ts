@@ -212,6 +212,7 @@ async function reconcileActive(
       const issue =
         issues.find((found) => found.identifier === record.issue) ??
         (await session.linear.issue(record.issue));
+      if (issue !== undefined) await session.release(issue);
       const alive = deps.alive(record);
       const closing =
         record.state === "running" && !alive && issue?.status === STATUS.inProgress
@@ -313,17 +314,21 @@ async function survey(
   return { ready, surveyed };
 }
 
-/** The issue's decision; with `act`, a hand-back is made first and the issue decided on again. */
+/**
+ * The issue's decision; with `moves`, the Runner app's assignment is undone
+ * first, and a hand-back is made and the issue decided on again.
+ */
 async function decideIssue(
   session: Session,
   deps: Pick<SessionDeps, "log">,
   issue: LinearIssue,
   now: Date,
-  handBack: boolean,
+  moves: boolean,
 ): Promise<Decision> {
+  if (moves) await session.release(issue);
   const facts = await session.facts(issue);
   const decision = await session.decide(facts, now);
-  if (decision.type !== "hand-back" || !handBack) return decision;
+  if (decision.type !== "hand-back" || !moves) return decision;
   await session.linear.update(issue.id, { assigneeId: null });
   deps.log(`Handed ${issue.identifier} back: ${decision.why}`);
   issue.assigneeId = null;
@@ -488,6 +493,7 @@ export async function runNow(
       if (record?.state === "paused") {
         // The same rules as a fresh start: never on an assigned issue, and
         // only while it is In Progress.
+        await session.release(issue);
         const state = reconcile(record, { alive: false, issue, now });
         if (state.type === "abandoned") {
           deps.records.finish(ended(record, "abandoned", now));
@@ -591,14 +597,20 @@ export async function statusView(deps: StatusDeps): Promise<StatusView> {
       waiting: surveyed
         .filter(
           ({ decision }) =>
-            decision.type !== "stage" &&
-            !(decision.type === "skip" && decision.why === "it is assigned"),
+            decision.type !== "stage" && !(decision.type === "skip" && decision.held === true),
         )
         .map(({ issue, decision }) => ({
           issue: issue.identifier,
           status: issue.status,
           what: describe(decision),
           ...(decision.type === "wait" && decision.on !== undefined ? { on: decision.on } : {}),
+        })),
+      held: surveyed
+        .filter(({ decision }) => decision.type === "skip" && decision.held === true)
+        .map(({ issue, decision }) => ({
+          issue: issue.identifier,
+          status: issue.status,
+          what: describe(decision),
         })),
       gate,
       estimates,

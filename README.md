@@ -186,27 +186,29 @@ npx --no-install playwright-cli -s=my-session close
 
 The API reads these environment variables at startup and exits with code 1, listing what's wrong, if any is invalid. An empty variable counts as unset.
 
-| Variable      | Default                 | What it sets                                                                                                                                                                                                                                 |
-| ------------- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DATA_DIR`    | `/data`                 | The data directory. A relative path is resolved against the working directory.                                                                                                                                                               |
-| `PORT`        | `3000`                  | The port the API listens on, 1 to 65535                                                                                                                                                                                                      |
-| `LOG_FORMAT`  | `json`                  | `json` for JSON lines, `pretty` for terminal-friendly text                                                                                                                                                                                   |
-| `LOG_LEVEL`   | `info`                  | The lowest level logged: `debug`, `info`, `warning` or `error`. Health checks log at `debug`                                                                                                                                                 |
-| `ORIGIN`      | `http://localhost:5173` | The address the User opens Banki at: an `http:` or `https:` URL with no path, query or hash. Signing in is refused from any other origin, and the sign-in cookie is `Secure` exactly when it is `https:`. The default is the Vite dev server |
-| `AUTH_SECRET` | none                    | The secret sign-in cookies are signed with, at least 32 characters. Unset, the API generates one into `<DATA_DIR>/auth-secret` on the first start. Changing it signs out every device                                                        |
+| Variable         | Default                 | What it sets                                                                                                                                                                                                                                                             |
+| ---------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `DATA_DIR`       | `/data`                 | The data directory. A relative path is resolved against the working directory.                                                                                                                                                                                           |
+| `PORT`           | `3000`                  | The port the API listens on, 1 to 65535                                                                                                                                                                                                                                  |
+| `LOG_FORMAT`     | `json`                  | `json` for JSON lines, `pretty` for terminal-friendly text                                                                                                                                                                                                               |
+| `LOG_LEVEL`      | `info`                  | The lowest level logged: `debug`, `info`, `warning` or `error`. Health checks log at `debug`                                                                                                                                                                             |
+| `ORIGIN`         | `http://localhost:5173` | The address the User opens Banki at: an `http:` or `https:` URL with no path, query or hash. Signing in is refused from any other origin, and the sign-in cookie is `Secure` exactly when it is `https:`. The default is the Vite dev server                             |
+| `AUTH_SECRET`    | none                    | The secret sign-in cookies are signed with, at least 32 characters. Unset, the API generates one into `<DATA_DIR>/auth-secret` on the first start. Changing it signs out every device                                                                                    |
+| `ENCRYPTION_KEY` | none                    | The key the stored OpenRouter API key is encrypted with: 32 random bytes as base64url (43 characters). Unset, the API generates one into `<DATA_DIR>/encryption-key` on the first start. Changing it makes the stored API key unreadable, and it has to be entered again |
 
 The data directory holds everything Banki stores:
 
 ```text
 <DATA_DIR>/
-├── banki.db      SQLite database (with banki.db-wal and banki.db-shm beside it while running)
-├── auth-secret   the secret sign-in cookies are signed with, unless AUTH_SECRET is set (mode 0600)
-└── uploads/      uploaded files (nothing uses it yet)
+├── banki.db        SQLite database (with banki.db-wal and banki.db-shm beside it while running)
+├── auth-secret     the secret sign-in cookies are signed with, unless AUTH_SECRET is set (mode 0600)
+├── encryption-key  the key the API key is encrypted with, unless ENCRYPTION_KEY is set (mode 0600)
+└── uploads/        uploaded files (nothing uses it yet)
 ```
 
-On startup the API creates whatever is missing, then applies any migrations the database doesn't have yet before it accepts requests. An `auth-secret` that is empty, shorter than 32 characters or unreadable fails startup; delete it to generate a new one, which signs out every device.
+On startup the API creates whatever is missing, then applies any migrations the database doesn't have yet before it accepts requests. An `auth-secret` that is empty, shorter than 32 characters or unreadable fails startup; delete it to generate a new one, which signs out every device. An `encryption-key` that isn't 32 bytes as base64url, or is unreadable, fails startup too; delete it to generate a new one, after which the stored API key reads as "Can't be read" in Settings and has to be entered again. Nothing else is lost (ADR-0014).
 
-To back up Banki, stop the API first and then copy the whole directory, or take an atomic snapshot of the filesystem it lives on. Copying it while the API runs can catch `banki.db` and `banki.db-wal` at different moments and give a backup that doesn't match either. A backup includes `auth-secret`, so keep it as private as the installation itself.
+To back up Banki, stop the API first and then copy the whole directory, or take an atomic snapshot of the filesystem it lives on. Copying it while the API runs can catch `banki.db` and `banki.db-wal` at different moments and give a backup that doesn't match either. A backup must keep `encryption-key` with `banki.db`: the API key in the database can only be read with it, so a database restored without it loses the API key. A backup includes `auth-secret` and `encryption-key`, so keep it as private as the installation itself.
 
 ## Running with Docker
 

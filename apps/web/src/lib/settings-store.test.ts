@@ -5,9 +5,12 @@ import { settingsQueryOptions } from "./settings";
 import { shownSettings } from "./settings-saver";
 import { dropSettingsSaver, settingsSaverFor } from "./settings-store";
 
+/** The Grading Settings, which these tests leave alone. */
+const GRADING = { model: "anthropic/claude-haiku-5.5", apiKey: { state: "unset" } } as const;
+
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 const KEY = settingsQueryOptions().queryKey;
-const START: SettingsResponse = { timezone: "Europe/Warsaw", dayStartHour: 4 };
+const START: SettingsResponse = { timezone: "Europe/Warsaw", dayStartHour: 4, ...GRADING };
 
 /** A signed-in app's query cache holding the Settings, and a save the test answers. */
 function setUp() {
@@ -67,7 +70,7 @@ describe("the app's settings saver", () => {
     const store = saver();
 
     queryClient.setQueryData(KEY, {
-      settings: { timezone: "Asia/Tokyo", dayStartHour: 4 },
+      settings: { timezone: "Asia/Tokyo", dayStartHour: 4, ...GRADING },
       issuedAt: performance.now(),
     });
 

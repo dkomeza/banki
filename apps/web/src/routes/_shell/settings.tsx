@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Page } from "@/components/page";
 import { AccountCard } from "@/components/settings/account-card";
+import { GradingCard } from "@/components/settings/grading-card";
 import { type Section, SectionIndex } from "@/components/settings/section-index";
 import { StudyDayCard } from "@/components/settings/study-day-card";
 import { ThisDeviceCard } from "@/components/settings/this-device-card";
@@ -20,6 +21,7 @@ export const Route = createFileRoute("/_shell/settings")({
 // In page order. Later features add their cards, and their sections here.
 const SECTIONS: readonly Section[] = [
   { id: "study-day", title: "Study day" },
+  { id: "grading", title: "Grading" },
   { id: "account", title: "Account" },
   { id: "this-device", title: "This device" },
 ];
@@ -39,6 +41,7 @@ function SettingsPage() {
           {/* Masonry from 768 px: cards fill the left column first, then the right, so
               the Tab order and the index follow what the eye reads. */}
           <div className="gap-x-5 md:columns-2 lg:gap-x-6 [&>section]:mb-5 [&>section]:break-inside-avoid lg:[&>section]:mb-6">
+            <GradingCard />
             <AccountCard />
             <ThisDeviceCard />
           </div>

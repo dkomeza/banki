@@ -63,6 +63,7 @@ function volumeView(deps: StatusDeps, now: Date): StatusView {
     paused: active.filter((record) => record.state === "paused"),
     queue: [],
     waiting: [],
+    held: [],
     gate: deps.records.gate(),
     estimates,
     recent: stages

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { SettingsPatch, isTimezone } from "./settings";
+import { ApiKeyRequest, SettingsPatch, isTimezone } from "./settings";
 
 describe("isTimezone", () => {
   test.each(["Europe/Warsaw", "UTC", "America/Argentina/Buenos_Aires", "Europe/Kiev"])(
@@ -29,4 +29,34 @@ describe("SettingsPatch", () => {
       expect(SettingsPatch.safeParse(body).success).toBe(false);
     },
   );
+});
+
+describe("SettingsPatch's model", () => {
+  test("takes a Model on the list", () => {
+    expect(SettingsPatch.parse({ model: "openai/gpt-6-luna" })).toEqual({
+      model: "openai/gpt-6-luna",
+    });
+  });
+
+  test("refuses a Model that isn't on the list", () => {
+    expect(SettingsPatch.safeParse({ model: "openai/gpt-4o" }).success).toBe(false);
+  });
+});
+
+describe("ApiKeyRequest", () => {
+  test("trims the key", () => {
+    expect(ApiKeyRequest.parse({ apiKey: "  sk-or-v1-abc\n" })).toEqual({ apiKey: "sk-or-v1-abc" });
+  });
+
+  test("takes 200 characters", () => {
+    expect(ApiKeyRequest.safeParse({ apiKey: "k".repeat(200) }).success).toBe(true);
+  });
+
+  test.each([
+    ["an empty key", ""],
+    ["only spaces", "   "],
+    ["201 characters", "k".repeat(201)],
+  ])("refuses %s", (_, apiKey) => {
+    expect(ApiKeyRequest.safeParse({ apiKey }).success).toBe(false);
+  });
 });

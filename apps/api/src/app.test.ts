@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  readFileSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -25,6 +26,7 @@ const configFor = (dataDir: string): Config => ({
   logLevel: "info",
   origin: "http://localhost:5173",
   authSecret: undefined,
+  encryptionKey: undefined,
   commit: "dev",
 });
 
@@ -66,6 +68,26 @@ describe("the data directory", () => {
     expect(existsSync(join(withEnv, "auth-secret"))).toBe(false);
   });
 
+  test("gets an encryption-key on the first boot, unless ENCRYPTION_KEY is set", () => {
+    const withFile = join(tempDir, "with-file");
+    const withEnv = join(tempDir, "with-env");
+
+    boot(withFile);
+    boot(withEnv, { encryptionKey: Buffer.alloc(32, 3).toString("base64url") });
+
+    expect(readFileSync(join(withFile, "encryption-key"), "utf8")).toMatch(/^[\w-]{43}$/);
+    expect(statSync(join(withFile, "encryption-key")).mode & 0o777).toBe(0o600);
+    expect(existsSync(join(withEnv, "encryption-key"))).toBe(false);
+  });
+
+  test("an encryption-key that isn't 32 bytes of base64url fails the boot", () => {
+    const dataDir = join(tempDir, "data");
+    mkdirSync(dataDir);
+    writeFileSync(join(dataDir, "encryption-key"), "too short");
+
+    expect(() => boot(dataDir)).toThrow(/encryption-key isn't 32 bytes as base64url/);
+  });
+
   test("an empty auth-secret fails the boot", () => {
     const dataDir = join(tempDir, "data");
     mkdirSync(dataDir);
@@ -89,7 +111,12 @@ describe("migrations", () => {
     const dataDir = join(tempDir, "data");
 
     const first = boot(dataDir);
-    expect(first.appliedMigrations).toEqual(["0000_baseline", "0001_auth", "0002_user_settings"]);
+    expect(first.appliedMigrations).toEqual([
+      "0000_baseline",
+      "0001_auth",
+      "0002_user_settings",
+      "0003_grading",
+    ]);
     first.close();
 
     expect(boot(dataDir).appliedMigrations).toEqual([]);

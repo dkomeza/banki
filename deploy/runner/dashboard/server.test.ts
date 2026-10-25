@@ -137,6 +137,8 @@ describe("the Dashboard's server", () => {
       "the pull agent hasn&#39;t claimed it for 47 min",
       "<code>PR #38</code>: queued, 30 min of 60",
       "the pull agent hasn&#39;t claimed it for 20 min",
+      "Held, skipped while assigned",
+      '<a href="/issues/BAN-17">BAN-17</a> (Todo): it is assigned to @dkomeza',
       "the week at <strong>42%</strong> of the Ceiling's 60%",
       "Estimates:",
       '<a href="/issues/BAN-16">BAN-16</a>',

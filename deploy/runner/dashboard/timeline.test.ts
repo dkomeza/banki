@@ -167,6 +167,38 @@ describe("a timeline", () => {
     expect(issuePage(data, "UTC")).toContain("no log on the Runner");
   });
 
+  // Linear assigns a linked PR's author, the Runner app, and the Runner undoes it.
+  test("tells Linear's assignment of the Runner app, and its undoing, from a hand-back", () => {
+    const data = base({
+      title: "",
+      status: "In Review",
+      assigneeId: null,
+      runnerId: RUNNER_ID,
+      moves: [
+        {
+          at: "2026-10-24T01:00:00.000Z",
+          by: null,
+          assignee: { from: null, to: RUNNER_ID },
+        },
+        {
+          at: "2026-10-24T01:05:00.000Z",
+          by: RUNNER_ID,
+          assignee: { from: RUNNER_ID, to: null },
+        },
+      ],
+      comments: [],
+    });
+
+    expect(
+      timeline(data).flatMap((entry) =>
+        entry.type === "move" ? [`${entry.what}, by ${entry.by}`] : [],
+      ),
+    ).toEqual([
+      "assigned the Runner app, a linked PR's author, by Linear",
+      "unassigned the Runner app: only a person's assignment holds an issue, by the Runner",
+    ]);
+  });
+
   test("still shows the Runner's records when Linear can't be read, and says why", () => {
     const data: IssueData = {
       ...base({ error: "Can't reach the broker" }),

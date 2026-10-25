@@ -23,7 +23,8 @@ import type { Store } from "./store";
 // `runner supervise <kind> BAN-N --log <path> [--resume]` (ADR-0013): one
 // Stage under its supervisor, detached from the tick that started it. It
 // takes the gate's reading before the Stage, looks at the issue afresh (and
-// starts nothing if it was assigned or moved since), sets it In Progress, runs
+// starts nothing if it was assigned or moved since; an assignment to the
+// Runner app, Linear's for a linked PR, it undoes), sets it In Progress, runs
 // the Stage as `runner stage` does with what is left of its 3 hours, takes
 // the reading after, records the run, and then either pauses the Stage (the
 // five-hour limit cut it short), or posts its closing comment and sets the
@@ -79,6 +80,7 @@ export async function supervise(
       const found = await linear.issue(issue);
       if (found === undefined) throw new Error(`Linear has no issue ${issue}`);
       // The tick surveyed the issue before the reading; it may have moved since.
+      await session.release(found);
       const why = unfitToStart(kind, found, options.resume);
       if (why !== undefined) return why;
       if (!options.resume) await moveTo(linear, found, STATUS.inProgress);
@@ -197,6 +199,16 @@ export async function supervise(
         await moveTo(linear, found, result.nextStatus, assignee);
       } else if (assignee !== undefined) {
         await linear.update(found.id, { assigneeId: assignee });
+      }
+      if (assignee === undefined) {
+        // A PR the Stage opened got the issue assigned to the Runner app; one
+        // linked after this read, or a release that fails, is the next tick's.
+        try {
+          const fresh = await linear.issue(issue);
+          if (fresh !== undefined) await session.release(fresh);
+        } catch (error) {
+          say(`Couldn't undo the Runner app's assignment of ${issue}: ${errorText(error)}`);
+        }
       }
       say(`The Stage ended ${result.outcome}; ${issue} is ${result.nextStatus}`);
       return result.outcome;

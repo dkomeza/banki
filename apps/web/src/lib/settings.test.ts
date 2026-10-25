@@ -1,13 +1,16 @@
-import { InitialTimezoneRequest } from "@banki/shared";
+import { InitialTimezoneRequest, type SettingsResponse } from "@banki/shared";
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, test, vi } from "vitest";
 import { createApiClient } from "./api";
 import { fillFirstTimezone, saveSettings, settingsQueryOptions } from "./settings";
 
+/** The Grading Settings, which these tests leave alone. */
+const GRADING = { model: "anthropic/claude-haiku-5.5", apiKey: { state: "unset" } } as const;
+
 type Call = { method: string; path: string; body: unknown };
 
 /** A fake API holding Settings, answering GET, PATCH and the first fill as the real one does. */
-function fakeApi(stored: { timezone: string | null; dayStartHour: number }, { failWith = 0 } = {}) {
+function fakeApi(stored: SettingsResponse, { failWith = 0 } = {}) {
   const calls: Call[] = [];
   const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
@@ -27,7 +30,7 @@ function fakeApi(stored: { timezone: string | null; dayStartHour: number }, { fa
 
 describe("fillFirstTimezone", () => {
   test("sends this browser's zone when no Timezone is stored, and keeps the answer", async () => {
-    const { client, calls } = fakeApi({ timezone: null, dayStartHour: 4 });
+    const { client, calls } = fakeApi({ timezone: null, dayStartHour: 4, ...GRADING });
     const queryClient = new QueryClient();
 
     await fillFirstTimezone(queryClient, { client, deviceTimezone: () => "Europe/Lisbon" });
@@ -37,13 +40,13 @@ describe("fillFirstTimezone", () => {
       ["PUT", "/api/settings/timezone/initial", { timezone: "Europe/Lisbon" }],
     ]);
     expect(queryClient.getQueryData(settingsQueryOptions(client).queryKey)).toEqual({
-      settings: { timezone: "Europe/Lisbon", dayStartHour: 4 },
+      settings: { timezone: "Europe/Lisbon", dayStartHour: 4, ...GRADING },
       issuedAt: expect.any(Number),
     });
   });
 
   test("sends nothing once a Timezone is stored", async () => {
-    const { client, calls } = fakeApi({ timezone: "Europe/Warsaw", dayStartHour: 4 });
+    const { client, calls } = fakeApi({ timezone: "Europe/Warsaw", dayStartHour: 4, ...GRADING });
 
     await fillFirstTimezone(new QueryClient(), { client, deviceTimezone: () => "Europe/Lisbon" });
 
@@ -51,7 +54,7 @@ describe("fillFirstTimezone", () => {
   });
 
   test("gives up quietly when the API can't be reached", async () => {
-    const { client } = fakeApi({ timezone: null, dayStartHour: 4 }, { failWith: 500 });
+    const { client } = fakeApi({ timezone: null, dayStartHour: 4, ...GRADING }, { failWith: 500 });
 
     await expect(
       fillFirstTimezone(new QueryClient(), { client, deviceTimezone: () => "Europe/Lisbon" }),
@@ -66,7 +69,9 @@ describe("settingsQueryOptions", () => {
       vi.fn(
         () =>
           new Promise<Response>((resolve) => {
-            answers.push(() => resolve(Response.json({ timezone: null, dayStartHour: 4 })));
+            answers.push(() =>
+              resolve(Response.json({ timezone: null, dayStartHour: 4, ...GRADING })),
+            );
           }),
       ),
     );
@@ -84,17 +89,21 @@ describe("settingsQueryOptions", () => {
 
 describe("saveSettings", () => {
   test("sends the change and answers the new Settings", async () => {
-    const { client, calls } = fakeApi({ timezone: "Europe/Warsaw", dayStartHour: 4 });
+    const { client, calls } = fakeApi({ timezone: "Europe/Warsaw", dayStartHour: 4, ...GRADING });
 
     await expect(saveSettings({ dayStartHour: 6 }, client)).resolves.toEqual({
       timezone: "Europe/Warsaw",
       dayStartHour: 6,
+      ...GRADING,
     });
     expect(calls).toEqual([{ method: "PATCH", path: "/api/settings", body: { dayStartHour: 6 } }]);
   });
 
   test("throws when the API refuses it", async () => {
-    const { client } = fakeApi({ timezone: "Europe/Warsaw", dayStartHour: 4 }, { failWith: 500 });
+    const { client } = fakeApi(
+      { timezone: "Europe/Warsaw", dayStartHour: 4, ...GRADING },
+      { failWith: 500 },
+    );
 
     await expect(saveSettings({ dayStartHour: 6 }, client)).rejects.toThrow();
   });

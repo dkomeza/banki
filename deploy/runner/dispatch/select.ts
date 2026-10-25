@@ -79,7 +79,8 @@ export type Facts = { review?: ReviewFacts; design?: DesignFacts };
 export type Stop = Omit<StageResult, "outcome"> & { outcome: "stopped" };
 
 export type Decision =
-  | { type: "skip"; why: string }
+  /** `held`: an assignee holds it, which `runner status` lists. */
+  | { type: "skip"; why: string; held?: true }
   /** Unassign the issue, then decide again. */
   | { type: "hand-back"; why: string }
   | { type: "stage"; stage: StageKind; why: string }
@@ -121,7 +122,7 @@ export function decide(issue: IssueFacts, now: Date, facts: Facts = {}): Decisio
         };
       }
     }
-    return { type: "skip", why: "it is assigned" };
+    return { type: "skip", why: heldBy(issue.assigneeId, issue.closings.at(-1)), held: true };
   }
 
   // A stop waits on the Maintainer; once the issue is unassigned again, its
@@ -139,6 +140,13 @@ export function decide(issue: IssueFacts, now: Date, facts: Facts = {}): Decisio
   if (status === STATUS.todo) return { type: "stage", stage: "implement", why: "Todo" };
   if (status === STATUS.inDesign) return inDesign(issue, now, facts.design, replyAt);
   return inReview(issue, now, facts.review, replyAt);
+}
+
+/** Who holds an assigned issue, and the stop it is held on, when its newest closing comment is one. */
+function heldBy(assigneeId: string, newest: Closing | undefined): string {
+  if (assigneeId !== MAINTAINER.linearId) return `it is assigned to Linear user ${assigneeId}`;
+  const stop = newest?.result.outcome === "stopped" ? `, after its stop of ${newest.at}` : "";
+  return `it is assigned to @${MAINTAINER.handle}${stop}`;
 }
 
 /**

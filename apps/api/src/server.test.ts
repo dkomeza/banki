@@ -92,7 +92,7 @@ describe("the server process", () => {
     expect(await server.exited).toBe(0);
 
     const records = jsonLines(await new Response(server.stdout).text());
-    const migrations = ["0000_baseline", "0001_auth", "0002_user_settings"];
+    const migrations = ["0000_baseline", "0001_auth", "0002_user_settings", "0003_grading"];
     expect(records.map(({ level, message, properties }) => [level, message, properties])).toEqual([
       ["INFO", `API starting "${dataDir}"`, { dataDir }],
       ["INFO", `Migrations applied ${JSON.stringify(migrations)}`, { migrations }],
@@ -178,6 +178,20 @@ describe("the server process", () => {
     );
     expect(failure?.message).toStartWith("API failed to start");
     expect(JSON.stringify(failure?.properties)).toContain("is empty");
+  });
+
+  test("exits 1 and logs why when the encryption key isn't 32 bytes of base64url", async () => {
+    const dataDir = join(tempDir, "data");
+    mkdirSync(dataDir);
+    writeFileSync(join(dataDir, "encryption-key"), "not a key");
+    const server = startServer({ DATA_DIR: dataDir, PORT: String(freePort()) });
+
+    expect(await server.exited).toBe(1);
+    const failure = jsonLines(await new Response(server.stderr).text()).find(
+      (record) => record.level === "ERROR",
+    );
+    expect(failure?.message).toStartWith("API failed to start");
+    expect(JSON.stringify(failure?.properties)).toContain("isn't 32 bytes as base64url");
   });
 
   test("exits 1 and logs why when the data directory can't be created", async () => {

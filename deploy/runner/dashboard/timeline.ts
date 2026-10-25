@@ -275,17 +275,23 @@ export function timeline(data: IssueData): Entry[] {
       });
     }
     if (move.assignee !== undefined) {
-      const { to } = move.assignee;
+      const { from, to } = move.assignee;
+      // Linear assigns a linked PR's author, the Runner app, and the Dispatcher undoes it.
+      const runnerApp = linear?.runnerId;
       const what =
         to === MAINTAINER.linearId
           ? by === "the Runner"
             ? "assigned the Maintainer: a stop"
             : "assigned the Maintainer"
-          : to === null
-            ? by === "the Runner"
-              ? "unassigned: handed back after a reply"
-              : "unassigned"
-            : "assigned someone else";
+          : to !== null && to === runnerApp
+            ? "assigned the Runner app, a linked PR's author"
+            : to === null
+              ? from !== null && from === runnerApp
+                ? "unassigned the Runner app: only a person's assignment holds an issue"
+                : by === "the Runner"
+                  ? "unassigned: handed back after a reply"
+                  : "unassigned"
+              : "assigned someone else";
       entries.push({ type: "move", at: move.at, by, tone, what });
     }
   }

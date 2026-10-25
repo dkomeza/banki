@@ -1,5 +1,5 @@
 import type { Queryable } from "../db/database";
-import { createSettingsRepository } from "../repositories/settings";
+import { setInitialTimezone } from "../repositories/settings";
 
 import { SEED_TIMEZONE } from "./seed-ids";
 
@@ -21,7 +21,8 @@ export function writeSeedData({ db, userId }: { db: Queryable; userId: string; n
   // Only while no Timezone is stored, as the first fill does: a signed-in load
   // before seeding may already have stored the browser's zone, or the User may
   // have chosen one. The Day start stays the default.
-  createSettingsRepository(db).setInitialTimezone(userId, SEED_TIMEZONE);
+  // It stores no API key: a Preview starts with none, and the default Model.
+  setInitialTimezone(db, userId, SEED_TIMEZONE);
 }
 
 /**

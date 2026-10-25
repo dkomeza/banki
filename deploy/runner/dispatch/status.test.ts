@@ -67,6 +67,7 @@ const VIEW: StatusView = {
     },
   ],
   waiting: [{ issue: "BAN-15", status: "In Review", what: "waiting for `claude-review`" }],
+  held: [{ issue: "BAN-17", status: "Todo", what: "it is assigned to @dkomeza" }],
   gate: { reading: READING, at: READING.at },
   estimates: { design: 0.05, implement: 0.08, "review-round": 0.03, "acceptance-fix": 0.05 },
   recent: [
@@ -115,6 +116,9 @@ describe("runner status's text", () => {
         "Waiting:",
         "  BAN-15 (In Review): waiting for `claude-review`",
         "",
+        "Held, skipped while assigned:",
+        "  BAN-17 (Todo): it is assigned to @dkomeza",
+        "",
         "Gate:",
         "  at 2026-10-24T01:55:00.000Z: the week 40% (starts over 2026-10-27T00:00:00.000Z), the five hours 12% (starts over 2026-10-24T05:00:00.000Z)",
         "  estimates: design 5%, implement 8%, review-round 3%, acceptance-fix 5%",
@@ -136,6 +140,7 @@ describe("runner status's text", () => {
       running: [],
       paused: [],
       waiting: [],
+      held: [],
       recent: [],
       orphans: [],
       gate: { error: "claude exited 1", at: "2026-10-24T01:00:00.000Z" },
@@ -147,5 +152,6 @@ describe("runner status's text", () => {
     expect(text).toContain("Running:\n  none\n");
     expect(text).toContain("the last reading failed at 2026-10-24T01:00:00.000Z: claude exited 1");
     expect(text).toContain("Recent Stages:\n  none yet\n");
+    expect(text).toContain("Held, skipped while assigned:\n  none\n");
   });
 });

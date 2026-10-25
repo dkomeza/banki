@@ -15,8 +15,9 @@ import { fakeGitHub, fakeIssue, type FakeIssue, RUNNER_ID } from "../../dispatch
 // out, it left no result), then was done, and its Slug Preview `ban-11-b`
 // sat queued past the wait's 60 minutes, which stopped on the Maintainer;
 // they replied, and the wait is on again. Beside it: a Stage running, one
-// paused, one ready behind the cap, one waiting on its PR Preview, an In
-// Progress issue no supervisor started, and the tick log.
+// paused, one ready behind the cap, one waiting on its PR Preview, one the
+// Maintainer holds, an In Progress issue no supervisor started, and the tick
+// log.
 
 export const NOW = new Date("2026-10-24T08:00:00.000Z");
 const at = (time: string) => new Date(`2026-10-${time}Z`).toISOString();
@@ -398,6 +399,11 @@ export function issues(): FakeIssue[] {
       branch: "dkomeza/ban-15-import",
     }),
     fakeIssue("BAN-16", { title: "Settings page", status: "In Progress" }),
+    fakeIssue("BAN-17", {
+      title: "Deck sharing",
+      status: "Todo",
+      assigneeId: MAINTAINER.linearId,
+    }),
   ];
 }
 

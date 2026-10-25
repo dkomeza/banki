@@ -9,11 +9,11 @@ import { logHref } from "./paths";
 // The Now page (`/`): what `runner status` shows, live, from the same view.
 // The Stages running (with their cost so far) and paused, the ready queue
 // with why each would or wouldn't start, what the Dispatcher waits on with
-// each wait's deadline and its deployments' states, the gate's last reading
-// against the Ceiling, the In Progress issues no supervisor started, the
-// recent Stages, and the deployments the pull agent hasn't claimed. Its live
-// part is also what /events sends every 30 seconds. Pure, so it is
-// unit-tested.
+// each wait's deadline and its deployments' states, the issues it skips
+// because someone holds them, the gate's last reading against the Ceiling,
+// the In Progress issues no supervisor started, the recent Stages, and the
+// deployments the pull agent hasn't claimed. Its live part is also what
+// /events sends every 30 seconds. Pure, so it is unit-tested.
 
 const section = (title: string, body: Html | Html[], empty: string, count?: number) =>
   markup`<section>
@@ -133,6 +133,20 @@ export function nowFragment(live: LiveView, tz: string | undefined): string {
             )}
           </ul>`,
       live.error === undefined ? "Nothing." : "Not known: Linear couldn't be read.",
+    ),
+  );
+
+  parts.push(
+    section(
+      "Held, skipped while assigned",
+      status.held.length === 0
+        ? []
+        : markup`<ul>
+            ${status.held.map(
+              (held) => markup`<li>${issueLink(held.issue)} (${held.status}): ${held.what}</li>`,
+            )}
+          </ul>`,
+      live.error === undefined ? "None." : "Not known: Linear couldn't be read.",
     ),
   );
 
