@@ -5,6 +5,7 @@ import { Page } from "@/components/page";
 import { PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { Cover, Stack } from "@/proto/cover";
 import { DeckDialog } from "@/proto/deck-dialog";
 import {
   type Deck,
@@ -18,11 +19,11 @@ import {
   useProtoState,
 } from "@/proto/decks";
 
-// Variant e, "Stack" (builds on b, Shelf): every deck is drawn as what it is, a
-// stack of paper cards, with only its name on the top card, so the wall reads
-// at a glance; descriptions wait for the deck page. One toolbar under the
-// title holds the sort, as a two-way switch, and "New deck", which opens b's
-// dialog.
+// Variant h, "Covered stack" (builds on e, Stack, with f's covers): every deck
+// is a paper stack whose top card is its cover, the monogram on ruled paper,
+// with its name and the first lines of its description under the stack. One
+// toolbar under the title holds the sort, as a two-way switch, and "New deck",
+// which opens b's dialog.
 
 export const Route = createFileRoute("/_shell/")({
   component: Home,
@@ -114,32 +115,30 @@ function SortSwitch({ value, onChange }: { value: DeckSort; onChange: (s: DeckSo
   );
 }
 
-/** A deck as a stack: the top card with its name, two more peeking out under it. */
+/**
+ * A deck as a stack whose top card is its cover, f's monogram on ruled paper,
+ * with two more cards peeking out under it. The name and the start of the
+ * description sit under the stack, like a title under a book.
+ */
 function StackTile({ deck }: { deck: Deck }) {
   return (
     <Link
       to="/decks/$deckId"
       params={{ deckId: deck.id }}
-      className="group relative isolate flex aspect-[4/3] w-full rounded-2xl lg:aspect-[16/10] text-card-foreground no-underline outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring focus-visible:outline-solid"
+      className="group flex w-full flex-col gap-4 rounded-2xl text-foreground no-underline outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring focus-visible:outline-solid"
     >
-      <span
-        aria-hidden
-        className="absolute inset-0 -z-20 translate-x-2 translate-y-2 rotate-[2.5deg] rounded-2xl border bg-muted transition-transform group-hover:translate-x-3 group-hover:rotate-[4deg] motion-reduce:transition-none"
-      />
-      <span
-        aria-hidden
-        className="absolute inset-0 -z-10 translate-x-1 translate-y-1 rotate-[1deg] rounded-2xl border bg-card transition-transform group-hover:translate-x-1.5 group-hover:rotate-[1.75deg] motion-reduce:transition-none"
-      />
-      <span className="flex w-full flex-col justify-between gap-2 rounded-2xl border bg-card p-4 transition-[border-color,translate] group-hover:-translate-y-1 group-hover:border-primary/50 motion-reduce:transition-none sm:p-5">
-        {/* The ruled line an index card has under its heading. */}
-        <span className="flex flex-col gap-2.5">
-          <span className="line-clamp-3 text-[1.05rem] leading-snug font-semibold tracking-tight [overflow-wrap:anywhere] sm:text-lg">
-            {deck.name}
-          </span>
-          <span aria-hidden className="h-px w-10 bg-primary/60" />
+      <Stack className="aspect-[4/3] w-full lg:aspect-[16/10]">
+        <Cover
+          name={deck.name}
+          className="w-full rounded-2xl border text-5xl transition-[border-color,translate] group-hover:-translate-y-1 group-hover:border-primary/50 motion-reduce:transition-none sm:text-6xl"
+        />
+      </Stack>
+      <span className="flex flex-col gap-1 px-0.5 pt-1">
+        <span className="line-clamp-2 leading-snug font-semibold tracking-tight [overflow-wrap:anywhere] group-hover:underline group-hover:underline-offset-4 sm:text-[1.05rem]">
+          {deck.name}
         </span>
-        <span className="text-xs text-muted-foreground tabular-nums">
-          {createdLabel(deck.createdAt)}
+        <span className="line-clamp-2 text-sm text-muted-foreground">
+          {deck.description ?? `Created ${createdLabel(deck.createdAt)}`}
         </span>
       </span>
     </Link>

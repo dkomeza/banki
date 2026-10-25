@@ -1,5 +1,5 @@
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
-import { ChevronLeft, Pencil, Trash2 } from "lucide-react";
+import { ChevronLeft, Layers, Pencil, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Page } from "@/components/page";
 import { OUTLINE_PILL } from "@/components/settings/parts";
@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ConfirmDelete } from "@/proto/confirm-delete";
 import { DeckDialog } from "@/proto/deck-dialog";
+import { Cover, Stack } from "@/proto/cover";
 import { NotFound } from "@/proto/deck-fields";
 import {
   type Deck,
@@ -17,10 +18,10 @@ import {
   useProtoState,
 } from "@/proto/decks";
 
-// Variant e, "Stack" (builds on b, Shelf): the deck page drops b's cover card.
-// The deck's name is the page's title, its description reads as plain text
-// under it, and Edit and Delete sit in one quiet row beneath. The cards below
-// wait in the same paper stack Home draws. Edit and Delete open b's dialogs.
+// Variant h, "Covered stack" (builds on e, Stack, with f's covers): the deck
+// page opens with the deck's stack, its cover on top, beside the name and the
+// whole description, with Edit and Delete under them. Edit opens b's dialog;
+// Delete asks in a dialog. The cards follow below.
 
 export const Route = createFileRoute("/_shell/decks/$deckId")({
   component: DeckPage,
@@ -60,28 +61,34 @@ function DeckBody({ deck, state }: { deck: Deck; state: string | undefined }) {
 
   return (
     <>
-      <header className="flex flex-col gap-5">
-        <h1 className="text-[2.25rem] leading-[1.05] font-semibold tracking-[-0.035em] [overflow-wrap:anywhere] lg:text-5xl">
-          {deck.name}
-        </h1>
-        {deck.description !== null ? (
-          <p className="max-w-prose text-[1.05rem] leading-relaxed whitespace-pre-line text-muted-foreground">
-            {deck.description}
-          </p>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setEditing(true)}
-            className="-my-2 h-11 w-fit text-left text-[1.05rem] text-muted-foreground italic underline-offset-4 hover:text-foreground hover:underline lg:h-8"
-          >
-            Add a description
-          </button>
-        )}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-3 border-y py-3">
-          <p className="mr-auto text-sm text-muted-foreground tabular-nums">
+      <header className="flex flex-col gap-6 sm:flex-row sm:items-start sm:gap-8 lg:gap-10">
+        <Stack className="aspect-[4/3] w-36 shrink-0 sm:w-48 lg:w-56">
+          <Cover
+            name={deck.name}
+            className="w-full rounded-2xl border text-5xl sm:text-6xl lg:text-7xl"
+          />
+        </Stack>
+        <div className="flex min-w-0 flex-col gap-4">
+          <h1 className="text-[2.25rem] leading-[1.05] font-semibold tracking-[-0.035em] [overflow-wrap:anywhere] lg:text-5xl">
+            {deck.name}
+          </h1>
+          {deck.description !== null ? (
+            <p className="max-w-prose text-[1.05rem] leading-relaxed whitespace-pre-line text-muted-foreground">
+              {deck.description}
+            </p>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="w-fit text-left text-[1.05rem] text-muted-foreground/80 italic underline-offset-4 hover:text-foreground hover:underline"
+            >
+              Add a description
+            </button>
+          )}
+          <p className="text-sm text-muted-foreground tabular-nums">
             Created {createdLabel(deck.createdAt)} · 0 cards
           </p>
-          <div className="flex gap-2">
+          <div className="flex shrink-0 gap-2 pt-1">
             <Button
               variant="outline"
               className={cn(OUTLINE_PILL, "h-11")}
@@ -92,7 +99,7 @@ function DeckBody({ deck, state }: { deck: Deck; state: string | undefined }) {
             </Button>
             <Button
               variant="outline"
-              className={cn(OUTLINE_PILL, "h-11 text-destructive hover:text-destructive")}
+              className={cn(OUTLINE_PILL, "text-destructive hover:text-destructive")}
               onClick={() => setDeleting(true)}
             >
               <Trash2 aria-hidden />
@@ -102,22 +109,16 @@ function DeckBody({ deck, state }: { deck: Deck; state: string | undefined }) {
         </div>
       </header>
 
-      <section aria-labelledby="cards-title" className="flex flex-col gap-5">
+      <section aria-labelledby="cards-title" className="flex flex-col gap-4 border-t pt-6 lg:pt-8">
         <h2 id="cards-title" className="text-xl font-semibold tracking-tight">
           Cards
         </h2>
-        <div className="flex flex-col items-center gap-6 py-8 text-center sm:py-12">
-          <div aria-hidden className="relative isolate h-24 w-32">
-            <span className="absolute inset-0 -z-20 translate-x-2 translate-y-2 rotate-[4deg] rounded-xl border border-dashed border-input" />
-            <span className="absolute inset-0 -z-10 translate-x-1 translate-y-1 rotate-[2deg] rounded-xl border border-dashed border-input" />
-            <span className="absolute inset-0 rounded-xl border border-dashed border-input bg-card" />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <p className="text-lg font-medium">No cards yet</p>
-            <p className="max-w-xs text-sm text-balance text-muted-foreground">
-              Cards you add to this deck will be stacked here.
-            </p>
-          </div>
+        <div className="flex flex-col items-center gap-3 rounded-[1.25rem] border-2 border-dashed border-input/60 px-6 py-16 text-center">
+          <Layers aria-hidden className="size-8 text-muted-foreground" />
+          <p className="text-lg font-medium">No cards yet</p>
+          <p className="max-w-xs text-sm text-balance text-muted-foreground">
+            Cards you add to this deck will be shown here.
+          </p>
         </div>
       </section>
 
