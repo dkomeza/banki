@@ -62,7 +62,14 @@ export function nowFragment(live: LiveView, tz: string | undefined): string {
                   <td>${issueLink(record.issue)}</td>
                   <td>${record.kind}</td>
                   <td>
-                    ${run === undefined ? "starting" : duration(now.getTime() - Date.parse(run.startedAt))}
+                    ${
+                      run === undefined
+                        ? "starting"
+                        : run.endedAt === undefined
+                          ? duration(now.getTime() - Date.parse(run.startedAt))
+                          : // Its supervisor is posting the result: the run is over, the Stage not yet.
+                            `${duration(Date.parse(run.endedAt) - Date.parse(run.startedAt))}, finishing`
+                    }
                   </td>
                   <td>${dollars(live.spent[record.issue] ?? 0)}</td>
                   <td>

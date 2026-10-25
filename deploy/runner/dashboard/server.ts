@@ -199,7 +199,13 @@ const sleep = (ms: number, open: () => boolean) =>
     }, step);
   });
 
-/** Whether this log is a run going on now: the newest run of a Stage running, or its supervisor's. */
+/**
+ * Whether this log is a run going on now: the newest run's log of a Stage
+ * whose record is active and running, or its supervisor's. Whatever the run's
+ * `endedAt` says: its supervisor saves that first, then posts the result and
+ * moves the issue, logging as it goes, and only then finishes the record. So
+ * a log goes on until its attempt is finalized, or paused.
+ */
 function runningIn(active: readonly ActiveRecord[], issue: string, file: string): boolean {
   return active.some((record) => {
     const log = record.runs.at(-1)?.log;
@@ -207,7 +213,6 @@ function runningIn(active: readonly ActiveRecord[], issue: string, file: string)
       record.issue === issue &&
       record.state === "running" &&
       log !== undefined &&
-      record.runs.at(-1)?.endedAt === undefined &&
       (basename(log) === file || basename(supervisorLog(log)) === file)
     );
   });

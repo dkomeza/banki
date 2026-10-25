@@ -68,6 +68,9 @@ const REASONS: Record<Label, string> = {
   paused: "Paused by the five-hour limit.",
 };
 
+/** The reason of a Stage whose run has ended while its supervisor, its record still active, posts the result. */
+export const FINISHING = "Finishing: the run ended, and its supervisor is posting the result.";
+
 export type ShownClosing = {
   at: string;
   result: StageResult;
@@ -95,6 +98,8 @@ export type Entry =
       usd: number;
       durationMs: number;
       runs: ShownRun[];
+      /** Set while its newest run has ended but its record is still active and running. */
+      finishing?: true;
       closing?: ShownClosing;
     }
   | {
@@ -211,6 +216,8 @@ export function timeline(data: IssueData): Entry[] {
   for (const record of data.active) {
     if (record.issue !== issue) continue;
     const label: Label = record.state;
+    // Its supervisor saves the run's end, then posts the result, and only then finishes the record.
+    const finishing = record.state === "running" && record.runs.at(-1)?.endedAt !== undefined;
     entries.push({
       type: "attempt",
       at: record.runs[0]?.startedAt ?? record.since ?? now.toISOString(),
@@ -221,7 +228,9 @@ export function timeline(data: IssueData): Entry[] {
           ? `Paused by the five-hour limit until ${record.resetsAt ?? "?"}; it resumes in its own session.`
           : record.runs.length === 0
             ? "Starting: its supervisor hasn't begun a run yet."
-            : REASONS.running,
+            : finishing
+              ? FINISHING
+              : REASONS.running,
       usd: record.runs.reduce(
         (sum, run) =>
           sum +
@@ -232,6 +241,7 @@ export function timeline(data: IssueData): Entry[] {
       ),
       durationMs: record.runs.reduce((sum, run) => sum + runMs(run, now), 0),
       runs: runsOf(data, record.runs),
+      ...(finishing ? { finishing: true as const } : {}),
     });
   }
 

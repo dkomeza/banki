@@ -65,7 +65,13 @@ export function logPage(view: LogView, tz: string | undefined): string {
     streams: view.running,
     refreshS: view.running ? 30 : undefined,
     body: markup`<h1>${issueLink(view.issue)}: <code>${view.file}</code></h1>
-      ${view.running ? markup`<p class="meta">Running: new lines follow as the Stage logs them.</p>` : ""}
+      ${
+        !view.running
+          ? ""
+          : attempt?.finishing === true
+            ? markup`<p class="meta">Finishing: new lines follow as its supervisor logs them.</p>`
+            : markup`<p class="meta">Running: new lines follow as the Stage logs them.</p>`
+      }
       <section>
         <h2>Events</h2>
         ${view.skipped === 0 ? "" : markup`<p class="meta">The log's first ${view.skipped} lines are left out: only its last ${PAGE_LINES} at most are shown here.</p>`}
@@ -74,7 +80,13 @@ ${view.lines.length === 0 && !view.running ? markup`<p class="empty">The log is 
       <section>
         <h2>The Stage's result</h2>
         ${view.linearError === undefined ? "" : markup`<p class="error">The closing comments couldn't be read: ${view.linearError}</p>`}
-        ${view.running ? markup`<p class="empty">Not yet: the Stage is running.</p>` : result}
+        ${
+          !view.running
+            ? result
+            : attempt?.finishing === true
+              ? markup`<p class="empty">Not yet. ${attempt.reason}</p>`
+              : markup`<p class="empty">Not yet: the Stage is running.</p>`
+        }
       </section>`,
   });
 }

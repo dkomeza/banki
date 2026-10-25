@@ -286,6 +286,102 @@ describe("the Dashboard's server", () => {
     }
   });
 
+  test("keeps a run whose supervisor is still posting its result going on, streaming its last lines, until its record is finished", async () => {
+    // A volume of its own: this test ends BAN-12's running Stage.
+    const volume = mkdtempSync(join(tmpdir(), "banki-dashboard-finishing-"));
+    writeVolume(volume);
+    try {
+      const clock = 0;
+      const { get } = await setup({ pollMs: 10, pingMs: 1_000 }, () => clock, volume);
+      const flat = async (path: string) => (await (await get(path)).text()).replaceAll(/\s+/g, " ");
+      const logs = "/issues/BAN-12/logs";
+      const log = `${logs}/2026-10-24T07-20-00Z-implement.jsonl`;
+      const supervisorFile = "2026-10-24T07-20-00Z-implement.log";
+      const supervisorPath = join(volume, "logs", "BAN-12", supervisorFile);
+      writeFileSync(
+        supervisorPath,
+        "2026-10-24T07:20:00.000Z Starting the implement Stage on BAN-12, with 180 minutes left of its limit\n",
+      );
+      const finishing = "Finishing: the run ended, and its supervisor is posting the result.";
+
+      // Its supervisor saves the run's end, and the record stays active and
+      // running while it posts the closing comment and moves the issue.
+      const records = store(join(volume, "dispatcher"));
+      const running = ACTIVE[0];
+      if (running === undefined) throw new Error("no running Stage");
+      const endedAt = "2026-10-24T07:58:00.000Z";
+      const ended = {
+        ...running,
+        runs: running.runs.map((run) => ({
+          ...run,
+          endedAt: run.endedAt ?? endedAt,
+        })),
+      };
+      records.saveActive(ended);
+
+      for (const path of [log, `${logs}/${supervisorFile}`]) {
+        const page = await flat(path);
+        expect(page).toContain("data-stream");
+        expect(page).toContain('http-equiv="refresh"');
+        expect(page).not.toContain("Running now.");
+        expect(page).toContain(finishing);
+      }
+      const timeline = await flat("/issues/BAN-12");
+      expect(timeline).not.toContain("Running now.");
+      expect(timeline).toContain(finishing);
+      // Still among the Stages running, its run's time stopped at its end.
+      const now = (await flat("/")).replaceAll("> <", "><");
+      expect(now).toMatch(
+        /<h2>Running<\/h2>.*BAN-12<\/a><\/td><td>implement<\/td><td> 38 min, finishing <\/td>/,
+      );
+
+      const page = await (await get(`${logs}/${supervisorFile}`)).text();
+      const from = /events\?from=(\d+)/.exec(page)?.[1];
+      expect(from).toBeDefined();
+      const res = await get(`${logs}/${supervisorFile}/events?from=${from}`);
+      const reader = res.body?.getReader();
+      if (reader === undefined) throw new Error("no stream");
+      const decoder = new TextDecoder();
+      let seen = "";
+      const until = async (words: string) => {
+        while (!seen.includes(words)) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          seen += decoder.decode(value);
+        }
+      };
+
+      appendFileSync(
+        supervisorPath,
+        "2026-10-24T07:58:01.000Z Posted the closing comment on BAN-12\n",
+      );
+      await until("Posted the closing comment");
+      expect(seen).toContain("data: 2026-10-24T07:58:01.000Z Posted the closing comment on BAN-12");
+      // Many polls on, and still going on.
+      await Bun.sleep(100);
+      expect(seen).not.toContain("event: end");
+
+      // Its supervisor is done: the record goes into stages.jsonl.
+      records.finish({
+        issue: ended.issue,
+        kind: ended.kind,
+        outcome: "done",
+        endedAt,
+        runs: ended.runs,
+      });
+      await until("event: end");
+      expect(seen).toContain("event: end");
+
+      const reloaded = await flat(log);
+      expect(reloaded).not.toContain("data-stream");
+      expect(reloaded).not.toContain(finishing);
+      expect(reloaded).toContain('implement Stage: <span class="outcome outcome-done">');
+      expect(await flat("/issues/BAN-12")).not.toContain(finishing);
+    } finally {
+      rmSync(volume, { recursive: true, force: true });
+    }
+  });
+
   test("shows a Stage log one line per event, never raw JSON, escaped and redacted, then its result", async () => {
     const { get } = await setup();
     const done = await (await get("/issues/BAN-11/logs/2026-10-24T04-50-00Z-design.jsonl")).text();
