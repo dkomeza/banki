@@ -1,6 +1,5 @@
-import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
-import { ChevronLeft, Layers, Pencil, Trash2 } from "lucide-react";
+import { CornerDownRight, Layers, Pencil, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { ConfirmDelete } from "@/components/decks/confirm-delete";
 import { Cover, Stack } from "@/components/decks/cover";
@@ -8,54 +7,56 @@ import { DeckDialog } from "@/components/decks/deck-dialog";
 import { Page } from "@/components/page";
 import { OUTLINE_PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
+import { createdLabel } from "@/lib/decks";
+import { cn } from "@/lib/utils";
 import {
   type Deck,
-  createdLabel,
-  deckQueryOptions,
+  deckClashFixture,
+  protoDeck,
   deleteDeck,
-  forgetDeck,
   updateDeck,
-} from "@/lib/decks";
-import { cn } from "@/lib/utils";
+  useLibrary,
+  useProtoState,
+} from "@/proto/folders";
+import { useActions } from "@/proto/ui/actions";
+import { Breadcrumb } from "@/proto/ui/tiles";
 
-// The deck page opens with the Deck's stack, its cover on top, beside the name
-// and the whole description, with Edit and Delete under them. Edit opens the
-// same dialog as create; Delete asks in a dialog. The cards follow below.
+// PROTOTYPE (BAN-10): the deck page, under the breadcrumb from "Decks", with
+// Move… beside Edit and Delete.
 
 export const Route = createFileRoute("/_shell/decks/$deckId")({
-  loader: ({ context: { queryClient }, params: { deckId } }) =>
-    queryClient.ensureQueryData(deckQueryOptions(deckId)),
   component: DeckPage,
 });
 
 function DeckPage() {
   const { deckId } = Route.useParams();
-  const { data: deck } = useSuspenseQuery(deckQueryOptions(deckId));
-
+  const state = useProtoState();
+  const deck = useLibrary().decks.find((d) => d.id === deckId);
   return (
     <Page width="cards">
       <div className="flex flex-col gap-6 lg:gap-8">
-        <Link
-          to="/"
-          className="-ml-1 inline-flex h-11 w-fit items-center gap-1 text-sm font-medium text-muted-foreground no-underline hover:text-foreground lg:h-8"
-        >
-          <ChevronLeft aria-hidden className="size-4" />
-          Decks
-        </Link>
-        {deck === null ? <DeckNotFound /> : <DeckBody key={deck.id} deck={deck} />}
+        {deck === undefined ? (
+          <DeckNotFound />
+        ) : (
+          <DeckBody key={`${deck.id}-${state ?? ""}`} deck={deck} state={state} />
+        )}
       </div>
     </Page>
   );
 }
 
-function DeckBody({ deck }: { deck: Deck }) {
-  const queryClient = useQueryClient();
+function DeckBody({ deck, state }: { deck: Deck; state: string | undefined }) {
   const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const actions = useActions({
+    moving: state === "move" ? { item: { kind: "deck", id: deck.id }, name: deck.name } : undefined,
+    clash: state === "clash" ? deckClashFixture(deck) : undefined,
+  });
 
   return (
     <>
+      <Breadcrumb at={deck.folderId} last={deck.name} onMove={actions.drop} />
       <header className="flex flex-col gap-6 sm:flex-row sm:items-start sm:gap-8 lg:gap-10">
         <Stack className="aspect-[4/3] w-36 shrink-0 sm:w-48 lg:w-56">
           <Cover
@@ -67,23 +68,15 @@ function DeckBody({ deck }: { deck: Deck }) {
           <h1 className="text-[2.25rem] leading-[1.05] font-semibold tracking-[-0.035em] [overflow-wrap:anywhere] lg:text-5xl">
             {deck.name}
           </h1>
-          {deck.description !== null ? (
+          {deck.description !== null && (
             <p className="max-w-prose text-[1.05rem] leading-relaxed whitespace-pre-line text-muted-foreground [overflow-wrap:anywhere]">
               {deck.description}
             </p>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setEditing(true)}
-              className="min-h-11 w-fit text-left text-[1.05rem] text-muted-foreground italic underline-offset-4 lg:min-h-0 hover:text-foreground hover:underline"
-            >
-              Add a description
-            </button>
           )}
           <p className="text-sm text-muted-foreground tabular-nums">
             Created {createdLabel(deck.createdAt)} · 0 cards
           </p>
-          <div className="flex shrink-0 gap-2 pt-1">
+          <div className="flex shrink-0 flex-wrap gap-2 pt-1">
             <Button
               variant="outline"
               className={cn(OUTLINE_PILL, "h-11")}
@@ -94,7 +87,15 @@ function DeckBody({ deck }: { deck: Deck }) {
             </Button>
             <Button
               variant="outline"
-              className={cn(OUTLINE_PILL, "text-destructive hover:text-destructive")}
+              className={cn(OUTLINE_PILL, "h-11")}
+              onClick={() => actions.move({ kind: "deck", id: deck.id }, deck.name)}
+            >
+              <CornerDownRight aria-hidden />
+              Move…
+            </Button>
+            <Button
+              variant="outline"
+              className={cn(OUTLINE_PILL, "h-11 text-destructive hover:text-destructive")}
               onClick={() => setDeleting(true)}
             >
               <Trash2 aria-hidden />
@@ -125,9 +126,10 @@ function DeckBody({ deck }: { deck: Deck }) {
         submittingLabel="Saving…"
         initial={{ name: deck.name, description: deck.description ?? "" }}
         onSubmit={async (form) => {
-          const outcome = await updateDeck(queryClient, deck.id, form);
-          if (outcome.ok) setEditing(false);
-          return outcome;
+          const outcome = updateDeck(deck.id, form.name, form.description);
+          if (!outcome.ok) return { ok: false, field: "name", message: outcome.error };
+          setEditing(false);
+          return { ok: true, deck: protoDeck(outcome.id, form) };
         }}
       />
       <ConfirmDelete
@@ -135,13 +137,16 @@ function DeckBody({ deck }: { deck: Deck }) {
         onOpenChange={setDeleting}
         name={deck.name}
         onConfirm={async () => {
-          const outcome = await deleteDeck(queryClient, deck.id);
-          if (!outcome.ok) return outcome.message;
-          await navigate({ to: "/" });
-          forgetDeck(queryClient, deck.id);
+          await navigate(
+            deck.folderId === null
+              ? { to: "/" }
+              : { to: "/folders/$folderId", params: { folderId: deck.folderId } },
+          );
+          deleteDeck(deck.id);
           return undefined;
         }}
       />
+      {actions.dialogs}
     </>
   );
 }
