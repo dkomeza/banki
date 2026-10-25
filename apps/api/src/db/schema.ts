@@ -6,7 +6,7 @@
 // by `bun run auth:generate`; never edit that file by hand.
 import { DEFAULT_DAY_START_HOUR } from "@banki/shared";
 import { sql } from "drizzle-orm";
-import { check, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { user } from "./auth-schema";
 
 export * from "./auth-schema";
@@ -32,4 +32,34 @@ export const user_settings = sqliteTable(
     apiKeyLastFour: text("api_key_last_four"),
   },
   (table) => [check("user_settings_day_start_hour", sql`${table.dayStartHour} BETWEEN 0 AND 23`)],
+);
+
+/**
+ * The User's Decks (ADR-0001). A deleted Deck keeps its row with `deletedAt`
+ * set, and counts nowhere until it is restored. No two Decks beside each other
+ * that aren't deleted share a name, ignoring case: `nameKey` is the name as
+ * names are compared (`deckNameKey`), unique per User among those that aren't
+ * deleted. All Decks sit at the root for now.
+ */
+export const deck = sqliteTable(
+  "deck",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    nameKey: text("name_key").notNull(),
+    /** Plain text with its line breaks; null for none. */
+    description: text("description"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+    deletedAt: integer("deleted_at", { mode: "timestamp_ms" }),
+  },
+  (table) => [
+    uniqueIndex("deck_user_name_key")
+      .on(table.userId, table.nameKey)
+      .where(sql`${table.deletedAt} IS NULL`),
+    index("deck_user_id").on(table.userId),
+  ],
 );
