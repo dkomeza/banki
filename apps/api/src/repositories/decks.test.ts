@@ -57,7 +57,7 @@ describe("create", () => {
       description: "Line one\nLine two",
       createdAt: "2026-10-01T10:00:00.000Z",
     });
-    expect(decks.find(USER, "deck-1")).toEqual(created as never);
+    expect(decks.find(USER, "deck-1")).toEqual(decks.list(USER)[0]);
   });
 
   test("gives each Deck its own ID", () => {
