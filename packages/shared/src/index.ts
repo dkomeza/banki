@@ -11,6 +11,19 @@ export {
 export { ApiError } from "./error";
 export { HealthResponse } from "./health";
 export {
+  DEFAULT_MODEL_ID,
+  effectiveModelId,
+  isModelId,
+  type Model,
+  ModelId,
+  MODELS,
+  modelById,
+  type Rating,
+} from "./models";
+export {
+  API_KEY_MAX_LENGTH,
+  ApiKeyRequest,
+  ApiKeyStatus,
   DayStartHour,
   DEFAULT_DAY_START_HOUR,
   InitialTimezoneRequest,

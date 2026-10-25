@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp } from "../app";
 import type { Config } from "../config";
+import type { OpenRouterFetch } from "../openrouter/check-api-key";
 
 export const ORIGIN = "http://localhost:5173";
 export const EMAIL = "user@example.com";
@@ -28,22 +29,38 @@ export function bootApps() {
 
   return {
     dataDir: () => join(tempDir, "data"),
-    boot: (overrides: Partial<Config> = {}) => {
-      const booted = createApp({
-        dataDir: join(tempDir, "data"),
-        port: 3000,
-        logFormat: "json",
-        logLevel: "info",
-        origin: ORIGIN,
-        authSecret: undefined,
-        commit: "dev",
-        ...overrides,
-      });
+    /**
+     * Boots an app. OpenRouter is stubbed: unless `openRouterFetch` says
+     * otherwise, it can't be reached, so no test calls the real service.
+     */
+    boot: (
+      overrides: Partial<Config> = {},
+      { openRouterFetch = unreachableOpenRouter }: { openRouterFetch?: OpenRouterFetch } = {},
+    ) => {
+      const booted = createApp(
+        {
+          dataDir: join(tempDir, "data"),
+          port: 3000,
+          logFormat: "json",
+          logLevel: "info",
+          origin: ORIGIN,
+          authSecret: undefined,
+          encryptionKey: undefined,
+          commit: "dev",
+          ...overrides,
+        },
+        { openRouterFetch },
+      );
       opened.push(booted);
       return booted;
     },
   };
 }
+
+/** OpenRouter as a test sees it by default: never reachable. */
+export const unreachableOpenRouter: OpenRouterFetch = async () => {
+  throw new TypeError("Tests never reach the real OpenRouter");
+};
 
 export type App = ReturnType<typeof createApp>["app"];
 
