@@ -2,8 +2,9 @@
 // most once every 30 seconds whatever the number of viewers, and never while
 // nobody asks for it. A computation still running is shared too, and one that
 // failed is kept for its 30 seconds like any other, so a broken Linear isn't
-// asked again on every request. Pure but for the clock it is given, so it is
-// unit-tested.
+// asked again on every request. Each issue's page data is shared the same
+// way, keyed by issue, for so many issues at most. Pure but for the clock it
+// is given, so it is unit-tested.
 
 export const LIVE_EVERY_MS = 30_000;
 
@@ -38,5 +39,46 @@ export function sharedView<T>(options: {
       return last.value;
     },
     peek: () => settled,
+  };
+}
+
+/** Shared views by key, such as an issue's page data: each one as `sharedView`'s. */
+export type KeyedViews<K, T> = {
+  get: (key: K) => Promise<T>;
+  /** How many keys it keeps now. */
+  size: () => number;
+};
+
+/**
+ * A shared view per key, each computed on demand at most once every 30
+ * seconds, keeping only the `max` keys asked for most recently.
+ */
+export function keyedViews<K, T>(options: {
+  compute: (key: K) => Promise<T>;
+  now: () => number;
+  everyMs?: number;
+  max: number;
+}): KeyedViews<K, T> {
+  const views = new Map<K, SharedView<T>>();
+  return {
+    get(key) {
+      let view = views.get(key);
+      if (view === undefined) {
+        view = sharedView({
+          compute: () => options.compute(key),
+          now: options.now,
+          everyMs: options.everyMs,
+        });
+      }
+      // Newest last: a Map keeps the order keys went in.
+      views.delete(key);
+      views.set(key, view);
+      for (const oldest of views.keys()) {
+        if (views.size <= options.max) break;
+        views.delete(oldest);
+      }
+      return view.get();
+    },
+    size: () => views.size,
   };
 }

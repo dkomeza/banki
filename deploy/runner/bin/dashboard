@@ -14,4 +14,8 @@ if [ ! -f "$server" ]; then
   exit 1
 fi
 cd "$clone"
+# The commit it runs, read before bun loads a line of it: the Dashboard
+# exits once the clone's HEAD has moved from this one.
+BANKI_DASHBOARD_HEAD="$(git rev-parse --verify --quiet HEAD 2>/dev/null || true)"
+export BANKI_DASHBOARD_HEAD
 exec bun "$server"

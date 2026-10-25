@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { sharedView } from "./cache";
+import { keyedViews, sharedView } from "./cache";
 
 // The live view, computed on demand at most once every 30 seconds and
 // shared by every viewer, on a fake clock.
@@ -87,5 +87,62 @@ describe("the live view", () => {
 
     expect(calls).toBe(2);
     expect(view.peek()).toBeUndefined();
+  });
+});
+
+function keyed(max = 3) {
+  let clock = 0;
+  const computed: string[] = [];
+  const views = keyedViews({
+    compute: async (issue: string) => {
+      computed.push(issue);
+      return `${issue}#${computed.length}`;
+    },
+    now: () => clock,
+    everyMs: 30_000,
+    max,
+  });
+  return {
+    views,
+    computed,
+    advance: (ms: number) => {
+      clock += ms;
+    },
+  };
+}
+
+describe("each issue's data", () => {
+  test("is computed once per issue every 30 seconds, whatever the number of requests", async () => {
+    const { views, computed, advance } = keyed();
+
+    await Promise.all([views.get("BAN-1"), views.get("BAN-1"), views.get("BAN-2")]);
+    advance(29_999);
+    expect(await views.get("BAN-1")).toBe("BAN-1#1");
+    advance(1);
+    expect(await views.get("BAN-1")).toBe("BAN-1#3");
+
+    expect(computed).toEqual(["BAN-1", "BAN-2", "BAN-1"]);
+  });
+
+  test("computes nothing for an issue nobody asks for", () => {
+    const { computed, advance } = keyed();
+
+    advance(10 * 60_000);
+
+    expect(computed).toEqual([]);
+  });
+
+  test("keeps the issues asked for last, and so many at most", async () => {
+    const { views, computed } = keyed(2);
+
+    await views.get("BAN-1");
+    await views.get("BAN-2");
+    await views.get("BAN-1");
+    await views.get("BAN-3");
+    await views.get("BAN-1");
+    await views.get("BAN-2");
+
+    expect(computed).toEqual(["BAN-1", "BAN-2", "BAN-3", "BAN-2"]);
+    expect(views.size()).toBe(2);
   });
 });

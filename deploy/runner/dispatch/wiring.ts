@@ -27,11 +27,13 @@ const log = (line: string) => console.log(line);
  * `run-now` log through the tick log (tick-log.ts); `runner status` only prints.
  */
 export function dispatcherDeps(options: { log?: (line: string) => void } = {}): DispatcherDeps {
+  // One logger for everything the tick says, its housekeeping's included.
+  const say = options.log ?? log;
   return {
     broker: broker(),
     linear: (token) => linear(token),
     github: (token) => github(token),
-    log: options.log ?? log,
+    log: say,
     records: store(),
     config: dispatcherConfig(process.env),
     takeReading: () => takeReading(claudeToken()),
@@ -44,7 +46,7 @@ export function dispatcherDeps(options: { log?: (line: string) => void } = {}): 
       pruneTickLog: (now) => pruneTickLog(TICK_LOG, now),
       listWorktrees: () => listWorktrees(CLONE, WORKTREES),
       worktreeFacts,
-      removeWorktree: (removal) => removeWorktree(CLONE, removal, log),
+      removeWorktree: (removal) => removeWorktree(CLONE, removal, say),
     },
     logs: LOGS,
     now: () => new Date(),

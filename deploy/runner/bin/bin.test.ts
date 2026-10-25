@@ -190,6 +190,30 @@ describe("the dashboard wrapper", () => {
     expect(result.exitCode).toBe(0);
   });
 
+  test.skipIf(Bun.which("git") === null)(
+    "tells the Dashboard the clone's HEAD, read before bun loads any of it",
+    async () => {
+      const clone = join(dir, "dashboard-git");
+      mkdirSync(join(clone, "deploy/runner/dashboard"), { recursive: true });
+      writeFileSync(
+        join(clone, "deploy/runner/dashboard/main.ts"),
+        "console.log(process.env.BANKI_DASHBOARD_HEAD);",
+      );
+      const git = (...args: string[]) =>
+        sh(["git", "-C", clone, "-c", "user.name=t", "-c", "user.email=t@t", ...args], {
+          HOME: dir,
+        });
+      await git("init", "--quiet");
+      await git("commit", "--quiet", "--allow-empty", "-m", "x");
+      const head = (await git("rev-parse", "HEAD")).stdout.trim();
+
+      const result = await sh([join(BIN, "dashboard")], { BANKI_RUNNER_CLONE: clone, HOME: dir });
+
+      expect(head).toMatch(/^[0-9a-f]{40}$/);
+      expect(result.stdout.trim()).toBe(head);
+    },
+  );
+
   test("says so, and waits a while before Docker starts it again, when there is no clone yet", async () => {
     const result = await sh([join(BIN, "dashboard")], {
       BANKI_RUNNER_CLONE: join(dir, "nowhere"),

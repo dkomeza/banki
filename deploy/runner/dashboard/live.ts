@@ -38,7 +38,7 @@ export type LiveView = {
 };
 
 export type LiveDeps = StatusDeps & {
-  /** A Stage log's lines, by the path its record holds; none when it can't be read. */
+  /** A Stage log's last lines, within a bound, by the path its record holds; none when it can't be read. */
   readLog: (path: string) => string[];
 };
 

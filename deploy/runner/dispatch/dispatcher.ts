@@ -349,7 +349,12 @@ async function act(
 }
 
 function tidyLogs(deps: DispatcherDeps): void {
-  deps.housekeeper.pruneTickLog(deps.now());
+  // The tick log is the Dashboard's: failing to prune it never stops a tick.
+  try {
+    deps.housekeeper.pruneTickLog(deps.now());
+  } catch (error) {
+    deps.log(`Couldn't prune the tick log: ${errorText(error)}`);
+  }
   const keep = new Set(
     deps.records
       .activeRecords()

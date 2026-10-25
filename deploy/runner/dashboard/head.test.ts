@@ -43,4 +43,19 @@ describe("watching the clone's HEAD", () => {
 
     expect(moves).toEqual([B]);
   });
+
+  test("compares with the HEAD it was started on, when it is given, so a move before it loaded counts", async () => {
+    const moves: string[] = [];
+
+    const stop = await watchHead({
+      started: A,
+      read: reader([B]),
+      everyMs: 5,
+      onMove: (head) => moves.push(head),
+    });
+    await Bun.sleep(40);
+    stop();
+
+    expect(moves).toEqual([B]);
+  });
 });

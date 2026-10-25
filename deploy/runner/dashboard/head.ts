@@ -1,16 +1,19 @@
 // The Dashboard runs from the clone of `main` on the volume (ADR-0014), and
 // the tick moves that clone. So it looks at the clone's HEAD now and then, and
 // once it has moved, it says so once and stops looking: main.ts exits, and
-// Docker's `restart: unless-stopped` starts it on the new `main`. A HEAD it
-// can't read is no move, and until it has read one, the first it reads is
-// where it started. Unit-tested with a fake reader.
+// Docker's `restart: unless-stopped` starts it on the new `main`. Where it
+// started is the HEAD bin/dashboard read before bun loaded any code, so a
+// move in between counts; without one, the first HEAD it can read. A HEAD
+// it can't read is no move. Unit-tested with a fake reader.
 
 export async function watchHead(options: {
+  /** The HEAD it was started on, if known. */
+  started?: string;
   read: () => Promise<string | undefined>;
   everyMs: number;
   onMove: (head: string) => void;
 }): Promise<() => void> {
-  let started = await options.read();
+  let started = options.started ?? (await options.read());
   let busy = false;
   const timer = setInterval(() => {
     if (busy) return;

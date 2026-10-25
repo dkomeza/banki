@@ -76,7 +76,11 @@ export function tickLogger(options: {
 /**
  * Drops the lines older than 30 days, and those it can't read, rewriting the
  * file whole so a reader never sees half of it. Returns how many it dropped.
- * The tick runs it under the Dispatcher's lock, so no one else appends then.
+ * The tick runs it under the Dispatcher's lock, but appending takes no lock:
+ * a `run-now` waiting for the lock, or one that just released it, may append
+ * a line between the read and the rename, and that line is lost. The tick log
+ * is for looking back, and its lines are still in `docker logs`, so that is
+ * accepted.
  */
 export function pruneTickLog(path: string, now: Date): number {
   let text: string;

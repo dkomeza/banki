@@ -12,7 +12,7 @@ The Dashboard is a third container in the `banki-runner` project. It mounts the 
 ## Consequences
 
 - The Dashboard can mint Linear and GitHub tokens as the runner can. It is read-only by construction: it serves only `GET`, its code makes no writes to Linear or GitHub, and its mount of the volume is read-only. It holds no secret of its own, not even the Claude token, so it takes no usage reading.
-- The host's firewall rules cover its network as they cover the runner's: it reaches the internet, never the host's ports or the LAN.
+- The host's firewall rules cover its network as they cover the runner's: it reaches the internet, never the host's ports or the LAN. `host-firewall` now lets through, on both subnets, the replies to connections the host itself starts (`ESTABLISHED`), so the host and Pangolin's Newt can reach the Dashboard's published port, while a container still can't open a connection to the host.
 - It renders text from the Stages' logs and from the issues, which is untrusted, so everything it shows is escaped, its CSP allows no inline script and no other origin, and every log line goes through the same redaction as a stop comment.
 - A Stage that edits the clone between a sync and the Dashboard's restart could change what the Dashboard runs. The tick already trusts the clone as much, so that is accepted.
 - Its host, `runner.banki.dkomeza.com`, sits in the Previews' namespace, so `runner` joins the reserved Slugs.

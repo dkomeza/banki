@@ -3,8 +3,9 @@ import { basename, dirname, join, sep } from "node:path";
 
 // Which files the Dashboard serves (ADR-0014): only a Stage's logs, under
 // /work/logs/BAN-N/, by a name with no path in it. A Stage can write to that
-// directory, so the file must also be a regular file there once its links are
-// followed: a symlink planted in it leads nowhere.
+// directory, so the directory must be a real one right under the logs, and
+// the file a regular file in it once its links are followed: a symlink
+// planted in place of either leads nowhere.
 
 const ISSUE = /^BAN-[1-9][0-9]{0,8}$/;
 const LOG_FILE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,200}\.(jsonl|log)$/;
@@ -36,7 +37,10 @@ export function servedLogPath(logs: string, issue: string, file: string): string
   const path = logPathOf(logs, issue, file);
   if (path === undefined) return undefined;
   try {
+    // The issue's directory must be a real one, right under the real logs
+    // directory: a link in its place could lead anywhere on the volume.
     const dir = realpathSync(join(logs, issue));
+    if (dir !== join(realpathSync(logs), issue)) return undefined;
     const real = realpathSync(path);
     if (!real.startsWith(`${dir}${sep}`) || dirname(real) !== dir) return undefined;
     if (!lstatSync(real).isFile()) return undefined;

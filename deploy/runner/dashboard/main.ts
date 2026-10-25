@@ -58,7 +58,10 @@ const server = Bun.serve({
 });
 log(`The Dashboard listens on ${server.port}`);
 
+const given = process.env.BANKI_DASHBOARD_HEAD?.trim() ?? "";
 await watchHead({
+  // bin/dashboard's reading, from before this code was loaded.
+  started: /^[0-9a-f]{40}$/.test(given) ? given : undefined,
   read: head,
   everyMs: HEAD_EVERY_MS,
   onMove: (now) => {

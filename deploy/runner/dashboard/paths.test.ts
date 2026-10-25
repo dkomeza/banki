@@ -16,6 +16,11 @@ writeFileSync(join(work, "secret.log"), "s3cr3t\n");
 symlinkSync(join(work, "secret.log"), join(logs, "BAN-11", "planted.log"));
 symlinkSync(join(logs, "BAN-12", "other.log"), join(logs, "BAN-11", "sideways.log"));
 mkdirSync(join(logs, "BAN-11", "dir.log"));
+// A Stage could point an issue's whole directory elsewhere on the volume.
+mkdirSync(join(work, "home"));
+writeFileSync(join(work, "home", "credentials.log"), "s3cr3t\n");
+symlinkSync(join(work, "home"), join(logs, "BAN-5"));
+symlinkSync(join(logs, "BAN-12"), join(logs, "BAN-6"));
 afterAll(() => rmSync(work, { recursive: true, force: true }));
 
 describe("a Stage log's path", () => {
@@ -50,6 +55,11 @@ describe("a Stage log's path", () => {
     expect(servedLogPath(logs, "BAN-11", "dir.log")).toBeUndefined();
     expect(servedLogPath(logs, "BAN-11", "gone.jsonl")).toBeUndefined();
     expect(servedLogPath(logs, "BAN-99", "a.jsonl")).toBeUndefined();
+  });
+
+  test("can't leave it by a link in place of the issue's directory itself", () => {
+    expect(servedLogPath(logs, "BAN-5", "credentials.log")).toBeUndefined();
+    expect(servedLogPath(logs, "BAN-6", "other.log")).toBeUndefined();
   });
 
   test("links by the file's name, from the path its record holds", () => {

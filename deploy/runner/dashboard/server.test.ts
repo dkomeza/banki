@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { store } from "../dispatch/store";
@@ -18,8 +18,9 @@ writeVolume(work);
 writeFileSync(join(work, "outside.log"), "s3cr3t\n");
 afterAll(() => rmSync(work, { recursive: true, force: true }));
 
-async function setup(options: Partial<ServerDeps> = {}) {
-  const linear = fakeLinear(issues());
+async function setup(options: Partial<ServerDeps> = {}, clock?: () => number) {
+  const fixture = issues();
+  const linear = fakeLinear(fixture);
   const minted: string[] = [];
   const revoked: string[] = [];
   const deps = await dashboard({
@@ -47,10 +48,11 @@ async function setup(options: Partial<ServerDeps> = {}) {
     },
     now: () => NOW,
     log: () => undefined,
+    clock,
   });
   const fetch = handler({ ...deps, ...options });
   const get = (path: string, init?: RequestInit) => fetch(new Request(`http://dash${path}`, init));
-  return { get, minted, revoked };
+  return { get, minted, revoked, fixture };
 }
 
 const PAGES = [
@@ -155,6 +157,36 @@ describe("the Dashboard's server", () => {
     expect(revoked).toEqual(["token-1"]);
   });
 
+  test("reads an issue's data from Linear at most once every 30 seconds, however often its pages are asked for", async () => {
+    let clock = 0;
+    const { get, minted } = await setup({}, () => clock);
+    const log = "/issues/BAN-11/logs/2026-10-24T04-50-00Z-design.jsonl";
+
+    await get("/issues/BAN-11");
+    await get(log);
+    await get("/issues/BAN-11");
+    // One token for BAN-11's data, one for the live view its wait comes from.
+    expect(minted).toHaveLength(2);
+
+    clock += 30_000;
+    await get(log);
+    expect(minted).toHaveLength(4);
+  });
+
+  test("shows an issue's wait from a live view no older than 30 seconds", async () => {
+    let clock = 0;
+    const { get, fixture } = await setup({}, () => clock);
+    const flat = async (path: string) => (await (await get(path)).text()).replaceAll(/\s+/g, " ");
+
+    expect(await flat("/issues/BAN-11")).toContain("Waiting for the Slug Previews since");
+    const ban11 = fixture.find((issue) => issue.identifier === "BAN-11");
+    if (ban11 === undefined) throw new Error("no BAN-11");
+    ban11.status = "Design Review";
+    clock += 31 * 60_000;
+
+    expect(await flat("/issues/BAN-11")).not.toContain("Waiting for the Slug Previews since");
+  });
+
   test("shows a Stage log one line per event, never raw JSON, escaped and redacted, then its result", async () => {
     const { get } = await setup();
     const done = await (await get("/issues/BAN-11/logs/2026-10-24T04-50-00Z-design.jsonl")).text();
@@ -209,6 +241,32 @@ describe("the Dashboard's server", () => {
     await until("event: end");
     expect(seen).toContain("event: end");
     records.saveActive(running);
+  });
+
+  test("ends a log's stream when its file is deleted under it, and goes on serving", async () => {
+    const { get } = await setup({ pollMs: 10, pingMs: 1_000 });
+    const file = "2026-10-24T07-20-00Z-implement.jsonl";
+    const path = join(work, "logs", "BAN-12", file);
+    const res = await get(`/issues/BAN-12/logs/${file}/events?from=0`);
+    const reader = res.body?.getReader();
+    if (reader === undefined) throw new Error("no stream");
+    let seen = "";
+    const read = async () => {
+      const { value, done } = await reader.read();
+      if (!done) seen += new TextDecoder().decode(value);
+      return done;
+    };
+    while (!seen.includes("event: line")) await read();
+
+    renameSync(path, `${path}.away`);
+    try {
+      while (!(await read()));
+    } finally {
+      renameSync(`${path}.away`, path);
+    }
+
+    expect(seen).toContain("event: end\ndata: the stream failed");
+    expect((await get("/ticks")).status).toBe(200);
   });
 
   test("sends the Now page's live view over its stream", async () => {

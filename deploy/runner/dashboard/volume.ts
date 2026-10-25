@@ -1,4 +1,4 @@
-import { closeSync, existsSync, openSync, readFileSync, readSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { StatusDeps } from "../dispatch/dispatcher";
 import { redactTokens } from "../dispatch/secrets";
@@ -6,6 +6,7 @@ import { openSession } from "../dispatch/session";
 import { supervisorLog } from "../dispatch/spawn";
 import { claudeStarted, logFacts } from "../dispatch/stage-log";
 import { errorText } from "../lib/config";
+import { readHead, readTail } from "./files";
 import { localLog } from "./paths";
 import type { IssueData, RunFacts } from "./timeline";
 
@@ -13,26 +14,6 @@ import type { IssueData, RunFacts } from "./timeline";
 // records and the issue's logs from the volume, mounted read-only, and the
 // issue's comments and moves from Linear, with a token of its own revoked
 // at the end. Nothing here writes anywhere.
-
-/** How much of a log is read to tell whether `claude` started: its init event comes first. */
-const HEAD_BYTES = 1 << 20;
-
-/** A file's lines, only its first `maxBytes` when given; none when it can't be read. */
-export function readLines(path: string, maxBytes?: number): string[] {
-  try {
-    if (maxBytes === undefined) return readFileSync(path, "utf8").split("\n");
-    const fd = openSync(path, "r");
-    try {
-      const buffer = Buffer.alloc(maxBytes);
-      const read = readSync(fd, buffer, 0, maxBytes, 0);
-      return buffer.subarray(0, read).toString("utf8").split("\n");
-    } finally {
-      closeSync(fd);
-    }
-  } catch {
-    return [];
-  }
-}
 
 /** What the logs of an issue's runs say, by file name: the `.jsonl` and the supervisor's `.log`. */
 export function runFacts(logs: string, runLogs: readonly string[]): Record<string, RunFacts> {
@@ -42,8 +23,9 @@ export function runFacts(logs: string, runLogs: readonly string[]): Record<strin
     const exists = existsSync(path);
     facts[basename(log)] = {
       exists,
-      started: exists && claudeStarted(readLines(path, HEAD_BYTES)),
-      costUsd: exists ? logFacts(readLines(path)).costUsd : 0,
+      started: exists && claudeStarted(readHead(path)),
+      // The result event is the log's last: its tail holds the newest.
+      costUsd: exists ? logFacts(readTail(path)).costUsd : 0,
     };
     const lines = supervisorLog(log);
     facts[basename(lines)] = {

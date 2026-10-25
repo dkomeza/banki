@@ -1,4 +1,3 @@
-import { closeSync, openSync, readSync } from "node:fs";
 import { basename } from "node:path";
 import type { ActiveRecord } from "../dispatch/lifecycle";
 import { supervisorLog } from "../dispatch/spawn";
@@ -7,6 +6,7 @@ import { errorText } from "../lib/config";
 import type { SharedView } from "./cache";
 import { redactTokens } from "../dispatch/secrets";
 import { markup, page } from "./html";
+import { logTail, readChunk } from "./files";
 import type { LiveView } from "./live";
 import { logPage, shownLines } from "./log-page";
 import { nowFragment, nowPage } from "./now-page";
@@ -84,11 +84,15 @@ export function sseMessage(event: string, data: string, id?: string): string {
 
 /**
  * An SSE response: `produce` sends messages until it returns or the client
- * goes, with a ping in between so an idle connection isn't dropped.
+ * goes, with a ping in between so an idle connection isn't dropped. A
+ * producer that fails, such as on a log deleted under it, is logged, its
+ * client told the stream has ended, and the stream closed: never the
+ * process's end.
  */
 function sse(
   request: Request,
   pingMs: number,
+  log: (line: string) => void,
   produce: (send: (message: string) => void, open: () => boolean) => Promise<void>,
 ): Response {
   const encoder = new TextEncoder();
@@ -117,7 +121,17 @@ function sse(
       request.signal.addEventListener("abort", stop, { once: true });
       ping = setInterval(() => send(": ping\n\n"), pingMs);
       send("retry: 5000\n\n");
-      void produce(send, () => !closed && !request.signal.aborted).finally(stop);
+      const open = () => !closed && !request.signal.aborted;
+      void (async () => {
+        try {
+          await produce(send, open);
+        } catch (error) {
+          log(`${new URL(request.url).pathname} failed: ${errorText(error)}`);
+          send(sseMessage("end", "the stream failed"));
+        } finally {
+          stop();
+        }
+      })();
     },
     cancel() {
       closed = true;
@@ -127,28 +141,6 @@ function sse(
   return new Response(stream, {
     headers: { ...HEADERS, "Content-Type": "text/event-stream; charset=utf-8" },
   });
-}
-
-/** The bytes of a file from `from`, up to its last complete line; and where that ends. */
-function completeLines(path: string, from: number): { text: string; end: number } {
-  const fd = openSync(path, "r");
-  try {
-    const chunks: Buffer[] = [];
-    const buffer = Buffer.alloc(1 << 16);
-    let position = from;
-    for (;;) {
-      const read = readSync(fd, buffer, 0, buffer.length, position);
-      if (read === 0) break;
-      chunks.push(Buffer.from(buffer.subarray(0, read)));
-      position += read;
-    }
-    const bytes = Buffer.concat(chunks);
-    const last = bytes.lastIndexOf(0x0a);
-    if (last === -1) return { text: "", end: from };
-    return { text: bytes.subarray(0, last + 1).toString("utf8"), end: from + last + 1 };
-  } finally {
-    closeSync(fd);
-  }
 }
 
 const sleep = (ms: number, open: () => boolean) =>
@@ -183,7 +175,7 @@ export function handler(deps: ServerDeps): (request: Request) => Promise<Respons
     });
 
   async function logView(issue: string, file: string, path: string): Promise<Response> {
-    const { text, end } = completeLines(path, 0);
+    const tail = logTail(path);
     const isRunning = running(issue, file);
     const data = await deps.issue(issue);
     return htmlPage(
@@ -191,8 +183,9 @@ export function handler(deps: ServerDeps): (request: Request) => Promise<Respons
         {
           issue,
           file,
-          lines: shownLines(file, text.split("\n")),
-          offset: end,
+          lines: shownLines(file, tail.lines),
+          skipped: tail.skipped,
+          offset: tail.end,
           running: isRunning,
           attempt: attemptOf(timeline(data), issue, file),
           linearError: "error" in data.linear ? data.linear.error : undefined,
@@ -206,15 +199,29 @@ export function handler(deps: ServerDeps): (request: Request) => Promise<Respons
     const url = new URL(request.url);
     const resume = Number(request.headers.get("last-event-id") ?? url.searchParams.get("from"));
     let offset = Number.isSafeInteger(resume) && resume >= 0 ? resume : 0;
-    return sse(request, pingMs, async (send, open) => {
+    /** Set while passing over a line too long to read whole, until its end. */
+    let passing = false;
+    return sse(request, pingMs, deps.log, async (send, open) => {
       while (open()) {
         const still = running(issue, file);
-        const { text, end } = completeLines(path, offset);
-        if (end > offset) {
-          offset = end;
+        // A chunk at a time, until it has caught up with the file.
+        for (;;) {
+          const chunk = readChunk(path, offset);
+          if (chunk.end === offset) break;
+          offset = chunk.end;
+          if (chunk.overlong) {
+            if (!passing) send(sseMessage("line", "(an event too long to show)", String(offset)));
+            passing = true;
+            continue;
+          }
+          let lines = chunk.text.split("\n");
+          // The rest of the line passed over.
+          if (passing) lines = lines.slice(1);
+          passing = false;
           // Plain text, redacted: live.js sets it as a line's textContent, never as HTML.
-          for (const line of shownLines(file, text.split("\n")))
+          for (const line of shownLines(file, lines))
             send(sseMessage("line", redactTokens(line), String(offset)));
+          if (!open()) return;
         }
         if (!still) {
           send(sseMessage("end", "the Stage's run has ended"));
@@ -226,7 +233,7 @@ export function handler(deps: ServerDeps): (request: Request) => Promise<Respons
   }
 
   function nowEvents(request: Request): Response {
-    return sse(request, pingMs, async (send, open) => {
+    return sse(request, pingMs, deps.log, async (send, open) => {
       while (open()) {
         await sleep(liveEveryMs, open);
         if (!open()) return;
