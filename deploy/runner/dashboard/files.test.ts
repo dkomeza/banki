@@ -73,16 +73,37 @@ describe("a stream's next chunk", () => {
     const path = join(dir, "chunk.log");
     writeFileSync(path, "one\ntwo\nthree\npart");
 
-    expect(readChunk(path, 0, 9)).toEqual({ text: "one\ntwo\n", end: 8, overlong: false });
-    expect(readChunk(path, 8, 100)).toEqual({ text: "three\n", end: 14, overlong: false });
-    expect(readChunk(path, 14, 100)).toEqual({ text: "", end: 14, overlong: false });
+    expect(readChunk(path, 0, 9)).toEqual({
+      lines: [
+        { text: "one", end: 4 },
+        { text: "two", end: 8 },
+      ],
+      end: 8,
+      overlong: false,
+    });
+    expect(readChunk(path, 8, 100)).toEqual({
+      lines: [{ text: "three", end: 14 }],
+      end: 14,
+      overlong: false,
+    });
+    expect(readChunk(path, 14, 100)).toEqual({ lines: [], end: 14, overlong: false });
+  });
+
+  test("says where each line ends in bytes, not characters", () => {
+    const path = join(dir, "bytes.log");
+    writeFileSync(path, "zażółć\nok\n");
+
+    expect(readChunk(path, 0).lines).toEqual([
+      { text: "zażółć", end: 11 },
+      { text: "ok", end: 14 },
+    ]);
   });
 
   test("passes over a line longer than the bound", () => {
     const path = join(dir, "long.log");
     writeFileSync(path, `${"y".repeat(50)}\nafter\n`);
 
-    expect(readChunk(path, 0, 10)).toEqual({ text: "", end: 10, overlong: true });
+    expect(readChunk(path, 0, 10)).toEqual({ lines: [], end: 10, overlong: true });
   });
 
   test("throws once its file is gone, for the stream to end", () => {

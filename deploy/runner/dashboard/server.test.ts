@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { store } from "../dispatch/store";
 import { fakeLinear } from "../dispatch/test-fakes";
 import { dashboard } from "./app";
+import { readChunk } from "./files";
 import { ACTIVE, github, issues, NOW, writeVolume } from "./fixtures/ban-11";
 import { CSP, handler, type ServerDeps } from "./server";
 
@@ -53,6 +54,23 @@ async function setup(options: Partial<ServerDeps> = {}, clock?: () => number) {
   const fetch = handler({ ...deps, ...options });
   const get = (path: string, init?: RequestInit) => fetch(new Request(`http://dash${path}`, init));
   return { get, minted, revoked, fixture };
+}
+
+/** A log stream's line events, with their ids, until it ends. */
+async function lineEvents(res: Response): Promise<{ id: string | undefined; data: string }[]> {
+  const text = await res.text();
+  return text
+    .split("\n\n")
+    .filter((message) => message.startsWith("event: line\n"))
+    .map((message) => {
+      const fields = message.split("\n");
+      const id = fields.find((field) => field.startsWith("id: "))?.slice(4);
+      const data = fields
+        .filter((field) => field.startsWith("data: "))
+        .map((field) => field.slice(6))
+        .join("\n");
+      return { id, data };
+    });
 }
 
 const PAGES = [
@@ -269,6 +287,90 @@ describe("the Dashboard's server", () => {
 
     expect(seen).toContain("event: end\ndata: the stream failed");
     expect((await get("/ticks")).status).toBe(200);
+  });
+
+  test("gives each line of a log's stream the byte just past it as its id, to resume from", async () => {
+    const { get } = await setup({ pollMs: 10, pingMs: 1_000 });
+    const file = "ids.log";
+    writeFileSync(join(work, "logs", "BAN-11", file), "first ż\nsecond\n");
+    const stream = `/issues/BAN-11/logs/${file}/events`;
+
+    const all = await lineEvents(await get(`${stream}?from=0`));
+    // "first ż" is 8 bytes in UTF-8, though 7 characters.
+    expect(all).toEqual([
+      { id: "9", data: "first ż" },
+      { id: "16", data: "second" },
+    ]);
+    const resumed = await lineEvents(
+      await get(`${stream}?from=0`, { headers: { "Last-Event-ID": "9" } }),
+    );
+    expect(resumed).toEqual([{ id: "16", data: "second" }]);
+  });
+
+  test("ids a line too long to show by the byte past its end, so a resume goes on after it", async () => {
+    const { get } = await setup({
+      pollMs: 10,
+      pingMs: 1_000,
+      readChunk: (path, from) => readChunk(path, from, 16),
+    });
+    const file = "overlong.log";
+    writeFileSync(join(work, "logs", "BAN-11", file), `a\n${"y".repeat(40)}\nafter\n`);
+    const stream = `/issues/BAN-11/logs/${file}/events`;
+
+    expect(await lineEvents(await get(`${stream}?from=0`))).toEqual([
+      { id: "2", data: "a" },
+      { id: "43", data: "(an event too long to show)" },
+      { id: "49", data: "after" },
+    ]);
+    expect(await lineEvents(await get(`${stream}?from=43`))).toEqual([{ id: "49", data: "after" }]);
+  });
+
+  test("reads no more of a log than its client keeps up with, and goes on as it reads", async () => {
+    let reads = 0;
+    const { get } = await setup({
+      pollMs: 10,
+      pingMs: 1_000,
+      streamBufferBytes: 256,
+      readChunk: (path, from) => {
+        reads += 1;
+        return readChunk(path, from, 64);
+      },
+    });
+    const file = "big.log";
+    const lines = Array.from({ length: 2_000 }, (_, i) => `line ${String(i).padStart(6, "0")}`);
+    writeFileSync(join(work, "logs", "BAN-11", file), `${lines.join("\n")}\n`);
+
+    const res = await get(`/issues/BAN-11/logs/${file}/events?from=0`);
+    const reader = res.body?.getReader();
+    if (reader === undefined) throw new Error("no stream");
+    await Bun.sleep(200);
+
+    // 2,000 lines are over 500 chunks of 64 bytes; a stalled client holds it to a few.
+    expect(reads).toBeLessThanOrEqual(10);
+    const stalled = reads;
+    for (let i = 0; i < 20; i += 1) await reader.read();
+    await Bun.sleep(50);
+    expect(reads).toBeGreaterThan(stalled);
+    await reader.cancel();
+  });
+
+  test("lets no pings pile up behind a client that doesn't read", async () => {
+    const { get } = await setup({ liveEveryMs: 60_000, pingMs: 10 });
+    const res = await get("/events");
+    const reader = res.body?.getReader();
+    if (reader === undefined) throw new Error("no stream");
+    await Bun.sleep(300);
+
+    // What the stream holds now comes at once; a ping sent since takes 10 ms.
+    let seen = "";
+    for (;;) {
+      const next = await Promise.race([reader.read(), Bun.sleep(5).then(() => undefined)]);
+      if (next === undefined || next.done) break;
+      seen += new TextDecoder().decode(next.value);
+    }
+    await reader.cancel();
+
+    expect(seen.split(": ping").length - 1).toBeLessThanOrEqual(2);
   });
 
   test("sends the Now page's live view over its stream", async () => {

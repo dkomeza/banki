@@ -6,7 +6,7 @@ import { errorText } from "../lib/config";
 import type { SharedView } from "./cache";
 import { redactTokens } from "../dispatch/secrets";
 import { markup, page } from "./html";
-import { logTail, readChunk } from "./files";
+import { type Chunk, logTail, readChunk } from "./files";
 import type { LiveView } from "./live";
 import { logPage, shownLines } from "./log-page";
 import { nowFragment, nowPage } from "./now-page";
@@ -56,6 +56,10 @@ export type ServerDeps = {
   liveEveryMs?: number;
   /** How often a stream says it is still there, so nothing in between drops it. */
   pingMs?: number;
+  /** How a log's stream reads its next lines: files.ts's `readChunk`, but in tests. */
+  readChunk?: (path: string, from: number) => Chunk;
+  /** How many bytes a stream holds for a client that is behind, before it waits for it. */
+  streamBufferBytes?: number;
 };
 
 const respond = (body: string, status: number, type: string, extra: Record<string, string> = {}) =>
@@ -82,62 +86,98 @@ export function sseMessage(event: string, data: string, id?: string): string {
   return `event: ${event}\n${id === undefined ? "" : `id: ${id}\n`}${lines.join("\n")}\n\n`;
 }
 
+/** What a log's stream says for a line too long to read whole; `id` is the byte past its end. */
+const tooLong = (id?: number) =>
+  sseMessage("line", "(an event too long to show)", id === undefined ? undefined : String(id));
+
+/** How many bytes a stream holds for a client that is behind, by default. */
+export const STREAM_BUFFER_BYTES = 64 << 10;
+
 /**
  * An SSE response: `produce` sends messages until it returns or the client
- * goes, with a ping in between so an idle connection isn't dropped. A
- * producer that fails, such as on a log deleted under it, is logged, its
- * client told the stream has ended, and the stream closed: never the
- * process's end.
+ * goes, with a ping in between so an idle connection isn't dropped. The
+ * stream holds `bufferBytes` at most for a client that is behind: `send`
+ * waits until the client has read enough, so a big log or a slow client
+ * never piles up in memory, and a ping goes out only when nothing waits to
+ * be read. A producer that fails, such as on a log deleted under it, is
+ * logged, its client told the stream has ended, and the stream closed:
+ * never the process's end.
  */
 function sse(
   request: Request,
-  pingMs: number,
-  log: (line: string) => void,
-  produce: (send: (message: string) => void, open: () => boolean) => Promise<void>,
+  options: { pingMs: number; bufferBytes: number; log: (line: string) => void },
+  produce: (send: (message: string) => Promise<void>, open: () => boolean) => Promise<void>,
 ): Response {
   const encoder = new TextEncoder();
   let closed = false;
   let ping: Timer | undefined;
-  const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      const send = (message: string) => {
-        if (closed) return;
-        try {
-          controller.enqueue(encoder.encode(message));
-        } catch {
+  /** The producer's wait for room, ended by a read, or by the client going. */
+  let wake: (() => void) | undefined;
+  const woken = () => {
+    const resume = wake;
+    wake = undefined;
+    resume?.();
+  };
+  const stream = new ReadableStream<Uint8Array>(
+    {
+      start(controller) {
+        const enqueue = (message: string) => {
+          if (closed) return;
+          try {
+            controller.enqueue(encoder.encode(message));
+          } catch {
+            closed = true;
+          }
+        };
+        const open = () => !closed && !request.signal.aborted;
+        const send = async (message: string) => {
+          enqueue(message);
+          while (open() && (controller.desiredSize ?? 0) <= 0) {
+            await new Promise<void>((resolve) => {
+              wake = resolve;
+            });
+          }
+        };
+        const stop = () => {
+          if (closed) return;
           closed = true;
-        }
-      };
-      const stop = () => {
-        if (closed) return;
+          clearInterval(ping);
+          woken();
+          try {
+            controller.close();
+          } catch {
+            // Closed already.
+          }
+        };
+        request.signal.addEventListener("abort", stop, { once: true });
+        ping = setInterval(() => {
+          // Only into an empty stream: behind a client that doesn't read, pings would pile up.
+          if ((controller.desiredSize ?? 0) >= options.bufferBytes) enqueue(": ping\n\n");
+        }, options.pingMs);
+        enqueue("retry: 5000\n\n");
+        void (async () => {
+          try {
+            await produce(send, open);
+          } catch (error) {
+            options.log(`${new URL(request.url).pathname} failed: ${errorText(error)}`);
+            enqueue(sseMessage("end", "the stream failed"));
+          } finally {
+            stop();
+          }
+        })();
+      },
+      // The client has read: there is room for more.
+      pull() {
+        woken();
+      },
+      cancel() {
         closed = true;
         clearInterval(ping);
-        try {
-          controller.close();
-        } catch {
-          // Closed already.
-        }
-      };
-      request.signal.addEventListener("abort", stop, { once: true });
-      ping = setInterval(() => send(": ping\n\n"), pingMs);
-      send("retry: 5000\n\n");
-      const open = () => !closed && !request.signal.aborted;
-      void (async () => {
-        try {
-          await produce(send, open);
-        } catch (error) {
-          log(`${new URL(request.url).pathname} failed: ${errorText(error)}`);
-          send(sseMessage("end", "the stream failed"));
-        } finally {
-          stop();
-        }
-      })();
+        woken();
+      },
     },
-    cancel() {
-      closed = true;
-      clearInterval(ping);
-    },
-  });
+    { highWaterMark: options.bufferBytes, size: (chunk) => chunk?.byteLength ?? 0 },
+  );
   return new Response(stream, {
     headers: { ...HEADERS, "Content-Type": "text/event-stream; charset=utf-8" },
   });
@@ -160,6 +200,12 @@ export function handler(deps: ServerDeps): (request: Request) => Promise<Respons
   const pollMs = deps.pollMs ?? 1_000;
   const liveEveryMs = deps.liveEveryMs ?? 30_000;
   const pingMs = deps.pingMs ?? 15_000;
+  const read = deps.readChunk ?? ((path: string, from: number) => readChunk(path, from));
+  const streams = {
+    pingMs,
+    bufferBytes: deps.streamBufferBytes ?? STREAM_BUFFER_BYTES,
+    log: deps.log,
+  };
 
   /** Whether this log is a run going on now: the newest run of a Stage running, or its supervisor's. */
   const running = (issue: string, file: string) =>
@@ -201,30 +247,36 @@ export function handler(deps: ServerDeps): (request: Request) => Promise<Respons
     let offset = Number.isSafeInteger(resume) && resume >= 0 ? resume : 0;
     /** Set while passing over a line too long to read whole, until its end. */
     let passing = false;
-    return sse(request, pingMs, deps.log, async (send, open) => {
+    return sse(request, streams, async (send, open) => {
       while (open()) {
         const still = running(issue, file);
         // A chunk at a time, until it has caught up with the file.
         for (;;) {
-          const chunk = readChunk(path, offset);
+          const chunk = read(path, offset);
           if (chunk.end === offset) break;
           offset = chunk.end;
           if (chunk.overlong) {
-            if (!passing) send(sseMessage("line", "(an event too long to show)", String(offset)));
             passing = true;
             continue;
           }
-          let lines = chunk.text.split("\n");
-          // The rest of the line passed over.
-          if (passing) lines = lines.slice(1);
-          passing = false;
-          // Plain text, redacted: live.js sets it as a line's textContent, never as HTML.
-          for (const line of shownLines(file, lines))
-            send(sseMessage("line", redactTokens(line), String(offset)));
-          if (!open()) return;
+          // Each line's id is the byte just past it, so a client that resumes
+          // with it goes on from the line after its last.
+          for (const [i, line] of chunk.lines.entries()) {
+            if (i === 0 && passing) {
+              // The rest of the line passed over: said once, at its end.
+              passing = false;
+              await send(tooLong(line.end));
+              continue;
+            }
+            // Plain text, redacted: live.js sets it as a line's textContent, never as HTML.
+            for (const shown of shownLines(file, [line.text]))
+              await send(sseMessage("line", redactTokens(shown), String(line.end)));
+            if (!open()) return;
+          }
         }
         if (!still) {
-          send(sseMessage("end", "the Stage's run has ended"));
+          if (passing) await send(tooLong());
+          await send(sseMessage("end", "the Stage's run has ended"));
           return;
         }
         await sleep(pollMs, open);
@@ -233,12 +285,12 @@ export function handler(deps: ServerDeps): (request: Request) => Promise<Respons
   }
 
   function nowEvents(request: Request): Response {
-    return sse(request, pingMs, deps.log, async (send, open) => {
+    return sse(request, streams, async (send, open) => {
       while (open()) {
         await sleep(liveEveryMs, open);
         if (!open()) return;
         try {
-          send(sseMessage("view", nowFragment(await deps.live.get(), deps.tz)));
+          await send(sseMessage("view", nowFragment(await deps.live.get(), deps.tz)));
         } catch (error) {
           deps.log(`The live view failed: ${errorText(error)}`);
         }

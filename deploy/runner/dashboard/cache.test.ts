@@ -66,6 +66,49 @@ describe("the live view", () => {
     expect(view.peek()).toBe(2);
   });
 
+  test("shares a computation still running after 30 seconds, until it settles", async () => {
+    const { view, computed, advance, settle } = setup();
+
+    const first = view.get();
+    advance(31_000);
+    const again = view.get();
+
+    expect(computed()).toBe(1);
+    settle();
+    expect(await first).toBe(1);
+    expect(await again).toBe(1);
+    // Settled, 31 seconds after it started: the next viewer starts another.
+    const next = view.get();
+    settle();
+    expect(await next).toBe(2);
+    expect(computed()).toBe(2);
+  });
+
+  test("shares a computation still running after 30 seconds that then fails, until it fails", async () => {
+    let clock = 0;
+    let calls = 0;
+    const rejects: ((error: Error) => void)[] = [];
+    const view = sharedView({
+      compute: () => {
+        calls += 1;
+        return new Promise<number>((_, reject) => rejects.push(reject));
+      },
+      now: () => clock,
+      everyMs: 30_000,
+    });
+
+    const first = view.get().catch(String);
+    clock += 31_000;
+    const again = view.get().catch(String);
+    for (const reject of rejects.splice(0)) reject(new Error("Linear: HTTP 500"));
+
+    expect(await first).toContain("HTTP 500");
+    expect(await again).toContain("HTTP 500");
+    expect(calls).toBe(1);
+    void view.get().catch(() => undefined);
+    expect(calls).toBe(2);
+  });
+
   test("keeps a computation that failed for its 30 seconds too, so a broken Linear isn't hammered", async () => {
     let calls = 0;
     let clock = 0;
@@ -122,6 +165,29 @@ describe("each issue's data", () => {
     expect(await views.get("BAN-1")).toBe("BAN-1#3");
 
     expect(computed).toEqual(["BAN-1", "BAN-2", "BAN-1"]);
+  });
+
+  test("shares an issue's computation still running after 30 seconds", async () => {
+    let clock = 0;
+    const computed: string[] = [];
+    const resolvers: (() => void)[] = [];
+    const views = keyedViews({
+      compute: (issue: string) => {
+        computed.push(issue);
+        return new Promise<string>((resolve) => resolvers.push(() => resolve(issue)));
+      },
+      now: () => clock,
+      everyMs: 30_000,
+      max: 3,
+    });
+
+    const first = views.get("BAN-1");
+    clock += 31_000;
+    const again = views.get("BAN-1");
+    for (const resolve of resolvers.splice(0)) resolve();
+
+    expect(await Promise.all([first, again])).toEqual(["BAN-1", "BAN-1"]);
+    expect(computed).toEqual(["BAN-1"]);
   });
 
   test("computes nothing for an issue nobody asks for", () => {

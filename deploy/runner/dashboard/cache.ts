@@ -9,7 +9,10 @@
 export const LIVE_EVERY_MS = 30_000;
 
 export type SharedView<T> = {
-  /** The view: the last one if it is under 30 seconds old, or a new computation. */
+  /**
+   * The view: the computation still running, the last one if it started
+   * under 30 seconds ago, or a new computation.
+   */
   get: () => Promise<T>;
   /** The last view that came out, if one did, without computing anything. */
   peek: () => T | undefined;
@@ -21,19 +24,24 @@ export function sharedView<T>(options: {
   everyMs?: number;
 }): SharedView<T> {
   const everyMs = options.everyMs ?? LIVE_EVERY_MS;
-  let last: { startedAt: number; value: Promise<T> } | undefined;
+  let last: { startedAt: number; value: Promise<T>; running: boolean } | undefined;
   let settled: T | undefined;
   return {
     get() {
       const now = options.now();
-      if (last === undefined || now - last.startedAt >= everyMs) {
-        const value = options.compute();
-        last = { startedAt: now, value };
-        value.then(
+      // A computation still running is shared however long it takes, so a
+      // slow Linear or GitHub never has two going at once.
+      if (last === undefined || (!last.running && now - last.startedAt >= everyMs)) {
+        const current = { startedAt: now, value: options.compute(), running: true };
+        last = current;
+        current.value.then(
           (result) => {
+            current.running = false;
             settled = result;
           },
-          () => undefined,
+          () => {
+            current.running = false;
+          },
         );
       }
       return last.value;

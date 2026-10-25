@@ -104,8 +104,8 @@ export function logTail(path: string, maxLines = PAGE_LINES, maxBytes = PAGE_BYT
 }
 
 export type Chunk = {
-  /** The whole lines read, each ending in a newline. */
-  text: string;
+  /** The whole lines read, without their newlines, each with the byte just past its newline. */
+  lines: { text: string; end: number }[];
   /** Where the next read starts. */
   end: number;
   /** Set when a line ran on past `maxBytes`: its bytes so far are passed over, unread. */
@@ -113,9 +113,10 @@ export type Chunk = {
 };
 
 /**
- * The whole lines of a file from `from`, at most `maxBytes` of them. A line
- * longer than that comes back as `overlong`, its bytes so far passed over.
- * Throws when the file can't be read, such as once it is deleted.
+ * The whole lines of a file from `from`, at most `maxBytes` of them, each
+ * with where it ends in bytes, for a stream to resume from. A line longer
+ * than that comes back as `overlong`, its bytes so far passed over. Throws
+ * when the file can't be read, such as once it is deleted.
  */
 export function readChunk(path: string, from: number, maxBytes = CHUNK_BYTES): Chunk {
   const fd = openSync(path, "r");
@@ -124,13 +125,19 @@ export function readChunk(path: string, from: number, maxBytes = CHUNK_BYTES): C
     const last = bytes.lastIndexOf(0x0a);
     if (last === -1) {
       const overlong = bytes.length === maxBytes;
-      return { text: "", end: overlong ? from + bytes.length : from, overlong };
+      return { lines: [], end: overlong ? from + bytes.length : from, overlong };
     }
-    return {
-      text: bytes.subarray(0, last + 1).toString("utf8"),
-      end: from + last + 1,
-      overlong: false,
-    };
+    // Counted in the file's bytes, never in the text's characters.
+    const lines: Chunk["lines"] = [];
+    for (let start = 0; start <= last;) {
+      const newline = bytes.indexOf(0x0a, start);
+      lines.push({
+        text: bytes.subarray(start, newline).toString("utf8"),
+        end: from + newline + 1,
+      });
+      start = newline + 1;
+    }
+    return { lines, end: from + last + 1, overlong: false };
   } finally {
     closeSync(fd);
   }
