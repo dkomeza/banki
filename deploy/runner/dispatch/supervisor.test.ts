@@ -7,7 +7,14 @@ import { MAINTAINER, resultIn } from "./closing";
 import { STAGE_LIMIT_MS } from "./lifecycle";
 import { store } from "./store";
 import { supervise, type SupervisorDeps } from "./supervisor";
-import { fakeGitHub, fakeIssue, type FakeIssue, fakeLinear, reading } from "./test-fakes";
+import {
+  fakeGitHub,
+  fakeIssue,
+  type FakeIssue,
+  fakeLinear,
+  reading,
+  RUNNER_ID,
+} from "./test-fakes";
 
 // One Stage under its supervisor, with a stand-in Stage, gate and Linear.
 
@@ -144,6 +151,26 @@ describe("a supervised Stage", () => {
     expect(ended?.runs[0]).toMatchObject({ costUsd: 1.5, log });
     expect(ended?.runs[0]?.before).toBeDefined();
     expect(ended?.runs[0]?.after).toBeDefined();
+  });
+
+  // Linear assigns a linked PR's author, the Runner app, to its issue.
+  test("unassigns the Runner app before it starts, and after the Stage opened its PR", async () => {
+    const issue = fakeIssue("BAN-1", { assigneeId: RUNNER_ID });
+    const { deps, linear, log } = setup(issue, () => {
+      issue.assigneeId = RUNNER_ID;
+      return { result: done };
+    });
+
+    expect(await supervise("implement", "BAN-1", { log, resume: false }, deps)).toBe(0);
+
+    expect(linear.calls).toEqual([
+      "BAN-1 assigned null",
+      "BAN-1 → In Progress",
+      "BAN-1 comment",
+      "BAN-1 → In Review",
+      "BAN-1 assigned null",
+    ]);
+    expect(issue.assigneeId).toBeNull();
   });
 
   test("on a stop, posts its question and assigns the Maintainer", async () => {

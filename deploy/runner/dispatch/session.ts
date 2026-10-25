@@ -18,8 +18,9 @@ import { logTail } from "./stage-log";
 
 // One conversation with Linear and GitHub, for a tick, a `run-now` or a
 // `runner status`: a Linear token from the Broker for it alone, revoked at
-// its end, the Runner app's own ID from `viewer`, and the GitHub facts an
-// issue's decision needs, fetched only when it needs them.
+// its end, the Runner app's own ID from `viewer` (an assignment to it is
+// Linear's, and holds nothing), and the GitHub facts an issue's decision
+// needs, fetched only when it needs them.
 
 export type SessionDeps = {
   broker: Pick<Broker, "linearToken" | "endLinearToken" | "githubToken">;
@@ -89,7 +90,8 @@ export async function openSession(deps: SessionDeps) {
           priority: issue.priority,
           createdAt: issue.createdAt,
           status: issue.status,
-          assigneeId: issue.assigneeId,
+          // Read-only, the app's assignment is decided past, as a tick would release it.
+          assigneeId: issue.assigneeId === runnerId ? null : issue.assigneeId,
           assignedAt: history.assignedAt,
           branch,
           description: issue.description,
@@ -114,6 +116,21 @@ export async function openSession(deps: SessionDeps) {
       },
 
       stop,
+
+      /**
+       * Unassigns the issue (in Linear, and in `issue`) when it is the Runner
+       * app's: Linear assigns a linked PR's author, and only a person's
+       * assignment holds an issue. Says whether it did.
+       */
+      async release(issue: LinearIssue): Promise<boolean> {
+        if (issue.assigneeId !== runnerId) return false;
+        await linear.update(issue.id, { assigneeId: null });
+        issue.assigneeId = null;
+        deps.log(
+          `Unassigned ${issue.identifier} from the Runner app (Linear assigns a linked PR's author)`,
+        );
+        return true;
+      },
 
       /**
        * After a crash or a timeout: the status from before In Progress comes
