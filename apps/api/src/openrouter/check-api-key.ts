@@ -12,7 +12,8 @@ const TIMEOUT_MS = 10_000;
 export type OpenRouterFetch = (input: string, init: RequestInit) => Promise<Response>;
 
 /**
- * `accepted` when OpenRouter answers 200, `refused` when it answers 401, and
+ * `accepted` when OpenRouter answers 200, `refused` when it answers 401 (or
+ * the key has characters no request can carry), and
  * `unreachable` for anything else: a network error, a timeout or any other
  * status.
  */
@@ -23,9 +24,17 @@ export async function checkApiKey(
   apiKey: string,
   { fetch, timeoutMs = TIMEOUT_MS }: { fetch: OpenRouterFetch; timeoutMs?: number },
 ): Promise<ApiKeyCheck> {
+  let headers: Headers;
+  try {
+    headers = new Headers({ authorization: `Bearer ${apiKey}` });
+  } catch {
+    // Characters no header can carry (a line break, an emoji): no key
+    // OpenRouter issues has them, so it would refuse it.
+    return "refused";
+  }
   try {
     const res = await fetch(OPENROUTER_KEY_URL, {
-      headers: { authorization: `Bearer ${apiKey}` },
+      headers,
       signal: AbortSignal.timeout(timeoutMs),
     });
     // Only the status matters; the body isn't read.

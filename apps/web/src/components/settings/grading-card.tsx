@@ -41,14 +41,10 @@ export function GradingCard() {
   const state = useSyncExternalStore(saver.subscribe, saver.getState);
   const shown = shownSettings(state);
 
-  // An API key's answer is the Settings as stored: the saver takes it from
-  // the cache, as it takes any read.
-  const store = (read: SettingsRead) =>
-    queryClient.setQueryData(settingsQueryOptions().queryKey, read);
-
   return (
     <SettingsCard id="grading" title="Grading">
-      <ApiKeyRow status={shown.apiKey} onStored={store} />
+      {/* Through the saver, which keeps it whatever Model saves are under way. */}
+      <ApiKeyRow status={shown.apiKey} onStored={(read) => saver.storeApiKey(read)} />
       <hr />
       <ModelField
         model={effectiveModelId(shown.model)}
@@ -93,7 +89,8 @@ function ApiKeyRow({
   const [error, setError] = useState<string>();
   const [done, setDone] = useState<string>();
   const attempt = useAttempts();
-  const set = status.state === "set";
+  // An unreadable key is stored too: it can be changed or removed.
+  const set = status.state !== "unset";
 
   const show = () => {
     attempt.forget();
@@ -138,9 +135,11 @@ function ApiKeyRow({
       <Row
         label="API key"
         value={apiKeyValue(status)}
+        // A sentence, not a value: it wraps rather than lose "Enter it again."
+        wrap={status.state === "unreadable"}
         action={
           mode === "showing" && (
-            <div className="flex shrink-0 flex-wrap justify-end gap-2">
+            <div className="ml-auto flex shrink-0 gap-2">
               <Button
                 variant="outline"
                 size="lg"
@@ -210,7 +209,6 @@ function ApiKeyRow({
           <div className="flex flex-wrap gap-2">
             <Button
               size="lg"
-              variant="destructive"
               className={PILL}
               autoFocus
               disabled={busy}

@@ -43,6 +43,23 @@ describe("checkApiKey", () => {
     expect(await checkApiKey("k", { fetch: failing })).toBe("unreachable");
   });
 
+  test.each([
+    ["a line break", "sk-or-v1-abc\ndef"],
+    ["an emoji", "sk-or-v1-abc🔑"],
+  ])(
+    "refuses a key with %s, which no request can carry, without calling OpenRouter",
+    async (_, key) => {
+      let called = false;
+      const fetch: OpenRouterFetch = async () => {
+        called = true;
+        return new Response("{}", { status: 200 });
+      };
+
+      expect(await checkApiKey(key, { fetch })).toBe("refused");
+      expect(called).toBe(false);
+    },
+  );
+
   test("gives up after the timeout", async () => {
     expect(await checkApiKey("k", { fetch: hanging, timeoutMs: 20 })).toBe("unreachable");
   });

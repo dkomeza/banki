@@ -337,3 +337,74 @@ describe("createSettingsSaver", () => {
     expect(shownSettings(state()).dayStartHour).toBe(5);
   });
 });
+
+describe("the API key's answers", () => {
+  const SET = { state: "set", lastFour: "3f9a" } as const;
+  const withKey = (settings: SettingsResponse) => ({ ...settings, apiKey: SET });
+
+  test("show even when a Model save issued after the key's request answered first", async () => {
+    const { server, saver, state, kept, at } = setUp();
+    // The key's request goes out at 1; the Model save at 2 answers at 3,
+    // from before the key was stored.
+    at(2);
+    saver.change({ field: "model", attempted: "openai/gpt-6-luna" });
+    at(3);
+    server.requests[0]?.succeed();
+    await flush();
+    at(4);
+
+    saver.storeApiKey(read(withKey(server.stored()), 1));
+
+    expect(state().stored.apiKey).toEqual(SET);
+    expect(state().stored.model).toBe("openai/gpt-6-luna");
+    expect(kept.at(-1)?.apiKey).toEqual(SET);
+  });
+
+  test("aren't undone by a Model save issued before them that answers after", async () => {
+    const { server, saver, state, kept, at } = setUp();
+    at(1);
+    saver.change({ field: "model", attempted: "openai/gpt-6-luna" });
+    at(2);
+    saver.storeApiKey(read(withKey(START), 1.5));
+    expect(state().stored.apiKey).toEqual(SET);
+
+    // The server answered the Model save with the Settings from before the key.
+    at(3);
+    server.requests[0]?.succeed();
+    await flush();
+
+    expect(state().stored.apiKey).toEqual(SET);
+    expect(state().stored.model).toBe("openai/gpt-6-luna");
+    expect(kept.at(-1)?.apiKey).toEqual(SET);
+  });
+
+  test("aren't undone by a read issued before they arrived", () => {
+    const { saver, state, at } = setUp();
+    at(2);
+    saver.storeApiKey(read(withKey(START), 1));
+
+    saver.sync(read(START, 1.5));
+
+    expect(state().stored.apiKey).toEqual(SET);
+  });
+
+  test("give way to a read issued after they arrived", () => {
+    const { saver, state, at } = setUp();
+    at(2);
+    saver.storeApiKey(read(withKey(START), 1));
+
+    saver.sync(read({ ...START, apiKey: { state: "unset" } }, 5));
+
+    expect(state().stored.apiKey).toEqual({ state: "unset" });
+  });
+
+  test("give way to a later answer about the key", () => {
+    const { saver, state, at } = setUp();
+    at(3);
+    saver.storeApiKey(read({ ...START, apiKey: { state: "unset" } }, 2));
+
+    saver.storeApiKey(read(withKey(START), 1));
+
+    expect(state().stored.apiKey).toEqual({ state: "unset" });
+  });
+});
