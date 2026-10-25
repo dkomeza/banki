@@ -12,6 +12,14 @@ _Avoid_: Learner, account, owner
 A named set of cards the User studies together, with an optional description and, later, settings of its own. It sits at the root or in one folder, and no two decks beside each other share a name, ignoring case. A deleted deck no longer counts as beside anything.
 _Avoid_: collection, set
 
+**Folder**:
+A named place that holds Decks and other Folders, nested to any depth, for organizing only: it has no effect on study or scheduling. It sits at the root or in one other Folder, and no two folders beside each other share a name, ignoring case; a Folder and a Deck beside each other may. Deleting a Folder deletes everything in it, together.
+_Avoid_: directory, group, category
+
+**Root**:
+The top of the folder tree, where Home lists what isn't in any Folder. It is not a Folder itself: it has no name of its own and can't be moved, renamed or deleted.
+_Avoid_: top level, home folder
+
 **Session**:
 One sitting of studying one deck. It can be resumed, and it ends after a period of inactivity.
 _Avoid_: using "session" for being signed in
