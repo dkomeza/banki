@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 
-# The Runner (ADR-0012): one image for both its containers, the Broker and
-# the runner, built on the home server from a checkout of `main`. Build
+# The Runner (ADR-0012): one image for its containers, the Broker, the runner
+# and the Dashboard (ADR-0014), built on the home server from a checkout of
+# `main`. Build
 # context: deploy/runner. Everything a Stage runs comes from here or from the
 # clone of `main` in the volume, never from a registry tag a pull request
 # could push.
@@ -61,8 +62,8 @@ RUN ln -s bun /usr/local/bin/bunx
 # git asks the Broker for a token whenever github.com wants one.
 RUN git config --system credential.https://github.com.helper /opt/banki-runner/bin/git-credential-banki
 
-# The Broker, the tick loop and the wrappers. No npm dependencies, so there
-# is nothing to install: Bun runs the source.
+# The Broker, the tick loop and the wrappers, the Dashboard's among them. No
+# npm dependencies, so there is nothing to install: Bun runs the source.
 WORKDIR /opt/banki-runner
 COPY broker/ broker/
 COPY loop/ loop/

@@ -538,29 +538,31 @@ A future production at `banki.dkomeza.com` would share its parent domain with th
 
 The [Runner](CONTEXT.md) runs the `/work-issue` [Stages](CONTEXT.md) unattended, at night, on the home server ([ADR-0012](docs/adr/0012-stages-run-unattended-in-a-runner-container-on-the-home-server.md)). It sits beside the pull agent and shares nothing with it: no Docker socket, not on `banki-previews`, none of `~/.config/banki-preview`. Which Stage runs when is the [Dispatcher](CONTEXT.md)'s job ([ADR-0013](docs/adr/0013-linear-statuses-drive-the-stages-through-a-dispatcher-without-an-llm.md)): a plain program, no LLM, that goes by the issues' statuses, assignees and closing comments, waits on CI and the Previews without spending tokens, and starts Stages only inside a window and under a usage gate ([below](#the-dispatcher)).
 
-It is one Compose project, `banki-runner`, with two containers from one image:
+It is one Compose project, `banki-runner`, with three containers from one image:
 
 - **broker**, the [Broker](CONTEXT.md), holds the GitHub App's private key and the Linear app's client secret, and mints short-lived tokens from them. Nothing else runs there.
 - **runner** runs the tick and the Stages. It holds only the Claude token, asks the Broker for GitHub and Linear tokens over a Unix socket, and never sees the keys.
+- **dashboard** serves the [Dashboard](CONTEXT.md), a read-only web page of what the Runner is doing ([below](#the-dashboard); [ADR-0014](docs/adr/0014-the-dashboard-reads-through-the-broker-from-a-container-of-its-own.md)). It holds no secret, and reads the runner's volume read-only.
 
-They share only the volume holding the Broker's socket. A Stage runs `claude` with permission prompts skipped and reads untrusted text, so it could be talked into sending whatever it can read: it can mint tokens through the socket, but it can't read the key that makes them, and every token it can get dies on its own. A GitHub token lasts an hour. A Linear token is minted when its Stage starts and revoked when it ends, or 4 hours after it was minted, whichever comes first.
+The broker and the runner share only the volume holding the Broker's socket, which the Dashboard mounts too. A Stage runs `claude` with permission prompts skipped and reads untrusted text, so it could be talked into sending whatever it can read: it can mint tokens through the socket, but it can't read the key that makes them, and every token it can get dies on its own. A GitHub token lasts an hour. A Linear token is minted when its Stage starts and revoked when it ends, or 4 hours after it was minted, whichever comes first.
 
 A Stage still holds the Claude, GitHub and Linear tokens while it runs, and has open internet access: there is no egress allowlist (ADR-0012 records the trade-off). The host's firewall rules for the runner's network keep a Stage from the home server's ports and the home LAN ([below](#keeping-it-off-the-host-and-the-lan)), and the Previews' internal networks keep it from the Previews, but nothing keeps it from sending what it reads, so the Stages and the Dispatcher take input only from the Maintainer in Linear, and from `claude-review` on GitHub: its check, its summary comment by `github-actions[bot]` and its inline threads by `claude[bot]` (`.claude/skills/work-issue/references/stages.md` § Input).
 
 | Path                          | What it is                                                                                                                                                               |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `deploy/runner/compose.yaml`  | The two containers, hardened, with their networks, volumes and secrets                                                                                                   |
+| `deploy/runner/compose.yaml`  | The three containers, hardened, with their networks, volumes and secrets                                                                                                 |
 | `deploy/runner/Dockerfile`    | The image: pinned bun, node, git, gh and the `claude` CLI, and Chromium's system libraries                                                                               |
 | `deploy/runner/broker/`       | The Broker (Bun, no npm dependencies): the App's JWT, the GitHub token cache and the Linear tokens' revoke schedule are pure and unit-tested; the rest are thin adapters |
 | `deploy/runner/loop/`         | The tick loop: brings the clone onto `main`, runs `tick.ts`, and says when the image is behind `main`                                                                    |
-| `deploy/runner/bin/`          | What is on the runner's PATH: `gh` and git's credential helper, which ask the Broker for a token on every call, and `runner`                                             |
+| `deploy/runner/bin/`          | What is on PATH: `gh` and git's credential helper, which ask the Broker for a token on every call, `runner`, and `dashboard`                                             |
 | `deploy/runner/tick.ts`       | The tick, run from the clone: it runs the Dispatcher                                                                                                                     |
 | `deploy/runner/dispatch/`     | The Dispatcher and the Stages' supervisors. Which Stage is next, the window, the gate, the costs and the waits are pure and unit-tested; the rest are thin adapters      |
 | `deploy/runner/cli/`          | `runner status`, `runner run-now` and `runner stage`, run from the clone                                                                                                 |
+| `deploy/runner/dashboard/`    | The Dashboard, run from the clone: each page's view and HTML are pure and unit-tested; the server is a thin adapter                                                      |
 | `deploy/runner/bootstrap`     | Asks for the Runner's secrets and writes them outside the clone                                                                                                          |
-| `deploy/runner/host-firewall` | The host's firewall rules that keep the runner's network off the home server and the LAN                                                                                 |
+| `deploy/runner/host-firewall` | The host's firewall rules that keep the runner's and the Dashboard's networks off the home server and the LAN                                                            |
 
-The Broker, the tick loop and the wrappers on PATH are baked into the image. The tick script, the Dispatcher and the CLI run from the clone of `main` in the volume, so a merged change to them applies on the next tick.
+The Broker, the tick loop and the wrappers on PATH are baked into the image. The tick script, the Dispatcher, the CLI and the Dashboard run from the clone of `main` in the volume, so a merged change to them applies on the next tick (the Dashboard restarts on it).
 
 ### Linear: the statuses and the app
 
@@ -632,28 +634,28 @@ BANKI_RUNNER_COMMIT="$(git rev-parse HEAD)" docker compose -f deploy/runner/comp
 
 `bootstrap` asks for the Claude token, the App's ID and the path to its private key (which it copies in), and the Linear app's client ID and secret; the secrets are read without echo. It writes them to `$BANKI_RUNNER_SECRETS`, by default `~/.config/banki-runner`, outside the clone (a `0700` directory of `0600` files), and refuses a directory inside a git work tree. It also writes your uid and gid, the server's timezone, and that directory's path, to `deploy/runner/.env` (gitignored), which Compose reads: both containers run as you, so they can read your `0600` files with no extra capability, the Dispatcher's window runs on the server's clock (`TZ`, from `TZ`, `timedatectl`, `/etc/timezone` or `/etc/localtime`, in that order), and Compose refuses to start them until `bootstrap` has run. It keeps every other line in that file, so the Dispatcher's settings you put there ([below](#the-window)) survive a re-run. A Runner set up before the Dispatcher came needs `bootstrap` run once more, for the timezone. Run it again to change a value: each one it has is the default, so Enter keeps it. The Broker reads its settings only on start, so afterwards run `docker compose -f deploy/runner/compose.yaml up -d --force-recreate`.
 
-The Broker gets the App's key and the Linear client secret, and the runner the Claude token, as compose secrets: files under `/run/secrets/`, so none is in an environment in `docker inspect`, and each container gets only its own. Both containers run with a read-only root filesystem, `no-new-privileges`, every capability dropped, and each on its own network with internet access; neither publishes a port. The runner has an 8 GB memory cap, no CPU cap and a 1 GB `/dev/shm` for Chromium; the Broker has 128 MB.
+The Broker gets the App's key and the Linear client secret, and the runner the Claude token, as compose secrets: files under `/run/secrets/`, so none is in an environment in `docker inspect`, and each container gets only its own. All three run with a read-only root filesystem, `no-new-privileges`, every capability dropped, and each on its own network with internet access; only the Dashboard publishes a port, on the host's `127.0.0.1` alone. The runner has an 8 GB memory cap, no CPU cap and a 1 GB `/dev/shm` for Chromium; the Broker has 128 MB, and the Dashboard 256 MB.
 
 The runner's volume, `banki-runner-work`, is mounted at `/work`:
 
-| Path                     | What it is                                                                                                                  |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| `/work/banki`            | The clone of `main`, and each Stage's working directory                                                                     |
-| `/work/banki-worktrees/` | The issues' worktrees, as on the laptop                                                                                     |
-| `/work/logs/`            | Each Stage's logs, kept 30 days                                                                                             |
-| `/work/dispatcher/`      | The Dispatcher's records: the gate's last reading, the Stages running or paused, and the Stages that ended, for their costs |
-| `/work/home/`            | HOME: `~/.claude`, bun's cache, and Playwright's browsers (`PLAYWRIGHT_BROWSERS_PATH`)                                      |
+| Path                     | What it is                                                                                                                                                |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/work/banki`            | The clone of `main`, and each Stage's working directory                                                                                                   |
+| `/work/banki-worktrees/` | The issues' worktrees, as on the laptop                                                                                                                   |
+| `/work/logs/`            | Each Stage's logs, kept 30 days                                                                                                                           |
+| `/work/dispatcher/`      | The Dispatcher's records: the gate's last reading, the Stages running or paused, the Stages that ended, for their costs, and the tick log (`ticks.jsonl`) |
+| `/work/home/`            | HOME: `~/.claude`, bun's cache, and Playwright's browsers (`PLAYWRIGHT_BROWSERS_PATH`)                                                                    |
 
 Chromium isn't in the image: each worktree installs the build its own Playwright wants with `npx playwright install chromium`, a no-op once it is there, so a Playwright bump on `main` needs no rebuild.
 
 ### Keeping it off the host and the LAN
 
-A Stage runs branch code with permission prompts skipped, so the runner's network, `10.213.94.0/24` (fixed in `compose.yaml`), reaches the internet and nothing private. Docker can't do that alone: the host's firewall does it, with `deploy/runner/host-firewall`, which drops everything from that subnet
+A Stage runs branch code with permission prompts skipped, so the runner's network, `10.213.94.0/24` (fixed in `compose.yaml`), reaches the internet and nothing private; and so does the Dashboard's, `10.213.96.0/24`, since it runs from the clone a Stage can write to. Docker can't do that alone: the host's firewall does it, with `deploy/runner/host-firewall`, which drops everything from those subnets
 
 - to the private ranges (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10`, `169.254.0.0/16`), through Docker's `DOCKER-USER` chain: the home LAN, the other Docker networks and the Previews;
-- to the host itself, at any of its addresses, through `INPUT`, which `DOCKER-USER` never sees: the home server's ports.
+- to the host itself, at any of its addresses, through `INPUT`, which `DOCKER-USER` never sees: the home server's ports. Only the replies to connections the host itself started get through, such as `curl http://127.0.0.1:8790/` or Newt reaching the Dashboard; a container can't start one to the host.
 
-Port 53 is let through both, for an upstream resolver on the LAN or on the host: Docker's embedded DNS (`127.0.0.11`) sits in the container's own namespace, but sends the queries it forwards from there too. The network has no IPv6, so there are no `ip6tables` rules. If another network or your LAN already uses `10.213.94.0/24`, change it in both files (a test checks that they agree).
+Port 53 is let through both, for an upstream resolver on the LAN or on the host: Docker's embedded DNS (`127.0.0.11`) sits in the container's own namespace, but sends the queries it forwards from there too. The networks have no IPv6, so there are no `ip6tables` rules. If another network or your LAN already uses `10.213.94.0/24` or `10.213.96.0/24`, change it in both files (a test checks that they agree).
 
 Install it as a systemd unit, which applies it whenever Docker starts, after a reboot included (iptables rules don't survive a reboot, and Docker keeps whatever is in `DOCKER-USER`):
 
@@ -682,6 +684,9 @@ sudo systemctl enable --now banki-runner-firewall
 ```sh
 docker compose -f deploy/runner/compose.yaml exec runner curl -sS -m 5 https://api.github.com/zen
 docker compose -f deploy/runner/compose.yaml exec runner curl -sS -m 5 http://192.168.1.1/ # times out
+docker compose -f deploy/runner/compose.yaml exec dashboard curl -sS -m 5 https://api.github.com/zen
+docker compose -f deploy/runner/compose.yaml exec dashboard curl -sS -m 5 http://192.168.1.1/ # times out
+curl -sS -m 5 http://127.0.0.1:8790/ >/dev/null && echo "the Dashboard answers"
 ```
 
 ### The tick
@@ -691,6 +696,8 @@ Every 5 minutes the runner runs `git fetch origin main` and `git reset --hard or
 ```sh
 docker compose -f deploy/runner/compose.yaml logs -f runner
 ```
+
+The tick and `run-now` also append each line they print to `/work/dispatcher/ticks.jsonl` (`{ "at", "main", "line" }`), which the [Dashboard](#the-dashboard)'s `/ticks` shows; each tick drops its lines older than 30 days.
 
 When anything baked into the image (`deploy/runner/Dockerfile`, `compose.yaml`, `broker/`, `loop/`, `lib/` or `bin/`) changed on `main` since the commit the image was built from, or `main` pins another bun (`packageManager` in `package.json`) or node (`.node-version`) than the image has, the log says so once per `main` commit, with the reason and the command to run by hand from an up-to-date checkout of `main`:
 
@@ -752,6 +759,39 @@ docker compose -f deploy/runner/compose.yaml exec runner runner run-now BAN-N [-
 `status` shows the Stages running and paused, the ready queue in order with why each one would or wouldn't start now, what the Dispatcher is waiting on, the gate's last reading and the estimates, the recent Stages with their costs, and the In Progress issues none of its supervisors started. It takes no reading and changes nothing.
 
 `run-now` starts the issue's next Stage now, or resumes its paused one, even outside the window. It still keeps the cap, the five-hour check and the rule that skips an issue that is assigned or running; `--force` skips the Ceiling, and only that. It prints the Stage's log, or why nothing starts.
+
+### The Dashboard
+
+The [Dashboard](CONTEXT.md) shows what the Runner and the Dispatcher are doing, and what each issue went through, in one place, without ssh ([ADR-0014](docs/adr/0014-the-dashboard-reads-through-the-broker-from-a-container-of-its-own.md)). It is the `dashboard` service, at `runner.banki.dkomeza.com` behind Pangolin's SSO:
+
+| Page                        | What it shows                                                                                                                                                                                                                                                                                                                                                                    |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/`, Now                    | What `runner status` shows, live, from the same view: the Stages running (for how long, their cost so far in dollars, their logs) and paused, the ready queue with why each would or wouldn't start, each wait with its deadline, how far along it is and its deployments' states, the gate's last reading against the Ceiling, and the In Progress issues no supervisor started |
+| `/issues/BAN-N`             | The issue's timeline, oldest first: every attempt at a Stage (its outcome, a one-line reason, its cost and duration, its runs' logs), its closing comments (a Stage run live is marked live, a stop shows its question) and its moves in Linear. A run whose log has no `claude` init event **never started**, which is told apart from a crash                                  |
+| `/issues/BAN-N/logs/<file>` | One Stage log, as the one-line summaries `runner stage` prints, never the raw JSON, then the Stage's result. A running Stage's log streams as it grows. Only files under `/work/logs/BAN-N/` are served                                                                                                                                                                          |
+| `/ticks`                    | The tick log, newest first, with consecutive identical lines collapsed (`Tick on main abc1234 ×60`)                                                                                                                                                                                                                                                                              |
+
+It also flags the pull agent's health, from GitHub alone: a `preview` or `slug-preview` deployment still `queued`, or with no status, 10 minutes after it was made says "the pull agent hasn't claimed it for N min", on the Now page and in the wait that waits on it.
+
+The Now page's live view is computed when someone asks for it, at most once every 30 seconds whoever is watching, with one Linear token from the Broker, revoked after it; GitHub tokens come from the Broker as they do for the tick. Every page renders in full without JavaScript; with it, the Now page takes the live view every 30 seconds and a running Stage's log its new lines, over SSE.
+
+It is **read-only**: it serves `GET` alone (anything else answers 405), makes no write to Linear or GitHub, mounts the volume read-only, and holds no secret, not even the Claude token, so there is no `run-now` and no usage reading there. Everything it shows from a log or a comment is escaped, and redacted of anything shaped like a GitHub, Linear or Claude token, under a CSP that allows no inline script or style and nothing from another origin.
+
+It runs `deploy/runner/dashboard/` from the clone of `main` (through `dashboard` on PATH), and exits once the clone's `HEAD` moves, so Docker starts it again on the new `main`: a change to it needs no rebuild. It listens on `127.0.0.1:8790` on the host, and nowhere else:
+
+```sh
+docker compose -f deploy/runner/compose.yaml logs -f dashboard
+curl -sS http://127.0.0.1:8790/ticks
+```
+
+Pangolin's SSO is its only auth: it trusts whatever reaches that port. Make its Pangolin resource by hand, once, in Pangolin's dashboard:
+
+1. **Resources → Add Resource**: an HTTP resource named `Banki Runner`, on the **homelab** site (the Newt that runs as a host process on the home server), never the Previews' site: the target is the host's own `localhost`.
+2. **Domain**: subdomain `runner` of `banki.dkomeza.com`. `runner` is a reserved Slug, so no Slug Preview can take it.
+3. **Target**: `http`, `localhost`, port `8790`.
+4. **Authentication**: turn on **Use Platform SSO**, and allow only your own user, not a role others hold.
+
+Then open `https://runner.banki.dkomeza.com/`: Pangolin asks you to sign in first. To look at the pages without the home server, `bun deploy/runner/dashboard/fixture.ts` serves them on `127.0.0.1:8790` over a made-up Runner, with Linear and GitHub faked.
 
 ### When a Stage stops on you
 

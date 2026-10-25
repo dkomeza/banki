@@ -3,12 +3,12 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// The host's firewall rules for the runner's network, run against a fake
+// The host's firewall rules for the runner's and the Dashboard's networks, run against a fake
 // iptables that keeps the rules in a file, the way iptables keeps them in the
 // kernel: so a test reads exactly what the script left in each chain.
 
 const SCRIPT = join(import.meta.dir, "host-firewall");
-const SUBNET = "10.213.94.0/24";
+const SUBNETS = ["10.213.94.0/24", "10.213.96.0/24"];
 const PRIVATE = [
   "10.0.0.0/8",
   "172.16.0.0/12",
@@ -70,12 +70,16 @@ describe("host-firewall", () => {
     expect(await new Response(proc.stdout).text()).toBe("");
   });
 
-  test("sends the runner's forwarded traffic, and only its, through the Runner's chain, first", async () => {
+  test("sends the runner's and the Dashboard's traffic, and only theirs, through the Runner's chains, first", async () => {
     const rules = join(dir, "forward");
 
     expect((await apply(rules)).exitCode).toBe(0);
-    expect(chain(rules, "DOCKER-USER")).toEqual([`-s ${SUBNET} -j BANKI-RUNNER-FORWARD`]);
-    expect(chain(rules, "INPUT")).toEqual([`-s ${SUBNET} -j BANKI-RUNNER-INPUT`]);
+    expect(chain(rules, "DOCKER-USER").toSorted()).toEqual(
+      SUBNETS.map((subnet) => `-s ${subnet} -j BANKI-RUNNER-FORWARD`),
+    );
+    expect(chain(rules, "INPUT").toSorted()).toEqual(
+      SUBNETS.map((subnet) => `-s ${subnet} -j BANKI-RUNNER-INPUT`),
+    );
   });
 
   test("drops every private range, after letting DNS through", async () => {
@@ -89,15 +93,22 @@ describe("host-firewall", () => {
     ]);
   });
 
-  test("drops everything to the host itself, at any of its addresses, DNS aside", async () => {
+  test("drops everything to the host itself, at any of its addresses, but DNS and the replies to what the host started", async () => {
     const rules = join(dir, "host");
     await apply(rules);
 
     expect(chain(rules, "BANKI-RUNNER-INPUT")).toEqual([
+      "-m conntrack --ctstate ESTABLISHED -j RETURN",
       "-p udp --dport 53 -j RETURN",
       "-p tcp --dport 53 -j RETURN",
       "-j DROP",
     ]);
+  });
+
+  test("names the subnets compose.yaml gives the runner and the Dashboard", async () => {
+    const compose = await Bun.file(join(import.meta.dir, "compose.yaml")).text();
+
+    for (const subnet of SUBNETS) expect(compose).toContain(`- subnet: ${subnet}`);
   });
 
   test("changes nothing when run again", async () => {
@@ -117,9 +128,7 @@ describe("host-firewall", () => {
 
     await apply(rules);
 
-    expect(chain(rules, "DOCKER-USER")).toEqual([
-      `-s ${SUBNET} -j BANKI-RUNNER-FORWARD`,
-      "-j RETURN",
-    ]);
+    expect(chain(rules, "DOCKER-USER").at(-1)).toBe("-j RETURN");
+    expect(chain(rules, "DOCKER-USER")).toHaveLength(3);
   });
 });

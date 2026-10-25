@@ -1,0 +1,17 @@
+#!/bin/sh
+# `dashboard` (ADR-0014): the Dashboard's command in compose.yaml. It runs the
+# Dashboard from the clone of `main` in the volume, not from the image, like
+# the tick, so a change merged to `main` applies once the Dashboard sees the
+# clone's HEAD move and exits, and Docker starts it again.
+set -eu
+
+clone="${BANKI_RUNNER_CLONE:-/work/banki}"
+server="$clone/deploy/runner/dashboard/main.ts"
+if [ ! -f "$server" ]; then
+  printf 'dashboard: no %s yet: the runner'"'"'s first tick makes the clone of main\n' "$server" >&2
+  # Docker starts it again; not at once, while the clone is being made.
+  sleep "${BANKI_DASHBOARD_WAIT_S:-60}"
+  exit 1
+fi
+cd "$clone"
+exec bun "$server"

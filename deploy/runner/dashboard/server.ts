@@ -1,0 +1,289 @@
+import { closeSync, openSync, readSync } from "node:fs";
+import { basename } from "node:path";
+import type { ActiveRecord } from "../dispatch/lifecycle";
+import { supervisorLog } from "../dispatch/spawn";
+import type { TickLine } from "../dispatch/tick-log";
+import { errorText } from "../lib/config";
+import type { SharedView } from "./cache";
+import { redactTokens } from "../dispatch/secrets";
+import { markup, page } from "./html";
+import type { LiveView } from "./live";
+import { logPage, shownLines } from "./log-page";
+import { nowFragment, nowPage } from "./now-page";
+import { isIssue, servedLogPath } from "./paths";
+import { ticksPage } from "./ticks-page";
+import { attemptOf, type IssueData, issuePage, timeline } from "./timeline";
+
+// The Dashboard's HTTP side (ADR-0014), a thin adapter over the pages'
+// builders: `GET` only (anything else answers 405), every response with the
+// strict CSP and no caching, and two SSE streams: the Now page's live view
+// every 30 seconds, and a running Stage's log as it grows. It trusts
+// whatever reaches it: Pangolin's SSO, in front of it, is the only auth.
+//
+//   GET /                              Now
+//   GET /events                        Now's live view, every 30 s (SSE)
+//   GET /issues/BAN-N                  the issue's timeline
+//   GET /issues/BAN-N/logs/<file>      one Stage log
+//   GET /issues/BAN-N/logs/<file>/events?from=<byte>   its new lines (SSE)
+//   GET /ticks                         the tick log
+//   GET /style.css, /live.js           the page's own stylesheet and script
+
+export const CSP =
+  "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+
+const HEADERS = {
+  "Content-Security-Policy": CSP,
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "no-referrer",
+  "X-Frame-Options": "DENY",
+  "Cache-Control": "no-store",
+};
+
+export type ServerDeps = {
+  live: SharedView<LiveView>;
+  /** An issue's page data: the volume's records and logs, and Linear's comments and moves. */
+  issue: (issue: string) => Promise<IssueData>;
+  /** The logs directory, /work/logs. */
+  logs: string;
+  activeRecords: () => ActiveRecord[];
+  ticks: () => TickLine[];
+  tz: string | undefined;
+  assets: { css: string; js: string };
+  log: (line: string) => void;
+  /** How often a log's stream looks for new lines. */
+  pollMs?: number;
+  /** How often the Now page's stream sends the live view. */
+  liveEveryMs?: number;
+  /** How often a stream says it is still there, so nothing in between drops it. */
+  pingMs?: number;
+};
+
+const respond = (body: string, status: number, type: string, extra: Record<string, string> = {}) =>
+  new Response(body, {
+    status,
+    headers: { ...HEADERS, "Content-Type": `${type}; charset=utf-8`, ...extra },
+  });
+
+const htmlPage = (body: string, status = 200) => respond(body, status, "text/html");
+
+const notFound = () =>
+  htmlPage(
+    page({
+      title: "Not found",
+      body: markup`<h1>Not found</h1>
+        <p><a href="/">Now</a></p>`,
+    }),
+    404,
+  );
+
+/** One SSE message: its event, the id the client resumes from, and its data line by line. */
+export function sseMessage(event: string, data: string, id?: string): string {
+  const lines = data.split(/\r?\n|\r/).map((line) => `data: ${line}`);
+  return `event: ${event}\n${id === undefined ? "" : `id: ${id}\n`}${lines.join("\n")}\n\n`;
+}
+
+/**
+ * An SSE response: `produce` sends messages until it returns or the client
+ * goes, with a ping in between so an idle connection isn't dropped.
+ */
+function sse(
+  request: Request,
+  pingMs: number,
+  produce: (send: (message: string) => void, open: () => boolean) => Promise<void>,
+): Response {
+  const encoder = new TextEncoder();
+  let closed = false;
+  let ping: Timer | undefined;
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const send = (message: string) => {
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(message));
+        } catch {
+          closed = true;
+        }
+      };
+      const stop = () => {
+        if (closed) return;
+        closed = true;
+        clearInterval(ping);
+        try {
+          controller.close();
+        } catch {
+          // Closed already.
+        }
+      };
+      request.signal.addEventListener("abort", stop, { once: true });
+      ping = setInterval(() => send(": ping\n\n"), pingMs);
+      send("retry: 5000\n\n");
+      void produce(send, () => !closed && !request.signal.aborted).finally(stop);
+    },
+    cancel() {
+      closed = true;
+      clearInterval(ping);
+    },
+  });
+  return new Response(stream, {
+    headers: { ...HEADERS, "Content-Type": "text/event-stream; charset=utf-8" },
+  });
+}
+
+/** The bytes of a file from `from`, up to its last complete line; and where that ends. */
+function completeLines(path: string, from: number): { text: string; end: number } {
+  const fd = openSync(path, "r");
+  try {
+    const chunks: Buffer[] = [];
+    const buffer = Buffer.alloc(1 << 16);
+    let position = from;
+    for (;;) {
+      const read = readSync(fd, buffer, 0, buffer.length, position);
+      if (read === 0) break;
+      chunks.push(Buffer.from(buffer.subarray(0, read)));
+      position += read;
+    }
+    const bytes = Buffer.concat(chunks);
+    const last = bytes.lastIndexOf(0x0a);
+    if (last === -1) return { text: "", end: from };
+    return { text: bytes.subarray(0, last + 1).toString("utf8"), end: from + last + 1 };
+  } finally {
+    closeSync(fd);
+  }
+}
+
+const sleep = (ms: number, open: () => boolean) =>
+  new Promise<void>((resolve) => {
+    const step = Math.min(ms, 250);
+    let waited = 0;
+    const timer = setInterval(() => {
+      waited += step;
+      if (waited >= ms || !open()) {
+        clearInterval(timer);
+        resolve();
+      }
+    }, step);
+  });
+
+export function handler(deps: ServerDeps): (request: Request) => Promise<Response> {
+  const pollMs = deps.pollMs ?? 1_000;
+  const liveEveryMs = deps.liveEveryMs ?? 30_000;
+  const pingMs = deps.pingMs ?? 15_000;
+
+  /** Whether this log is a run going on now: the newest run of a Stage running, or its supervisor's. */
+  const running = (issue: string, file: string) =>
+    deps.activeRecords().some((record) => {
+      const log = record.runs.at(-1)?.log;
+      return (
+        record.issue === issue &&
+        record.state === "running" &&
+        log !== undefined &&
+        record.runs.at(-1)?.endedAt === undefined &&
+        (basename(log) === file || basename(supervisorLog(log)) === file)
+      );
+    });
+
+  async function logView(issue: string, file: string, path: string): Promise<Response> {
+    const { text, end } = completeLines(path, 0);
+    const isRunning = running(issue, file);
+    const data = await deps.issue(issue);
+    return htmlPage(
+      logPage(
+        {
+          issue,
+          file,
+          lines: shownLines(file, text.split("\n")),
+          offset: end,
+          running: isRunning,
+          attempt: attemptOf(timeline(data), issue, file),
+          linearError: "error" in data.linear ? data.linear.error : undefined,
+        },
+        deps.tz,
+      ),
+    );
+  }
+
+  function logEvents(request: Request, issue: string, file: string, path: string): Response {
+    const url = new URL(request.url);
+    const resume = Number(request.headers.get("last-event-id") ?? url.searchParams.get("from"));
+    let offset = Number.isSafeInteger(resume) && resume >= 0 ? resume : 0;
+    return sse(request, pingMs, async (send, open) => {
+      while (open()) {
+        const still = running(issue, file);
+        const { text, end } = completeLines(path, offset);
+        if (end > offset) {
+          offset = end;
+          // Plain text, redacted: live.js sets it as a line's textContent, never as HTML.
+          for (const line of shownLines(file, text.split("\n")))
+            send(sseMessage("line", redactTokens(line), String(offset)));
+        }
+        if (!still) {
+          send(sseMessage("end", "the Stage's run has ended"));
+          return;
+        }
+        await sleep(pollMs, open);
+      }
+    });
+  }
+
+  function nowEvents(request: Request): Response {
+    return sse(request, pingMs, async (send, open) => {
+      while (open()) {
+        await sleep(liveEveryMs, open);
+        if (!open()) return;
+        try {
+          send(sseMessage("view", nowFragment(await deps.live.get(), deps.tz)));
+        } catch (error) {
+          deps.log(`The live view failed: ${errorText(error)}`);
+        }
+      }
+    });
+  }
+
+  async function route(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    let parts: string[];
+    try {
+      parts = url.pathname.split("/").slice(1).map(decodeURIComponent);
+    } catch {
+      return notFound();
+    }
+    const [first, issue, third, file, fifth, ...rest] = parts;
+    if (parts.length === 1 && first === "")
+      return htmlPage(nowPage(await deps.live.get(), deps.tz));
+    if (parts.length === 1 && first === "events") return nowEvents(request);
+    if (parts.length === 1 && first === "ticks") return htmlPage(ticksPage(deps.ticks(), deps.tz));
+    if (parts.length === 1 && first === "style.css")
+      return respond(deps.assets.css, 200, "text/css");
+    if (parts.length === 1 && first === "live.js")
+      return respond(deps.assets.js, 200, "text/javascript");
+    if (first !== "issues" || issue === undefined || !isIssue(issue)) return notFound();
+    if (parts.length === 2) return htmlPage(issuePage(await deps.issue(issue), deps.tz));
+    if (third !== "logs" || file === undefined || rest.length > 0) return notFound();
+    const path = servedLogPath(deps.logs, issue, file);
+    if (path === undefined) return notFound();
+    if (parts.length === 4) return logView(issue, file, path);
+    if (parts.length === 5 && fifth === "events") return logEvents(request, issue, file, path);
+    return notFound();
+  }
+
+  return async (request) => {
+    if (request.method !== "GET") {
+      return respond("Only GET: the Dashboard is read-only.\n", 405, "text/plain", {
+        Allow: "GET",
+      });
+    }
+    try {
+      return await route(request);
+    } catch (error) {
+      deps.log(`${new URL(request.url).pathname} failed: ${errorText(error)}`);
+      return htmlPage(
+        page({
+          title: "Error",
+          body: markup`<h1>Something failed</h1>
+            <p class="error">${errorText(error)}</p>`,
+        }),
+        500,
+      );
+    }
+  };
+}

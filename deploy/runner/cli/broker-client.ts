@@ -3,8 +3,8 @@ import { brokerSocket } from "../lib/config";
 import { asObject, asString, isRecord, parseJson } from "../lib/parse";
 import type { Identity } from "./plan";
 
-// The runner's side of the broker's socket (broker/server.ts). The runner
-// asks for tokens and never sees the keys that make them.
+// The runner's side of the broker's socket (broker/server.ts), and the
+// Dashboard's. They ask for tokens and never see the keys that make them.
 
 export type Broker = ReturnType<typeof broker>;
 
