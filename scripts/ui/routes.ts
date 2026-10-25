@@ -31,4 +31,5 @@ export const ROUTES: RouteManifest = {
   "/login": { mode: "signed-out" },
   "/setup": { mode: "before-setup" },
   "/decks/$deckId": { path: `/decks/${SEED_IDS.deck}` },
+  "/folders/$folderId": { path: `/folders/${SEED_IDS.folder}` },
 };

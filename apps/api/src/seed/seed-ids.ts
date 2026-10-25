@@ -4,10 +4,18 @@
 
 /**
  * The Seed data's fixed IDs, for building concrete paths to its screens.
- * `deck` is the one the route manifest shoots the deck page at.
+ * `deck` is the one the route manifest shoots the deck page at, and `folder`
+ * the folder page.
  */
 export const SEED_IDS = {
   deck: "5eed0000-0000-4000-8000-000000000001",
+  folder: "5eed0000-0000-4000-8000-0000000000f3",
+  folders: {
+    languages: "5eed0000-0000-4000-8000-0000000000f1",
+    maths: "5eed0000-0000-4000-8000-0000000000f2",
+    analysis: "5eed0000-0000-4000-8000-0000000000f3",
+    archive: "5eed0000-0000-4000-8000-0000000000f4",
+  },
   decks: {
     spanish: "5eed0000-0000-4000-8000-000000000001",
     calculus2: "5eed0000-0000-4000-8000-000000000002",
