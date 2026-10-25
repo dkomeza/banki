@@ -44,6 +44,18 @@ _Avoid_: rollover, cutoff
 The day a moment belongs to for everything Banki counts per day: due cards, daily minutes, statistics. It runs from one Day start to the next, so studying at 1:00 a.m. counts toward the day before. A review's Study day follows from when it happened and the current Timezone and Day start, so changing either moves past reviews too.
 _Avoid_: calendar day, date
 
+**Grader**:
+The LLM, reached through OpenRouter, that turns a written answer into a suggested rating with feedback. It only suggests: the User always confirms the rating.
+_Avoid_: AI, judge, provider
+
+**API key**:
+The User's OpenRouter key, which the Grader runs on and bills to. It is a Setting, but once stored it never leaves the server: Settings shows only its last four characters.
+_Avoid_: token, secret
+
+**Model**:
+The LLM the Grader runs, picked in Settings from Banki's curated list of models that read handwritten math well. A User who hasn't picked one has the default.
+_Avoid_: engine, provider
+
 **Preview**:
 A disposable installation of Banki built from one commit of a branch, already set up and holding Seed data, so the change can be tried on any device. Its User is the only account it has. Every Preview is either a PR Preview or a Slug Preview, and the two never make room for each other.
 _Avoid_: staging, review app, preview account

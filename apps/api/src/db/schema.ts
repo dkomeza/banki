@@ -24,6 +24,12 @@ export const user_settings = sqliteTable(
     /** An IANA name; null until the first browser's zone fills it in. */
     timezone: text("timezone"),
     dayStartHour: integer("day_start_hour").notNull().default(DEFAULT_DAY_START_HOUR),
+    /** The Model's OpenRouter ID; null for the default. One a later release dropped reads as the default. */
+    model: text("model"),
+    /** The API key, encrypted (ADR-0014; see createApiKeyCipher); null when none is stored. */
+    apiKeyEncrypted: text("api_key_encrypted"),
+    /** The API key's last four characters, all Settings shows of it; set exactly when it is. */
+    apiKeyLastFour: text("api_key_last_four"),
   },
   (table) => [check("user_settings_day_start_hour", sql`${table.dayStartHour} BETWEEN 0 AND 23`)],
 );

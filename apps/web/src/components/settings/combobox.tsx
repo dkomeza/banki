@@ -1,5 +1,5 @@
 import { ChevronDown } from "lucide-react";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
 import { FIELD } from "@/components/settings/parts";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -33,6 +33,7 @@ export function Combobox({
   searchPlaceholder,
   noMatch,
   chevron = false,
+  renderOption,
 }: {
   options: readonly ComboboxOption[];
   value: string | null;
@@ -47,6 +48,8 @@ export function Combobox({
   searchPlaceholder: string;
   noMatch: (query: string) => string;
   chevron?: boolean;
+  /** Draws an option in the list, in place of its label and detail on one line. */
+  renderOption?: (option: ComboboxOption) => ReactNode;
 }) {
   const id = useId();
   const [open, setOpen] = useState(false);
@@ -170,7 +173,10 @@ export function Combobox({
               role="option"
               aria-selected={option.value === value}
               className={cn(
-                "flex min-h-11 cursor-default items-center justify-between gap-3 rounded-lg px-3 text-[0.95rem] aria-selected:font-semibold aria-selected:text-primary lg:min-h-9",
+                "group/option min-h-11 cursor-default rounded-lg px-3 text-[0.95rem] lg:min-h-9",
+                renderOption === undefined
+                  ? "flex items-center justify-between gap-3 aria-selected:font-semibold aria-selected:text-primary"
+                  : "py-2.5",
                 index === active && "bg-accent",
               )}
               // Keeps the input focused, so its blur doesn't close the list before
@@ -180,11 +186,17 @@ export function Combobox({
               onClick={() => pick(option.value)}
               onPointerEnter={() => setActive(index)}
             >
-              <span className="min-w-0 truncate">{option.label}</span>
-              {option.detail !== undefined && (
-                <span className="shrink-0 text-sm text-muted-foreground tabular-nums">
-                  {option.detail}
-                </span>
+              {renderOption === undefined ? (
+                <>
+                  <span className="min-w-0 truncate">{option.label}</span>
+                  {option.detail !== undefined && (
+                    <span className="shrink-0 text-sm text-muted-foreground tabular-nums">
+                      {option.detail}
+                    </span>
+                  )}
+                </>
+              ) : (
+                renderOption(option)
               )}
             </li>
           ))}

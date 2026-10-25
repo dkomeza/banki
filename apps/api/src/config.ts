@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import { z } from "zod";
+import { decodeEncryptionKey, ENCRYPTION_KEY_FORMAT } from "./crypto/encryption-key";
 
 /**
  * Everything the API reads from its environment, validated once at startup.
@@ -10,7 +11,7 @@ import { z } from "zod";
  * web app shares the API's origin.
  */
 export type Config = {
-  /** Absolute path of the data directory holding `banki.db` and `uploads/`. */
+  /** Absolute path of the data directory holding `banki.db`, `uploads/` and the key files. */
   dataDir: string;
   port: number;
   logFormat: "json" | "pretty";
@@ -19,6 +20,8 @@ export type Config = {
   origin: string;
   /** Overrides the secret in `<dataDir>/auth-secret` when set. */
   authSecret: string | undefined;
+  /** Overrides the key in `<dataDir>/encryption-key` when set: 32 bytes as base64url. */
+  encryptionKey: string | undefined;
   /** The commit the API was built from, reported by `/api/health`; `"dev"` outside a CI-built image. */
   commit: string;
 };
@@ -86,6 +89,13 @@ const env = z.object({
     unsetIfEmpty,
     z.string().min(32, "Expected at least 32 characters").optional(),
   ),
+  ENCRYPTION_KEY: z.preprocess(
+    unsetIfEmpty,
+    z
+      .string()
+      .refine((key) => decodeEncryptionKey(key) !== undefined, `Expected ${ENCRYPTION_KEY_FORMAT}`)
+      .optional(),
+  ),
   // Baked into the api image by the preview-images workflow; unset in local dev
   // and in a plain `docker compose build`.
   COMMIT: z.preprocess(unsetIfEmpty, z.string().default("dev")),
@@ -97,7 +107,8 @@ export function parseConfig(environment: Record<string, string | undefined>): Co
   if (!result.success) {
     throw new ConfigError(z.prettifyError(result.error));
   }
-  const { DATA_DIR, PORT, LOG_FORMAT, LOG_LEVEL, ORIGIN, AUTH_SECRET, COMMIT } = result.data;
+  const { DATA_DIR, PORT, LOG_FORMAT, LOG_LEVEL, ORIGIN, AUTH_SECRET, ENCRYPTION_KEY, COMMIT } =
+    result.data;
   return {
     dataDir: DATA_DIR,
     port: PORT,
@@ -105,6 +116,7 @@ export function parseConfig(environment: Record<string, string | undefined>): Co
     logLevel: LOG_LEVEL,
     origin: ORIGIN,
     authSecret: AUTH_SECRET,
+    encryptionKey: ENCRYPTION_KEY,
     commit: COMMIT,
   };
 }

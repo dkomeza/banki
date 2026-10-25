@@ -2,6 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { ApiError, SettingsResponse } from "@banki/shared";
 import { type App, bootApps, get, ORIGIN, setUp } from "../testing/app";
 
+/** What a User who hasn't touched the Grading card has. */
+const GRADING_DEFAULTS = {
+  model: "anthropic/claude-haiku-5.5",
+  apiKey: { state: "unset" },
+} as const;
+
 const { boot } = bootApps();
 
 /** A fresh app that Setup is done on, and the signed-in cookie Setup set. */
@@ -31,7 +37,7 @@ describe("GET /api/settings", () => {
     const res = await get(app, "/api/settings", cookie);
 
     expect(res.status).toBe(200);
-    expect(await settingsOf(res)).toEqual({ timezone: null, dayStartHour: 4 });
+    expect(await settingsOf(res)).toEqual({ timezone: null, dayStartHour: 4, ...GRADING_DEFAULTS });
   });
 
   test("answers 401 when signed out", async () => {
@@ -57,10 +63,15 @@ describe("PATCH /api/settings", () => {
     );
 
     expect(res.status).toBe(200);
-    expect(await settingsOf(res)).toEqual({ timezone: "Asia/Tokyo", dayStartHour: 0 });
+    expect(await settingsOf(res)).toEqual({
+      timezone: "Asia/Tokyo",
+      dayStartHour: 0,
+      ...GRADING_DEFAULTS,
+    });
     expect(await settingsOf(await get(app, "/api/settings", cookie))).toEqual({
       timezone: "Asia/Tokyo",
       dayStartHour: 0,
+      ...GRADING_DEFAULTS,
     });
   });
 
@@ -70,7 +81,11 @@ describe("PATCH /api/settings", () => {
 
     const res = await send(app, "PATCH", "/api/settings", { dayStartHour: 6 }, cookie);
 
-    expect(await settingsOf(res)).toEqual({ timezone: "Europe/Warsaw", dayStartHour: 6 });
+    expect(await settingsOf(res)).toEqual({
+      timezone: "Europe/Warsaw",
+      dayStartHour: 6,
+      ...GRADING_DEFAULTS,
+    });
   });
 
   test("accepts an alias Intl accepts, such as Europe/Kiev", async () => {
@@ -100,6 +115,7 @@ describe("PATCH /api/settings", () => {
     expect(await settingsOf(await get(app, "/api/settings", cookie))).toEqual({
       timezone: null,
       dayStartHour: 4,
+      ...GRADING_DEFAULTS,
     });
   });
 
@@ -123,7 +139,11 @@ describe("PUT /api/settings/timezone/initial", () => {
     );
 
     expect(res.status).toBe(200);
-    expect(await settingsOf(res)).toEqual({ timezone: "Europe/Warsaw", dayStartHour: 4 });
+    expect(await settingsOf(res)).toEqual({
+      timezone: "Europe/Warsaw",
+      dayStartHour: 4,
+      ...GRADING_DEFAULTS,
+    });
   });
 
   test("changes nothing once a Timezone is stored, answering the stored Settings", async () => {
@@ -139,7 +159,11 @@ describe("PUT /api/settings/timezone/initial", () => {
     );
 
     expect(res.status).toBe(200);
-    expect(await settingsOf(res)).toEqual({ timezone: "Europe/Warsaw", dayStartHour: 4 });
+    expect(await settingsOf(res)).toEqual({
+      timezone: "Europe/Warsaw",
+      dayStartHour: 4,
+      ...GRADING_DEFAULTS,
+    });
   });
 
   test("never overwrites a Timezone chosen on the Settings page", async () => {
@@ -154,7 +178,11 @@ describe("PUT /api/settings/timezone/initial", () => {
       cookie,
     );
 
-    expect(await settingsOf(res)).toEqual({ timezone: "Asia/Tokyo", dayStartHour: 6 });
+    expect(await settingsOf(res)).toEqual({
+      timezone: "Asia/Tokyo",
+      dayStartHour: 6,
+      ...GRADING_DEFAULTS,
+    });
   });
 
   test("fills in a Timezone when only the Day start was stored", async () => {
@@ -169,7 +197,11 @@ describe("PUT /api/settings/timezone/initial", () => {
       cookie,
     );
 
-    expect(await settingsOf(res)).toEqual({ timezone: "Europe/Warsaw", dayStartHour: 6 });
+    expect(await settingsOf(res)).toEqual({
+      timezone: "Europe/Warsaw",
+      dayStartHour: 6,
+      ...GRADING_DEFAULTS,
+    });
   });
 
   test("refuses an unknown Timezone with 400", async () => {
