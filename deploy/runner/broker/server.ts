@@ -3,7 +3,7 @@ import type { LinearTokens } from "./linear-tokens";
 import { redact } from "./redact";
 
 // What the broker answers on its Unix socket (ADR-0012). Only the runner's
-// container and the Dashboard's (ADR-0014) mount the socket's volume, and they
+// container and the Dashboard's (ADR-0015) mount the socket's volume, and they
 // reach nothing else of the broker's: the keys stay here, and only tokens go
 // out.
 //

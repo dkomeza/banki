@@ -1,5 +1,5 @@
 #!/bin/sh
-# `dashboard` (ADR-0014): the Dashboard's command in compose.yaml. It runs the
+# `dashboard` (ADR-0015): the Dashboard's command in compose.yaml. It runs the
 # Dashboard from the clone of `main` in the volume, not from the image, like
 # the tick, so a change merged to `main` applies once the Dashboard sees the
 # clone's HEAD move and exits, and Docker starts it again.

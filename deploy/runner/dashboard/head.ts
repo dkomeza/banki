@@ -1,4 +1,4 @@
-// The Dashboard runs from the clone of `main` on the volume (ADR-0014), and
+// The Dashboard runs from the clone of `main` on the volume (ADR-0015), and
 // the tick moves that clone. So it looks at the clone's HEAD now and then, and
 // once it has moved, it says so once and stops looking: main.ts exits, and
 // Docker's `restart: unless-stopped` starts it on the new `main`. Where it

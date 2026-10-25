@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # The Runner (ADR-0012): one image for its containers, the Broker, the runner
-# and the Dashboard (ADR-0014), built on the home server from a checkout of
+# and the Dashboard (ADR-0015), built on the home server from a checkout of
 # `main`. Build
 # context: deploy/runner. Everything a Stage runs comes from here or from the
 # clone of `main` in the volume, never from a registry tag a pull request

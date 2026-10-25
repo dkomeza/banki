@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Keeps the Runner's Stages off the home server and the home LAN (ADR-0012),
-# and the Dashboard too (ADR-0014). A Stage runs code from branches with
+# and the Dashboard too (ADR-0015). A Stage runs code from branches with
 # permission prompts skipped, and the Dashboard runs from the clone the
 # Stages can write to, so their networks, the fixed subnets in compose.yaml,
 # may reach the internet and nothing private:

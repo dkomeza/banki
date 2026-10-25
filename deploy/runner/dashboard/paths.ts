@@ -1,7 +1,7 @@
 import { lstatSync, realpathSync } from "node:fs";
 import { basename, dirname, join, sep } from "node:path";
 
-// Which files the Dashboard serves (ADR-0014): only a Stage's logs, under
+// Which files the Dashboard serves (ADR-0015): only a Stage's logs, under
 // /work/logs/BAN-N/, by a name with no path in it. A Stage can write to that
 // directory, so the directory must be a real one right under the logs, and
 // the file a regular file in it once its links are followed: a symlink

@@ -97,7 +97,7 @@ services:
     # Its own network, for GitHub, Linear, Anthropic and the package registries.
     networks: [runner]
 
-  # The Dashboard (ADR-0014): a read-only web page of what the Runner and the
+  # The Dashboard (ADR-0015): a read-only web page of what the Runner and the
   # Dispatcher are doing. It runs from the clone of `main` on the volume, as
   # the tick does (bin/dashboard), and exits once the clone's HEAD moves, so
   # Docker starts it again on the new `main`. It reads the volume, mounted

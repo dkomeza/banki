@@ -1,6 +1,6 @@
 import type { PreviewDeployment } from "../dispatch/github";
 
-// The pull agent's health, inferred (ADR-0014): the Dashboard never reaches
+// The pull agent's health, inferred (ADR-0015): the Dashboard never reaches
 // the pull agent, so it goes by GitHub alone. A `preview` or `slug-preview`
 // deployment whose newest status is still `queued`, or which has none, 10
 // minutes after it was made is flagged: the pull agent hasn't claimed it.

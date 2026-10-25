@@ -10,7 +10,7 @@ import { readHead, readTail } from "./files";
 import { localLog } from "./paths";
 import type { IssueData, RunFacts } from "./timeline";
 
-// What the Dashboard reads for an issue's page (ADR-0014): the Runner's
+// What the Dashboard reads for an issue's page (ADR-0015): the Runner's
 // records and the issue's logs from the volume, mounted read-only, and the
 // issue's comments and moves from Linear, with a token of its own revoked
 // at the end. Nothing here writes anywhere.

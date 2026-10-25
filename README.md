@@ -544,7 +544,7 @@ It is one Compose project, `banki-runner`, with three containers from one image:
 
 - **broker**, the [Broker](CONTEXT.md), holds the GitHub App's private key and the Linear app's client secret, and mints short-lived tokens from them. Nothing else runs there.
 - **runner** runs the tick and the Stages. It holds only the Claude token, asks the Broker for GitHub and Linear tokens over a Unix socket, and never sees the keys.
-- **dashboard** serves the [Dashboard](CONTEXT.md), a read-only web page of what the Runner is doing ([below](#the-dashboard); [ADR-0014](docs/adr/0014-the-dashboard-reads-through-the-broker-from-a-container-of-its-own.md)). It holds no secret, and reads the runner's volume read-only.
+- **dashboard** serves the [Dashboard](CONTEXT.md), a read-only web page of what the Runner is doing ([below](#the-dashboard); [ADR-0015](docs/adr/0015-the-dashboard-reads-through-the-broker-from-a-container-of-its-own.md)). It holds no secret, and reads the runner's volume read-only.
 
 The broker and the runner share only the volume holding the Broker's socket, which the Dashboard mounts too. A Stage runs `claude` with permission prompts skipped and reads untrusted text, so it could be talked into sending whatever it can read: it can mint tokens through the socket, but it can't read the key that makes them, and every token it can get dies on its own. A GitHub token lasts an hour. A Linear token is minted when its Stage starts and revoked when it ends, or 4 hours after it was minted, whichever comes first.
 
@@ -764,7 +764,7 @@ docker compose -f deploy/runner/compose.yaml exec runner runner run-now BAN-N [-
 
 ### The Dashboard
 
-The [Dashboard](CONTEXT.md) shows what the Runner and the Dispatcher are doing, and what each issue went through, in one place, without ssh ([ADR-0014](docs/adr/0014-the-dashboard-reads-through-the-broker-from-a-container-of-its-own.md)). It is the `dashboard` service, at `runner.banki.dkomeza.com` behind Pangolin's SSO:
+The [Dashboard](CONTEXT.md) shows what the Runner and the Dispatcher are doing, and what each issue went through, in one place, without ssh ([ADR-0015](docs/adr/0015-the-dashboard-reads-through-the-broker-from-a-container-of-its-own.md)). It is the `dashboard` service, at `runner.banki.dkomeza.com` behind Pangolin's SSO:
 
 | Page                        | What it shows                                                                                                                                                                                                                                                                                                                                                                    |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

@@ -1,6 +1,6 @@
 import { closeSync, fstatSync, openSync, readSync } from "node:fs";
 
-// How the Dashboard reads a Stage's logs (ADR-0014): a Stage writes them,
+// How the Dashboard reads a Stage's logs (ADR-0015): a Stage writes them,
 // so they can be any size, and the Dashboard has 256 MB. Never a whole log:
 // its head, for the init event that comes first; its tail, for the result
 // event that comes last and the newest lines; or, for a stream, the next

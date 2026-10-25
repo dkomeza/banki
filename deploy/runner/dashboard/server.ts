@@ -14,7 +14,7 @@ import { isIssue, servedLogPath } from "./paths";
 import { ticksPage } from "./ticks-page";
 import { attemptOf, type IssueData, issuePage, timeline } from "./timeline";
 
-// The Dashboard's HTTP side (ADR-0014), a thin adapter over the pages'
+// The Dashboard's HTTP side (ADR-0015), a thin adapter over the pages'
 // builders: `GET` only (anything else answers 405), every response with the
 // strict CSP and no caching, and two SSE streams: the Now page's live view
 // every 30 seconds, and a running Stage's log as it grows. It trusts

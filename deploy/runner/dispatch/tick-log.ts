@@ -4,7 +4,7 @@ import { isRecord } from "../lib/parse";
 import { LOG_RETENTION_MS } from "./housekeeping";
 import { DISPATCHER } from "./store";
 
-// The tick log (ADR-0014): every line the tick and `run-now` log, as they
+// The tick log (ADR-0015): every line the tick and `run-now` log, as they
 // print it, is also appended to /work/dispatcher/ticks.jsonl, one
 // `{ at, main, line }` each, so the Dashboard's /ticks can show what
 // `docker logs` would. Each tick drops the lines older than 30 days, as it

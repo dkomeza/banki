@@ -61,7 +61,7 @@ export const RESERVED_SLUGS: ReadonlySet<string> = new Set([
   "production",
   "staging",
   "banki",
-  // The Runner's Dashboard, at runner.banki.dkomeza.com (ADR-0014).
+  // The Runner's Dashboard, at runner.banki.dkomeza.com (ADR-0015).
   "runner",
 ]);
 

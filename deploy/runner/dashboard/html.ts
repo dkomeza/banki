@@ -1,6 +1,6 @@
 import { redactTokens } from "../dispatch/secrets";
 
-// What every page of the Dashboard is built from (ADR-0014). The Stages'
+// What every page of the Dashboard is built from (ADR-0015). The Stages'
 // logs and the issues' comments are untrusted text, so everything shown goes
 // through `show`: redacted of anything shaped like a token, then
 // HTML-escaped. A page is one document with a same-origin stylesheet and, on

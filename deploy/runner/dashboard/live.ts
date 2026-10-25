@@ -8,7 +8,7 @@ import type { StatusView } from "../dispatch/status";
 import { errorText } from "../lib/config";
 import { newestByName, unclaimedFor } from "./flags";
 
-// One computation of the Now page's live view (ADR-0014): `runner status`'s
+// One computation of the Now page's live view (ADR-0015): `runner status`'s
 // view, with its one Linear token revoked at its end; the Previews'
 // deployments the pull agent hasn't claimed, from GitHub; and the dollars
 // each Stage running or paused has cost so far, from its logs. When Linear

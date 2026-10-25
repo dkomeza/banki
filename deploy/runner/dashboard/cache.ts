@@ -1,4 +1,4 @@
-// The Dashboard's live view is shared (ADR-0014): computed on demand, at
+// The Dashboard's live view is shared (ADR-0015): computed on demand, at
 // most once every 30 seconds whatever the number of viewers, and never while
 // nobody asks for it. A computation still running is shared too, and one that
 // failed is kept for its 30 seconds like any other, so a broken Linear isn't

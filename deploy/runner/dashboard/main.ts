@@ -8,7 +8,7 @@ import { dashboard } from "./app";
 import { watchHead } from "./head";
 import { handler } from "./server";
 
-// The Dashboard (ADR-0014), the `dashboard` service in compose.yaml: run by
+// The Dashboard (ADR-0015), the `dashboard` service in compose.yaml: run by
 // bin/dashboard from the clone of `main` on the Runner's volume, mounted
 // read-only, like the tick. It reads Linear and GitHub through the Broker's
 // socket, as `runner status` does, and holds no secret of its own. It

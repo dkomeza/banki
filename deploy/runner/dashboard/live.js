@@ -1,4 +1,4 @@
-// The Dashboard's one script (ADR-0014), served from its own origin: every
+// The Dashboard's one script (ADR-0015), served from its own origin: every
 // page renders in full without it, and it only adds the streaming. On the Now
 // page it swaps in the live view the server sends every 30 seconds, already
 // escaped; on a running Stage's log it appends each new line as plain text,
