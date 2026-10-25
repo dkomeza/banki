@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { logFacts, logTail } from "./stage-log";
+import { claudeStarted, logFacts, logLines, logTail } from "./stage-log";
 
 // What a Stage's log says: its session, its cost, whether the five-hour
 // limit paused it, and its tail.
@@ -122,5 +122,41 @@ describe("a log's tail", () => {
 
     expect(logTail(lines)).toHaveLength(30);
     expect(logTail(lines)[0]).toBe("say: step 10");
+  });
+});
+
+const runner = (fields: Record<string, unknown>) =>
+  JSON.stringify({ type: "runner", at: "2026-10-24T01:00:00.000Z", ...fields });
+
+describe("a whole log, for the Dashboard", () => {
+  test("is every event as one line, by the tail's rules, however long it is", () => {
+    const lines = [
+      runner({ event: "start", argv: ["claude", "-p", "x"] }),
+      init,
+      ...Array.from({ length: 40 }, () =>
+        JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "hi" }] } }),
+      ),
+      runner({ event: "stderr", line: "warn: x" }),
+      runner({ event: "exit", exitCode: 0, signal: null }),
+      "",
+    ];
+
+    const shown = logLines(lines);
+
+    expect(shown).toHaveLength(43);
+    expect(shown[0]).toBe("start: m, session sess-1, no MCP server");
+    expect(shown.slice(-2)).toEqual(["[stderr] warn: x", "claude exited 0"]);
+  });
+
+  test("says whether claude started: an init event, after the Runner's own", () => {
+    expect(claudeStarted([runner({ event: "start", argv: [] }), init])).toBe(true);
+    expect(
+      claudeStarted([
+        runner({ event: "start", argv: [] }),
+        runner({ event: "stderr", line: "Error: spawn claude ENOENT" }),
+        runner({ event: "exit", exitCode: 1, signal: null }),
+      ]),
+    ).toBe(false);
+    expect(claudeStarted([])).toBe(false);
   });
 });

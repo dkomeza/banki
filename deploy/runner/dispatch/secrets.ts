@@ -2,8 +2,9 @@ import { redact } from "../broker/redact";
 
 // What the Dispatcher posts from a Stage's log never shows a token: the
 // ones it knows (the Claude token, the Linear token the Stage was given),
-// and anything shaped like a GitHub or Linear token, or sent as an
-// Authorization header. Pure, so it is unit-tested.
+// and anything shaped like a GitHub, Linear or Claude token, or sent as an
+// Authorization header. The Dashboard shows what it reads through this too,
+// and holds no token to hide by value. Pure, so it is unit-tested.
 
 const REDACTED = "[redacted]";
 
@@ -11,6 +12,7 @@ const SHAPES: readonly RegExp[] = [
   /\bgh[pousr]_[A-Za-z0-9]{20,}/g,
   /\bgithub_pat_[A-Za-z0-9_]{20,}/g,
   /\blin_[a-z]+_[A-Za-z0-9]{16,}/g,
+  /\bsk-ant-[A-Za-z0-9_-]{16,}/g,
 ];
 
 export function redactTokens(text: string, known: readonly string[] = []): string {

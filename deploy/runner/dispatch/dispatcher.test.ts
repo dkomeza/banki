@@ -31,6 +31,19 @@ describe("a tick", () => {
     expect(revoked).toEqual(["tick-token"]);
   });
 
+  test("drops the tick log's lines older than 30 days, as of its own clock", async () => {
+    const { deps } = dispatcher([], { now: WEDNESDAY });
+    const pruned: Date[] = [];
+    deps.housekeeper.pruneTickLog = (now) => {
+      pruned.push(now);
+      return 3;
+    };
+
+    await tick(deps);
+
+    expect(pruned).toEqual([WEDNESDAY]);
+  });
+
   test("starts nothing outside the window, and takes no reading", async () => {
     let read = false;
     const { deps, started } = dispatcher([fakeIssue("BAN-1")], {

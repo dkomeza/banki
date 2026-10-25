@@ -19,7 +19,7 @@ import { plan, type Ready, type Verdict } from "./queue";
 import { type Decision, STATUS } from "./select";
 import { openSession, type Session, type SessionDeps } from "./session";
 import type { Start } from "./spawn";
-import { renderStatus } from "./status";
+import { renderStatus, type StatusView } from "./status";
 import type { Store } from "./store";
 import { inWindow, localTime } from "./window";
 
@@ -29,19 +29,28 @@ import { inWindow, localTime } from "./window";
 // move from Linear and GitHub, makes the moves that cost no tokens (handing
 // an issue back, the hand-offs, the stops), starts what the window, the cap
 // and the gate allow, and tidies up. `runner run-now` and `runner status`
-// share it.
+// share it, and the Dashboard shares `runner status`'s view.
 
 const AGENT_STATUSES: readonly string[] = [STATUS.todo, STATUS.inDesign, STATUS.inReview];
 
 export type Housekeeper = {
   logFiles: () => { path: string; modified: Date }[];
   removeLogs: (paths: readonly string[]) => void;
+  /** Drops the tick log's lines older than 30 days; returns how many. */
+  pruneTickLog: (now: Date) => number;
   listWorktrees: () => Promise<{ path: string; branch: string | undefined }[]>;
   worktreeFacts: (
     entry: { path: string; branch: string | undefined },
     pr: number | undefined,
   ) => Promise<WorktreeFacts>;
   removeWorktree: (removal: Removal) => Promise<void>;
+};
+
+/** What `runner status`'s view is made from: it reads, and changes nothing. */
+export type StatusDeps = SessionDeps & {
+  records: Pick<Store, "activeRecords" | "stageRecords" | "gate">;
+  config: DispatcherConfig;
+  now: () => Date;
 };
 
 export type DispatcherDeps = SessionDeps & {
@@ -110,7 +119,7 @@ async function dispatch(session: Session, deps: DispatcherDeps): Promise<void> {
 }
 
 /** Why nothing may start now, outside the window; undefined inside it. */
-function closedNow(config: DispatcherConfig, now: Date): string | undefined {
+export function closedNow(config: DispatcherConfig, now: Date): string | undefined {
   return inWindow(localTime(now, config.timeZone), config.window)
     ? undefined
     : "outside the window";
@@ -273,7 +282,7 @@ type Surveyed = { issue: LinearIssue; decision: Decision };
  */
 async function survey(
   session: Session,
-  deps: DispatcherDeps,
+  deps: StatusDeps,
   issues: readonly LinearIssue[],
   now: Date,
   options: { act: boolean },
@@ -307,7 +316,7 @@ async function survey(
 /** The issue's decision; with `act`, a hand-back is made first and the issue decided on again. */
 async function decideIssue(
   session: Session,
-  deps: DispatcherDeps,
+  deps: Pick<SessionDeps, "log">,
   issue: LinearIssue,
   now: Date,
   handBack: boolean,
@@ -323,7 +332,7 @@ async function decideIssue(
 
 async function act(
   session: Session,
-  deps: DispatcherDeps,
+  deps: Pick<SessionDeps, "log">,
   issue: LinearIssue,
   decision: Decision,
 ): Promise<void> {
@@ -340,6 +349,7 @@ async function act(
 }
 
 function tidyLogs(deps: DispatcherDeps): void {
+  deps.housekeeper.pruneTickLog(deps.now());
   const keep = new Set(
     deps.records
       .activeRecords()
@@ -516,7 +526,15 @@ export async function runNow(
 }
 
 /** `runner status`, read-only: it takes no reading, and makes no move. */
-export async function status(deps: DispatcherDeps): Promise<string> {
+export async function status(deps: StatusDeps): Promise<string> {
+  return renderStatus(await statusView(deps));
+}
+
+/**
+ * What `runner status` shows, as a structure the Dashboard renders too: one
+ * Linear token for it, revoked at its end.
+ */
+export async function statusView(deps: StatusDeps): Promise<StatusView> {
   const now = deps.now();
   const active = deps.records.activeRecords();
   const stages = deps.records.stageRecords();
@@ -559,7 +577,7 @@ export async function status(deps: DispatcherDeps): Promise<string> {
       estimates,
     });
     const supervised = new Set(active.map((record) => record.issue));
-    return renderStatus({
+    return {
       now,
       closed: closedNow(deps.config, now),
       running: active.filter((record) => record.state === "running"),
@@ -575,6 +593,7 @@ export async function status(deps: DispatcherDeps): Promise<string> {
           issue: issue.identifier,
           status: issue.status,
           what: describe(decision),
+          ...(decision.type === "wait" && decision.on !== undefined ? { on: decision.on } : {}),
         })),
       gate,
       estimates,
@@ -585,7 +604,7 @@ export async function status(deps: DispatcherDeps): Promise<string> {
       orphans: issues
         .filter((issue) => issue.status === STATUS.inProgress && !supervised.has(issue.identifier))
         .map((issue) => issue.identifier),
-    });
+    };
   } finally {
     await session.end();
   }

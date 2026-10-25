@@ -17,7 +17,8 @@ import type { Transition } from "./select";
 // GraphQL API with a token the Broker minted for this tick or this
 // supervisor alone. It reads issues of project Banki, their status history
 // and comments, and posts and changes only what the Dispatcher owns: statuses,
-// assignees and comments.
+// assignees and comments. The Dashboard reads through it too, and never
+// writes.
 
 const API = "https://api.linear.app/graphql";
 const PROJECT = "Banki";
@@ -28,6 +29,7 @@ export type LinearIssue = {
   id: string;
   identifier: string;
   number: number;
+  title: string;
   priority: number;
   createdAt: string;
   branch: string;
@@ -38,11 +40,12 @@ export type LinearIssue = {
 };
 
 const ISSUE_FIELDS =
-  "id identifier number priority createdAt branchName description state { name } assignee { id } team { id }";
+  "id identifier number title priority createdAt branchName description state { name } assignee { id } team { id }";
 const toIssue = (node: Record<string, unknown>): LinearIssue => ({
   id: asString(node.id, "issue.id"),
   identifier: asString(node.identifier, "issue.identifier"),
   number: asNumber(node.number, "issue.number"),
+  title: asOptionalString(node.title, "issue.title") ?? "",
   priority: asNumber(node.priority, "issue.priority"),
   createdAt: asString(node.createdAt, "issue.createdAt"),
   branch: asString(node.branchName, "issue.branchName"),
@@ -52,7 +55,18 @@ const toIssue = (node: Record<string, unknown>): LinearIssue => ({
   teamId: asString(asObject(node.team, "issue.team").id, "issue.team.id"),
 });
 
+/** A change to an issue's status or assignee, and who made it (a user ID; null for Linear or an integration). */
+export type Move = {
+  at: string;
+  by: string | null;
+  status?: { from: string | null; to: string };
+  assignee?: { from: string | null; to: string | null };
+};
+
 export type Linear = ReturnType<typeof linear>;
+
+/** A node's `id`, or null when it has none. */
+const idOf = (value: unknown, at: string) => (isRecord(value) ? asString(value.id, at) : null);
 
 export function linear(
   token: string,
@@ -159,6 +173,37 @@ export function linear(
         }))
         .toSorted((a, b) => a.at.localeCompare(b.at));
       return { statuses, assignedAt };
+    },
+
+    /** The issue's status and assignee changes, oldest first, with who made each: for the Dashboard. */
+    async moves(id: string): Promise<Move[]> {
+      const nodes = await all(
+        `query ($id: String!, $after: String) { issue(id: $id) { history(first: ${PAGE}, after: $after) { nodes { createdAt actor { id } fromState { name } toState { name } fromAssignee { id } toAssignee { id } } pageInfo { hasNextPage endCursor } } } }`,
+        { id },
+        (data) => asObject(data.issue, "issue").history,
+      );
+      return nodes
+        .flatMap((node): Move[] => {
+          const at = asString(node.createdAt, "history.createdAt");
+          const by = idOf(node.actor, "history.actor.id");
+          const move: Move = { at, by };
+          if (isRecord(node.toState)) {
+            move.status = {
+              from: isRecord(node.fromState)
+                ? asString(node.fromState.name, "history.fromState.name")
+                : null,
+              to: asString(node.toState.name, "history.toState.name"),
+            };
+          }
+          if (isRecord(node.fromAssignee) || isRecord(node.toAssignee)) {
+            move.assignee = {
+              from: idOf(node.fromAssignee, "history.fromAssignee.id"),
+              to: idOf(node.toAssignee, "history.toAssignee.id"),
+            };
+          }
+          return move.status === undefined && move.assignee === undefined ? [] : [move];
+        })
+        .toSorted((a, b) => a.at.localeCompare(b.at));
     },
 
     async comments(id: string): Promise<Comment[]> {

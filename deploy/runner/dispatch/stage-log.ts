@@ -3,8 +3,9 @@ import { isRecord } from "../lib/parse";
 
 // What the Dispatcher reads from a Stage's log (`/work/logs/BAN-N/…jsonl`):
 // its `claude` session, what it cost in dollars, whether the five-hour limit
-// cut it short, and its last events as one line each, for a stop comment.
-// Never the raw JSON. Pure, so it is unit-tested.
+// cut it short, whether `claude` started at all, and its events as one line
+// each, for a stop comment and the Dashboard. Never the raw JSON. Pure, so
+// it is unit-tested.
 
 export type LogFacts = {
   /** From the init event. */
@@ -82,9 +83,13 @@ export function logFacts(lines: readonly string[]): LogFacts {
   };
 }
 
-/** The log's last `count` events, one line each as `runner stage` prints them. */
-export function logTail(lines: readonly string[], count = 30): string[] {
-  const summaries = lines.flatMap((line) => {
+/**
+ * Every event in the log as one line, as `runner stage` prints them: the
+ * `runner` events for stderr and the exit, and `claude`'s summarized. The
+ * Dashboard shows a whole log this way.
+ */
+export function logLines(lines: readonly string[]): string[] {
+  return lines.flatMap((line) => {
     if (line.trim() === "") return [];
     const event = parse(line);
     if (event?.type === "runner") {
@@ -94,5 +99,17 @@ export function logTail(lines: readonly string[], count = 30): string[] {
     }
     return [summarize(line)];
   });
-  return summaries.slice(-count);
+}
+
+/** The log's last `count` events, one line each as `runner stage` prints them. */
+export function logTail(lines: readonly string[], count = 30): string[] {
+  return logLines(lines).slice(-count);
+}
+
+/** Whether `claude` started in this run: its log has an init event. A run without one never started. */
+export function claudeStarted(lines: readonly string[]): boolean {
+  return lines.some((line) => {
+    const event = line.trim() === "" ? undefined : parse(line);
+    return event?.type === "system" && event.subtype === "init";
+  });
 }

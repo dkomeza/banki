@@ -6,7 +6,7 @@ import { MAINTAINER } from "./closing";
 import type { DispatcherDeps } from "./dispatcher";
 import type { Reading } from "./gate";
 import type { GitHub } from "./github";
-import type { Linear, LinearIssue } from "./linear";
+import type { Linear, LinearIssue, Move } from "./linear";
 import type { ReviewFacts, Transition } from "./select";
 import type { Start } from "./spawn";
 import { store } from "./store";
@@ -29,6 +29,8 @@ export const STATES = [
 
 export type FakeIssue = LinearIssue & {
   history: Transition[];
+  /** Its moves, with who made them, for the Dashboard; its history's, by no one, when not given. */
+  moves?: Move[];
   assignedAt?: string;
   comments: Comment[];
   stateType?: "completed" | "canceled";
@@ -39,6 +41,7 @@ export function fakeIssue(identifier: string, fields: Partial<FakeIssue> = {}): 
     id: `id-${identifier}`,
     identifier,
     number: Number(identifier.split("-")[1]),
+    title: "",
     priority: 0,
     createdAt: "2026-10-01T00:00:00.000Z",
     branch: `dkomeza/${identifier.toLowerCase()}-x`,
@@ -69,6 +72,14 @@ export function fakeLinear(issues: FakeIssue[]) {
       assignedAt: find(id)?.assignedAt,
     }),
     comments: async (id) => find(id)?.comments ?? [],
+    moves: async (id) => [
+      ...(find(id)?.moves ??
+        (find(id)?.history ?? []).map((change) => ({
+          at: change.at,
+          by: null,
+          status: { from: change.from, to: change.to },
+        }))),
+    ],
     ended: async (numbers) =>
       new Map(
         issues.flatMap((issue) =>
@@ -125,6 +136,7 @@ export function fakeGitHub(review: Partial<ReviewFacts> = {}): GitHub {
     }),
     slugDeployments: async () => [],
     newestStatus: async () => ({ state: null, description: "", url: null }),
+    recentDeployments: async () => [],
     takeDown: async () => undefined,
     branches: async () => [],
     pullNumber: async () => undefined,
@@ -186,6 +198,7 @@ export function dispatcher(
     housekeeper: {
       logFiles: () => [],
       removeLogs: () => undefined,
+      pruneTickLog: () => 0,
       listWorktrees: async () => [],
       worktreeFacts: async (entry) => ({ ...entry, clean: true, pushed: true }),
       removeWorktree: async () => undefined,

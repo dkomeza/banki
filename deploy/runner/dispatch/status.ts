@@ -2,13 +2,14 @@ import type { StageKind } from "../cli/args";
 import { percent } from "./gate";
 import type { ActiveRecord, StageRecord } from "./lifecycle";
 import type { Verdict } from "./queue";
+import type { WaitOn } from "./select";
 import type { GateFile } from "./store";
 
 // What `runner status` prints: the Stages running and paused, the ready
 // queue in order with why each one would or wouldn't start now, what else
 // the Dispatcher is waiting on, the gate's last reading, the recent Stages
-// with their costs, and the In Progress issues no supervisor started. Pure,
-// so it is unit-tested.
+// with their costs, and the In Progress issues no supervisor started. The
+// Dashboard's Now page renders the same view. Pure, so it is unit-tested.
 
 export type StatusView = {
   now: Date;
@@ -17,7 +18,8 @@ export type StatusView = {
   running: ActiveRecord[];
   paused: ActiveRecord[];
   queue: Verdict[];
-  waiting: { issue: string; status: string; what: string }[];
+  /** `on` says what a wait waits on, which the Dashboard shows and the text leaves out. */
+  waiting: { issue: string; status: string; what: string; on?: WaitOn }[];
   gate: GateFile | undefined;
   estimates: Record<StageKind, number>;
   recent: { record: StageRecord; cost: number | undefined }[];
