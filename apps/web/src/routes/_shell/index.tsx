@@ -1,41 +1,176 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
+import { Plus } from "lucide-react";
+import { useState } from "react";
 import { Page } from "@/components/page";
+import { PILL } from "@/components/settings/parts";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { Cover, Stack } from "@/components/decks/cover";
+import { DeckDialog } from "@/components/decks/deck-dialog";
+import { useDeckSort } from "@/lib/deck-sort";
+import {
+  type Deck,
+  type DeckSort,
+  createDeck,
+  createdLabel,
+  decksQueryOptions,
+  sortDecks,
+} from "@/lib/decks";
+
+// Home is the deck list: every Deck is a paper stack whose top card is its
+// cover, with its name and the first lines of its description under it. One
+// toolbar under the title holds the sort, as a two-way switch, and "New deck",
+// which opens the create dialog.
 
 export const Route = createFileRoute("/_shell/")({
+  loader: ({ context: { queryClient } }) => queryClient.ensureQueryData(decksQueryOptions()),
   component: Home,
 });
 
 function Home() {
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const { data: all } = useSuspenseQuery(decksQueryOptions());
+  const [sort, setSort] = useDeckSort();
+  const decks = sortDecks(all, sort);
+  const [creating, setCreating] = useState(false);
+
   return (
-    <Page width="reading">
-      <div className="flex flex-col gap-8">
-        <h1 className="text-2xl font-semibold tracking-tight">Home</h1>
-        <section
-          aria-labelledby="home-empty"
-          className="flex flex-col items-center gap-5 rounded-2xl border border-dashed border-input/60 px-6 py-14 text-center"
-        >
-          <EmptyStack />
-          <div className="flex max-w-xs flex-col gap-1.5">
-            <h2 id="home-empty" className="text-lg font-semibold tracking-tight">
-              Your decks will live here
-            </h2>
-            <p className="text-sm text-balance text-muted-foreground">
-              Each deck you make shows up on this page, with its cards.
-            </p>
-          </div>
-        </section>
+    <Page width="cards">
+      <div className="flex flex-col gap-8 lg:gap-10">
+        <header className="flex flex-col gap-6">
+          <h1 className="text-[2.25rem] leading-none font-semibold tracking-[-0.035em] lg:text-5xl">
+            Decks
+          </h1>
+          {decks.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-y py-3">
+              <SortSwitch value={sort} onChange={setSort} />
+              <Button className={cn(PILL, "h-11")} onClick={() => setCreating(true)}>
+                <Plus aria-hidden />
+                New deck
+              </Button>
+            </div>
+          )}
+        </header>
+
+        {decks.length === 0 ? (
+          <Empty onCreate={() => setCreating(true)} />
+        ) : (
+          <ul
+            aria-label="Decks"
+            className="grid grid-cols-2 gap-x-4 gap-y-7 pt-2 sm:gap-x-6 sm:gap-y-9 lg:grid-cols-3"
+          >
+            {decks.map((deck) => (
+              <li key={deck.id} className="flex">
+                <StackTile deck={deck} />
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
+
+      <DeckDialog
+        open={creating}
+        onOpenChange={setCreating}
+        title="New deck"
+        submitLabel="Create deck"
+        submittingLabel="Creating…"
+        initial={{ name: "", description: "" }}
+        onSubmit={async (form) => {
+          const outcome = await createDeck(queryClient, form);
+          if (outcome.ok) {
+            setCreating(false);
+            await navigate({ to: "/decks/$deckId", params: { deckId: outcome.deck.id } });
+          }
+          return outcome;
+        }}
+      />
     </Page>
   );
 }
 
-/** Three blank cards, the logo's stack drawn as outlines: nothing in it yet. */
-function EmptyStack() {
+const SORTS: { value: DeckSort; label: string }[] = [
+  { value: "alphabetical", label: "A–Z" },
+  { value: "newest", label: "Newest" },
+];
+
+/** Alphabetical or Newest: two choices, so both stay in view. */
+function SortSwitch({ value, onChange }: { value: DeckSort; onChange: (s: DeckSort) => void }) {
   return (
-    <div aria-hidden className="relative h-20 w-28">
-      <div className="absolute top-0 left-6 h-14 w-20 rotate-9 rounded-lg border-2 border-input/50 bg-card" />
-      <div className="absolute top-2.5 left-3.5 h-14 w-20 rotate-2 rounded-lg border-2 border-input/70 bg-card" />
-      <div className="absolute top-5 left-1 h-14 w-20 -rotate-5 rounded-lg border-2 border-primary/70 bg-card" />
+    <div role="radiogroup" aria-label="Sort decks" className="flex rounded-full border bg-card p-1">
+      {SORTS.map((s) => (
+        <button
+          key={s.value}
+          type="button"
+          role="radio"
+          aria-checked={value === s.value}
+          aria-label={s.value === "alphabetical" ? "Alphabetical" : "Newest"}
+          onClick={() => onChange(s.value)}
+          className="h-11 min-w-20 rounded-full px-4 text-sm font-medium text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid aria-checked:bg-foreground aria-checked:text-background motion-reduce:transition-none lg:h-8"
+        >
+          {s.label}
+        </button>
+      ))}
     </div>
+  );
+}
+
+/**
+ * A deck as a stack whose top card is its cover, f's monogram on ruled paper,
+ * with two more cards peeking out under it. The name and the start of the
+ * description sit under the stack, like a title under a book.
+ */
+function StackTile({ deck }: { deck: Deck }) {
+  return (
+    <Link
+      to="/decks/$deckId"
+      params={{ deckId: deck.id }}
+      className="group flex w-full flex-col gap-4 rounded-2xl text-foreground no-underline outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring focus-visible:outline-solid"
+    >
+      <Stack className="aspect-[4/3] w-full lg:aspect-[16/10]">
+        <Cover
+          name={deck.name}
+          className="w-full rounded-2xl border text-5xl transition-[border-color,translate] group-hover:-translate-y-1 group-hover:border-primary/50 motion-reduce:transition-none sm:text-6xl"
+        />
+      </Stack>
+      <span className="flex flex-col gap-1 px-0.5 pt-1">
+        <span className="line-clamp-2 leading-snug font-semibold tracking-tight [overflow-wrap:anywhere] group-hover:underline group-hover:underline-offset-4 sm:text-[1.05rem]">
+          {deck.name}
+        </span>
+        <span className="line-clamp-2 text-sm text-muted-foreground">
+          {deck.description ?? `Created ${createdLabel(deck.createdAt)}`}
+        </span>
+      </span>
+    </Link>
+  );
+}
+
+function Empty({ onCreate }: { onCreate: () => void }) {
+  return (
+    <section
+      aria-labelledby="home-empty"
+      className="flex flex-col items-center gap-6 px-4 py-12 text-center sm:py-16"
+    >
+      <div aria-hidden className="relative isolate h-28 w-36">
+        <span className="absolute inset-0 -z-20 translate-x-2 translate-y-2 rotate-[4deg] rounded-xl border border-dashed border-input" />
+        <span className="absolute inset-0 -z-10 translate-x-1 translate-y-1 rotate-[2deg] rounded-xl border border-dashed border-input" />
+        <span className="absolute inset-0 flex items-center justify-center rounded-xl border border-dashed border-input bg-card">
+          <Plus className="size-7 text-muted-foreground" />
+        </span>
+      </div>
+      <div className="flex flex-col gap-2">
+        <h2 id="home-empty" className="text-2xl font-semibold tracking-tight">
+          No decks yet
+        </h2>
+        <p className="max-w-sm text-balance text-muted-foreground">
+          A deck holds the cards for one thing you're learning. Make one, then add cards to it.
+        </p>
+      </div>
+      <Button className={cn(PILL, "h-11")} onClick={onCreate}>
+        <Plus aria-hidden />
+        New deck
+      </Button>
+    </section>
   );
 }

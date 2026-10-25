@@ -8,6 +8,10 @@ A spaced-repetition app built around writing answers and having an LLM grade the
 The person who owns everything in a Banki installation: folders, decks, cards, reviews and settings. Each installation has exactly one User for now.
 _Avoid_: Learner, account, owner
 
+**Deck**:
+A named set of cards the User studies together, with an optional description and, later, settings of its own. It sits at the root or in one folder, and no two decks beside each other share a name, ignoring case. A deleted deck no longer counts as beside anything.
+_Avoid_: collection, set
+
 **Session**:
 One sitting of studying one deck. It can be resumed, and it ends after a period of inactivity.
 _Avoid_: using "session" for being signed in

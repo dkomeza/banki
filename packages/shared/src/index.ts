@@ -8,6 +8,17 @@ export {
   SetupRequest,
   SetupStatus,
 } from "./auth";
+export {
+  CreateDeckRequest,
+  DECK_DESCRIPTION_MAX_LENGTH,
+  DECK_NAME_MAX_LENGTH,
+  DeckDescription,
+  DeckListResponse,
+  DeckName,
+  deckNameKey,
+  DeckResponse,
+  UpdateDeckRequest,
+} from "./decks";
 export { ApiError } from "./error";
 export { HealthResponse } from "./health";
 export {

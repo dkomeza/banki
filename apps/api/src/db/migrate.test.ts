@@ -34,13 +34,20 @@ const addMigration = (tag: string, statements: string, when?: number): number =>
 };
 
 /** The committed migrations, in order. */
-const COMMITTED = ["0000_baseline", "0001_auth", "0002_user_settings", "0003_grading"];
+const COMMITTED = [
+  "0000_baseline",
+  "0001_auth",
+  "0002_user_settings",
+  "0003_grading",
+  "0004_decks",
+];
 
 /** The tables the committed migrations create. */
 const COMMITTED_TABLES = [
   "auth_account",
   "auth_session",
   "auth_verification",
+  "deck",
   "user",
   "user_settings",
 ];
