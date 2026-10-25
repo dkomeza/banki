@@ -5,6 +5,7 @@ import { Page } from "@/components/page";
 import { Combobox } from "@/components/settings/combobox";
 import { PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
+import { Cover } from "@/proto/cover";
 import { DeckDialog } from "@/proto/deck-dialog";
 import {
   type Deck,
@@ -18,10 +19,10 @@ import {
   useProtoState,
 } from "@/proto/decks";
 
-// Variant b, "Shelf": Home is a wall of deck tiles, two or three to a row, each
-// showing its name and the start of its description. The sort is the usual
-// picker in the page's header, and "New deck" opens its form in a dialog (a
-// sheet on phones), as Edit does on the deck page.
+// Variant f, "Covers" (builds on b, Shelf): every deck gets a face, its
+// monogram on a ruled paper cover, so the wall is a shelf of decks you find by
+// sight rather than a grid of text boxes. The sort and "New deck" share one
+// row with the title; create and edit stay in b's dialog.
 
 export const Route = createFileRoute("/_shell/")({
   component: Home,
@@ -55,16 +56,16 @@ function Home() {
               Your decks
             </h1>
             {decks.length > 0 && (
-              <p className="text-muted-foreground">
+              <p className="text-muted-foreground tabular-nums">
                 {decks.length} {decks.length === 1 ? "deck" : "decks"}
               </p>
             )}
           </div>
           {decks.length > 0 && (
-            <div className="flex items-end gap-3">
-              <div className="flex w-44 flex-col gap-1.5">
+            <div className="flex items-center gap-3">
+              <div className="flex flex-1 items-center gap-2 sm:w-52 sm:flex-none">
                 <span id="sort-label" className="text-sm font-medium text-muted-foreground">
-                  Sort by
+                  Sort
                 </span>
                 <Combobox
                   options={SORTS}
@@ -89,22 +90,15 @@ function Home() {
         {decks.length === 0 ? (
           <Empty onCreate={() => setCreating(true)} />
         ) : (
-          <ul aria-label="Decks" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <ul
+            aria-label="Decks"
+            className="grid grid-cols-2 gap-x-4 gap-y-8 sm:gap-x-6 lg:grid-cols-3"
+          >
             {decks.map((deck) => (
               <li key={deck.id} className="isolate flex">
                 <Tile deck={deck} />
               </li>
             ))}
-            <li className="flex">
-              <button
-                type="button"
-                onClick={() => setCreating(true)}
-                className="flex min-h-40 w-full flex-col items-center justify-center gap-2 rounded-[1.25rem] border-2 border-dashed border-input/60 text-muted-foreground transition-colors outline-none hover:border-primary/60 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid"
-              >
-                <Plus aria-hidden className="size-6" />
-                <span className="font-medium">New deck</span>
-              </button>
-            </li>
           </ul>
         )}
       </div>
@@ -131,25 +125,19 @@ function Tile({ deck }: { deck: Deck }) {
     <Link
       to="/decks/$deckId"
       params={{ deckId: deck.id }}
-      className="group relative flex min-h-40 w-full flex-col gap-3 rounded-[1.25rem] border bg-card p-5 text-card-foreground no-underline transition-[border-color,translate,box-shadow] outline-none hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid motion-reduce:transition-none motion-reduce:hover:translate-y-0 sm:p-6"
+      className="group flex w-full flex-col gap-3 text-foreground no-underline outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring focus-visible:outline-solid rounded-2xl"
     >
-      {/* The tile's edge: a second card peeking out under it, like a deck. */}
-      <span
-        aria-hidden
-        className="absolute inset-x-4 -bottom-1.5 -z-10 h-4 rounded-b-[1rem] border border-t-0 bg-card"
+      <Cover
+        name={deck.name}
+        className="aspect-[4/3] w-full rounded-2xl border text-5xl transition-[translate,box-shadow] group-hover:-translate-y-1 group-hover:shadow-md motion-reduce:transition-none sm:text-6xl"
       />
-      <span className="line-clamp-3 text-lg leading-snug font-semibold tracking-tight [overflow-wrap:anywhere]">
-        {deck.name}
-      </span>
-      {deck.description !== null ? (
-        <span className="line-clamp-3 text-sm leading-relaxed whitespace-pre-line text-muted-foreground">
-          {deck.description}
+      <span className="flex flex-col gap-1 px-0.5">
+        <span className="line-clamp-2 leading-snug font-semibold tracking-tight [overflow-wrap:anywhere] group-hover:underline group-hover:underline-offset-4 sm:text-[1.05rem]">
+          {deck.name}
         </span>
-      ) : (
-        <span className="text-sm text-muted-foreground/70 italic">No description</span>
-      )}
-      <span className="mt-auto pt-2 text-xs text-muted-foreground tabular-nums">
-        Created {createdLabel(deck.createdAt)}
+        <span className="line-clamp-1 text-sm text-muted-foreground">
+          {deck.description ?? `Created ${createdLabel(deck.createdAt)}`}
+        </span>
       </span>
     </Link>
   );

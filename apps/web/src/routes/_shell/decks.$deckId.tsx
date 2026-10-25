@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ConfirmDelete } from "@/proto/confirm-delete";
 import { DeckDialog } from "@/proto/deck-dialog";
+import { Cover } from "@/proto/cover";
 import { NotFound } from "@/proto/deck-fields";
 import {
   type Deck,
@@ -17,10 +18,10 @@ import {
   useProtoState,
 } from "@/proto/decks";
 
-// Variant b, "Shelf": the deck page opens with the deck's cover, a card holding
-// its name, description and when it was made, with Edit and Delete on it. Edit
-// opens the same dialog as "New deck"; Delete asks in a dialog. The cards
-// follow below, as wide as the cover.
+// Variant f, "Covers" (builds on b, Shelf): the deck page opens with the same
+// cover Home shows, beside the deck's name and description, on the page itself
+// rather than in b's card, with Edit and Delete under them. Edit opens b's
+// dialog; Delete asks in a dialog. The cards follow below.
 
 export const Route = createFileRoute("/_shell/decks/$deckId")({
   component: DeckPage,
@@ -60,7 +61,11 @@ function DeckBody({ deck, state }: { deck: Deck; state: string | undefined }) {
 
   return (
     <>
-      <header className="flex flex-col gap-6 rounded-[1.5rem] border bg-card p-6 text-card-foreground sm:p-8 lg:flex-row lg:items-start lg:justify-between lg:gap-10 lg:p-10">
+      <header className="flex flex-col gap-6 sm:flex-row sm:items-start sm:gap-8 lg:gap-10">
+        <Cover
+          name={deck.name}
+          className="aspect-[4/3] w-36 shrink-0 rounded-2xl border text-5xl sm:w-48 sm:text-6xl lg:w-56 lg:text-7xl"
+        />
         <div className="flex min-w-0 flex-col gap-4">
           <h1 className="text-[2.25rem] leading-[1.05] font-semibold tracking-[-0.035em] [overflow-wrap:anywhere] lg:text-5xl">
             {deck.name}
@@ -81,24 +86,28 @@ function DeckBody({ deck, state }: { deck: Deck; state: string | undefined }) {
           <p className="text-sm text-muted-foreground tabular-nums">
             Created {createdLabel(deck.createdAt)} · 0 cards
           </p>
-        </div>
-        <div className="flex shrink-0 gap-2">
-          <Button variant="outline" className={OUTLINE_PILL} onClick={() => setEditing(true)}>
-            <Pencil aria-hidden />
-            Edit
-          </Button>
-          <Button
-            variant="outline"
-            className={cn(OUTLINE_PILL, "text-destructive hover:text-destructive")}
-            onClick={() => setDeleting(true)}
-          >
-            <Trash2 aria-hidden />
-            Delete
-          </Button>
+          <div className="flex shrink-0 gap-2 pt-1">
+            <Button
+              variant="outline"
+              className={cn(OUTLINE_PILL, "h-11")}
+              onClick={() => setEditing(true)}
+            >
+              <Pencil aria-hidden />
+              Edit
+            </Button>
+            <Button
+              variant="outline"
+              className={cn(OUTLINE_PILL, "text-destructive hover:text-destructive")}
+              onClick={() => setDeleting(true)}
+            >
+              <Trash2 aria-hidden />
+              Delete
+            </Button>
+          </div>
         </div>
       </header>
 
-      <section aria-labelledby="cards-title" className="flex flex-col gap-4">
+      <section aria-labelledby="cards-title" className="flex flex-col gap-4 border-t pt-6 lg:pt-8">
         <h2 id="cards-title" className="text-xl font-semibold tracking-tight">
           Cards
         </h2>
