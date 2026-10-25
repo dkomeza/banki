@@ -1,5 +1,5 @@
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
-import { Plus } from "lucide-react";
+import { ChevronRight, Plus } from "lucide-react";
 import { useCallback, useState } from "react";
 import { Page } from "@/components/page";
 import { Combobox } from "@/components/settings/combobox";
@@ -18,10 +18,11 @@ import {
   useProtoState,
 } from "@/proto/decks";
 
-// Variant b, "Shelf": Home is a wall of deck tiles, two or three to a row, each
-// showing its name and the start of its description. The sort is the usual
-// picker in the page's header, and "New deck" opens its form in a dialog (a
-// sheet on phones), as Edit does on the deck page.
+// Variant g, "Open shelf" (builds on b, Shelf): b's tiles, quieter and wider,
+// two to a row, each a flat card with the deck's name, the start of its
+// description and a footer line, without b's peeking second card or dashed
+// "New deck" tile. The sort and "New deck" stay in the header; create opens
+// b's dialog.
 
 export const Route = createFileRoute("/_shell/")({
   component: Home,
@@ -89,22 +90,12 @@ function Home() {
         {decks.length === 0 ? (
           <Empty onCreate={() => setCreating(true)} />
         ) : (
-          <ul aria-label="Decks" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <ul aria-label="Decks" className="grid gap-3 md:grid-cols-2 md:gap-4">
             {decks.map((deck) => (
-              <li key={deck.id} className="isolate flex">
+              <li key={deck.id} className="flex">
                 <Tile deck={deck} />
               </li>
             ))}
-            <li className="flex">
-              <button
-                type="button"
-                onClick={() => setCreating(true)}
-                className="flex min-h-40 w-full flex-col items-center justify-center gap-2 rounded-[1.25rem] border-2 border-dashed border-input/60 text-muted-foreground transition-colors outline-none hover:border-primary/60 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid"
-              >
-                <Plus aria-hidden className="size-6" />
-                <span className="font-medium">New deck</span>
-              </button>
-            </li>
           </ul>
         )}
       </div>
@@ -131,25 +122,22 @@ function Tile({ deck }: { deck: Deck }) {
     <Link
       to="/decks/$deckId"
       params={{ deckId: deck.id }}
-      className="group relative flex min-h-40 w-full flex-col gap-3 rounded-[1.25rem] border bg-card p-5 text-card-foreground no-underline transition-[border-color,translate,box-shadow] outline-none hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid motion-reduce:transition-none motion-reduce:hover:translate-y-0 sm:p-6"
+      className="group flex w-full flex-col gap-2 rounded-[1.25rem] border bg-card p-5 text-card-foreground no-underline transition-colors outline-none hover:border-foreground/30 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid motion-reduce:transition-none sm:p-6"
     >
-      {/* The tile's edge: a second card peeking out under it, like a deck. */}
-      <span
-        aria-hidden
-        className="absolute inset-x-4 -bottom-1.5 -z-10 h-4 rounded-b-[1rem] border border-t-0 bg-card"
-      />
-      <span className="line-clamp-3 text-lg leading-snug font-semibold tracking-tight [overflow-wrap:anywhere]">
+      <span className="line-clamp-2 text-xl leading-snug font-semibold tracking-tight [overflow-wrap:anywhere]">
         {deck.name}
       </span>
-      {deck.description !== null ? (
-        <span className="line-clamp-3 text-sm leading-relaxed whitespace-pre-line text-muted-foreground">
+      {deck.description !== null && (
+        <span className="line-clamp-2 text-[0.95rem] leading-relaxed text-muted-foreground">
           {deck.description}
         </span>
-      ) : (
-        <span className="text-sm text-muted-foreground/70 italic">No description</span>
       )}
-      <span className="mt-auto pt-2 text-xs text-muted-foreground tabular-nums">
-        Created {createdLabel(deck.createdAt)}
+      <span className="mt-auto flex items-center justify-between gap-3 border-t pt-3 text-sm text-muted-foreground tabular-nums">
+        <span>0 cards · Created {createdLabel(deck.createdAt)}</span>
+        <ChevronRight
+          aria-hidden
+          className="size-4 transition-transform group-hover:translate-x-0.5 group-hover:text-primary motion-reduce:transition-none"
+        />
       </span>
     </Link>
   );
