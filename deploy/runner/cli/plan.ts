@@ -30,6 +30,10 @@ export function claudeArgs(prompt: string, mcpConfigPath: string, resume?: strin
     "-p",
     prompt,
     ...(resume === undefined ? [] : ["--resume", resume]),
+    // A Stage builds itself (stages.md § Builders), so it runs on the model
+    // the builders' agent files name, not the account's default.
+    "--model",
+    "opus",
     "--output-format",
     "stream-json",
     "--verbose",
@@ -68,6 +72,10 @@ export type Identity = { name: string; email: string };
  * The Stage's environment: the Runner's own, with the Claude token, and the
  * App's bot as the author and committer. Never ANTHROPIC_API_KEY, which would
  * outrank the token.
+ *
+ * Subagents always run in the background, so a Stage ends its turn to wait
+ * for one, and `claude -p` stops them 10 minutes after the last turn unless
+ * told to wait: a Stage waits as long as its own time limit allows.
  */
 export function stageEnv(
   base: Record<string, string | undefined>,
@@ -81,6 +89,7 @@ export function stageEnv(
   return {
     ...env,
     CLAUDE_CODE_OAUTH_TOKEN: claudeToken,
+    CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: "0",
     GIT_AUTHOR_NAME: identity.name,
     GIT_AUTHOR_EMAIL: identity.email,
     GIT_COMMITTER_NAME: identity.name,
@@ -98,12 +107,38 @@ export function logPath(issue: string, kind: StageKind, startedAt: Date, logs = 
 }
 
 /**
+ * A branch's name without its owner's prefix (`dkomeza/`, `bankirunner/`, …).
+ * Linear names an issue's branch after whoever asks, so only this part is the
+ * same for everyone.
+ */
+export function unprefixed(branch: string): string {
+  return branch.replace(/^[A-Za-z0-9][A-Za-z0-9._-]*\//, "");
+}
+
+/**
+ * The issue's branch (`references/stages.md` § Paths): the one on origin
+ * with Linear's name for it under any prefix, so a branch someone else
+ * started is carried on; or Linear's own, which the first push creates, when
+ * origin has none. Several are refused: none of them is plainly the issue's.
+ */
+export function issueBranchOf(linearBranch: string, onOrigin: readonly string[]): string {
+  const name = unprefixed(linearBranch);
+  const found = onOrigin.filter((branch) => branch === name || branch.endsWith(`/${name}`));
+  const [only, ...more] = found;
+  if (only === undefined) return linearBranch;
+  if (more.length === 0) return only;
+  throw new Error(
+    `Origin has several branches named ${JSON.stringify(name)}: ${found.join(", ")}. Delete the ones that aren't the issue's.`,
+  );
+}
+
+/**
  * The issue's worktree (`references/stages.md` § Paths): its branch without
- * the `dkomeza/` prefix, in banki-worktrees/ beside the clone. A branch that
+ * its owner's prefix, in banki-worktrees/ beside the clone. A branch that
  * would lead anywhere else is refused.
  */
 export function worktreeOf(branch: string, worktrees = WORKTREES): string {
-  const name = branch.replace(/^dkomeza\//, "");
+  const name = unprefixed(branch);
   if (!/^[A-Za-z0-9._-]+$/.test(name) || name.startsWith(".")) {
     throw new Error(`The issue's branch ${JSON.stringify(branch)} has no worktree name`);
   }

@@ -22,7 +22,7 @@ Done when the description says what the code should do after the fix.
 
 ## 4. Fix
 
-Spawn a fresh `implementer` with `<wt>`, the spec (the description as updated) and the points to fix, and on a UI issue the UI parts (`../references/ui.md` § Step 3), naming the routes and states the points are about. Verify green yourself in `<wt>`, then run `bun run ui down`.
+A fresh `implementer` fixes them (`stages.md` § Builders), its prompt carrying `<wt>`, the spec (the description as updated) and the points to fix, and on a UI issue the UI parts (`../references/ui.md` § Step 3), naming the routes and states the points are about. Verify green yourself in `<wt>`, then run `bun run ui down`.
 
 Done when every point is fixed and the checks are green.
 

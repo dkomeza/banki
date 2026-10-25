@@ -50,16 +50,24 @@ export function Row({
   label,
   value,
   action,
+  wrap = false,
 }: {
   label: string;
   value: ReactNode;
   action?: ReactNode;
+  /**
+   * Lets a value that is a sentence wrap rather than be cut short; where it
+   * would get too narrow, the action moves under it.
+   */
+  wrap?: boolean;
 }) {
   return (
-    <div className="flex items-center gap-3">
-      <div className="min-w-0 flex-1">
+    <div className={cn("flex items-center gap-3", wrap && "flex-wrap")}>
+      <div className={cn("min-w-0 flex-1", wrap && "min-w-40")}>
         <p className="text-sm text-muted-foreground">{label}</p>
-        <p className="truncate text-[1.05rem] font-medium">{value}</p>
+        <p className={cn("text-[1.05rem] font-medium", wrap ? "text-pretty" : "truncate")}>
+          {value}
+        </p>
       </div>
       {action}
     </div>

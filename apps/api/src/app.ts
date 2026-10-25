@@ -4,11 +4,14 @@ import { SIGN_IN_RATE_LIMIT, createAuth } from "./auth/auth";
 import { loadAuthSecret } from "./auth/secret";
 import { type SetupToken, createSetupToken } from "./auth/setup-token";
 import type { Config } from "./config";
+import { createApiKeyCipher } from "./crypto/api-key-cipher";
+import { loadEncryptionKey } from "./crypto/encryption-key";
 import { openDatabase } from "./db/database";
 import { applyMigrations } from "./db/migrate";
 import { internalError, notFound } from "./http/errors";
 import { createRateLimiter } from "./http/rate-limit";
 import { type PublicRoutes, requireSignedIn } from "./http/require-signed-in";
+import type { OpenRouterFetch } from "./openrouter/check-api-key";
 import { createHealthRepository } from "./repositories/health";
 import { createSettingsRepository } from "./repositories/settings";
 import { createUserRepository } from "./repositories/user";
@@ -40,20 +43,30 @@ const signInLimiter = () =>
 
 /**
  * Builds the API: prepares the data directory, opens the database, applies
- * pending migrations, loads the auth secret, then wires repositories into
+ * pending migrations, loads the auth secret and the encryption key, then wires repositories into
  * routes. While no User exists it also makes a fresh Setup token, which the
  * server announces. The server and the tests both boot the API through here.
+ *
+ * `openRouterFetch` is how the API reaches OpenRouter: the real `fetch`
+ * unless a test stubs it.
  *
  * Only `getLogger` is used inside, so the app logs nothing until the server
  * entry configures LogTape.
  */
-export function createApp(config: Config) {
+export function createApp(
+  config: Config,
+  {
+    openRouterFetch = (input, init) => fetch(input, init),
+  }: { openRouterFetch?: OpenRouterFetch } = {},
+) {
   const database = openDatabase(config.dataDir);
   let appliedMigrations: string[];
   let secret: string;
+  let encryptionKey: Buffer;
   try {
     appliedMigrations = applyMigrations(database.db);
     secret = loadAuthSecret(config);
+    encryptionKey = loadEncryptionKey(config);
   } catch (error) {
     database.close();
     throw error;
@@ -61,7 +74,7 @@ export function createApp(config: Config) {
 
   const health = createHealthRepository(database.db);
   const users = createUserRepository(database.db);
-  const settings = createSettingsRepository(database.db);
+  const settings = createSettingsRepository(database.db, createApiKeyCipher(encryptionKey));
   const auth = createAuth({ db: database.db, config, secret });
   const setupToken: SetupToken | undefined = users.exists() ? undefined : createSetupToken();
 
@@ -82,7 +95,7 @@ export function createApp(config: Config) {
     .route("/api/setup", setupRoutes({ auth, users, setupToken, limiter: signInLimiter() }))
     .route("/api/auth", authRoutes({ auth, config }))
     .route("/api/me", meRoutes({ users, limiter: signInLimiter() }))
-    .route("/api/settings", settingsRoutes({ settings }));
+    .route("/api/settings", settingsRoutes({ settings, openRouterFetch }));
   app.notFound(notFound);
   app.onError(internalError);
 

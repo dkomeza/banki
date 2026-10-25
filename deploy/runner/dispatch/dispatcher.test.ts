@@ -72,6 +72,42 @@ describe("a tick", () => {
     expect(started).toEqual([]);
   });
 
+  // Linear assigns a linked PR's author, the Runner app, to its issue.
+  test("unassigns an issue the Runner app holds, and starts its Stage", async () => {
+    const { deps, started, linear, lines } = dispatcher([
+      fakeIssue("BAN-1", { assigneeId: RUNNER_ID }),
+    ]);
+
+    await tick(deps);
+
+    expect(linear.calls).toEqual(["BAN-1 assigned null"]);
+    expect(lines).toContain(
+      "Unassigned BAN-1 from the Runner app (Linear assigns a linked PR's author)",
+    );
+    expect(started.map((start) => [start.issue, start.kind])).toEqual([["BAN-1", "implement"]]);
+  });
+
+  test("unassigns an In Review issue the Runner app holds, and hands it off to Acceptance", async () => {
+    const issue = fakeIssue("BAN-1", {
+      status: "In Review",
+      assigneeId: RUNNER_ID,
+      history: [{ at: "2026-10-01T00:00:00.000Z", from: "In Progress", to: "In Review" }],
+    });
+    const github = fakeGitHub({
+      pr: { number: 12, headSha: HEAD, open: true, createdAt: "2026-10-20T00:00:00.000Z" },
+      pushedAt: "2026-10-21T11:00:00.000Z",
+      check: { status: "completed", conclusion: "success" },
+      summary: { sha: HEAD.slice(0, 7), findings: [] },
+      preview: { state: "success", description: "", url: "https://pr-12.banki.dkomeza.com" },
+    });
+    const { deps, linear } = dispatcher([issue], { now: WEDNESDAY, github });
+
+    await tick(deps);
+
+    expect(linear.calls).toEqual(["BAN-1 assigned null", "BAN-1 comment", "BAN-1 → Acceptance"]);
+    expect(issue.assigneeId).toBeNull();
+  });
+
   test("hands an issue back on the Maintainer's reply to its stop, and runs that Stage again", async () => {
     const stopped = {
       stage: "implement",
@@ -126,6 +162,27 @@ describe("a tick", () => {
 
     expect(linear.calls).toEqual(["BAN-1 comment", "BAN-1 → Acceptance"]);
     expect(issue.comments[0]?.body).toContain("https://pr-12.banki.dkomeza.com");
+  });
+
+  test("reads the PR of the issue's branch on origin, under whoever's prefix started it", async () => {
+    // Linear names the branch after whoever asks: the Runner's app, here.
+    const issue = fakeIssue("BAN-1", {
+      status: "In Review",
+      branch: "bankirunner/ban-1-x",
+      history: [{ at: "2026-10-01T00:00:00.000Z", from: "In Progress", to: "In Review" }],
+    });
+    const asked: string[] = [];
+    const github = fakeGitHub();
+    github.branches = async () => ["main", "dkomeza/ban-1-x"];
+    github.review = async (branch) => {
+      asked.push(branch);
+      return fakeGitHub().review(branch);
+    };
+    const { deps } = dispatcher([issue], { now: WEDNESDAY, github });
+
+    await tick(deps);
+
+    expect(asked).toEqual(["dkomeza/ban-1-x"]);
   });
 
   test("stops on the Maintainer when a wait fails, assigning them", async () => {
@@ -229,6 +286,26 @@ describe("a tick", () => {
 
     expect(started).toEqual([]);
     expect(deps.records.activeRecord("BAN-1")?.state).toBe("paused");
+  });
+
+  test("unassigns a paused Stage's issue the Runner app holds, and resumes it", async () => {
+    const { deps, started, linear } = dispatcher([
+      fakeIssue("BAN-1", { status: "In Progress", assigneeId: RUNNER_ID }),
+    ]);
+    deps.records.saveActive({
+      issue: "BAN-1",
+      kind: "implement",
+      state: "paused",
+      pid: null,
+      sessionId: "s",
+      resetsAt: "2026-10-24T01:00:00.000Z",
+      runs: [],
+    });
+
+    await tick(deps);
+
+    expect(linear.calls).toEqual(["BAN-1 assigned null"]);
+    expect(started.map((start) => [start.issue, start.resume])).toEqual([["BAN-1", true]]);
   });
 
   test("ends a gone supervisor's record quietly once its issue has left In Progress", async () => {
@@ -404,7 +481,7 @@ describe("run-now", () => {
       now: WEDNESDAY,
     });
 
-    expect((await runNow("BAN-1", false, deps)).why).toBe("it is assigned");
+    expect((await runNow("BAN-1", false, deps)).why).toBe("it is assigned to Linear user someone");
     expect((await runNow("BAN-9", false, deps)).why).toContain("isn't an open issue");
   });
 });
@@ -423,5 +500,24 @@ describe("runner status", () => {
     expect(text).toContain("BAN-1 implement: would fit the gate");
     expect(text).toContain("In Progress, not started by a supervisor of the Runner:\n  BAN-2");
     expect(text).toContain("the week 30%");
+  });
+
+  test("lists the issues it skips while assigned, and decides past the Runner app's assignment without undoing it", async () => {
+    const { deps, linear } = dispatcher(
+      [
+        fakeIssue("BAN-1", { status: "In Review", assigneeId: MAINTAINER.linearId }),
+        fakeIssue("BAN-2", { assigneeId: RUNNER_ID }),
+      ],
+      { now: WEDNESDAY },
+    );
+    deps.records.saveGate({ reading: reading(0.3), at: "2026-10-21T11:00:00.000Z" });
+
+    const text = await status(deps);
+
+    expect(text).toContain(
+      "Held, skipped while assigned:\n  BAN-1 (In Review): it is assigned to @dkomeza",
+    );
+    expect(text).toContain("BAN-2 implement: would fit the gate");
+    expect(linear.calls).toEqual([]);
   });
 });

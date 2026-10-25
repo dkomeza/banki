@@ -92,24 +92,28 @@ export function StudyDayCard() {
         </div>
       </div>
 
-      {state.failures.map((failure) => (
-        <div
-          key={failure.field}
-          role="alert"
-          className="flex flex-col gap-3 rounded-xl border border-destructive/40 p-4 text-sm sm:flex-row sm:items-center"
-        >
-          <CircleAlert aria-hidden className="hidden size-5 shrink-0 text-destructive sm:block" />
-          <p className="min-w-0 flex-1 text-destructive">{saveErrorText(failure, state.stored)}</p>
-          <Button
-            variant="outline"
-            size="lg"
-            className={OUTLINE_PILL}
-            onClick={() => saver.retry(failure.field)}
+      {state.failures
+        .flatMap((failure) => (failure.field === "model" ? [] : [failure]))
+        .map((failure) => (
+          <div
+            key={failure.field}
+            role="alert"
+            className="flex flex-col gap-3 rounded-xl border border-destructive/40 p-4 text-sm sm:flex-row sm:items-center"
           >
-            Try again
-          </Button>
-        </div>
-      ))}
+            <CircleAlert aria-hidden className="hidden size-5 shrink-0 text-destructive sm:block" />
+            <p className="min-w-0 flex-1 text-destructive">
+              {saveErrorText(failure, state.stored)}
+            </p>
+            <Button
+              variant="outline"
+              size="lg"
+              className={OUTLINE_PILL}
+              onClick={() => saver.retry(failure.field)}
+            >
+              Try again
+            </Button>
+          </div>
+        ))}
 
       {mismatch && (
         <div className="flex flex-col gap-3 rounded-xl bg-accent p-4 text-[0.95rem] text-accent-foreground sm:flex-row sm:items-center">

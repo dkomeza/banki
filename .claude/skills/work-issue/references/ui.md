@@ -45,7 +45,7 @@ Take a Slug down with `gh workflow run slug-preview.yml -f slug=<slug> -f down=t
 ## Implement Stage: the Reference
 
 1. **Verdict.** Read the Maintainer's comments since the Design Review hand-off. The verdict is a single winner, `<key>`, taken as it is. A mix, two candidates or no clear winner is a spec question.
-2. **Capture.** Bring `<wt>-proto-<key>` to `origin/<branch>-proto-<key>` (as `stages.md` § Start does for `<wt>`). Spawn a fresh `prototyper` to capture the Reference of `<key>` in it (its § Capturing the Reference). When it reports, check that `reference/` on `origin/<branch>-proto-<key>` holds every route and state the Prototype section lists, at each viewport and theme.
+2. **Capture.** Bring `<wt>-proto-<key>` to `origin/<branch>-proto-<key>` (as `stages.md` § Start does for `<wt>`). A fresh `prototyper` captures the Reference of `<key>` in it (its § Capturing the Reference; `stages.md` § Builders). When it is done, check that `reference/` on `origin/<branch>-proto-<key>` holds every route and state the Prototype section lists, at each viewport and theme.
 3. **Fill** `<wt>/.ui/reference/` (§ Filling `.ui/reference/`).
 4. **Design language.** When the baseline was provisional, write `docs/design.md` from the winner. When the verdict says a decision holds beyond this issue, it goes into `docs/design.md` too. Edit it in `<wt>` and commit it there as `docs: …`.
 5. **Spec.** Add the UI criteria to the issue description, starting with "the screens match the Reference on `<branch>-proto-<key>`", plus anything the verdict adds. Add the winner, and why, to the Prototype section.

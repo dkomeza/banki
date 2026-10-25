@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   claudeArgs,
   freshResult,
+  issueBranchOf,
   logPath,
   mcpConfig,
   resumePrompt,
@@ -31,11 +32,13 @@ describe("the per-run MCP config", () => {
 });
 
 describe("the claude invocation", () => {
-  test("is headless, streams JSON events, skips permissions, reads only the per-run MCP config, and may work in the worktrees", () => {
+  test("is headless, on Opus, streams JSON events, skips permissions, reads only the per-run MCP config, and may work in the worktrees", () => {
     expect(claudeArgs("the prompt", "/tmp/stage-x/mcp.json")).toEqual([
       "claude",
       "-p",
       "the prompt",
+      "--model",
+      "opus",
       "--output-format",
       "stream-json",
       "--verbose",
@@ -87,7 +90,7 @@ describe("the Stage's environment", () => {
     email: "9+banki-runner[bot]@users.noreply.github.com",
   };
 
-  test("passes the Claude token, commits as the App's bot, and drops any API key", () => {
+  test("passes the Claude token, waits out its subagents, commits as the App's bot, and drops any API key", () => {
     const env = stageEnv(
       { PATH: "/usr/bin", HOME: "/work/home", ANTHROPIC_API_KEY: "outranks-the-token" },
       CLAUDE_TOKEN,
@@ -98,6 +101,7 @@ describe("the Stage's environment", () => {
       PATH: "/usr/bin",
       HOME: "/work/home",
       CLAUDE_CODE_OAUTH_TOKEN: CLAUDE_TOKEN,
+      CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: "0",
       GIT_AUTHOR_NAME: "banki-runner[bot]",
       GIT_AUTHOR_EMAIL: "9+banki-runner[bot]@users.noreply.github.com",
       GIT_COMMITTER_NAME: "banki-runner[bot]",
@@ -121,11 +125,36 @@ describe("the Stage's log", () => {
   });
 });
 
-describe("the issue's worktree", () => {
-  test("is its branch without the dkomeza/ prefix, beside the clone", () => {
-    expect(worktreeOf("dkomeza/ban-94-runner-container-github-app-and-credentials")).toBe(
-      "/work/banki-worktrees/ban-94-runner-container-github-app-and-credentials",
+describe("the issue's branch", () => {
+  test("is the one on origin under any prefix, whoever asks", () => {
+    const onOrigin = ["main", "dkomeza/ban-11-decks", "dkomeza/ban-11-decks-proto-a"];
+    expect(issueBranchOf("bankirunner/ban-11-decks", onOrigin)).toBe("dkomeza/ban-11-decks");
+    expect(issueBranchOf("dkomeza/ban-11-decks", onOrigin)).toBe("dkomeza/ban-11-decks");
+  });
+
+  test("is Linear's own when origin has none, for the first push to create", () => {
+    expect(issueBranchOf("bankirunner/ban-12-cards", ["main", "dkomeza/ban-11-decks"])).toBe(
+      "bankirunner/ban-12-cards",
     );
+  });
+
+  test("is refused when origin has it under several prefixes", () => {
+    expect(() =>
+      issueBranchOf("bankirunner/ban-11-decks", [
+        "dkomeza/ban-11-decks",
+        "bankirunner/ban-11-decks",
+      ]),
+    ).toThrow(/several branches/);
+  });
+});
+
+describe("the issue's worktree", () => {
+  test("is its branch without its owner's prefix, beside the clone", () => {
+    for (const owner of ["dkomeza", "bankirunner"]) {
+      expect(worktreeOf(`${owner}/ban-94-runner-container-github-app-and-credentials`)).toBe(
+        "/work/banki-worktrees/ban-94-runner-container-github-app-and-credentials",
+      );
+    }
   });
 
   test("is refused for a branch that would leave banki-worktrees/", () => {

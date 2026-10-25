@@ -1,7 +1,8 @@
 import { randomBytes } from "node:crypto";
-import { closeSync, fsyncSync, linkSync, openSync, readFileSync, rmSync, writeSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Config } from "../config";
+import { createAtomically } from "../create-atomically";
 
 /** Thrown by {@link loadAuthSecret} when the secret file can't be used; startup fails with it. */
 export class AuthSecretError extends Error {
@@ -11,32 +12,12 @@ export class AuthSecretError extends Error {
 /** The shortest secret accepted, from the file as from `AUTH_SECRET`. */
 const MIN_LENGTH = 32;
 
-const isErrorCode = (error: unknown, code: string) =>
-  error instanceof Error && "code" in error && error.code === code;
-
-/**
- * Writes `secret` to `file` all at once: it goes to a temp file beside it
- * first and is then hard-linked into place, so `file` never exists half
- * written, even if the process dies. Returns false when `file` already
- * exists, leaving it alone.
- */
-function createAtomically(file: string, secret: string): boolean {
-  const temp = `${file}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
+/** Creates `file` holding `secret`, or returns false when it already exists. */
+function createSecretFile(file: string, secret: string): boolean {
   try {
-    const fd = openSync(temp, "wx", 0o600);
-    try {
-      writeSync(fd, secret);
-      fsyncSync(fd);
-    } finally {
-      closeSync(fd);
-    }
-    linkSync(temp, file);
-    return true;
+    return createAtomically(file, secret);
   } catch (error) {
-    if (isErrorCode(error, "EEXIST")) return false;
     throw new AuthSecretError(`Can't create the auth secret at ${file}`, { cause: error });
-  } finally {
-    rmSync(temp, { force: true });
   }
 }
 
@@ -51,7 +32,7 @@ export function loadAuthSecret({ dataDir, authSecret }: Pick<Config, "dataDir" |
 
   const file = join(dataDir, "auth-secret");
   const generated = randomBytes(32).toString("base64url");
-  if (createAtomically(file, generated)) return generated;
+  if (createSecretFile(file, generated)) return generated;
 
   let secret: string;
   try {

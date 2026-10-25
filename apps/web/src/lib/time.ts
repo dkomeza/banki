@@ -144,13 +144,16 @@ function canonical(timezone: string): string {
 
 export const sameTimezone = (a: string, b: string) => canonical(a) === canonical(b);
 
-/** A change to a Setting that didn't save. */
-export type FailedSave =
+/** A change to one of the Study day's Settings that didn't save. */
+export type StudyDayFailedSave =
   | { field: "timezone"; attempted: string }
   | { field: "dayStartHour"; attempted: number };
 
+/** A change to a Setting that didn't save. */
+export type FailedSave = StudyDayFailedSave | { field: "model"; attempted: string };
+
 /** What a failed save says: what didn't change, and what is kept instead. */
-export function saveErrorText(failed: FailedSave, kept: SettingsResponse): string {
+export function saveErrorText(failed: StudyDayFailedSave, kept: SettingsResponse): string {
   if (failed.field === "dayStartHour") {
     const still = formatHour(kept.dayStartHour);
     return `The change to ${formatHour(failed.attempted)} didn't save, so Day start is still ${still}${still.endsWith(".") ? "" : "."}`;

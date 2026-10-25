@@ -76,6 +76,15 @@ export function createSettingsSaver({
   // A read that arrived while saving (the first fill, a refetch), held until
   // the queue drains, unless a later save's answer supersedes it.
   let arrived: SettingsRead | undefined;
+  // When the API key shown was true on the server. Its own answers (a save or
+  // a removal) don't queue behind the Settings saves, so a save's answer or
+  // a read issued before then still holds the API key as it was, and keeps
+  // the one shown instead.
+  let apiKeySince = initial.issuedAt;
+  const withApiKey = (settings: SettingsResponse, issuedAt: number): SettingsResponse =>
+    issuedAt >= apiKeySince || settings.apiKey === state.stored.apiKey
+      ? settings
+      : { ...settings, apiKey: state.stored.apiKey };
 
   const update = (next: Partial<SaverState>) => {
     const merged = { ...state, ...next };
@@ -99,6 +108,7 @@ export function createSettingsSaver({
     const change = state.queue[0];
     if (change === undefined) return;
     let stored: SettingsResponse | undefined;
+    const issuedAt = now();
     try {
       stored = await save({ [change.field]: change.attempted });
     } catch {
@@ -119,6 +129,7 @@ export function createSettingsSaver({
     } else {
       arrived = undefined;
       storedSince = now();
+      stored = withApiKey(stored, issuedAt);
       onStored({ settings: stored, issuedAt: storedSince });
       update({
         stored,
@@ -132,7 +143,7 @@ export function createSettingsSaver({
       arrived = undefined;
       if (read.issuedAt >= storedSince) {
         storedSince = read.issuedAt;
-        update({ stored: read.settings });
+        update({ stored: withApiKey(read.settings, read.issuedAt) });
       }
     }
     void sendNext();
@@ -178,7 +189,23 @@ export function createSettingsSaver({
         return;
       }
       storedSince = read.issuedAt;
-      if (read.settings !== state.stored) update({ stored: read.settings });
+      if (read.settings !== state.stored) {
+        update({ stored: withApiKey(read.settings, read.issuedAt) });
+      }
+    },
+    /**
+     * Takes the answer to saving or removing the API key: the Settings as
+     * stored, issued at `read.issuedAt`. Only its API key counts, whatever
+     * the Settings saves under way: their answers come from before or after
+     * it, and keep the API key it gave unless they were issued after it
+     * arrived.
+     */
+    storeApiKey(read: SettingsRead) {
+      if (read.issuedAt < apiKeySince) return;
+      apiKeySince = now();
+      const stored = { ...state.stored, apiKey: read.settings.apiKey };
+      update({ stored });
+      onStored({ settings: stored, issuedAt: Math.max(storedSince, apiKeySince) });
     },
     dispose() {
       disposed = true;

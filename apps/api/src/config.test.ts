@@ -2,6 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
 import { ConfigError, parseConfig } from "./config";
 
+/** 32 bytes as base64url. */
+const KEY = Buffer.alloc(32, 7).toString("base64url");
+
 describe("parseConfig", () => {
   test("falls back to the defaults when nothing is set", () => {
     expect(parseConfig({})).toEqual({
@@ -11,6 +14,7 @@ describe("parseConfig", () => {
       logLevel: "info",
       origin: "http://localhost:5173",
       authSecret: undefined,
+      encryptionKey: undefined,
       commit: "dev",
     });
   });
@@ -24,6 +28,7 @@ describe("parseConfig", () => {
         LOG_LEVEL: "debug",
         ORIGIN: "https://banki.example.com",
         AUTH_SECRET: "a".repeat(32),
+        ENCRYPTION_KEY: KEY,
         COMMIT: "0123456789abcdef0123456789abcdef01234567",
       }),
     ).toEqual({
@@ -33,6 +38,7 @@ describe("parseConfig", () => {
       logLevel: "debug",
       origin: "https://banki.example.com",
       authSecret: "a".repeat(32),
+      encryptionKey: KEY,
       commit: "0123456789abcdef0123456789abcdef01234567",
     });
   });
@@ -50,6 +56,7 @@ describe("parseConfig", () => {
         LOG_LEVEL: "",
         ORIGIN: "",
         AUTH_SECRET: "",
+        ENCRYPTION_KEY: "",
         COMMIT: "",
       }),
     ).toEqual(parseConfig({}));
@@ -109,6 +116,24 @@ describe("parseConfig", () => {
 
     test("rejects anything shorter than 32 characters", () => {
       expect(() => parseConfig({ AUTH_SECRET: "x".repeat(31) })).toThrow(/→ at AUTH_SECRET/);
+    });
+  });
+
+  describe("ENCRYPTION_KEY", () => {
+    test("accepts 32 bytes as base64url", () => {
+      expect(parseConfig({ ENCRYPTION_KEY: KEY }).encryptionKey).toBe(KEY);
+    });
+
+    test.each([
+      ["31 bytes", Buffer.alloc(31, 7).toString("base64url")],
+      ["33 bytes", Buffer.alloc(33, 7).toString("base64url")],
+      ["padded base64", Buffer.alloc(32, 7).toString("base64")],
+      ["characters outside base64url", `${KEY.slice(0, 42)}!`],
+      ["an AUTH_SECRET-like string", "x".repeat(32)],
+    ])("rejects %s, saying what it expects", (_, value) => {
+      expect(() => parseConfig({ ENCRYPTION_KEY: value })).toThrow(
+        /32 bytes as base64url[\s\S]*→ at ENCRYPTION_KEY/,
+      );
     });
   });
 
