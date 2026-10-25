@@ -72,17 +72,19 @@ export const MODELS = [
   },
 ] as const satisfies readonly Model[];
 
-type CuratedId = (typeof MODELS)[number]["id"];
-const MODEL_IDS = MODELS.map((model) => model.id) as [CuratedId, ...CuratedId[]];
+/** The ID of a Model on the curated list. */
+export type ModelId = (typeof MODELS)[number]["id"];
+
+export const isModelId = (id: string): id is ModelId => MODELS.some((model) => model.id === id);
 
 /** A Model on the curated list, by its OpenRouter ID. */
-export const ModelId = z.enum(MODEL_IDS, "Expected a Model on Banki's list");
-export type ModelId = z.infer<typeof ModelId>;
+export const ModelId = z.custom<ModelId>(
+  (value) => typeof value === "string" && isModelId(value),
+  "Expected a Model on Banki's list",
+);
 
 /** The Model a User has until they pick one: Claude Haiku 5.5. */
 export const DEFAULT_MODEL_ID: ModelId = "anthropic/claude-haiku-5.5";
-
-export const isModelId = (id: string): id is ModelId => (MODEL_IDS as string[]).includes(id);
 
 /** The curated Model with `id`. */
 export const modelById = (id: ModelId): Model =>

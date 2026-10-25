@@ -10,6 +10,9 @@ import {
   saveErrorText,
 } from "./time";
 
+/** The Grading Settings, which these tests leave alone. */
+const GRADING = { model: "anthropic/claude-haiku-5.5", apiKey: { state: "unset" } } as const;
+
 describe("formatHour", () => {
   test.each([
     [0, "midnight"],
@@ -70,10 +73,16 @@ describe("sameTimezone", () => {
 describe("saveErrorText", () => {
   test("says which Day start didn't save, and the one kept", () => {
     expect(
-      saveErrorText({ field: "dayStartHour", attempted: 6 }, { timezone: "UTC", dayStartHour: 4 }),
+      saveErrorText(
+        { field: "dayStartHour", attempted: 6 },
+        { timezone: "UTC", dayStartHour: 4, ...GRADING },
+      ),
     ).toBe("The change to 6:00 a.m. didn't save, so Day start is still 4:00 a.m.");
     expect(
-      saveErrorText({ field: "dayStartHour", attempted: 4 }, { timezone: "UTC", dayStartHour: 0 }),
+      saveErrorText(
+        { field: "dayStartHour", attempted: 4 },
+        { timezone: "UTC", dayStartHour: 0, ...GRADING },
+      ),
     ).toBe("The change to 4:00 a.m. didn't save, so Day start is still midnight.");
   });
 
@@ -81,13 +90,13 @@ describe("saveErrorText", () => {
     expect(
       saveErrorText(
         { field: "timezone", attempted: "Europe/London" },
-        { timezone: "Europe/Warsaw", dayStartHour: 4 },
+        { timezone: "Europe/Warsaw", dayStartHour: 4, ...GRADING },
       ),
     ).toBe("The change to Europe/London didn't save, so Timezone is still Europe/Warsaw.");
     expect(
       saveErrorText(
         { field: "timezone", attempted: "Europe/London" },
-        { timezone: null, dayStartHour: 4 },
+        { timezone: null, dayStartHour: 4, ...GRADING },
       ),
     ).toBe("The change to Europe/London didn't save, so Banki still counts days in UTC.");
   });
@@ -100,6 +109,7 @@ describe("describeStudyDay", () => {
       describeStudyDay(new Date("2026-05-12T23:30:00Z"), {
         timezone: "Europe/Warsaw",
         dayStartHour: 4,
+        ...GRADING,
       }),
     ).toBe(
       "Today's Study day runs from 4:00 a.m. on 12 May to 4:00 a.m. on 13 May, in Europe/Warsaw.",
@@ -111,6 +121,7 @@ describe("describeStudyDay", () => {
       describeStudyDay(new Date("2026-03-29T12:00:00Z"), {
         timezone: "Europe/Warsaw",
         dayStartHour: 2,
+        ...GRADING,
       }),
     ).toBe(
       "Today's Study day runs from 3:00 a.m. on 29 March to 2:00 a.m. on 30 March, in Europe/Warsaw.",
@@ -119,7 +130,11 @@ describe("describeStudyDay", () => {
 
   test("counts in UTC until a Timezone is stored", () => {
     expect(
-      describeStudyDay(new Date("2026-05-12T12:00:00Z"), { timezone: null, dayStartHour: 0 }),
+      describeStudyDay(new Date("2026-05-12T12:00:00Z"), {
+        timezone: null,
+        dayStartHour: 0,
+        ...GRADING,
+      }),
     ).toBe("Today's Study day runs from midnight on 12 May to midnight on 13 May, in UTC.");
   });
 });

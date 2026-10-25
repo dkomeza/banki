@@ -6,6 +6,16 @@ const answering =
   async () =>
     new Response("{}", { status });
 
+const failing: OpenRouterFetch = async () => {
+  throw new TypeError("fetch failed");
+};
+
+/** Never answers, until the request is aborted. */
+const hanging: OpenRouterFetch = (_, init) =>
+  new Promise((_resolve, reject) => {
+    init.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+  });
+
 describe("checkApiKey", () => {
   test("asks OpenRouter's /api/v1/key with the key as a bearer token", async () => {
     const calls: Array<{ url: string; init: RequestInit }> = [];
@@ -30,19 +40,10 @@ describe("checkApiKey", () => {
   });
 
   test("can't reach OpenRouter on a network error", async () => {
-    const fetch: OpenRouterFetch = async () => {
-      throw new TypeError("fetch failed");
-    };
-
-    expect(await checkApiKey("k", { fetch })).toBe("unreachable");
+    expect(await checkApiKey("k", { fetch: failing })).toBe("unreachable");
   });
 
   test("gives up after the timeout", async () => {
-    const fetch: OpenRouterFetch = (_, init) =>
-      new Promise((_resolve, reject) => {
-        init.signal?.addEventListener("abort", () => reject(init.signal?.reason));
-      });
-
-    expect(await checkApiKey("k", { fetch, timeoutMs: 20 })).toBe("unreachable");
+    expect(await checkApiKey("k", { fetch: hanging, timeoutMs: 20 })).toBe("unreachable");
   });
 });
