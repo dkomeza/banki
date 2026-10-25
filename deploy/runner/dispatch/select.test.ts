@@ -132,12 +132,31 @@ describe("whose move it is", () => {
     },
   );
 
-  test("an assigned issue is left alone", () => {
+  test("an assigned issue is held, saying who holds it", () => {
     expect(decide(issue({ assigneeId: MAINTAINER.linearId }), NOW)).toEqual({
       type: "skip",
-      why: "it is assigned",
+      why: "it is assigned to @dkomeza",
+      held: true,
     });
-    expect(decide(issue({ assigneeId: "someone" }), NOW).type).toBe("skip");
+    expect(decide(issue({ assigneeId: "someone" }), NOW)).toEqual({
+      type: "skip",
+      why: "it is assigned to Linear user someone",
+      held: true,
+    });
+  });
+
+  test("an issue held after a stop says which stop", () => {
+    const stopped = closing(ago(60), {
+      stage: "implement",
+      outcome: "stopped",
+      nextStatus: "Todo",
+    });
+
+    expect(decide(issue({ assigneeId: MAINTAINER.linearId, closings: [stopped] }), NOW)).toEqual({
+      type: "skip",
+      why: `it is assigned to @dkomeza, after its stop of ${ago(60)}`,
+      held: true,
+    });
   });
 
   test("the Maintainer's reply in the newest stop's thread hands it back", () => {
