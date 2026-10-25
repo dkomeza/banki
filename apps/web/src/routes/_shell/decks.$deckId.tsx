@@ -6,6 +6,7 @@ import { OUTLINE_PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ConfirmDelete } from "@/proto/confirm-delete";
+import { Cover, Stack } from "@/proto/cover";
 import { DeckDialog } from "@/proto/deck-dialog";
 import { NotFound } from "@/proto/deck-fields";
 import {
@@ -17,10 +18,11 @@ import {
   useProtoState,
 } from "@/proto/decks";
 
-// Variant e, "Stack" (builds on b, Shelf): the deck page drops b's cover card.
-// The deck's name is the page's title, its description reads as plain text
-// under it, and Edit and Delete sit in one quiet row beneath. The cards below
-// wait in the same paper stack Home draws. Edit and Delete open b's dialogs.
+// Variant j, "Spine" (builds on e, Stack, with f's covers): the deck page
+// opens with the deck's wide card from Home at full size, the cover at its
+// left edge (across the top on phones) beside the name and the whole
+// description. Edit and Delete sit in e's quiet row under it and open b's
+// dialogs. The cards wait in a stack below.
 
 export const Route = createFileRoute("/_shell/decks/$deckId")({
   component: DeckPage,
@@ -60,23 +62,33 @@ function DeckBody({ deck, state }: { deck: Deck; state: string | undefined }) {
 
   return (
     <>
-      <header className="flex flex-col gap-5">
-        <h1 className="text-[2.25rem] leading-[1.05] font-semibold tracking-[-0.035em] [overflow-wrap:anywhere] lg:text-5xl">
-          {deck.name}
-        </h1>
-        {deck.description !== null ? (
-          <p className="max-w-prose text-[1.05rem] leading-relaxed whitespace-pre-line text-muted-foreground">
-            {deck.description}
-          </p>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setEditing(true)}
-            className="-my-2 h-11 w-fit text-left text-[1.05rem] text-muted-foreground italic underline-offset-4 hover:text-foreground hover:underline lg:h-8"
-          >
-            Add a description
-          </button>
-        )}
+      <header className="flex flex-col gap-6">
+        <Stack className="w-full">
+          <div className="flex w-full flex-col overflow-hidden rounded-2xl border bg-card sm:flex-row">
+            <Cover
+              name={deck.name}
+              className="h-28 w-full shrink-0 border-b text-6xl sm:h-auto sm:w-48 sm:self-stretch sm:border-r sm:border-b-0 lg:w-56 lg:text-7xl"
+            />
+            <div className="flex min-w-0 flex-col gap-4 p-5 sm:p-8">
+              <h1 className="text-[2.25rem] leading-[1.05] font-semibold tracking-[-0.035em] [overflow-wrap:anywhere] lg:text-5xl">
+                {deck.name}
+              </h1>
+              {deck.description !== null ? (
+                <p className="max-w-prose text-[1.05rem] leading-relaxed whitespace-pre-line text-muted-foreground">
+                  {deck.description}
+                </p>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setEditing(true)}
+                  className="-my-2 h-11 w-fit text-left text-[1.05rem] text-muted-foreground italic underline-offset-4 hover:text-foreground hover:underline lg:h-8"
+                >
+                  Add a description
+                </button>
+              )}
+            </div>
+          </div>
+        </Stack>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-3 border-y py-3">
           <p className="mr-auto text-sm text-muted-foreground tabular-nums">
             Created {createdLabel(deck.createdAt)} · 0 cards
