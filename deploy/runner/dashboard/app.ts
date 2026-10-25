@@ -8,7 +8,7 @@ import { liveComputer } from "./live";
 import { localLog } from "./paths";
 import type { ServerDeps } from "./server";
 import { readTail } from "./files";
-import { issueData, volumePaths } from "./volume";
+import { issueLinear, issueVolume, volumePaths } from "./volume";
 
 // The Dashboard put together over a volume shaped like /work and a way to
 // Linear and GitHub: main.ts gives it the real ones, through the Broker, and
@@ -19,7 +19,7 @@ const ASSETS = {
   js: join(import.meta.dir, "live.js"),
 };
 
-/** How many issues' page data the Dashboard keeps at once. */
+/** How many issues' Linear data the Dashboard keeps at once. */
 const ISSUES_KEPT = 20;
 
 export async function dashboard(options: {
@@ -39,10 +39,12 @@ export async function dashboard(options: {
     compute: liveComputer({ ...deps, readLog: (path) => readTail(localLog(paths.logs, path)) }),
     now: clock,
   });
-  // Each issue's page data is shared as the live view is: a Linear token
+  // Each issue's Linear data is shared as the live view is: a Linear token
   // for it at most once every 30 seconds, whoever asks and however often.
-  const issues = keyedViews({
-    compute: (issue: string) => issueData({ ...deps, logs: paths.logs }, issue),
+  // Only Linear's: the volume's records and logs cost no call, so they are
+  // read on every request, and a run that ended shows as ended at once.
+  const linear = keyedViews({
+    compute: (issue: string) => issueLinear(deps, issue),
     now: clock,
     max: ISSUES_KEPT,
   });
@@ -50,10 +52,12 @@ export async function dashboard(options: {
     live,
     issue: async (issue) => {
       // What it waits on now, from the live view of the last 30 seconds.
-      const [data, view] = await Promise.all([
-        issues.get(issue),
+      const [found, view] = await Promise.all([
+        linear.get(issue),
         live.get().catch(() => undefined),
       ]);
+      // The volume read after Linear's answer, so what it says is as new as can be.
+      const data = { ...issueVolume({ ...deps, logs: paths.logs }, issue), linear: found };
       const waiting = view?.status.waiting.find((wait) => wait.issue === issue);
       return waiting === undefined ? data : { ...data, waiting };
     },

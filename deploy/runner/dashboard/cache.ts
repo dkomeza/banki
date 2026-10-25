@@ -2,7 +2,7 @@
 // most once every 30 seconds whatever the number of viewers, and never while
 // nobody asks for it. A computation still running is shared too, and one that
 // failed is kept for its 30 seconds like any other, so a broken Linear isn't
-// asked again on every request. Each issue's page data is shared the same
+// asked again on every request. Each issue's Linear data is shared the same
 // way, keyed by issue, for so many issues at most. Pure but for the clock it
 // is given, so it is unit-tested.
 
@@ -50,7 +50,7 @@ export function sharedView<T>(options: {
   };
 }
 
-/** Shared views by key, such as an issue's page data: each one as `sharedView`'s. */
+/** Shared views by key, such as an issue's Linear data: each one as `sharedView`'s. */
 export type KeyedViews<K, T> = {
   get: (key: K) => Promise<T>;
   /** How many keys it keeps now. */

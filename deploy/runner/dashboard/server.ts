@@ -41,7 +41,10 @@ const HEADERS = {
 
 export type ServerDeps = {
   live: SharedView<LiveView>;
-  /** An issue's page data: the volume's records and logs, and Linear's comments and moves. */
+  /**
+   * An issue's page data: the volume's records and logs, read on every call,
+   * and Linear's comments and moves, which may be up to 30 seconds old.
+   */
   issue: (issue: string) => Promise<IssueData>;
   /** The logs directory, /work/logs. */
   logs: string;
@@ -196,6 +199,20 @@ const sleep = (ms: number, open: () => boolean) =>
     }, step);
   });
 
+/** Whether this log is a run going on now: the newest run of a Stage running, or its supervisor's. */
+function runningIn(active: readonly ActiveRecord[], issue: string, file: string): boolean {
+  return active.some((record) => {
+    const log = record.runs.at(-1)?.log;
+    return (
+      record.issue === issue &&
+      record.state === "running" &&
+      log !== undefined &&
+      record.runs.at(-1)?.endedAt === undefined &&
+      (basename(log) === file || basename(supervisorLog(log)) === file)
+    );
+  });
+}
+
 export function handler(deps: ServerDeps): (request: Request) => Promise<Response> {
   const pollMs = deps.pollMs ?? 1_000;
   const liveEveryMs = deps.liveEveryMs ?? 30_000;
@@ -207,23 +224,15 @@ export function handler(deps: ServerDeps): (request: Request) => Promise<Respons
     log: deps.log,
   };
 
-  /** Whether this log is a run going on now: the newest run of a Stage running, or its supervisor's. */
-  const running = (issue: string, file: string) =>
-    deps.activeRecords().some((record) => {
-      const log = record.runs.at(-1)?.log;
-      return (
-        record.issue === issue &&
-        record.state === "running" &&
-        log !== undefined &&
-        record.runs.at(-1)?.endedAt === undefined &&
-        (basename(log) === file || basename(supervisorLog(log)) === file)
-      );
-    });
+  /** Whether this log is a run going on now, as the volume says at this moment. */
+  const running = (issue: string, file: string) => runningIn(deps.activeRecords(), issue, file);
 
   async function logView(issue: string, file: string, path: string): Promise<Response> {
-    const tail = logTail(path);
-    const isRunning = running(issue, file);
     const data = await deps.issue(issue);
+    // From the records the attempt comes from, so the two always agree; and
+    // the log read after them, so a run they say has ended is shown whole.
+    const isRunning = runningIn(data.active, issue, file);
+    const tail = logTail(path);
     return htmlPage(
       logPage(
         {

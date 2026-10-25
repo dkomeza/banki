@@ -2,8 +2,10 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { appendFileSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { closingComment } from "../dispatch/closing";
+import { parseResult } from "../dispatch/result";
 import { store } from "../dispatch/store";
-import { fakeLinear } from "../dispatch/test-fakes";
+import { fakeLinear, RUNNER_ID } from "../dispatch/test-fakes";
 import { dashboard } from "./app";
 import { readChunk } from "./files";
 import { ACTIVE, github, issues, NOW, writeVolume } from "./fixtures/ban-11";
@@ -19,13 +21,13 @@ writeVolume(work);
 writeFileSync(join(work, "outside.log"), "s3cr3t\n");
 afterAll(() => rmSync(work, { recursive: true, force: true }));
 
-async function setup(options: Partial<ServerDeps> = {}, clock?: () => number) {
+async function setup(options: Partial<ServerDeps> = {}, clock?: () => number, volume = work) {
   const fixture = issues();
   const linear = fakeLinear(fixture);
   const minted: string[] = [];
   const revoked: string[] = [];
   const deps = await dashboard({
-    work,
+    work: volume,
     session: {
       broker: {
         linearToken: async () => {
@@ -205,6 +207,83 @@ describe("the Dashboard's server", () => {
     clock += 31 * 60_000;
 
     expect(await flat("/issues/BAN-11")).not.toContain("Waiting for the Slug Previews since");
+  });
+
+  test("shows a run that ended within the 30 seconds as ended, from the records, and its closing comment once Linear has it", async () => {
+    // A volume of its own: this test ends BAN-12's running Stage.
+    const volume = mkdtempSync(join(tmpdir(), "banki-dashboard-ended-"));
+    writeVolume(volume);
+    try {
+      let clock = 0;
+      const { get, minted, fixture } = await setup({}, () => clock, volume);
+      const flat = async (path: string) => (await (await get(path)).text()).replaceAll(/\s+/g, " ");
+      const log = "/issues/BAN-12/logs/2026-10-24T07-20-00Z-implement.jsonl";
+      const done = 'implement Stage: <span class="outcome outcome-done">';
+
+      expect(await flat(log)).toContain("Not yet: the Stage is running.");
+      expect(await flat("/issues/BAN-12")).toContain("Running now.");
+      const tokens = minted.length;
+
+      // Its supervisor ends it: the active record goes into stages.jsonl,
+      // and the cache's clock hasn't moved.
+      const running = ACTIVE[0];
+      if (running === undefined) throw new Error("no running Stage");
+      const endedAt = "2026-10-24T07:58:00.000Z";
+      store(join(volume, "dispatcher")).finish({
+        issue: running.issue,
+        kind: running.kind,
+        outcome: "done",
+        endedAt,
+        runs: running.runs.map((run) => ({ ...run, endedAt: run.endedAt ?? endedAt })),
+      });
+
+      const page = await flat(log);
+      expect(page).not.toContain("data-stream");
+      expect(page).not.toContain("Running");
+      expect(page).toContain(done);
+      expect(page).toContain("Done, and no closing comment of it was found.");
+      const issuePage = await flat("/issues/BAN-12");
+      expect(issuePage).not.toContain("Running now.");
+      expect(issuePage).not.toContain("going on");
+      // The one done the night before, and this one.
+      expect(issuePage.split(done)).toHaveLength(3);
+      // From the cache: Linear isn't asked again inside its 30 seconds.
+      expect(minted).toHaveLength(tokens);
+
+      // Linear has its closing comment now, and the cache's 30 seconds are up.
+      const ban12 = fixture.find((issue) => issue.identifier === "BAN-12");
+      if (ban12 === undefined) throw new Error("no BAN-12");
+      const json = {
+        stage: "implement",
+        issue: "BAN-12",
+        outcome: "done",
+        summary: "Parsed every cloze, nested ones too.",
+        nextStatus: "In Review",
+        question: null,
+        options: [],
+        pushed: true,
+        wait: null,
+      };
+      ban12.comments.push({
+        id: "c12",
+        createdAt: "2026-10-24T07:57:50.000Z",
+        userId: RUNNER_ID,
+        parentId: null,
+        body: closingComment(parseResult(json), json),
+      });
+      clock += 30_000;
+
+      const missing = "Done, and no closing comment of it was found.";
+      const ended = await flat(log);
+      expect(ended).toContain("Parsed every cloze, nested ones too.");
+      expect(ended).not.toContain(missing);
+      const timeline = await flat("/issues/BAN-12");
+      expect(timeline).toContain("Parsed every cloze, nested ones too.");
+      // Only the one the night before has none.
+      expect(timeline.split(missing)).toHaveLength(2);
+    } finally {
+      rmSync(volume, { recursive: true, force: true });
+    }
   });
 
   test("shows a Stage log one line per event, never raw JSON, escaped and redacted, then its result", async () => {
