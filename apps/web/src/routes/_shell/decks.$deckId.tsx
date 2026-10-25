@@ -75,7 +75,7 @@ function DeckBody({ deck }: { deck: Deck }) {
             <button
               type="button"
               onClick={() => setEditing(true)}
-              className="w-fit text-left text-[1.05rem] text-muted-foreground/80 italic underline-offset-4 hover:text-foreground hover:underline"
+              className="min-h-11 w-fit text-left text-[1.05rem] text-muted-foreground italic underline-offset-4 lg:min-h-0 hover:text-foreground hover:underline"
             >
               Add a description
             </button>
@@ -154,7 +154,7 @@ function DeckNotFound() {
         Deck not found
       </h1>
       <p className="text-muted-foreground">It may have been deleted, or the link is wrong.</p>
-      <Link to="/" className="font-medium">
+      <Link to="/" className="inline-flex h-11 items-center font-medium lg:h-auto">
         Back to Home
       </Link>
     </div>

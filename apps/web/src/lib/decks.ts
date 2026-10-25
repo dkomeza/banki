@@ -1,4 +1,11 @@
-import { ApiError, DeckListResponse, DeckResponse, type UpdateDeckRequest } from "@banki/shared";
+import {
+  ApiError,
+  DECK_DESCRIPTION_MAX_LENGTH,
+  DECK_NAME_MAX_LENGTH,
+  DeckListResponse,
+  DeckResponse,
+  type UpdateDeckRequest,
+} from "@banki/shared";
 import { type QueryClient, queryOptions } from "@tanstack/react-query";
 import { type ApiClient, api } from "./api";
 import { ApiRequestError } from "./query";
@@ -44,7 +51,15 @@ export type DeckOutcome =
 /** What's wrong with a name, if anything, before it is sent. */
 export function deckNameProblem(name: string): string | undefined {
   if (name.trim() === "") return "Give the deck a name.";
-  if (name.trim().length > 100) return "Keep the name to 100 characters.";
+  if (name.trim().length > DECK_NAME_MAX_LENGTH) return "Keep the name to 100 characters.";
+  return undefined;
+}
+
+/** What's wrong with a description, if anything, before it is sent. */
+export function deckDescriptionProblem(description: string): string | undefined {
+  if (description.trim().length > DECK_DESCRIPTION_MAX_LENGTH) {
+    return "Keep the description to 1,000 characters.";
+  }
   return undefined;
 }
 

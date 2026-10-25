@@ -62,6 +62,12 @@ describe("deckNameKey", () => {
     expect(deckNameKey("Calculus 2")).not.toBe(deckNameKey("Calculus 10"));
   });
 
+  test("is the same for letters with more than one form in a case", () => {
+    expect(deckNameKey("Straße")).toBe(deckNameKey("STRASSE"));
+    expect(deckNameKey("ΟΔΟΣ")).toBe(deckNameKey("οδοσ"));
+    expect(deckNameKey("οδος")).toBe(deckNameKey("οδοσ"));
+  });
+
   test("is the same for the composed and decomposed forms of an accent", () => {
     expect(deckNameKey("Café")).toBe(deckNameKey("Café"));
   });

@@ -29,9 +29,11 @@ export const DeckDescription = z
 
 /**
  * The key two Deck names are compared by: the same key means the same name,
- * ignoring case. Expects a name already trimmed.
+ * ignoring case. Expects a name already trimmed. Upper case first, then lower,
+ * so letters with more than one lower or upper form compare alike: "ß" and "SS",
+ * a word-final "ς" and "σ".
  */
-export const deckNameKey = (name: string) => name.normalize("NFC").toLowerCase();
+export const deckNameKey = (name: string) => name.normalize("NFC").toUpperCase().toLowerCase();
 
 /** A Deck as the API answers it. `createdAt` is an ISO 8601 time. */
 export const DeckResponse = z.object({

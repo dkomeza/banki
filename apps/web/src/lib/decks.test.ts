@@ -6,6 +6,7 @@ import {
   NAME_TAKEN,
   createDeck,
   createdLabel,
+  deckDescriptionProblem,
   deckNameProblem,
   deckQueryOptions,
   decksQueryOptions,
@@ -88,6 +89,15 @@ describe("deckNameProblem", () => {
     expect(deckNameProblem("  ")).toBe("Give the deck a name.");
     expect(deckNameProblem("a".repeat(101))).toBe("Keep the name to 100 characters.");
     expect(deckNameProblem(` ${"a".repeat(100)} `)).toBeUndefined();
+  });
+});
+
+describe("deckDescriptionProblem", () => {
+  test("refuses a description over 1,000 characters, after trimming", () => {
+    expect(deckDescriptionProblem("d".repeat(1001))).toBe(
+      "Keep the description to 1,000 characters.",
+    );
+    expect(deckDescriptionProblem(` ${"d".repeat(1000)}\n`)).toBeUndefined();
   });
 });
 

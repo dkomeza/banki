@@ -1,11 +1,10 @@
 import { Dialog } from "@base-ui/react/dialog";
-import { DECK_DESCRIPTION_MAX_LENGTH, DECK_NAME_MAX_LENGTH } from "@banki/shared";
 import { X } from "lucide-react";
 import { type FormEvent, useId, useState } from "react";
 import { FormError } from "@/components/auth-card";
 import { FIELD, Field, OUTLINE_PILL, PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
-import { type DeckOutcome, deckNameProblem } from "@/lib/decks";
+import { type DeckOutcome, deckDescriptionProblem, deckNameProblem } from "@/lib/decks";
 import { cn } from "@/lib/utils";
 
 export type DeckForm = { name: string; description: string };
@@ -93,9 +92,16 @@ function Body({
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (submitting) return;
-    const problem = deckNameProblem(name);
-    if (problem !== undefined) {
-      setRefusal({ ok: false, field: "name", message: problem });
+    // Checked here rather than cut short by maxLength, which would count the
+    // spaces trimming drops.
+    const nameProblem = deckNameProblem(name);
+    if (nameProblem !== undefined) {
+      setRefusal({ ok: false, field: "name", message: nameProblem });
+      return;
+    }
+    const descriptionProblem = deckDescriptionProblem(description);
+    if (descriptionProblem !== undefined) {
+      setRefusal({ ok: false, field: "form", message: descriptionProblem });
       return;
     }
     const outcome = await onSubmit({ name, description });
@@ -118,7 +124,6 @@ function Body({
         <Field
           label="Name"
           value={name}
-          maxLength={DECK_NAME_MAX_LENGTH}
           required
           autoFocus
           autoComplete="off"
@@ -136,7 +141,6 @@ function Body({
           <textarea
             id={descriptionId}
             rows={4}
-            maxLength={DECK_DESCRIPTION_MAX_LENGTH}
             value={description}
             readOnly={submitting}
             onChange={(event) => setDescription(event.target.value)}
