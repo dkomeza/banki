@@ -61,6 +61,8 @@ export const RESERVED_SLUGS: ReadonlySet<string> = new Set([
   "production",
   "staging",
   "banki",
+  // The Runner's Dashboard, at runner.banki.dkomeza.com (ADR-0014).
+  "runner",
 ]);
 
 /** The shape of a Slug: 2 to 40 lowercase letters, digits and single hyphens, from a letter to a letter or digit. */
