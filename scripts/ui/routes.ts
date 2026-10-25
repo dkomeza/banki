@@ -1,4 +1,3 @@
-// oxlint-disable-next-line no-unused-vars -- for the first entry with a path; none yet.
 import { SEED_IDS } from "../../apps/api/src/seed/seed-ids.ts";
 
 // The route manifest: how the `ui` script shoots each route of the web app's
@@ -31,4 +30,5 @@ export type RouteManifest = Readonly<Record<string, RouteEntry>>;
 export const ROUTES: RouteManifest = {
   "/login": { mode: "signed-out" },
   "/setup": { mode: "before-setup" },
+  "/decks/$deckId": { path: `/decks/${SEED_IDS.deck}` },
 };
