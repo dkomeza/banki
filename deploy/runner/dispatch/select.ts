@@ -37,7 +37,22 @@ export type IssueFacts = {
 };
 
 /** A deployment's newest status, or none yet. */
-export type Deployment = { state: string | null; description: string; url: string | null };
+export type Deployment = {
+  state: string | null;
+  description: string;
+  url: string | null;
+  /** When the deployment was made, for the Dashboard's pull-agent flag. */
+  createdAt?: string;
+};
+
+/** What a wait is on, for the Dashboard: since when its deadline runs, and the deployments it waits for. */
+export type WaitOn = {
+  wait: Wait;
+  since: string;
+  deadlineMs: number;
+  /** Each deployment it waits for, by name (a Slug, or the PR), with its newest state, or null for none yet. */
+  deployments: { name: string; deployment: Deployment | null }[];
+};
 
 export type Finding = { status: string; severity: string };
 
@@ -69,7 +84,7 @@ export type Decision =
   /** Unassign the issue, then decide again. */
   | { type: "hand-back"; why: string }
   | { type: "stage"; stage: StageKind; why: string }
-  | { type: "wait"; why: string }
+  | { type: "wait"; why: string; on?: WaitOn }
   | { type: "hand-off"; to: string; comment: string }
   | { type: "stop"; stop: Stop }
   /** The facts from GitHub this issue's decision needs. */
@@ -201,13 +216,26 @@ function inDesign(
       comment: designHandOff(issue, round.result, design),
     };
   }
-  const deadline = Date.parse(later(round.at, replyAt)) + DEADLINES_MS["slug-previews"];
+  const since = later(round.at, replyAt);
+  const deadline = Date.parse(since) + DEADLINES_MS["slug-previews"];
   if (now.getTime() > deadline) {
     return stop(
       `The Slug Previews weren't up ${DEADLINES_MS["slug-previews"] / MINUTE} minutes after the design Stage ended: ${pending.join(", ")}.`,
     );
   }
-  return { type: "wait", why: `waiting for the Slug Previews: ${pending.join(", ")}` };
+  return {
+    type: "wait",
+    why: `waiting for the Slug Previews: ${pending.join(", ")}`,
+    on: {
+      wait: "slug-previews",
+      since,
+      deadlineMs: DEADLINES_MS["slug-previews"],
+      deployments: variants.map((variant) => ({
+        name: variant.slug,
+        deployment: design[variant.slug] ?? null,
+      })),
+    },
+  };
 }
 
 function inReview(
@@ -267,7 +295,16 @@ function inReview(
         ],
       );
     }
-    return { type: "wait", why: `waiting for \`claude-review\` on \`${short(head)}\`` };
+    return {
+      type: "wait",
+      why: `waiting for \`claude-review\` on \`${short(head)}\``,
+      on: {
+        wait: "claude-review",
+        since: pushed,
+        deadlineMs: DEADLINES_MS["claude-review"],
+        deployments: [],
+      },
+    };
   }
   if (check.conclusion !== "success" && check.conclusion !== "failure") {
     return failedWait(
@@ -335,7 +372,16 @@ function inReview(
         options,
       );
     }
-    return { type: "wait", why: `waiting for the PR Preview of \`${short(head)}\`` };
+    return {
+      type: "wait",
+      why: `waiting for the PR Preview of \`${short(head)}\``,
+      on: {
+        wait: "pr-preview",
+        since: pushed,
+        deadlineMs: DEADLINES_MS["pr-preview"],
+        deployments: [{ name: `PR #${pr.number}`, deployment: preview }],
+      },
+    };
   }
 
   const state = `\`claude-review\` ${check.conclusion === "success" ? "passes" : "fails"} on \`${short(head)}\`, with ${findings.length} new or open findings and ${review.openThreads} unresolved threads`;

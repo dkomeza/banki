@@ -100,6 +100,10 @@ _Avoid_: scheduler, orchestrator
 The part of the Runner that holds its keys, in a container of its own, and hands the Dispatcher and the Stages short-lived tokens made from them, so neither ever sees a key.
 _Avoid_: token service, credential proxy
 
+**Dashboard**:
+The read-only web page, for the Maintainer alone, that shows what the Runner and the Dispatcher are doing and what each issue went through: the Stages running and waiting, every Stage's attempts and logs, and the Dispatcher's decisions. It changes nothing.
+_Avoid_: status page, console, admin panel
+
 **Ceiling**:
 The share of the weekly usage window above which the Dispatcher starts no new Stage. The Maintainer's own use counts toward it, so whatever is left above it stays theirs.
 _Avoid_: budget, quota

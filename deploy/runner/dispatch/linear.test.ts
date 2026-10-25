@@ -27,4 +27,47 @@ describe("the Dispatcher's Linear adapter", () => {
     expect(await client.viewer()).toBe("runner");
     expect(calls).toBe(2);
   });
+
+  test("reads an issue's moves, oldest first, each with who made it", async () => {
+    const nodes = [
+      {
+        createdAt: "2026-10-24T02:00:00.000Z",
+        actor: { id: "maintainer" },
+        fromState: null,
+        toState: null,
+        fromAssignee: { id: "maintainer" },
+        toAssignee: null,
+      },
+      {
+        createdAt: "2026-10-24T01:00:00.000Z",
+        actor: null,
+        fromState: { name: "Todo" },
+        toState: { name: "In Progress" },
+        fromAssignee: null,
+        toAssignee: null,
+      },
+      { createdAt: "2026-10-24T03:00:00.000Z", actor: { id: "x" }, fromState: null, toState: null },
+    ];
+    const queries: string[] = [];
+    const client = linear("lin", {
+      fetch: async (_url, init) => {
+        queries.push(typeof init.body === "string" ? init.body : "");
+        return Response.json({
+          data: {
+            issue: { history: { nodes, pageInfo: { hasNextPage: false, endCursor: null } } },
+          },
+        });
+      },
+    });
+
+    expect(await client.moves("id-1")).toEqual([
+      { at: "2026-10-24T01:00:00.000Z", by: null, status: { from: "Todo", to: "In Progress" } },
+      {
+        at: "2026-10-24T02:00:00.000Z",
+        by: "maintainer",
+        assignee: { from: "maintainer", to: null },
+      },
+    ]);
+    expect(queries[0]).toContain("actor { id }");
+  });
 });

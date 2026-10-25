@@ -1,0 +1,575 @@
+import { afterAll, describe, expect, test } from "bun:test";
+import { appendFileSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { closingComment } from "../dispatch/closing";
+import { parseResult } from "../dispatch/result";
+import { store } from "../dispatch/store";
+import { fakeLinear, RUNNER_ID } from "../dispatch/test-fakes";
+import { dashboard } from "./app";
+import { readChunk } from "./files";
+import { ACTIVE, github, issues, NOW, writeVolume } from "./fixtures/ban-11";
+import { CSP, handler, type ServerDeps } from "./server";
+
+// The Dashboard's HTTP side, on the BAN-11 fixture's volume, with Linear,
+// GitHub and the Broker faked: GET only, the strict CSP everywhere, the
+// pages whole without JavaScript, nothing served outside an issue's logs,
+// and the two streams.
+
+const work = mkdtempSync(join(tmpdir(), "banki-dashboard-server-"));
+writeVolume(work);
+writeFileSync(join(work, "outside.log"), "s3cr3t\n");
+afterAll(() => rmSync(work, { recursive: true, force: true }));
+
+async function setup(options: Partial<ServerDeps> = {}, clock?: () => number, volume = work) {
+  const fixture = issues();
+  const linear = fakeLinear(fixture);
+  const minted: string[] = [];
+  const revoked: string[] = [];
+  const deps = await dashboard({
+    work: volume,
+    session: {
+      broker: {
+        linearToken: async () => {
+          minted.push("token");
+          return { id: `token-${minted.length}`, token: "lin" };
+        },
+        endLinearToken: async (id) => {
+          revoked.push(id);
+        },
+        githubToken: async () => "gh",
+      },
+      linear: () => linear.client,
+      github: () => github(),
+      log: () => undefined,
+    },
+    config: {
+      window: { night: { start: 60, end: 420 }, openDays: new Set([6, 0]) },
+      ceiling: 0.6,
+      maxStages: 2,
+      timeZone: "UTC",
+    },
+    now: () => NOW,
+    log: () => undefined,
+    clock,
+  });
+  const fetch = handler({ ...deps, ...options });
+  const get = (path: string, init?: RequestInit) => fetch(new Request(`http://dash${path}`, init));
+  return { get, minted, revoked, fixture };
+}
+
+/** A log stream's line events, with their ids, until it ends. */
+async function lineEvents(res: Response): Promise<{ id: string | undefined; data: string }[]> {
+  const text = await res.text();
+  return text
+    .split("\n\n")
+    .filter((message) => message.startsWith("event: line\n"))
+    .map((message) => {
+      const fields = message.split("\n");
+      const id = fields.find((field) => field.startsWith("id: "))?.slice(4);
+      const data = fields
+        .filter((field) => field.startsWith("data: "))
+        .map((field) => field.slice(6))
+        .join("\n");
+      return { id, data };
+    });
+}
+
+const PAGES = [
+  "/",
+  "/ticks",
+  "/issues/BAN-11",
+  "/issues/BAN-11/logs/2026-10-24T04-50-00Z-design.jsonl",
+  "/issues/BAN-11/logs/2026-10-23T23-00-05Z-design.log",
+];
+
+describe("the Dashboard's server", () => {
+  test("answers anything but GET with 405", async () => {
+    const { get } = await setup();
+    for (const method of ["POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]) {
+      const res = await get("/", { method });
+
+      expect(res.status).toBe(405);
+      expect(res.headers.get("allow")).toBe("GET");
+    }
+  });
+
+  test("sends the strict CSP, and no caching, with every response", async () => {
+    const { get } = await setup();
+    for (const path of [...PAGES, "/style.css", "/live.js", "/nowhere"]) {
+      const res = await get(path);
+
+      expect(res.headers.get("content-security-policy")).toBe(CSP);
+      expect(res.headers.get("cache-control")).toBe("no-store");
+      expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    }
+    expect(CSP).toContain("default-src 'self'");
+    expect(CSP).not.toContain("unsafe-inline");
+  });
+
+  test("renders every page whole without JavaScript: no inline script or style, and none from elsewhere", async () => {
+    const { get } = await setup();
+    for (const path of PAGES) {
+      const res = await get(path);
+      const text = await res.text();
+
+      expect(res.status).toBe(200);
+      expect(text).toContain("</main>");
+      expect(text).not.toMatch(/<script(?![^>]*\bsrc="\/live\.js")/);
+      expect(text).not.toMatch(/\sstyle=|<style/);
+      expect(text).not.toMatch(/(src|href)="(https?:)?\/\//);
+    }
+  });
+
+  test("serves no file outside the issue's logs: a path that leaves it answers 404", async () => {
+    const { get } = await setup();
+    for (const path of [
+      "/issues/BAN-11/logs/..%2F..%2Foutside.log",
+      "/issues/BAN-11/logs/../../outside.log",
+      "/issues/BAN-11/logs/%2E%2E%2F..%2Fdispatcher%2Fgate.json",
+      "/issues/BAN-11/logs/2026-10-24T04-50-00Z-design.jsonl/../../../outside.log",
+      "/issues/..%2F..%2Fdispatcher/logs/gate.log",
+      "/issues/BAN-12/logs/2026-10-24T04-50-00Z-design.jsonl",
+      "/issues/BAN-11/logs/missing.jsonl",
+      "/issues/BAN-11/logs/%E0%A4%A",
+    ]) {
+      const res = await get(path);
+
+      expect(res.status).toBe(404);
+      expect(await res.text()).not.toContain("s3cr3t");
+    }
+  });
+
+  test("shows on the Now page everything runner status shows, the waits' deadlines and the pull agent's flags", async () => {
+    const { get } = await setup();
+    // The page's own markup wraps its lines as it likes; what it says is what counts.
+    const text = (await (await get("/")).text()).replaceAll(/\s+/g, " ").replaceAll("> <", "><");
+
+    for (const words of [
+      "Running",
+      '<a href="/issues/BAN-12">BAN-12</a>',
+      "$1.10",
+      "Paused",
+      "BAN-13",
+      'BAN-14</a> implement: <span class="no">waits: 2 Stages are running or paused already',
+      "Waiting for the Slug Previews since",
+      "<code>ban-11-b</code>: queued, 47 min of 60",
+      "the pull agent hasn&#39;t claimed it for 47 min",
+      "<code>PR #38</code>: queued, 30 min of 60",
+      "the pull agent hasn&#39;t claimed it for 20 min",
+      "Held, skipped while assigned",
+      '<a href="/issues/BAN-17">BAN-17</a> (Todo): it is assigned to @dkomeza',
+      "the week at <strong>42%</strong> of the Ceiling's 60%",
+      "Estimates:",
+      '<a href="/issues/BAN-16">BAN-16</a>',
+      "Recent Stages",
+      'data-stream="/events"',
+    ]) {
+      expect(text).toContain(words);
+    }
+    expect(text).not.toContain("ban-11-a</code> (slug-preview)");
+  });
+
+  test("computes the live view once for any number of viewers, with one Linear token, revoked", async () => {
+    const { get, minted, revoked } = await setup();
+
+    await Promise.all(Array.from({ length: 20 }, () => get("/")));
+
+    expect(minted).toHaveLength(1);
+    expect(revoked).toEqual(["token-1"]);
+  });
+
+  test("reads an issue's data from Linear at most once every 30 seconds, however often its pages are asked for", async () => {
+    let clock = 0;
+    const { get, minted } = await setup({}, () => clock);
+    const log = "/issues/BAN-11/logs/2026-10-24T04-50-00Z-design.jsonl";
+
+    await get("/issues/BAN-11");
+    await get(log);
+    await get("/issues/BAN-11");
+    // One token for BAN-11's data, one for the live view its wait comes from.
+    expect(minted).toHaveLength(2);
+
+    clock += 30_000;
+    await get(log);
+    expect(minted).toHaveLength(4);
+  });
+
+  test("shows an issue's wait from a live view no older than 30 seconds", async () => {
+    let clock = 0;
+    const { get, fixture } = await setup({}, () => clock);
+    const flat = async (path: string) => (await (await get(path)).text()).replaceAll(/\s+/g, " ");
+
+    expect(await flat("/issues/BAN-11")).toContain("Waiting for the Slug Previews since");
+    const ban11 = fixture.find((issue) => issue.identifier === "BAN-11");
+    if (ban11 === undefined) throw new Error("no BAN-11");
+    ban11.status = "Design Review";
+    clock += 31 * 60_000;
+
+    expect(await flat("/issues/BAN-11")).not.toContain("Waiting for the Slug Previews since");
+  });
+
+  test("shows a run that ended within the 30 seconds as ended, from the records, and its closing comment once Linear has it", async () => {
+    // A volume of its own: this test ends BAN-12's running Stage.
+    const volume = mkdtempSync(join(tmpdir(), "banki-dashboard-ended-"));
+    writeVolume(volume);
+    try {
+      let clock = 0;
+      const { get, minted, fixture } = await setup({}, () => clock, volume);
+      const flat = async (path: string) => (await (await get(path)).text()).replaceAll(/\s+/g, " ");
+      const log = "/issues/BAN-12/logs/2026-10-24T07-20-00Z-implement.jsonl";
+      const done = 'implement Stage: <span class="outcome outcome-done">';
+
+      expect(await flat(log)).toContain("Not yet: the Stage is running.");
+      expect(await flat("/issues/BAN-12")).toContain("Running now.");
+      const tokens = minted.length;
+
+      // Its supervisor ends it: the active record goes into stages.jsonl,
+      // and the cache's clock hasn't moved.
+      const running = ACTIVE[0];
+      if (running === undefined) throw new Error("no running Stage");
+      const endedAt = "2026-10-24T07:58:00.000Z";
+      store(join(volume, "dispatcher")).finish({
+        issue: running.issue,
+        kind: running.kind,
+        outcome: "done",
+        endedAt,
+        runs: running.runs.map((run) => ({ ...run, endedAt: run.endedAt ?? endedAt })),
+      });
+
+      const page = await flat(log);
+      expect(page).not.toContain("data-stream");
+      expect(page).not.toContain("Running");
+      expect(page).toContain(done);
+      expect(page).toContain("Done, and no closing comment of it was found.");
+      const issuePage = await flat("/issues/BAN-12");
+      expect(issuePage).not.toContain("Running now.");
+      expect(issuePage).not.toContain("going on");
+      // The one done the night before, and this one.
+      expect(issuePage.split(done)).toHaveLength(3);
+      // From the cache: Linear isn't asked again inside its 30 seconds.
+      expect(minted).toHaveLength(tokens);
+
+      // Linear has its closing comment now, and the cache's 30 seconds are up.
+      const ban12 = fixture.find((issue) => issue.identifier === "BAN-12");
+      if (ban12 === undefined) throw new Error("no BAN-12");
+      const json = {
+        stage: "implement",
+        issue: "BAN-12",
+        outcome: "done",
+        summary: "Parsed every cloze, nested ones too.",
+        nextStatus: "In Review",
+        question: null,
+        options: [],
+        pushed: true,
+        wait: null,
+      };
+      ban12.comments.push({
+        id: "c12",
+        createdAt: "2026-10-24T07:57:50.000Z",
+        userId: RUNNER_ID,
+        parentId: null,
+        body: closingComment(parseResult(json), json),
+      });
+      clock += 30_000;
+
+      const missing = "Done, and no closing comment of it was found.";
+      const ended = await flat(log);
+      expect(ended).toContain("Parsed every cloze, nested ones too.");
+      expect(ended).not.toContain(missing);
+      const timeline = await flat("/issues/BAN-12");
+      expect(timeline).toContain("Parsed every cloze, nested ones too.");
+      // Only the one the night before has none.
+      expect(timeline.split(missing)).toHaveLength(2);
+    } finally {
+      rmSync(volume, { recursive: true, force: true });
+    }
+  });
+
+  test("keeps a run whose supervisor is still posting its result going on, streaming its last lines, until its record is finished", async () => {
+    // A volume of its own: this test ends BAN-12's running Stage.
+    const volume = mkdtempSync(join(tmpdir(), "banki-dashboard-finishing-"));
+    writeVolume(volume);
+    try {
+      const clock = 0;
+      const { get } = await setup({ pollMs: 10, pingMs: 1_000 }, () => clock, volume);
+      const flat = async (path: string) => (await (await get(path)).text()).replaceAll(/\s+/g, " ");
+      const logs = "/issues/BAN-12/logs";
+      const log = `${logs}/2026-10-24T07-20-00Z-implement.jsonl`;
+      const supervisorFile = "2026-10-24T07-20-00Z-implement.log";
+      const supervisorPath = join(volume, "logs", "BAN-12", supervisorFile);
+      writeFileSync(
+        supervisorPath,
+        "2026-10-24T07:20:00.000Z Starting the implement Stage on BAN-12, with 180 minutes left of its limit\n",
+      );
+      const finishing = "Finishing: the run ended, and its supervisor is posting the result.";
+
+      // Its supervisor saves the run's end, and the record stays active and
+      // running while it posts the closing comment and moves the issue.
+      const records = store(join(volume, "dispatcher"));
+      const running = ACTIVE[0];
+      if (running === undefined) throw new Error("no running Stage");
+      const endedAt = "2026-10-24T07:58:00.000Z";
+      const ended = {
+        ...running,
+        runs: running.runs.map((run) => ({
+          ...run,
+          endedAt: run.endedAt ?? endedAt,
+        })),
+      };
+      records.saveActive(ended);
+
+      for (const path of [log, `${logs}/${supervisorFile}`]) {
+        const page = await flat(path);
+        expect(page).toContain("data-stream");
+        expect(page).toContain('http-equiv="refresh"');
+        expect(page).not.toContain("Running now.");
+        expect(page).toContain(finishing);
+      }
+      const timeline = await flat("/issues/BAN-12");
+      expect(timeline).not.toContain("Running now.");
+      expect(timeline).toContain(finishing);
+      // Still among the Stages running, its run's time stopped at its end.
+      const now = (await flat("/")).replaceAll("> <", "><");
+      expect(now).toMatch(
+        /<h2>Running<\/h2>.*BAN-12<\/a><\/td><td>implement<\/td><td> 38 min, finishing <\/td>/,
+      );
+
+      const page = await (await get(`${logs}/${supervisorFile}`)).text();
+      const from = /events\?from=(\d+)/.exec(page)?.[1];
+      expect(from).toBeDefined();
+      const res = await get(`${logs}/${supervisorFile}/events?from=${from}`);
+      const reader = res.body?.getReader();
+      if (reader === undefined) throw new Error("no stream");
+      const decoder = new TextDecoder();
+      let seen = "";
+      const until = async (words: string) => {
+        while (!seen.includes(words)) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          seen += decoder.decode(value);
+        }
+      };
+
+      appendFileSync(
+        supervisorPath,
+        "2026-10-24T07:58:01.000Z Posted the closing comment on BAN-12\n",
+      );
+      await until("Posted the closing comment");
+      expect(seen).toContain("data: 2026-10-24T07:58:01.000Z Posted the closing comment on BAN-12");
+      // Many polls on, and still going on.
+      await Bun.sleep(100);
+      expect(seen).not.toContain("event: end");
+
+      // Its supervisor is done: the record goes into stages.jsonl.
+      records.finish({
+        issue: ended.issue,
+        kind: ended.kind,
+        outcome: "done",
+        endedAt,
+        runs: ended.runs,
+      });
+      await until("event: end");
+      expect(seen).toContain("event: end");
+
+      const reloaded = await flat(log);
+      expect(reloaded).not.toContain("data-stream");
+      expect(reloaded).not.toContain(finishing);
+      expect(reloaded).toContain('implement Stage: <span class="outcome outcome-done">');
+      expect(await flat("/issues/BAN-12")).not.toContain(finishing);
+    } finally {
+      rmSync(volume, { recursive: true, force: true });
+    }
+  });
+
+  test("shows a Stage log one line per event, never raw JSON, escaped and redacted, then its result", async () => {
+    const { get } = await setup();
+    const done = await (await get("/issues/BAN-11/logs/2026-10-24T04-50-00Z-design.jsonl")).text();
+    const crashed = await (
+      await get("/issues/BAN-11/logs/2026-10-23T23-30-00Z-design.jsonl")
+    ).text();
+
+    expect(done).toContain("say: &lt;script&gt;alert(&#39;a log line&#39;)&lt;/script&gt;");
+    expect(done).not.toContain("<script>alert");
+    expect(done).not.toContain("&quot;type&quot;");
+    expect(done).toContain("Built two Variants of the deck list");
+    expect(done).not.toContain("data-stream");
+    expect(crashed).toContain("tool: Bash GH_TOKEN=[redacted] gh pr list");
+    expect(crashed).toContain('class="outcome outcome-crashed"');
+  });
+
+  test("streams a running Stage's log as it grows, and ends with its run", async () => {
+    const { get } = await setup({ pollMs: 10, pingMs: 1_000 });
+    const file = "2026-10-24T07-20-00Z-implement.jsonl";
+    const path = join(work, "logs", "BAN-12", file);
+    const page = await (await get(`/issues/BAN-12/logs/${file}`)).text();
+    const from = /events\?from=(\d+)/.exec(page)?.[1];
+
+    expect(from).toBeDefined();
+    const res = await get(`/issues/BAN-12/logs/${file}/events?from=${from}`);
+    expect(res.headers.get("content-type")).toContain("text/event-stream");
+    const reader = res.body?.getReader();
+    if (reader === undefined) throw new Error("no stream");
+    const decoder = new TextDecoder();
+    let seen = "";
+    const until = async (words: string) => {
+      while (!seen.includes(words)) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        seen += decoder.decode(value);
+      }
+    };
+
+    appendFileSync(
+      path,
+      `${JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "<b>new</b>" }] } })}\n`,
+    );
+    await until("say:");
+    expect(seen).toContain("event: line\n");
+    expect(seen).toContain("data: say: <b>new</b>");
+    expect(seen).not.toContain("Going on from the parser tests");
+
+    const records = store(join(work, "dispatcher"));
+    const running = ACTIVE[0];
+    if (running === undefined) throw new Error("no running Stage");
+    records.removeActive(running.issue);
+    await until("event: end");
+    expect(seen).toContain("event: end");
+    records.saveActive(running);
+  });
+
+  test("ends a log's stream when its file is deleted under it, and goes on serving", async () => {
+    const { get } = await setup({ pollMs: 10, pingMs: 1_000 });
+    const file = "2026-10-24T07-20-00Z-implement.jsonl";
+    const path = join(work, "logs", "BAN-12", file);
+    const res = await get(`/issues/BAN-12/logs/${file}/events?from=0`);
+    const reader = res.body?.getReader();
+    if (reader === undefined) throw new Error("no stream");
+    let seen = "";
+    const read = async () => {
+      const { value, done } = await reader.read();
+      if (!done) seen += new TextDecoder().decode(value);
+      return done;
+    };
+    while (!seen.includes("event: line")) await read();
+
+    renameSync(path, `${path}.away`);
+    try {
+      while (!(await read()));
+    } finally {
+      renameSync(`${path}.away`, path);
+    }
+
+    expect(seen).toContain("event: end\ndata: the stream failed");
+    expect((await get("/ticks")).status).toBe(200);
+  });
+
+  test("gives each line of a log's stream the byte just past it as its id, to resume from", async () => {
+    const { get } = await setup({ pollMs: 10, pingMs: 1_000 });
+    const file = "ids.log";
+    writeFileSync(join(work, "logs", "BAN-11", file), "first ż\nsecond\n");
+    const stream = `/issues/BAN-11/logs/${file}/events`;
+
+    const all = await lineEvents(await get(`${stream}?from=0`));
+    // "first ż" is 8 bytes in UTF-8, though 7 characters.
+    expect(all).toEqual([
+      { id: "9", data: "first ż" },
+      { id: "16", data: "second" },
+    ]);
+    const resumed = await lineEvents(
+      await get(`${stream}?from=0`, { headers: { "Last-Event-ID": "9" } }),
+    );
+    expect(resumed).toEqual([{ id: "16", data: "second" }]);
+  });
+
+  test("ids a line too long to show by the byte past its end, so a resume goes on after it", async () => {
+    const { get } = await setup({
+      pollMs: 10,
+      pingMs: 1_000,
+      readChunk: (path, from) => readChunk(path, from, 16),
+    });
+    const file = "overlong.log";
+    writeFileSync(join(work, "logs", "BAN-11", file), `a\n${"y".repeat(40)}\nafter\n`);
+    const stream = `/issues/BAN-11/logs/${file}/events`;
+
+    expect(await lineEvents(await get(`${stream}?from=0`))).toEqual([
+      { id: "2", data: "a" },
+      { id: "43", data: "(an event too long to show)" },
+      { id: "49", data: "after" },
+    ]);
+    expect(await lineEvents(await get(`${stream}?from=43`))).toEqual([{ id: "49", data: "after" }]);
+  });
+
+  test("reads no more of a log than its client keeps up with, and goes on as it reads", async () => {
+    let reads = 0;
+    const { get } = await setup({
+      pollMs: 10,
+      pingMs: 1_000,
+      streamBufferBytes: 256,
+      readChunk: (path, from) => {
+        reads += 1;
+        return readChunk(path, from, 64);
+      },
+    });
+    const file = "big.log";
+    const lines = Array.from({ length: 2_000 }, (_, i) => `line ${String(i).padStart(6, "0")}`);
+    writeFileSync(join(work, "logs", "BAN-11", file), `${lines.join("\n")}\n`);
+
+    const res = await get(`/issues/BAN-11/logs/${file}/events?from=0`);
+    const reader = res.body?.getReader();
+    if (reader === undefined) throw new Error("no stream");
+    await Bun.sleep(200);
+
+    // 2,000 lines are over 500 chunks of 64 bytes; a stalled client holds it to a few.
+    expect(reads).toBeLessThanOrEqual(10);
+    const stalled = reads;
+    for (let i = 0; i < 20; i += 1) await reader.read();
+    await Bun.sleep(50);
+    expect(reads).toBeGreaterThan(stalled);
+    await reader.cancel();
+  });
+
+  test("lets no pings pile up behind a client that doesn't read", async () => {
+    const { get } = await setup({ liveEveryMs: 60_000, pingMs: 10 });
+    const res = await get("/events");
+    const reader = res.body?.getReader();
+    if (reader === undefined) throw new Error("no stream");
+    await Bun.sleep(300);
+
+    // What the stream holds now comes at once; a ping sent since takes 10 ms.
+    let seen = "";
+    for (;;) {
+      const next = await Promise.race([reader.read(), Bun.sleep(5).then(() => undefined)]);
+      if (next === undefined || next.done) break;
+      seen += new TextDecoder().decode(next.value);
+    }
+    await reader.cancel();
+
+    expect(seen.split(": ping").length - 1).toBeLessThanOrEqual(2);
+  });
+
+  test("sends the Now page's live view over its stream", async () => {
+    const { get } = await setup({ liveEveryMs: 10, pingMs: 1_000 });
+    const res = await get("/events");
+    const reader = res.body?.getReader();
+    if (reader === undefined) throw new Error("no stream");
+    let seen = "";
+    while (!seen.includes("Recent Stages")) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      seen += new TextDecoder().decode(value);
+    }
+    await reader.cancel();
+
+    expect(seen).toContain("event: view\n");
+    expect(seen).toMatch(/data: .*As of/);
+  });
+
+  test("collapses the tick log's consecutive identical lines", async () => {
+    const { get } = await setup();
+    const text = await (await get("/ticks")).text();
+
+    expect(text).toContain('Tick on main def5678 <span class="count">×8</span>');
+    expect(text).toContain('Tick on main abc1234 <span class="count">×16</span>');
+  });
+});

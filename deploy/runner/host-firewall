@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
-# Keeps the Runner's Stages off the home server and the home LAN (ADR-0012).
-# A Stage runs code from branches with permission prompts skipped, so its
-# network, the fixed subnet in compose.yaml, may reach the internet and
-# nothing private:
+# Keeps the Runner's Stages off the home server and the home LAN (ADR-0012),
+# and the Dashboard too (ADR-0015). A Stage runs code from branches with
+# permission prompts skipped, and the Dashboard runs from the clone the
+# Stages can write to, so their networks, the fixed subnets in compose.yaml,
+# may reach the internet and nothing private:
 #
 # - forwarded traffic, through Docker's DOCKER-USER chain: every private
 #   range (the LAN, the other Docker networks, CGNAT, link-local) is dropped;
 # - traffic to the host itself, at any of its addresses, through INPUT, which
-#   DOCKER-USER never sees: all of it is dropped.
+#   DOCKER-USER never sees: all of it is dropped, but the replies to the
+#   connections the host itself started, such as `curl http://127.0.0.1:8790/`
+#   or Pangolin's Newt reaching the Dashboard's published port. A container
+#   can't start one to the host.
 #
 # DNS (port 53) is let through both, for an upstream resolver on the LAN or on
 # the host: Docker's embedded DNS (127.0.0.11) sits in the container's own
@@ -18,8 +22,8 @@
 # Usage: sudo deploy/runner/host-firewall
 set -euo pipefail
 
-# The runner's network in compose.yaml. Change both together.
-subnet="10.213.94.0/24"
+# The runner's and the Dashboard's networks in compose.yaml. Change both together.
+subnets=("10.213.94.0/24" "10.213.96.0/24")
 private=(10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 169.254.0.0/16)
 
 ipt() {
@@ -31,9 +35,9 @@ fresh_chain() {
   if ! ipt -N "$1" 2>/dev/null; then ipt -F "$1"; fi
 }
 
-# The jump to one of those chains for the runner's subnet, first in `from`, once.
+# The jump to one of those chains for a subnet, first in `from`, once.
 jump_first() {
-  local from="$1" to="$2"
+  local from="$1" to="$2" subnet="$3"
   if ! ipt -C "$from" -s "$subnet" -j "$to" 2>/dev/null; then
     ipt -I "$from" 1 -s "$subnet" -j "$to"
   fi
@@ -47,13 +51,16 @@ for range in "${private[@]}"; do
 done
 
 fresh_chain BANKI-RUNNER-INPUT
+ipt -A BANKI-RUNNER-INPUT -m conntrack --ctstate ESTABLISHED -j RETURN
 ipt -A BANKI-RUNNER-INPUT -p udp --dport 53 -j RETURN
 ipt -A BANKI-RUNNER-INPUT -p tcp --dport 53 -j RETURN
 ipt -A BANKI-RUNNER-INPUT -j DROP
 
 # Docker makes DOCKER-USER when it starts, and keeps the rules in it.
 if ! ipt -N DOCKER-USER 2>/dev/null; then :; fi
-jump_first DOCKER-USER BANKI-RUNNER-FORWARD
-jump_first INPUT BANKI-RUNNER-INPUT
+for subnet in "${subnets[@]}"; do
+  jump_first DOCKER-USER BANKI-RUNNER-FORWARD "$subnet"
+  jump_first INPUT BANKI-RUNNER-INPUT "$subnet"
+done
 
-printf 'host-firewall: %s reaches the internet, and not the host or the private ranges, DNS aside.\n' "$subnet" >&2
+printf 'host-firewall: %s reach the internet, and not the host or the private ranges, DNS aside.\n' "${subnets[*]}" >&2

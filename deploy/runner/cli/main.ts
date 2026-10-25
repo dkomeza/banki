@@ -8,6 +8,8 @@ import { runStage } from "./stage";
 //   docker compose -f deploy/runner/compose.yaml exec runner runner status
 //   docker compose -f deploy/runner/compose.yaml exec runner runner run-now BAN-94
 //   docker compose -f deploy/runner/compose.yaml exec runner runner stage implement BAN-94
+//
+// `run-now` logs as the tick does: to the terminal and to the tick log.
 
 const parsed = parseArgs(process.argv.slice(2));
 switch (parsed.command) {
@@ -40,21 +42,30 @@ switch (parsed.command) {
     break;
   }
   case "run-now": {
-    const [{ runNow }, { dispatcherDeps }] = await Promise.all([
+    const [{ runNow }, { dispatcherDeps }, { tickLogger }, { run }] = await Promise.all([
       import("../dispatch/dispatcher"),
       import("../dispatch/wiring"),
+      import("../dispatch/tick-log"),
+      import("../lib/run"),
     ]);
+    // The commit of `main` it runs from: bin/runner runs it in the clone.
+    const head = await run(["git", "rev-parse", "HEAD"], { timeoutMs: 30_000 }).catch(
+      () => undefined,
+    );
+    const main = head?.exitCode === 0 ? head.stdout.trim() : "";
+    const log = tickLogger({ main });
+    const fail = tickLogger({ main, print: (line) => console.error(line) });
     try {
-      const started = await runNow(parsed.issue, parsed.force, dispatcherDeps());
+      const started = await runNow(parsed.issue, parsed.force, dispatcherDeps({ log }));
       if (started.log === undefined) {
-        console.log(`Nothing starts on ${parsed.issue}: ${started.why ?? "nothing is ready"}`);
+        log(`Nothing starts on ${parsed.issue}: ${started.why ?? "nothing is ready"}`);
         process.exit(1);
       }
-      console.log(
+      log(
         `Started ${parsed.issue}'s Stage under its supervisor.\n  The Stage's log: ${started.log}\n  The supervisor's: ${started.log.replace(/\.jsonl$/, ".log")}`,
       );
     } catch (error) {
-      console.error(`runner run-now ${parsed.issue} failed: ${errorText(error)}`);
+      fail(`runner run-now ${parsed.issue} failed: ${errorText(error)}`);
       process.exit(1);
     }
     break;

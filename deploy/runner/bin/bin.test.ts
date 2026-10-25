@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// The wrappers on the runner's PATH, run for real against a fake Broker on a
+// The wrappers on the runner's and the Dashboard's PATH, run for real against a fake Broker on a
 // Unix socket. Skipped without curl, which they reach the socket with.
 
 const hasCurl = Bun.which("curl") !== null;
@@ -53,14 +53,17 @@ async function sh(argv: string[], env: Record<string, string> = {}, stdin = "") 
 }
 
 describe("the scripts", () => {
-  test.each(["gh", "git-credential-banki", "runner"])("%s passes sh -n", async (name) => {
-    expect((await sh(["sh", "-n", join(BIN, name)])).exitCode).toBe(0);
-  });
+  test.each(["gh", "git-credential-banki", "runner", "dashboard"])(
+    "%s passes sh -n",
+    async (name) => {
+      expect((await sh(["sh", "-n", join(BIN, name)])).exitCode).toBe(0);
+    },
+  );
 
   test.skipIf(Bun.which("shellcheck") === null)("pass shellcheck", async () => {
     const result = await sh([
       "shellcheck",
-      ...["gh", "git-credential-banki", "runner"].map((n) => join(BIN, n)),
+      ...["gh", "git-credential-banki", "runner", "dashboard"].map((n) => join(BIN, n)),
     ]);
     expect(result.stdout).toBe("");
     expect(result.exitCode).toBe(0);
@@ -167,5 +170,57 @@ describe("the runner wrapper", () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("the first tick makes the clone of main");
+  });
+});
+
+describe("the dashboard wrapper", () => {
+  test("runs the Dashboard from the clone, in the clone", async () => {
+    const clone = join(dir, "dashboard-clone");
+    mkdirSync(join(clone, "deploy/runner/dashboard"), { recursive: true });
+    writeFileSync(
+      join(clone, "deploy/runner/dashboard/main.ts"),
+      "console.log(process.cwd(), process.argv[1]);",
+    );
+
+    const result = await sh([join(BIN, "dashboard")], { BANKI_RUNNER_CLONE: clone });
+
+    expect(result.stdout.trim()).toMatch(
+      /dashboard-clone .*dashboard-clone\/deploy\/runner\/dashboard\/main\.ts$/,
+    );
+    expect(result.exitCode).toBe(0);
+  });
+
+  test.skipIf(Bun.which("git") === null)(
+    "tells the Dashboard the clone's HEAD, read before bun loads any of it",
+    async () => {
+      const clone = join(dir, "dashboard-git");
+      mkdirSync(join(clone, "deploy/runner/dashboard"), { recursive: true });
+      writeFileSync(
+        join(clone, "deploy/runner/dashboard/main.ts"),
+        "console.log(process.env.BANKI_DASHBOARD_HEAD);",
+      );
+      const git = (...args: string[]) =>
+        sh(["git", "-C", clone, "-c", "user.name=t", "-c", "user.email=t@t", ...args], {
+          HOME: dir,
+        });
+      await git("init", "--quiet");
+      await git("commit", "--quiet", "--allow-empty", "-m", "x");
+      const head = (await git("rev-parse", "HEAD")).stdout.trim();
+
+      const result = await sh([join(BIN, "dashboard")], { BANKI_RUNNER_CLONE: clone, HOME: dir });
+
+      expect(head).toMatch(/^[0-9a-f]{40}$/);
+      expect(result.stdout.trim()).toBe(head);
+    },
+  );
+
+  test("says so, and waits a while before Docker starts it again, when there is no clone yet", async () => {
+    const result = await sh([join(BIN, "dashboard")], {
+      BANKI_RUNNER_CLONE: join(dir, "nowhere"),
+      BANKI_DASHBOARD_WAIT_S: "0",
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("the runner's first tick makes the clone of main");
   });
 });

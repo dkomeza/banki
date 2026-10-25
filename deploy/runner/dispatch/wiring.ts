@@ -10,6 +10,7 @@ import { linear } from "./linear";
 import { startSupervisor } from "./spawn";
 import { redactTokens } from "./secrets";
 import { store, supervisorAlive } from "./store";
+import { pruneTickLog, TICK_LOG } from "./tick-log";
 import type { SupervisorDeps } from "./supervisor";
 import { listWorktrees, logFiles, removeLogs, removeWorktree, worktreeFacts } from "./tidy";
 
@@ -21,12 +22,18 @@ const claudeToken = () => readSecret(SECRETS.claudeToken);
 const hide = (text: string) => redactTokens(text, [claudeToken()]);
 const log = (line: string) => console.log(line);
 
-export function dispatcherDeps(): DispatcherDeps {
+/**
+ * The Dispatcher's, for a tick, `run-now` or `runner status`. The tick and
+ * `run-now` log through the tick log (tick-log.ts); `runner status` only prints.
+ */
+export function dispatcherDeps(options: { log?: (line: string) => void } = {}): DispatcherDeps {
+  // One logger for everything the tick says, its housekeeping's included.
+  const say = options.log ?? log;
   return {
     broker: broker(),
     linear: (token) => linear(token),
     github: (token) => github(token),
-    log,
+    log: say,
     records: store(),
     config: dispatcherConfig(process.env),
     takeReading: () => takeReading(claudeToken()),
@@ -36,9 +43,10 @@ export function dispatcherDeps(): DispatcherDeps {
     housekeeper: {
       logFiles: () => logFiles(LOGS),
       removeLogs,
+      pruneTickLog: (now) => pruneTickLog(TICK_LOG, now),
       listWorktrees: () => listWorktrees(CLONE, WORKTREES),
       worktreeFacts,
-      removeWorktree: (removal) => removeWorktree(CLONE, removal, log),
+      removeWorktree: (removal) => removeWorktree(CLONE, removal, say),
     },
     logs: LOGS,
     now: () => new Date(),

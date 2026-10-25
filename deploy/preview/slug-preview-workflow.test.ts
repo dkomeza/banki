@@ -248,6 +248,7 @@ describe("the inputs", () => {
     "production",
     "staging",
     "banki",
+    "runner",
   ];
 
   for (const slug of slugs) {

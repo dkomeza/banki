@@ -110,7 +110,10 @@ export async function openSession(deps: SessionDeps) {
         const design: DesignFacts = {};
         for (const variant of first.variants) {
           const found = newestFor(all, variant.slug, variant.commit);
-          design[variant.slug] = found === undefined ? null : await github.newestStatus(found.id);
+          design[variant.slug] =
+            found === undefined
+              ? null
+              : { ...(await github.newestStatus(found.id)), createdAt: found.createdAt };
         }
         return decide(facts, now, { design });
       },

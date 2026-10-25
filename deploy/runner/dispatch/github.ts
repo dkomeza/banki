@@ -20,8 +20,9 @@ import type { Deployment, ReviewFacts } from "./select";
 // The GitHub adapter for the Dispatcher, on `dkomeza/banki` with the Broker's
 // installation token. It reads what the waits need (the PR, `claude-review`'s
 // check, summary and threads, and the Previews' deployments) and, for
-// housekeeping, takes a Slug Preview down. It trusts `claude-review` alone
-// (review.ts), never anyone's comments.
+// housekeeping, takes a Slug Preview down; and, for the Dashboard, the
+// newest Previews' deployments. It trusts `claude-review` alone (review.ts),
+// never anyone's comments.
 
 const API = "https://api.github.com";
 const OWNER = "dkomeza";
@@ -30,6 +31,31 @@ const REPO = `${OWNER}/${NAME}`;
 
 /** A Slug Preview's deployment, its Slug read from its payload as slug-preview.yml writes it. */
 export type SlugDeployment = { id: number; slug: string; sha: string; createdAt: string };
+
+/** The Previews' environments, which the pull agent claims deployments in. */
+export const PREVIEW_ENVIRONMENTS = ["preview", "slug-preview"] as const;
+export type PreviewEnvironment = (typeof PREVIEW_ENVIRONMENTS)[number];
+
+/** A Preview's deployment, named by what it previews: its Slug, or `PR #<n>`. */
+export type PreviewDeployment = {
+  id: number;
+  environment: PreviewEnvironment;
+  name: string;
+  createdAt: string;
+};
+
+/** A deployment's payload, which GitHub hands back as JSON or as a string of it. */
+function payloadOf(deployment: Record<string, unknown>): Record<string, unknown> {
+  let payload: unknown = deployment.payload;
+  if (typeof payload === "string") {
+    try {
+      payload = JSON.parse(payload);
+    } catch {
+      payload = {};
+    }
+  }
+  return isRecord(payload) ? payload : {};
+}
 
 export type GitHub = ReturnType<typeof github>;
 
@@ -235,7 +261,12 @@ export function github(token: () => Promise<string>, options: { fetch?: Fetch } 
             : null,
         openThreads: await unresolvedThreads(number),
         preview:
-          newest === undefined ? null : await newestStatus(asNumber(newest.id, "deployment.id")),
+          newest === undefined
+            ? null
+            : {
+                ...(await newestStatus(asNumber(newest.id, "deployment.id"))),
+                createdAt: asString(newest.created_at, "deployment.created_at"),
+              },
       };
     },
 
@@ -245,15 +276,8 @@ export function github(token: () => Promise<string>, options: { fetch?: Fetch } 
         `/repos/${REPO}/deployments?environment=slug-preview&per_page=100`,
       );
       return deployments.flatMap((deployment) => {
-        let payload: unknown = deployment.payload;
-        if (typeof payload === "string") {
-          try {
-            payload = JSON.parse(payload);
-          } catch {
-            payload = {};
-          }
-        }
-        if (!isRecord(payload) || typeof payload.slug !== "string") return [];
+        const payload = payloadOf(deployment);
+        if (typeof payload.slug !== "string") return [];
         return [
           {
             id: asNumber(deployment.id, "deployment.id"),
@@ -266,6 +290,32 @@ export function github(token: () => Promise<string>, options: { fetch?: Fetch } 
     },
 
     newestStatus,
+
+    /** An environment's newest 100 deployments, newest first, each named by its payload. */
+    async recentDeployments(environment: PreviewEnvironment): Promise<PreviewDeployment[]> {
+      const deployments = asArray(
+        await get(`/repos/${REPO}/deployments?environment=${environment}&per_page=100`),
+        "deployments",
+      ).filter(isRecord);
+      return deployments.flatMap((deployment) => {
+        const payload = payloadOf(deployment);
+        const name =
+          typeof payload.slug === "string"
+            ? payload.slug
+            : typeof payload.pr === "number"
+              ? `PR #${payload.pr}`
+              : undefined;
+        if (name === undefined) return [];
+        return [
+          {
+            id: asNumber(deployment.id, "deployment.id"),
+            environment,
+            name,
+            createdAt: asString(deployment.created_at, "deployment.created_at"),
+          },
+        ];
+      });
+    },
 
     /** Asks slug-preview.yml, from `main`, to take a Slug Preview down. */
     async takeDown(slug: string): Promise<void> {

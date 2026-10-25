@@ -3,8 +3,9 @@ import type { LinearTokens } from "./linear-tokens";
 import { redact } from "./redact";
 
 // What the broker answers on its Unix socket (ADR-0012). Only the runner's
-// container mounts the socket's volume, and it reaches nothing else of the
-// broker's: the keys stay here, and only tokens go out.
+// container and the Dashboard's (ADR-0015) mount the socket's volume, and they
+// reach nothing else of the broker's: the keys stay here, and only tokens go
+// out.
 //
 //   GET    /github/token        an installation token, as plain text, for `gh` and git
 //   GET    /github/identity     {name, email}: the App's bot, which Stages commit as

@@ -31,6 +31,39 @@ describe("a tick", () => {
     expect(revoked).toEqual(["tick-token"]);
   });
 
+  test("drops the tick log's lines older than 30 days, as of its own clock", async () => {
+    const { deps } = dispatcher([], { now: WEDNESDAY });
+    const pruned: Date[] = [];
+    deps.housekeeper.pruneTickLog = (now) => {
+      pruned.push(now);
+      return 3;
+    };
+
+    await tick(deps);
+
+    expect(pruned).toEqual([WEDNESDAY]);
+  });
+
+  test("goes on with the Stage logs and the dispatch when the tick log can't be pruned", async () => {
+    const { deps, started, lines } = dispatcher([fakeIssue("BAN-1")]);
+    const removed: string[][] = [];
+    deps.housekeeper.pruneTickLog = () => {
+      throw new Error("ENOSPC: no space left on device");
+    };
+    deps.housekeeper.logFiles = () => [
+      { path: "/work/logs/BAN-9/old.jsonl", modified: new Date("2026-08-01T00:00:00.000Z") },
+    ];
+    deps.housekeeper.removeLogs = (paths) => {
+      removed.push([...paths]);
+    };
+
+    await tick(deps);
+
+    expect(lines.join("\n")).toContain("Couldn't prune the tick log: ENOSPC");
+    expect(removed).toEqual([["/work/logs/BAN-9/old.jsonl"]]);
+    expect(started.map((start) => start.issue)).toEqual(["BAN-1"]);
+  });
+
   test("starts nothing outside the window, and takes no reading", async () => {
     let read = false;
     const { deps, started } = dispatcher([fakeIssue("BAN-1")], {

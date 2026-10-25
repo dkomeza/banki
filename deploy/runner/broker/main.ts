@@ -12,8 +12,8 @@ import { TokenCache } from "./token-cache";
 // The broker (ADR-0012): the one container of the Runner that holds the
 // GitHub App's private key and the Linear app's client secret. It mints
 // short-lived tokens from them for whoever reaches its Unix socket, which only
-// the runner's container mounts, and nothing else runs here. The runner never
-// sees either key.
+// the runner's container and the Dashboard's (ADR-0015) mount, and nothing
+// else runs here. Neither ever sees either key.
 
 /** How often the 4-hour-old Linear tokens are swept. */
 const SWEEP_MS = 60_000;

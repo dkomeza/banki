@@ -5,10 +5,11 @@ import { join } from "node:path";
 import { isRecord } from "./lib/parse";
 
 // Renders compose.yaml with `docker compose config`, the way Compose itself
-// reads it, and checks what it promises: the two containers share nothing but
-// the Broker's socket, each gets only its own secrets, both are hardened, and
-// neither can reach the Docker socket, the Previews or a host port. Skipped
-// without a docker CLI; nothing is started.
+// reads it, and checks what it promises: the containers share nothing but the
+// Broker's socket and, read-only for the Dashboard, the runner's volume; each
+// gets only its own secrets; all are hardened; none can reach the Docker
+// socket or the Previews; and only the Dashboard publishes a port, on the
+// host's 127.0.0.1. Skipped without a docker CLI; nothing is started.
 
 const hasDocker = Bun.which("docker") !== null;
 
@@ -27,13 +28,15 @@ const IDS = {
   BANKI_RUNNER_GID: "1001",
   BANKI_RUNNER_TZ: "Europe/Warsaw",
 };
-/** The runner's subnet, which compose.yaml and the host's firewall rules both name. */
+/** The runner's and the Dashboard's subnets, which compose.yaml and the host's firewall rules both name. */
 const RUNNER_SUBNET = "10.213.94.0/24";
+const DASHBOARD_SUBNET = "10.213.96.0/24";
 
 type Service = Record<string, unknown> & {
   environment?: Record<string, string>;
   networks?: Record<string, unknown>;
-  volumes?: { type: string; source: string; target: string }[];
+  volumes?: { type: string; source: string; target: string; read_only?: boolean }[];
+  ports?: Record<string, unknown>[];
   secrets?: { source: string; target: string }[];
   build?: { args?: Record<string, string> };
 };
@@ -90,7 +93,9 @@ const megabytes = (size: unknown) => {
   return Number(size) / 2 ** 20;
 };
 
-const service = async (name: "broker" | "runner") => {
+const SERVICES = ["broker", "dashboard", "runner"] as const;
+
+const service = async (name: (typeof SERVICES)[number]) => {
   const found = (await render()).services[name];
   if (found === undefined) throw new Error(`no ${name} service`);
   return found;
@@ -101,12 +106,12 @@ const files = (names: string[]) =>
   names.map((name) => ({ source: name, target: `/run/secrets/${name}` }));
 
 describe.skipIf(!hasDocker)("compose.yaml", () => {
-  test("has the broker and the runner, and nothing else", async () => {
-    expect(Object.keys((await render()).services).toSorted()).toEqual(["broker", "runner"]);
+  test("has the broker, the runner and the Dashboard, and nothing else", async () => {
+    expect(Object.keys((await render()).services).toSorted()).toEqual([...SERVICES]);
   });
 
-  test("hardens both, as the host user's uid and gid", async () => {
-    for (const name of ["broker", "runner"] as const) {
+  test("hardens each, as the host user's uid and gid", async () => {
+    for (const name of SERVICES) {
       expect(await service(name)).toMatchObject({
         user: "1000:1001",
         read_only: true,
@@ -121,9 +126,10 @@ describe.skipIf(!hasDocker)("compose.yaml", () => {
     }
   });
 
-  test("lets the runner run what its tests write to /tmp, and keeps the broker's noexec", async () => {
+  test("lets the runner run what its tests write to /tmp, and keeps the others' noexec", async () => {
     expect((await service("runner")).tmpfs).toEqual(["/tmp:exec"]);
     expect((await service("broker")).tmpfs).toEqual(["/tmp"]);
+    expect((await service("dashboard")).tmpfs).toEqual(["/tmp"]);
   });
 
   test("refuses to render before bootstrap has recorded the uid and gid", async () => {
@@ -135,11 +141,11 @@ describe.skipIf(!hasDocker)("compose.yaml", () => {
     expect(outcome).toContain("run deploy/runner/bootstrap");
   });
 
-  test("gives neither the Docker socket, banki-previews, the pull agent's secrets or a host port", async () => {
+  test("gives none the Docker socket, banki-previews or the pull agent's secrets, and only the Dashboard a host port", async () => {
     const rendered = await render();
 
-    for (const found of Object.values(rendered.services)) {
-      expect(found).not.toHaveProperty("ports");
+    for (const [name, found] of Object.entries(rendered.services)) {
+      if (name !== "dashboard") expect(found).not.toHaveProperty("ports");
       expect(found).not.toHaveProperty("network_mode");
       for (const volume of found.volumes ?? []) {
         expect(volume.type).toBe("volume");
@@ -151,11 +157,21 @@ describe.skipIf(!hasDocker)("compose.yaml", () => {
     expect(Object.keys(rendered.networks)).not.toContain("banki-previews");
   });
 
-  test("never pulls the image, which the runner's service builds and both run", async () => {
+  test("publishes the Dashboard's 8790 on the host's 127.0.0.1, and nothing else of it", async () => {
+    expect((await service("dashboard")).ports).toEqual([
+      expect.objectContaining({
+        host_ip: "127.0.0.1",
+        target: 8790,
+        published: "8790",
+        protocol: "tcp",
+      }),
+    ]);
+  });
+
+  test("never pulls the image, which the runner's service builds and all run", async () => {
     const { services } = await render();
 
-    expect(services.broker?.pull_policy).toBe("never");
-    expect(services.runner?.pull_policy).toBe("never");
+    for (const name of SERVICES) expect(services[name]?.pull_policy).toBe("never");
   });
 
   test("gives the runner's network the fixed subnet the host's firewall rules name", async () => {
@@ -163,7 +179,24 @@ describe.skipIf(!hasDocker)("compose.yaml", () => {
     const script = await Bun.file(join(import.meta.dir, "host-firewall")).text();
 
     expect(networks.runner?.ipam).toEqual({ config: [{ subnet: RUNNER_SUBNET }] });
-    expect(script).toContain(`subnet="${RUNNER_SUBNET}"`);
+    expect(script).toContain(`"${RUNNER_SUBNET}"`);
+  });
+
+  test("gives the Dashboard's network a fixed subnet of its own, which the host's firewall rules name too", async () => {
+    const { networks } = await render();
+    const script = await Bun.file(join(import.meta.dir, "host-firewall")).text();
+    const subnets = Object.values(networks).flatMap((network) =>
+      isRecord(network.ipam) && Array.isArray(network.ipam.config)
+        ? network.ipam.config.flatMap((config: unknown) =>
+            isRecord(config) && typeof config.subnet === "string" ? [config.subnet] : [],
+          )
+        : [],
+    );
+
+    expect(networks.dashboard?.ipam).toEqual({ config: [{ subnet: DASHBOARD_SUBNET }] });
+    expect(script).toContain(`"${DASHBOARD_SUBNET}"`);
+    expect(subnets.toSorted()).toEqual([RUNNER_SUBNET, DASHBOARD_SUBNET].toSorted());
+    expect(DASHBOARD_SUBNET).not.toBe("172.31.255.0/24");
   });
 
   test("puts each on its own network, with internet access, and they share none", async () => {
@@ -171,11 +204,11 @@ describe.skipIf(!hasDocker)("compose.yaml", () => {
 
     expect(Object.keys(services.broker?.networks ?? {})).toEqual(["broker"]);
     expect(Object.keys(services.runner?.networks ?? {})).toEqual(["runner"]);
-    expect(networks.broker?.internal).toBeUndefined();
-    expect(networks.runner?.internal).toBeUndefined();
+    expect(Object.keys(services.dashboard?.networks ?? {})).toEqual(["dashboard"]);
+    for (const name of SERVICES) expect(networks[name]?.internal).toBeUndefined();
   });
 
-  test("shares only the broker's socket volume; the work volume is the runner's alone", async () => {
+  test("shares only the broker's socket volume, and the work volume with the Dashboard read-only", async () => {
     const { services, volumes } = await render();
 
     expect(services.broker?.volumes).toEqual([
@@ -185,6 +218,12 @@ describe.skipIf(!hasDocker)("compose.yaml", () => {
       expect.objectContaining({ source: "banki-runner-work", target: "/work" }),
       expect.objectContaining({ source: "banki-runner-broker", target: "/run/banki-broker" }),
     ]);
+    expect(services.runner?.volumes?.[0]?.read_only).toBeUndefined();
+    expect(services.dashboard?.volumes).toEqual([
+      expect.objectContaining({ source: "banki-runner-work", target: "/work", read_only: true }),
+      expect.objectContaining({ source: "banki-runner-broker", target: "/run/banki-broker" }),
+    ]);
+    expect(services.dashboard?.volumes?.[1]?.read_only).toBeUndefined();
     expect(volumes?.["banki-runner-work"]).toMatchObject({ name: "banki-runner-work" });
     expect(volumes?.["banki-runner-broker"]).toMatchObject({ name: "banki-runner-broker" });
   });
@@ -193,9 +232,10 @@ describe.skipIf(!hasDocker)("compose.yaml", () => {
     const { services } = await render();
     expect(services.broker?.secrets).toEqual(files(["github-app-key", "linear-client-secret"]));
     expect(services.runner?.secrets).toEqual(files(["claude-token"]));
+    expect(services.dashboard).not.toHaveProperty("secrets");
   });
 
-  test("keeps every secret out of both environments", async () => {
+  test("keeps every secret out of every environment", async () => {
     const { services } = await render();
 
     expect(Object.keys(services.broker?.environment ?? {}).toSorted()).toEqual([
@@ -215,6 +255,34 @@ describe.skipIf(!hasDocker)("compose.yaml", () => {
       "PLAYWRIGHT_BROWSERS_PATH",
       "TZ",
     ]);
+    expect(Object.keys(services.dashboard?.environment ?? {}).toSorted()).toEqual([
+      "BANKI_BROKER_SOCKET",
+      "BANKI_RUNNER_CEILING",
+      "BANKI_RUNNER_MAX_STAGES",
+      "BANKI_RUNNER_NIGHT",
+      "BANKI_RUNNER_OPEN_DAYS",
+      "HOME",
+      "TZ",
+    ]);
+  });
+
+  test("gives the Dashboard the Dispatcher's settings the runner has, for its queue and its window", async () => {
+    const { services } = await render({ ...IDS, BANKI_RUNNER_CEILING: "0.45" });
+
+    expect(services.dashboard?.environment).toMatchObject({
+      TZ: "Europe/Warsaw",
+      BANKI_RUNNER_CEILING: "0.45",
+      BANKI_RUNNER_NIGHT: "01:00-07:00",
+      BANKI_RUNNER_OPEN_DAYS: "sat,sun",
+      BANKI_RUNNER_MAX_STAGES: "2",
+    });
+  });
+
+  test("runs the Dashboard from the clone of main, through the wrapper on PATH", async () => {
+    expect((await service("dashboard")).command).toEqual(["dashboard"]);
+    const wrapper = await Bun.file(join(import.meta.dir, "bin", "dashboard")).text();
+    expect(wrapper).toContain('server="$clone/deploy/runner/dashboard/main.ts"');
+    expect(wrapper).toContain('clone="${BANKI_RUNNER_CLONE:-/work/banki}"');
   });
 
   test("gives the runner the host's timezone, and the Dispatcher's window, Ceiling and cap with their defaults", async () => {
@@ -273,16 +341,17 @@ describe.skipIf(!hasDocker)("compose.yaml", () => {
     expect(runner).not.toHaveProperty("cpus");
     expect(megabytes(runner.shm_size)).toBeGreaterThanOrEqual(512);
     expect(megabytes(broker.mem_limit)).toBeLessThanOrEqual(256);
+    expect(megabytes((await service("dashboard")).mem_limit)).toBe(256);
   });
 
-  test("builds one image, from the commit it is given, which both run", async () => {
+  test("builds one image, from the commit it is given, which all run", async () => {
     const commit = "c".repeat(40);
     const { services } = await render({ ...IDS, BANKI_RUNNER_COMMIT: commit });
 
     expect(services.runner?.build?.args).toEqual({ BANKI_RUNNER_COMMIT: commit });
     expect(services.broker).not.toHaveProperty("build");
-    expect(services.broker?.image).toBe("banki-runner");
-    expect(services.runner?.image).toBe("banki-runner");
+    expect(services.dashboard).not.toHaveProperty("build");
+    for (const name of SERVICES) expect(services[name]?.image).toBe("banki-runner");
     expect(services.broker?.command).toEqual(["bun", "/opt/banki-runner/broker/main.ts"]);
   });
 });

@@ -44,6 +44,7 @@ const BAD_SLUGS = [
   "production",
   "staging",
   "banki",
+  "runner",
 ];
 
 describe("a Slug", () => {

@@ -351,6 +351,26 @@ describe("In Design", () => {
 
     expect(decision.type).toBe("wait");
   });
+
+  test("says what the wait is on: since when, its deadline, and each Slug Preview's newest state", () => {
+    const queued = { state: "queued", description: "", url: null, createdAt: ago(9) };
+    const decision = decide(inDesign({ closings: [round(ago(47))] }), NOW, {
+      design: { "ban-7-a": up, "ban-7-b": queued },
+    });
+
+    expect(decision).toMatchObject({
+      type: "wait",
+      on: {
+        wait: "slug-previews",
+        since: ago(47),
+        deadlineMs: 60 * 60_000,
+        deployments: [
+          { name: "ban-7-a", deployment: up },
+          { name: "ban-7-b", deployment: queued },
+        ],
+      },
+    });
+  });
 });
 
 describe("In Review", () => {
@@ -612,6 +632,24 @@ describe("In Review", () => {
       stopOf(decide(inReview(), NOW, { review: review({ preview: null, pushedAt: ago(61) }) })),
     ).toMatchObject({
       wait: "pr-preview",
+    });
+  });
+
+  test("says what its waits are on, from the push: claude-review, then the PR Preview", () => {
+    const building = { state: "queued", description: "", url: null, createdAt: ago(20) };
+
+    expect(decide(inReview(), NOW, { review: review({ check: null }) })).toMatchObject({
+      type: "wait",
+      on: { wait: "claude-review", since: ago(30), deadlineMs: 45 * 60_000, deployments: [] },
+    });
+    expect(decide(inReview(), NOW, { review: review({ preview: building }) })).toMatchObject({
+      type: "wait",
+      on: {
+        wait: "pr-preview",
+        since: ago(30),
+        deadlineMs: 60 * 60_000,
+        deployments: [{ name: "PR #12", deployment: building }],
+      },
     });
   });
 
