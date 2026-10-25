@@ -1,5 +1,5 @@
-# b: Shelf
+# e: Stack
 
-Bet: decks are things you pick up, not rows you scan: Home is a wall of deck tiles (two or three to a row, each with its name, the start of its description and when it was made), the sort a picker beside "New deck" in the header, and create and edit happen in a dialog (a sheet on phones), so the pages themselves never change shape; the deck page opens with a cover card holding the deck's name, description, Edit and Delete.
+Bet: builds on b, Shelf, and leans into the deck itself: Home is a wall of paper stacks, each with only its name and date on the top card so the wall reads at a glance, under one toolbar holding an A–Z/Newest switch and "New deck" (b's dialog, a sheet on phones); the deck page drops b's cover card for a plain title, description and a quiet Edit/Delete row, with the cards waiting in the same stack below.
 
 States: `/`: `empty`, `create`, `create-taken`, `newest`. `/decks/$deckId`: `edit`, `delete`, `no-description`, `not-found`.
