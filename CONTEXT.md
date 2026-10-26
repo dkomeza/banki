@@ -28,6 +28,10 @@ _Avoid_: question, prompt
 The side of a Card that holds what the User should recall: what self-rating reveals, and the reference the Grader compares a written answer with. Never the User's own written answer.
 _Avoid_: answer, solution
 
+**Tag**:
+A one-word label on Cards, such as `irregular-verb`, for finding them again: it has no effect on study or scheduling. A Card carries any number of Tags, and the same Tag on Cards in different Decks is one Tag. A Tag exists only while some Card carries it; it has no name or life of its own to rename or delete.
+_Avoid_: label, category, keyword
+
 **Root**:
 The top of the folder tree, where Home lists what isn't in any Folder. It is not a Folder itself: it has no name of its own and can't be moved, renamed or deleted.
 _Avoid_: top level, home folder
