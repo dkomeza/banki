@@ -11,7 +11,7 @@ export const TOASTER: {
   position: "bottom-center" | "bottom-right" | "top-center";
   toast: string;
 } = {
-  position: "bottom-center",
+  position: "bottom-right",
   toast: "!rounded-2xl !border !border-border !bg-card !text-card-foreground !shadow-lg !font-sans",
 };
 
