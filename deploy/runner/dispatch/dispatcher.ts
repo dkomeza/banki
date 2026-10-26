@@ -91,6 +91,7 @@ export async function tick(deps: DispatcherDeps): Promise<void> {
 async function dispatch(session: Session, deps: DispatcherDeps): Promise<void> {
   const now = deps.now();
   const issues = await session.linear.openIssues();
+  deps.log(openIssuesLine(issues));
   let resumes = await reconcileActive(session, deps, issues, now);
   let { ready } = await survey(session, deps, issues, now, { act: true });
 
@@ -125,6 +126,24 @@ async function dispatch(session: Session, deps: DispatcherDeps): Promise<void> {
       deps.log(`${verdict.ready.issue} ${verdict.ready.stage} waits: ${verdict.why}`);
     }
   }
+}
+
+/**
+ * What Linear gave the tick: how many open issues are in each status, naming
+ * the ones the Dispatcher may act on, so a tick that starts nothing says
+ * whether an issue was missing or in another status.
+ */
+function openIssuesLine(issues: readonly LinearIssue[]): string {
+  const named: readonly string[] = [...AGENT_STATUSES, STATUS.inProgress];
+  const byStatus = new Map<string, LinearIssue[]>();
+  for (const issue of issues)
+    byStatus.set(issue.status, [...(byStatus.get(issue.status) ?? []), issue]);
+  const parts = [...byStatus].map(([name, found]) =>
+    named.includes(name)
+      ? `${found.length} ${name} (${found.map((issue) => issue.identifier).join(", ")})`
+      : `${found.length} ${name}`,
+  );
+  return `Linear has ${issues.length} open issues${parts.length === 0 ? "" : `: ${parts.join(", ")}`}`;
 }
 
 /** Why nothing may start now, outside the window; undefined inside it. */
