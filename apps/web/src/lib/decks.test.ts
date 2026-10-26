@@ -11,7 +11,7 @@ import {
   deckQueryOptions,
   decksQueryOptions,
   deleteDeck,
-  sortDecks,
+  sortItems,
   updateDeck,
 } from "./decks";
 
@@ -19,6 +19,7 @@ const deck = (name: string, createdAt: string, id = name): Deck => ({
   id,
   name,
   description: null,
+  folderId: null,
   createdAt,
 });
 
@@ -30,9 +31,9 @@ const DECKS = [
   deck("Organic chemistry", "2026-10-13T10:00:00.000Z"),
 ];
 
-describe("sortDecks", () => {
+describe("sortItems", () => {
   test("Alphabetical ignores case and puts numbers in natural order", () => {
-    expect(sortDecks(DECKS, "alphabetical").map((d) => d.name)).toEqual([
+    expect(sortItems(DECKS, "alphabetical").map((d) => d.name)).toEqual([
       "Calculus 2",
       "calculus 10",
       "Japanese kanji",
@@ -42,7 +43,7 @@ describe("sortDecks", () => {
   });
 
   test("Newest is by creation time, newest first", () => {
-    expect(sortDecks(DECKS, "newest").map((d) => d.name)).toEqual([
+    expect(sortItems(DECKS, "newest").map((d) => d.name)).toEqual([
       "calculus 10",
       "Organic chemistry",
       "Japanese kanji",
@@ -54,9 +55,9 @@ describe("sortDecks", () => {
   test("keeps a set order for ties", () => {
     const tied = [deck("B", "2026-10-01T00:00:00.000Z"), deck("A", "2026-10-01T00:00:00.000Z")];
 
-    expect(sortDecks(tied, "newest").map((d) => d.name)).toEqual(["A", "B"]);
+    expect(sortItems(tied, "newest").map((d) => d.name)).toEqual(["A", "B"]);
     expect(
-      sortDecks(
+      sortItems(
         [deck("a", "2026-10-01T00:00:00.000Z", "2"), deck("A", "2026-10-01T00:00:00.000Z", "1")],
         "alphabetical",
       ).map((d) => d.id),
@@ -66,7 +67,7 @@ describe("sortDecks", () => {
   test("leaves the list it was given alone", () => {
     const list = [...DECKS];
 
-    sortDecks(list, "alphabetical");
+    sortItems(list, "alphabetical");
 
     expect(list).toEqual(DECKS);
   });
@@ -112,7 +113,7 @@ describe("createDeck", () => {
 
     const outcome = await createDeck(
       queryClient,
-      { name: "Spanish", description: null },
+      { name: "Spanish", description: null, folderId: null },
       answering(() => Response.json(SPANISH, { status: 201 })),
     );
 
@@ -124,7 +125,7 @@ describe("createDeck", () => {
     await expect(
       createDeck(
         new QueryClient(),
-        { name: "x", description: null },
+        { name: "x", description: null, folderId: null },
         answering(refusal(409, "deck_name_taken")),
       ),
     ).resolves.toEqual({ ok: false, field: "name", message: NAME_TAKEN });
@@ -134,7 +135,7 @@ describe("createDeck", () => {
     const client = createApiClient(vi.fn(async () => Promise.reject(new TypeError("offline"))));
 
     await expect(
-      createDeck(new QueryClient(), { name: "x", description: null }, client),
+      createDeck(new QueryClient(), { name: "x", description: null, folderId: null }, client),
     ).resolves.toMatchObject({
       ok: false,
       field: "form",
@@ -146,7 +147,7 @@ describe("createDeck", () => {
     await expect(
       createDeck(
         new QueryClient(),
-        { name: "x", description: null },
+        { name: "x", description: null, folderId: null },
         answering(refusal(500, "internal_error")),
       ),
     ).resolves.toEqual({

@@ -2,6 +2,7 @@ import { Radio } from "@base-ui/react/radio";
 import { RadioGroup } from "@base-ui/react/radio-group";
 import { Monitor, Moon, Sun } from "lucide-react";
 import { useId } from "react";
+import { FolderStylePicker } from "@/components/settings/folder-style-picker";
 import { SettingsCard } from "@/components/settings/parts";
 import { THEME_CHOICES, type ThemeChoice, useThemeChoice } from "@/lib/theme";
 
@@ -13,9 +14,10 @@ const THEME_ICONS = { system: Monitor, light: Sun, dark: Moon } satisfies Record
 const isThemeChoice = (value: unknown): value is ThemeChoice =>
   THEME_CHOICES.some((choice) => choice.value === value);
 
-/** This device: choices kept in this browser only, not Settings. So far the theme. */
+/** This device: choices kept in this browser only, not Settings: the theme and how Folders look. */
 export function ThisDeviceCard() {
   const labelId = useId();
+  const foldersId = useId();
   const [choice, setChoice] = useThemeChoice();
   return (
     <SettingsCard id="this-device" title="This device">
@@ -45,6 +47,15 @@ export function ThisDeviceCard() {
             );
           })}
         </RadioGroup>
+      </div>
+      <div className="flex flex-col gap-2.5">
+        <p id={foldersId} className="text-sm text-muted-foreground">
+          Folders, for this device only
+        </p>
+        <FolderStylePicker labelledBy={foldersId} />
+        <p className="text-sm text-muted-foreground">
+          Compact lists folders as rows above the decks, so more fit on a screen.
+        </p>
       </div>
     </SettingsCard>
   );

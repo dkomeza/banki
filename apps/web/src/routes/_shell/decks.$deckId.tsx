@@ -1,10 +1,13 @@
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
-import { ChevronLeft, Layers, Pencil, Trash2 } from "lucide-react";
+import { CornerDownRight, Layers, Pencil, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { ConfirmDelete } from "@/components/decks/confirm-delete";
 import { Cover, Stack } from "@/components/decks/cover";
 import { DeckDialog } from "@/components/decks/deck-dialog";
+import { Breadcrumb } from "@/components/folders/breadcrumb";
+import { placeRoute, usePlaceActions } from "@/components/folders/place-actions";
+import { useLibrary } from "@/components/folders/use-library";
 import { Page } from "@/components/page";
 import { OUTLINE_PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
@@ -16,15 +19,20 @@ import {
   forgetDeck,
   updateDeck,
 } from "@/lib/decks";
+import { ensureLibrary } from "@/lib/folders";
 import { cn } from "@/lib/utils";
 
-// The deck page opens with the Deck's stack, its cover on top, beside the name
-// and the whole description, with Edit and Delete under them. Edit opens the
-// same dialog as create; Delete asks in a dialog. The cards follow below.
+// The deck page opens with the breadcrumb from "Decks" down to the Deck, then
+// the Deck's stack, its cover on top, beside the name and the whole
+// description, with Edit, Move… and Delete under them. Edit opens the same
+// dialog as create; Delete asks in a dialog. The cards follow below.
 
 export const Route = createFileRoute("/_shell/decks/$deckId")({
   loader: ({ context: { queryClient }, params: { deckId } }) =>
-    queryClient.ensureQueryData(deckQueryOptions(deckId)),
+    Promise.all([
+      queryClient.ensureQueryData(deckQueryOptions(deckId)),
+      ensureLibrary(queryClient),
+    ]),
   component: DeckPage,
 });
 
@@ -35,13 +43,6 @@ function DeckPage() {
   return (
     <Page width="cards">
       <div className="flex flex-col gap-6 lg:gap-8">
-        <Link
-          to="/"
-          className="-ml-1 inline-flex h-11 w-fit items-center gap-1 text-sm font-medium text-muted-foreground no-underline hover:text-foreground lg:h-8"
-        >
-          <ChevronLeft aria-hidden className="size-4" />
-          Decks
-        </Link>
         {deck === null ? <DeckNotFound /> : <DeckBody key={deck.id} deck={deck} />}
       </div>
     </Page>
@@ -53,9 +54,12 @@ function DeckBody({ deck }: { deck: Deck }) {
   const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const library = useLibrary();
+  const actions = usePlaceActions(library);
 
   return (
     <>
+      <Breadcrumb library={library} at={deck.folderId} last={deck.name} onMove={actions.drop} />
       <header className="flex flex-col gap-6 sm:flex-row sm:items-start sm:gap-8 lg:gap-10">
         <Stack className="aspect-[4/3] w-36 shrink-0 sm:w-48 lg:w-56">
           <Cover
@@ -83,7 +87,7 @@ function DeckBody({ deck }: { deck: Deck }) {
           <p className="text-sm text-muted-foreground tabular-nums">
             Created {createdLabel(deck.createdAt)} · 0 cards
           </p>
-          <div className="flex shrink-0 gap-2 pt-1">
+          <div className="flex shrink-0 flex-wrap gap-2 pt-1">
             <Button
               variant="outline"
               className={cn(OUTLINE_PILL, "h-11")}
@@ -94,7 +98,15 @@ function DeckBody({ deck }: { deck: Deck }) {
             </Button>
             <Button
               variant="outline"
-              className={cn(OUTLINE_PILL, "text-destructive hover:text-destructive")}
+              className={cn(OUTLINE_PILL, "h-11")}
+              onClick={() => actions.move({ kind: "deck", id: deck.id })}
+            >
+              <CornerDownRight aria-hidden />
+              Move…
+            </Button>
+            <Button
+              variant="outline"
+              className={cn(OUTLINE_PILL, "h-11 text-destructive hover:text-destructive")}
               onClick={() => setDeleting(true)}
             >
               <Trash2 aria-hidden />
@@ -137,11 +149,12 @@ function DeckBody({ deck }: { deck: Deck }) {
         onConfirm={async () => {
           const outcome = await deleteDeck(queryClient, deck.id);
           if (!outcome.ok) return outcome.message;
-          await navigate({ to: "/" });
+          await navigate(placeRoute(deck.folderId));
           forgetDeck(queryClient, deck.id);
           return undefined;
         }}
       />
+      {actions.dialogs}
     </>
   );
 }
