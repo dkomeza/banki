@@ -61,7 +61,8 @@ export function ConfirmDelete({
                 </span>{" "}
                 and its cards will be deleted.
               </>
-            )}
+            )}{" "}
+            You can restore it from Recently deleted for 30 days.
           </AlertDialog.Description>
           {error !== undefined && <FormError>{error}</FormError>}
           <div className="mt-2 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
