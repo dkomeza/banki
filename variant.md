@@ -1,7 +1,7 @@
-# i: Journal
+# j: Bordered
 
-Bet: a Deck is written over days, so its Cards read as a journal: the deck page hangs them on a timeline grouped under the day they were written (Today, Yesterday, Fri 23 Oct), each with its time in the margin, the Front in ink and the Back under it, Delete in its ⋯ menu, the newest Card's dot in the accent and New card as the timeline's first entry; new and edit are a dated page, the two sides written on ruled lines with their labels in the margin, and on new the Cards written this visit gather under the form as a small timeline. Undo toast at the bottom centre.
+Bet: Variant i's journal, with each Card contained the way a section is everywhere else in Banki: a rounded card with a hairline border on the card colour, hung on the timeline by a short tick from its dot, the newest one's border in a soft accent and its ⋯ menu inside the card's corner. The writing page on new and edit is the same bordered card, with the actions along its foot under a hairline, and the Cards written this visit are small bordered cards too. Everything else is i's: days on the rail, times in the margin, New card as the first entry, the Undo toast at the bottom centre.
 
-Round 3, from the Maintainer's "do something entirely different": it builds on none of the earlier Variants (a to f), only on their shared base (the in-memory card store, Sonner, the Discard changes? guard).
+Round 4, from the Maintainer's "I love i, but the cards need some way to get contained - a border or background or something like that". It builds on Variant i.
 
 States: `/decks/$deckId`: `empty`, `undo`. `/decks/$deckId/cards/new`: `added`, `invalid`, `discard`. `/cards/$cardId`: `discard`, `not-found`.
