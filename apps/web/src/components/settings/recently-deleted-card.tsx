@@ -20,7 +20,7 @@ export function RecentlyDeletedCard() {
             className={cn(
               buttonVariants({ variant: "outline" }),
               OUTLINE_PILL,
-              "h-11 no-underline",
+              "h-11 text-foreground no-underline",
             )}
           >
             Open
