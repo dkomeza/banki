@@ -121,7 +121,7 @@ export function removeDeletion(db: Queryable, userId: string, id: string): boole
   if (folderIds.length === 0 && deckIds.length === 0 && cards.length === 0) return false;
 
   if (folderIds.length > 0) {
-    const notThis = <T extends typeof folder | typeof deck>(table: T) =>
+    const notThis = (table: typeof folder | typeof deck) =>
       or(isNull(table.deletionId), ne(table.deletionId, id));
     db.update(folder)
       .set({ parentId: null })

@@ -271,6 +271,11 @@ const DELETED_CREATED_DAYS_AGO = 30;
 const deletedSeedId = (n: number) =>
   `5eed0000-0000-4000-8000-${(0xd0000000000 + n).toString(16).padStart(12, "0")}`;
 
+/** Throws unless a seed delete deleted something. */
+const deleted = (id: string | undefined) => {
+  if (id === undefined) throw new Error("A seed Deletion deleted nothing");
+};
+
 /**
  * Writes what Recently deleted shows, one Deletion of each case
  * (`SEED_IDS.deletions`), each deleted this many hours before the seed time:
@@ -317,9 +322,6 @@ function deletedSeed(db: Queryable, userId: string, now: Date) {
     const created = folders.create(userId, { name, parentId }, { id, now: createdAt });
     if (typeof created === "string") throw new Error(`The seed Folder ${name} is ${created}`);
     return id;
-  };
-  const deleted = (id: string | undefined) => {
-    if (id === undefined) throw new Error("A seed Deletion deleted nothing");
   };
   const { deletions } = SEED_IDS;
 
