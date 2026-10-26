@@ -110,8 +110,9 @@ function TabBar() {
   );
 }
 
-/** A deck, folder or card page belongs to Home, so Home stays current on it. */
+/** A deck, folder or card page belongs to Home, so Home stays current on it; Recently deleted belongs to Settings. */
 function activeProps(to: NavItem["to"], pathname: string) {
+  if (to === "/settings" && pathname === "/deleted") return { "aria-current": "page" as const };
   const inHome = ["/decks/", "/folders/", "/cards/"].some((prefix) => pathname.startsWith(prefix));
   return to === "/" && inHome ? { "aria-current": "page" as const } : {};
 }

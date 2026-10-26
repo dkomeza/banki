@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Page } from "@/components/page";
 import { AccountCard } from "@/components/settings/account-card";
 import { GradingCard } from "@/components/settings/grading-card";
+import { RecentlyDeletedCard } from "@/components/settings/recently-deleted-card";
 import { type Section, SectionIndex } from "@/components/settings/section-index";
 import { StudyDayCard } from "@/components/settings/study-day-card";
 import { ThisDeviceCard } from "@/components/settings/this-device-card";
@@ -23,6 +24,7 @@ const SECTIONS: readonly Section[] = [
   { id: "study-day", title: "Study day" },
   { id: "grading", title: "Grading" },
   { id: "account", title: "Account" },
+  { id: "recently-deleted", title: "Recently deleted" },
   { id: "this-device", title: "This device" },
 ];
 
@@ -43,6 +45,7 @@ function SettingsPage() {
           <div className="gap-x-5 md:columns-2 lg:gap-x-6 [&>section]:mb-5 [&>section]:break-inside-avoid lg:[&>section]:mb-6">
             <GradingCard />
             <AccountCard />
+            <RecentlyDeletedCard />
             <ThisDeviceCard />
           </div>
         </div>
