@@ -4,8 +4,8 @@
 // as kraft folders (Normal) or rows (Compact, the Folder style on Settings),
 // and its Decks as paper stacks.
 import { useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
-import { CornerDownRight, FolderPlus, Pencil, Plus, Trash2 } from "lucide-react";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { ChevronRight, CornerDownRight, FolderPlus, Pencil, Plus, Trash2 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { DeckDialog } from "@/components/decks/deck-dialog";
 import { DeckTile } from "@/components/decks/deck-tile";
@@ -165,6 +165,7 @@ export function PlaceView({ folder }: { folder: Folder | null }) {
             )}
           </>
         )}
+        {folder === null && <RecentlyDeletedLink />}
       </div>
 
       <NameDialog
@@ -293,5 +294,27 @@ function Empty({
         </Button>
       </div>
     </section>
+  );
+}
+
+/**
+ * Prototype only (BAN-13, Variant b): Recently deleted is reached from the
+ * foot of Home, a quiet row under the Decks, with how many Deletions wait.
+ */
+function RecentlyDeletedLink() {
+  return (
+    <Link
+      to="/deleted"
+      className="group flex items-center gap-3 self-start rounded-full border border-dashed px-4 py-2.5 text-sm text-muted-foreground no-underline transition-colors outline-none hover:border-solid hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid motion-reduce:transition-none"
+    >
+      <Trash2 aria-hidden className="size-4" />
+      <span>
+        <span className="font-medium text-foreground">Recently deleted</span> · 9 waiting
+      </span>
+      <ChevronRight
+        aria-hidden
+        className="size-4 transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none"
+      />
+    </Link>
   );
 }

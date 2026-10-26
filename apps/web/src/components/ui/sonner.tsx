@@ -21,6 +21,7 @@ export function Toaster(props: ToasterProps) {
           toast:
             "!rounded-2xl !border !border-border !bg-card !font-sans !text-card-foreground !shadow-lg",
           title: "!text-[0.95rem] !font-medium",
+          description: "!text-sm !text-muted-foreground",
           actionButton:
             "!h-9 !rounded-full !bg-primary !px-4 !text-sm !font-medium !text-primary-foreground",
           error: "!text-destructive",
