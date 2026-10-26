@@ -64,7 +64,7 @@ export function FolderRow({
         )}
       </Link>
       {actions.length > 0 && (
-        <div className="absolute top-1/2 right-2 -translate-y-1/2 [&_button]:bg-transparent [&_button]:shadow-none">
+        <div className="absolute top-1/2 right-2 -translate-y-1/2 [&_button]:bg-transparent [&_button]:shadow-none [&_button]:backdrop-blur-none">
           <TileMenu label={`More for ${folder.name}`} actions={actions} />
         </div>
       )}
