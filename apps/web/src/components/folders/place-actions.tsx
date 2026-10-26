@@ -60,6 +60,9 @@ export function usePlaceActions(library: Library) {
       return;
     }
     if ("clash" in outcome) {
+      // The popup takes the picker's place: its Cancel moves nothing.
+      setMoving(undefined);
+      setPickerError(undefined);
       const itemName = nameOf(item);
       setClash({
         item,

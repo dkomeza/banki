@@ -34,6 +34,9 @@ export function useFinePointer(): boolean {
   );
 }
 
+/** The item being dragged, if any. */
+export const useDragging = (): Item | undefined => useSyncExternalStore(subscribe, () => dragging);
+
 /** The props that let a tile be dragged, when `enabled`. */
 export function dragSource(item: Item, enabled: boolean) {
   if (!enabled) return {};
@@ -58,7 +61,7 @@ export function useDropTarget(
   place: Place,
   onDrop: (item: Item, place: Place) => void,
 ) {
-  const item = useSyncExternalStore(subscribe, () => dragging);
+  const item = useDragging();
   const [over, setOver] = useState(false);
   const allowed = item !== undefined && cantMoveTo(library, item, place) === undefined;
   return {
@@ -70,7 +73,11 @@ export function useDropTarget(
         event.dataTransfer.dropEffect = "move";
         setOver(true);
       },
-      onDragLeave: () => setOver(false),
+      onDragLeave: (event: DragEvent) => {
+        // Crossing onto one of its own children is still over it.
+        const to = event.relatedTarget;
+        if (!(to instanceof Node && event.currentTarget.contains(to))) setOver(false);
+      },
       onDrop: (event: DragEvent) => {
         event.preventDefault();
         setOver(false);

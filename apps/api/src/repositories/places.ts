@@ -16,8 +16,12 @@ export const placeIs = (column: SQLiteColumn, place: Place) =>
 /** The clash a move answers when something of its kind beside the destination has its name. */
 export type Clash = { id: string; name: string; replaceAllowed: boolean };
 
-/** Why a move or a create was refused, besides a clash. */
-export type Refusal = "not_found" | "taken" | "invalid_move";
+/**
+ * Why a move or a create was refused, besides a clash: "invalid_move" for a
+ * Folder into itself or one inside it, "replace_not_allowed" for Replace where
+ * the clashing Folder holds the moved one.
+ */
+export type Refusal = "not_found" | "taken" | "invalid_move" | "replace_not_allowed";
 
 /** The User's live Folders, each ID with the Folder it sits in. */
 export function liveFolderTree(db: Queryable, userId: string): Map<string, Place> {

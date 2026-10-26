@@ -1,8 +1,9 @@
 import { Link } from "@tanstack/react-router";
 import { Cover, Stack } from "@/components/decks/cover";
-import { useFinePointer, dragSource } from "@/components/folders/drag";
+import { dragSource, useDragging, useFinePointer } from "@/components/folders/drag";
 import { type MenuAction, TileMenu } from "@/components/tile-menu";
 import { type Deck, createdLabel } from "@/lib/decks";
+import { cn } from "@/lib/utils";
 
 /**
  * A deck as a stack whose top card is its cover, f's monogram on ruled paper,
@@ -12,8 +13,10 @@ import { type Deck, createdLabel } from "@/lib/decks";
  */
 export function DeckTile({ deck, actions }: { deck: Deck; actions: MenuAction[] }) {
   const fine = useFinePointer();
+  // While it is being dragged, it fades where it was, with a dashed edge.
+  const lifted = useDragging()?.id === deck.id;
   return (
-    <div className="group/tile relative flex w-full">
+    <div className={cn("group/tile relative flex w-full", lifted && "opacity-35")}>
       <Link
         to="/decks/$deckId"
         params={{ deckId: deck.id }}
@@ -23,7 +26,10 @@ export function DeckTile({ deck, actions }: { deck: Deck; actions: MenuAction[] 
         <Stack className="aspect-[4/3] w-full lg:aspect-[16/10]">
           <Cover
             name={deck.name}
-            className="w-full rounded-2xl border text-5xl transition-[border-color,translate] group-hover:-translate-y-1 group-hover:border-primary/50 motion-reduce:transition-none sm:text-6xl"
+            className={cn(
+              "w-full rounded-2xl border text-5xl transition-[border-color,translate] group-hover:-translate-y-1 group-hover:border-primary/50 motion-reduce:transition-none sm:text-6xl",
+              lifted && "border-dashed border-primary",
+            )}
           />
         </Stack>
         <span className="flex flex-col gap-1 px-0.5 pt-1">

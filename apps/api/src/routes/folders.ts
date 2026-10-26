@@ -33,16 +33,12 @@ export function folderRoutes({ folders }: { folders: FolderRepository }) {
       return c.json(found, 200);
     })
     .patch("/:id", json(UpdateFolderRequest, "Invalid folder"), (c) => {
-      const changes = c.req.valid("json");
-      const updated = folders.update(c.var.user.id, c.req.param("id"), changes);
+      const updated = folders.update(c.var.user.id, c.req.param("id"), c.req.valid("json"));
       if (updated === "not_found") return c.json(NOT_FOUND, 404);
       if (updated === "taken") return c.json(NAME_TAKEN, 409);
-      if (updated === "invalid_move") {
-        // Replace where it isn't allowed is a conflict; a Folder into itself, a bad request.
-        return changes.onClash === "replace"
-          ? c.json(INVALID_MOVE, 409)
-          : c.json(INVALID_MOVE, 400);
-      }
+      if (updated === "invalid_move") return c.json(INVALID_MOVE, 400);
+      // Replace where it isn't allowed: a conflict with the tree, not a bad request.
+      if (updated === "replace_not_allowed") return c.json(INVALID_MOVE, 409);
       if ("clash" in updated) return c.json(nameClash(updated.clash), 409);
       return c.json(updated, 200);
     })

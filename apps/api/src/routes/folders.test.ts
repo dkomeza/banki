@@ -164,15 +164,17 @@ describe("PATCH /api/folders/:id", () => {
     expect(FolderResponse.parse(await res.json()).parentId).toBe(maths.id);
   });
 
-  test("answers 400 invalid_move for a move into itself or inside itself", async () => {
+  test("answers 400 invalid_move for a move into itself or inside itself, whatever onClash says", async () => {
     const { app, cookie } = await signedIn();
     const maths = await createFolder(app, cookie, "Maths");
     const analysis = await createFolder(app, cookie, "Analysis", maths.id);
 
     for (const parentId of [maths.id, analysis.id]) {
-      const res = await patch(app, cookie, maths.id, { parentId });
-      expect(res.status).toBe(400);
-      expect(await codeOf(res)).toBe("invalid_move");
+      for (const onClash of [undefined, "replace", "keepBoth"]) {
+        const res = await patch(app, cookie, maths.id, { parentId, onClash });
+        expect(res.status).toBe(400);
+        expect(await codeOf(res)).toBe("invalid_move");
+      }
     }
   });
 

@@ -275,7 +275,7 @@ describe("move", () => {
       clash: { id: bio, name: "Bio", replaceAllowed: false },
     });
     expect(folders.update(USER, innerBio, { parentId: null, onClash: "replace" })).toBe(
-      "invalid_move",
+      "replace_not_allowed",
     );
     expect(folders.find(USER, bio)).toBeDefined();
     expect(folders.find(USER, innerBio)?.parentId).toBe(x);

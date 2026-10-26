@@ -149,7 +149,7 @@ export function createFolderRepository(db: Queryable) {
      * ("invalid_move"). A move into a place where a Folder has its name
      * answers the clash, unless `onClash` says what to do: `replace` deletes
      * that Folder (with everything in it) as its own Deletion first, which
-     * isn't allowed when it holds this one ("invalid_move"); `keepBoth` takes
+     * isn't allowed when it holds this one ("replace_not_allowed"); `keepBoth` takes
      * the next free "Name (n)".
      */
     update(
@@ -176,7 +176,7 @@ export function createFolderRepository(db: Queryable) {
               const replaceAllowed = !foldersAbove(tree, id).has(existing.id);
               if (onClash === undefined) return { clash: { ...existing, replaceAllowed } };
               if (onClash === "replace") {
-                if (!replaceAllowed) return "invalid_move";
+                if (!replaceAllowed) return "replace_not_allowed";
                 deleteFolderTree(tx, userId, existing.id, now);
               } else {
                 name = nextFreeName(name, (n) => folderNamed(tx, userId, place, n) !== undefined);

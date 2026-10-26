@@ -16,7 +16,7 @@ import {
   countLabel,
 } from "@/lib/folders";
 import { cn } from "@/lib/utils";
-import { dragSource, useDropTarget, useFinePointer } from "./drag";
+import { dragSource, useDragging, useDropTarget, useFinePointer } from "./drag";
 
 /** The kraft folder's back and tab. */
 export const KRAFT_TAB = "bg-[oklch(0.86_0.045_75)] dark:bg-[oklch(0.36_0.035_65)]";
@@ -42,6 +42,7 @@ const caption = (library: Library, folder: Folder, over: boolean) => {
 export function FolderTile({ folder, library, onMove, actions }: TileProps) {
   const fine = useFinePointer();
   const drop = useDropTarget(library, folder.id, onMove);
+  const lifted = useDragging()?.id === folder.id;
   const inside = contentsOf(library, folder.id);
   // Subfolders peek out as smaller kraft folders, decks as index cards.
   const peek = [
@@ -57,7 +58,7 @@ export function FolderTile({ folder, library, onMove, actions }: TileProps) {
     })),
   ].slice(0, 3);
   return (
-    <div className="group/tile relative flex w-full" {...drop.props}>
+    <div className={cn("group/tile relative flex w-full", lifted && "opacity-35")} {...drop.props}>
       <Link
         to="/folders/$folderId"
         params={{ folderId: folder.id }}
@@ -133,8 +134,9 @@ export function FolderTile({ folder, library, onMove, actions }: TileProps) {
 export function FolderRow({ folder, library, onMove, actions }: TileProps) {
   const fine = useFinePointer();
   const drop = useDropTarget(library, folder.id, onMove);
+  const lifted = useDragging()?.id === folder.id;
   return (
-    <div className="group/tile relative flex w-full" {...drop.props}>
+    <div className={cn("group/tile relative flex w-full", lifted && "opacity-35")} {...drop.props}>
       <Link
         to="/folders/$folderId"
         params={{ folderId: folder.id }}

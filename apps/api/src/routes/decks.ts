@@ -35,7 +35,8 @@ export function deckRoutes({ decks }: { decks: DeckRepository }) {
       const updated = decks.update(c.var.user.id, c.req.param("id"), c.req.valid("json"));
       if (updated === "not_found") return c.json(NOT_FOUND, 404);
       if (updated === "taken") return c.json(NAME_TAKEN, 409);
-      if (updated === "invalid_move") return c.json(INVALID_MOVE, 409);
+      if (updated === "invalid_move") return c.json(INVALID_MOVE, 400);
+      if (updated === "replace_not_allowed") return c.json(INVALID_MOVE, 409);
       if ("clash" in updated) return c.json(nameClash(updated.clash), 409);
       return c.json(updated, 200);
     })
