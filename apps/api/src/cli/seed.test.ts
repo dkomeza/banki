@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { DeckListResponse, DeckResponse, SettingsResponse } from "@banki/shared";
+import {
+  DeckListResponse,
+  DeckResponse,
+  FolderListResponse,
+  FolderResponse,
+  SettingsResponse,
+} from "@banki/shared";
 import { SEED_IDS } from "../seed/seed-ids";
 import { EMAIL, ORIGIN, PASSWORD, bootApps, cookiesFrom, get, signIn } from "../testing/app";
 import { runCli } from "../testing/cli";
@@ -121,6 +127,55 @@ describe("banki seed's Decks", () => {
     });
     const { id } = DeckResponse.parse(await created.json());
     await app.request(`/api/decks/${id}`, { method: "DELETE", headers });
+    close();
+
+    const result = await seed();
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("The User already has content, so nothing was seeded.");
+  });
+});
+
+describe("banki seed's Folders", () => {
+  test("loads the four Folders, with the Decks in them, created at different times", async () => {
+    await setup();
+    await seed();
+
+    const { app } = boot();
+    const cookie = cookiesFrom(await signIn(app));
+    const folders = FolderListResponse.parse(await (await get(app, "/api/folders", cookie)).json());
+    const decks = DeckListResponse.parse(await (await get(app, "/api/decks", cookie)).json());
+    const { folders: F, decks: D } = SEED_IDS;
+
+    expect(Object.fromEntries(folders.map((f) => [f.name, f.parentId]))).toEqual({
+      Languages: null,
+      Maths: null,
+      Analysis: F.maths,
+      Archive: null,
+    });
+    expect(folders.find((f) => f.id === SEED_IDS.folder)?.name).toBe("Analysis");
+    expect(new Set(folders.map((f) => f.createdAt)).size).toBe(4);
+    expect(Object.fromEntries(decks.map((d) => [d.id, d.folderId]))).toEqual({
+      [D.spanish]: F.languages,
+      [D.kanji]: F.languages,
+      [D.calculus2]: F.analysis,
+      [D.calculus10]: F.analysis,
+      [D.chemistry]: null,
+    });
+  });
+
+  test("refuses to seed a User who has a Folder, even a deleted one", async () => {
+    await setup();
+    const { app, close } = boot();
+    const cookie = cookiesFrom(await signIn(app));
+    const headers = { "content-type": "application/json", origin: ORIGIN, cookie };
+    const created = await app.request("/api/folders", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ name: "Mine" }),
+    });
+    const { id } = FolderResponse.parse(await created.json());
+    await app.request(`/api/folders/${id}`, { method: "DELETE", headers });
     close();
 
     const result = await seed();

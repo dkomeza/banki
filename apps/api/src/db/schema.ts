@@ -6,7 +6,15 @@
 // by `bun run auth:generate`; never edit that file by hand.
 import { DEFAULT_DAY_START_HOUR } from "@banki/shared";
 import { sql } from "drizzle-orm";
-import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import {
+  type AnySQLiteColumn,
+  check,
+  index,
+  integer,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 import { user } from "./auth-schema";
 
 export * from "./auth-schema";
@@ -35,11 +43,48 @@ export const user_settings = sqliteTable(
 );
 
 /**
- * The User's Decks (ADR-0001). A deleted Deck keeps its row with `deletedAt`
- * set, and counts nowhere until it is restored. No two Decks beside each other
- * that aren't deleted share a name, ignoring case: `nameKey` is the name as
- * names are compared (`deckNameKey`), unique per User among those that aren't
- * deleted. All Decks sit at the root for now.
+ * The User's Folders (ADR-0001), nested to any depth: `parentId` is the Folder
+ * one sits in, null at the Root. A deleted Folder keeps its row with
+ * `deletedAt` set, and so does everything that was inside it when it was
+ * deleted, stamped with the same `deletionId` (ADR-0016). No two Folders
+ * beside each other that aren't deleted share a name, ignoring case:
+ * `nameKey` is the name as names are compared (`deckNameKey`). SQLite counts
+ * NULLs as distinct, so the unique index reads the Root as '', one place.
+ */
+export const folder = sqliteTable(
+  "folder",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    parentId: text("parent_id").references((): AnySQLiteColumn => folder.id, {
+      onDelete: "cascade",
+    }),
+    name: text("name").notNull(),
+    nameKey: text("name_key").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+    deletedAt: integer("deleted_at", { mode: "timestamp_ms" }),
+    /** The Deletion it went with, shared by everything deleted together; null while live. */
+    deletionId: text("deletion_id"),
+  },
+  (table) => [
+    uniqueIndex("folder_user_parent_name_key")
+      .on(table.userId, sql`coalesce(${table.parentId}, '')`, table.nameKey)
+      .where(sql`${table.deletedAt} IS NULL`),
+    index("folder_user_id").on(table.userId),
+    index("folder_parent_id").on(table.parentId),
+  ],
+);
+
+/**
+ * The User's Decks (ADR-0001), each at the Root (`folderId` null) or in one
+ * Folder. A deleted Deck keeps its row with `deletedAt` and `deletionId` set,
+ * and counts nowhere until it is restored. No two Decks beside each other that
+ * aren't deleted share a name, ignoring case: `nameKey` is the name as names
+ * are compared (`deckNameKey`), unique per place among those that aren't
+ * deleted, the Root read as '' as for Folders.
  */
 export const deck = sqliteTable(
   "deck",
@@ -48,6 +93,7 @@ export const deck = sqliteTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    folderId: text("folder_id").references(() => folder.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     nameKey: text("name_key").notNull(),
     /** Plain text with its line breaks; null for none. */
@@ -55,11 +101,14 @@ export const deck = sqliteTable(
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
     deletedAt: integer("deleted_at", { mode: "timestamp_ms" }),
+    /** The Deletion it went with (ADR-0016); null while live. */
+    deletionId: text("deletion_id"),
   },
   (table) => [
-    uniqueIndex("deck_user_name_key")
-      .on(table.userId, table.nameKey)
+    uniqueIndex("deck_user_folder_name_key")
+      .on(table.userId, sql`coalesce(${table.folderId}, '')`, table.nameKey)
       .where(sql`${table.deletedAt} IS NULL`),
     index("deck_user_id").on(table.userId),
+    index("deck_folder_id").on(table.folderId),
   ],
 );

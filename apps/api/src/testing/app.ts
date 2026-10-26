@@ -1,3 +1,4 @@
+import { ApiError } from "@banki/shared";
 import { afterEach, beforeEach } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -109,3 +110,18 @@ export const signIn = (
   app: App,
   { email = EMAIL, password = PASSWORD, ip = freshIp(), headers = {} } = {},
 ) => post(app, "/api/auth/sign-in/email", { email, password }, { ip, headers });
+
+/** Sends a JSON request from the web app's origin, signed in when given a cookie. */
+export const send = (app: App, method: string, path: string, body: unknown, cookie?: string) =>
+  app.request(path, {
+    method,
+    headers: {
+      "content-type": "application/json",
+      origin: ORIGIN,
+      ...(cookie === undefined ? {} : { cookie }),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+
+/** The `code` of an error response. */
+export const codeOf = async (res: Response) => ApiError.parse(await res.json()).error.code;

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { ApiError, DeckListResponse, DeckResponse } from "@banki/shared";
-import { type App, bootApps, get, ORIGIN, setUp } from "../testing/app";
+import { DeckListResponse, DeckResponse, FolderResponse, NameClashError } from "@banki/shared";
+import { type App, bootApps, codeOf, get, send, setUp } from "../testing/app";
 
 const { boot } = bootApps();
 
@@ -10,19 +10,6 @@ async function signedIn() {
   const cookie = await setUp(booted);
   return { app: booted.app, cookie };
 }
-
-const send = (app: App, method: string, path: string, body: unknown, cookie?: string) =>
-  app.request(path, {
-    method,
-    headers: {
-      "content-type": "application/json",
-      origin: ORIGIN,
-      ...(cookie === undefined ? {} : { cookie }),
-    },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-
-const codeOf = async (res: Response) => ApiError.parse(await res.json()).error.code;
 
 async function createDeck(app: App, cookie: string, body: unknown) {
   const res = await send(app, "POST", "/api/decks", body, cookie);
@@ -228,5 +215,109 @@ describe("DELETE /api/decks/:id", () => {
 
     expect(res.status).toBe(401);
     expect(await namesOf(app, cookie)).toEqual(["Spanish"]);
+  });
+});
+
+async function createFolder(
+  app: App,
+  cookie: string,
+  name: string,
+  parentId: string | null = null,
+) {
+  const res = await send(app, "POST", "/api/folders", { name, parentId }, cookie);
+  if (res.status !== 201) throw new Error(`Create folder answered ${res.status}`);
+  return FolderResponse.parse(await res.json()).id;
+}
+
+describe("Decks in Folders", () => {
+  test("creates a Deck in a Folder, and answers 404 not_found for a Folder that isn't live", async () => {
+    const { app, cookie } = await signedIn();
+    const maths = await createFolder(app, cookie, "Maths");
+    const gone = await createFolder(app, cookie, "Gone");
+    await send(app, "DELETE", `/api/folders/${gone}`, undefined, cookie);
+
+    expect(await createDeck(app, cookie, { name: "Calculus", folderId: maths })).toMatchObject({
+      folderId: maths,
+    });
+    for (const folderId of ["nope", gone]) {
+      const res = await send(app, "POST", "/api/decks", { name: "A", folderId }, cookie);
+      expect(res.status).toBe(404);
+      expect(await codeOf(res)).toBe("not_found");
+    }
+  });
+
+  test("takes a name a Deck in another place has", async () => {
+    const { app, cookie } = await signedIn();
+    const maths = await createFolder(app, cookie, "Maths");
+    await createDeck(app, cookie, { name: "Notes", folderId: maths });
+
+    const res = await send(app, "POST", "/api/decks", { name: "Notes" }, cookie);
+
+    expect(res.status).toBe(201);
+  });
+
+  test("moves a Deck, answering 409 name_clash, then Replace or Keep both", async () => {
+    const { app, cookie } = await signedIn();
+    const maths = await createFolder(app, cookie, "Maths");
+    const there = await createDeck(app, cookie, { name: "Notes", folderId: maths });
+    const moved = await createDeck(app, cookie, { name: "Notes" });
+
+    const clash = await send(app, "PATCH", `/api/decks/${moved.id}`, { folderId: maths }, cookie);
+    expect(clash.status).toBe(409);
+    expect(NameClashError.parse(await clash.json()).clash).toEqual({
+      id: there.id,
+      name: "Notes",
+      replaceAllowed: true,
+    });
+
+    const kept = await send(
+      app,
+      "PATCH",
+      `/api/decks/${moved.id}`,
+      { folderId: maths, onClash: "keepBoth" },
+      cookie,
+    );
+    expect(kept.status).toBe(200);
+    expect(DeckResponse.parse(await kept.json())).toMatchObject({
+      name: "Notes (2)",
+      folderId: maths,
+    });
+
+    const back = await createDeck(app, cookie, { name: "Notes (2)" });
+    const replaced = await send(
+      app,
+      "PATCH",
+      `/api/decks/${back.id}`,
+      { folderId: maths, onClash: "replace" },
+      cookie,
+    );
+    expect(replaced.status).toBe(200);
+    expect((await get(app, `/api/decks/${moved.id}`, cookie)).status).toBe(404);
+  });
+
+  test("answers 404 not_found for a destination that isn't live", async () => {
+    const { app, cookie } = await signedIn();
+    const deck = await createDeck(app, cookie, { name: "Notes" });
+
+    const res = await send(app, "PATCH", `/api/decks/${deck.id}`, { folderId: "nope" }, cookie);
+
+    expect(res.status).toBe(404);
+    expect(await codeOf(res)).toBe("not_found");
+  });
+
+  test("answers 400 invalid_request for onClash without a move", async () => {
+    const { app, cookie } = await signedIn();
+    const deck = await createDeck(app, cookie, { name: "Notes" });
+
+    const res = await send(
+      app,
+      "PATCH",
+      `/api/decks/${deck.id}`,
+      { name: "B", onClash: "replace" },
+      cookie,
+    );
+
+    expect(res.status).toBe(400);
+    expect(await codeOf(res)).toBe("invalid_request");
   });
 });
