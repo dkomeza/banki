@@ -4,8 +4,9 @@ import { asNumber, asObject, isRecord, ParseError } from "../lib/parse";
 // a `claude -p` run, so the gate reads usage with a one-line Haiku call
 // before it starts or resumes a Stage. A Stage starts only if the weekly
 // utilization, plus the estimates of the Stages running, plus its own, stays
-// within the Ceiling, and the five-hour window is under 80%. Pure, so it is
-// unit-tested; claude.ts makes the call.
+// within the Ceiling (which `force` and an urgent issue skip), and the
+// five-hour window is under 80%. Pure, so it is unit-tested; claude.ts makes
+// the call.
 
 /** One of the two usage windows, as a share of it used, and when it starts over. */
 export type UsageWindow = { utilization: number; resetsAt: string };
