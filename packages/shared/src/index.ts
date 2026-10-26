@@ -17,8 +17,20 @@ export {
   DeckName,
   deckNameKey,
   DeckResponse,
+  NameClashError,
+  nextFreeName,
+  OnClash,
+  PlaceId,
   UpdateDeckRequest,
 } from "./decks";
+export {
+  CreateFolderRequest,
+  FOLDER_NAME_MAX_LENGTH,
+  FolderListResponse,
+  FolderName,
+  FolderResponse,
+  UpdateFolderRequest,
+} from "./folders";
 export { ApiError } from "./error";
 export { HealthResponse } from "./health";
 export {

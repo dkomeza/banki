@@ -40,6 +40,7 @@ describe("leafRoutes", () => {
     assert.deepEqual(leafRoutes(source).toSorted(), [
       "/",
       "/decks/$deckId",
+      "/folders/$folderId",
       "/login",
       "/settings",
       "/setup",

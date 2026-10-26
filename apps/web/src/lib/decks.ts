@@ -39,10 +39,10 @@ export const deckQueryOptions = (id: string, client: ApiClient = api) =>
 
 // What creating, editing and deleting a Deck say, and under which field.
 
-const CANT_REACH = "Can't reach Banki. Check your connection and try again.";
+export const CANT_REACH = "Can't reach Banki. Check your connection and try again.";
 
-/** What the name field says when another Deck has the name. */
-export const NAME_TAKEN = "You already have a deck with this name.";
+/** What the name field says when another Deck beside it has the name. */
+export const NAME_TAKEN = "There's already a deck with this name here.";
 
 export type DeckOutcome =
   | { ok: true; deck: Deck }
@@ -76,7 +76,11 @@ async function outcomeOf(send: () => Promise<Response>, failed: string): Promise
   const code = parsed.success ? parsed.data.error.code : undefined;
   if (code === "deck_name_taken") return { ok: false, field: "name", message: NAME_TAKEN };
   if (code === "not_found") {
-    return { ok: false, field: "form", message: "This deck was deleted meanwhile." };
+    return {
+      ok: false,
+      field: "form",
+      message: "This deck, or its folder, was deleted meanwhile.",
+    };
   }
   return { ok: false, field: "form", message: failed };
 }
@@ -88,10 +92,10 @@ async function remember(queryClient: QueryClient, outcome: DeckOutcome) {
   await queryClient.invalidateQueries({ queryKey: decksQueryOptions().queryKey, exact: true });
 }
 
-/** Creates a Deck with `POST /api/decks`, and says how it went. */
+/** Creates a Deck with `POST /api/decks`, in `folderId` (null for the Root), and says how it went. */
 export async function createDeck(
   queryClient: QueryClient,
-  body: { name: string; description: string | null },
+  body: { name: string; description: string | null; folderId: string | null },
   client: ApiClient = api,
 ): Promise<DeckOutcome> {
   const outcome = await outcomeOf(
@@ -144,22 +148,25 @@ export async function deleteDeck(
   return { ok: true };
 }
 
-/** How Home sorts the Decks. */
+/** How Home and every Folder's page sort their Folders and their Decks. */
 export type DeckSort = "alphabetical" | "newest";
+
+/** What the sorts need of a Deck or a Folder. */
+type Sortable = { id: string; name: string; createdAt: string };
 
 const byName = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
 /**
- * The Decks in `sort` order. Alphabetical ignores case and puts numbers in
+ * Decks or Folders in `sort` order. Alphabetical ignores case and puts numbers in
  * natural order ("Calculus 2" before "Calculus 10"); Newest is by creation
  * time, newest first. Ties fall back to the other order, then the ID, so the
  * order never changes between loads.
  */
-export function sortDecks(decks: readonly Deck[], sort: DeckSort): Deck[] {
-  const newest = (a: Deck, b: Deck) => Date.parse(b.createdAt) - Date.parse(a.createdAt);
-  const alphabetical = (a: Deck, b: Deck) => byName.compare(a.name, b.name);
+export function sortItems<T extends Sortable>(items: readonly T[], sort: DeckSort): T[] {
+  const newest = (a: T, b: T) => Date.parse(b.createdAt) - Date.parse(a.createdAt);
+  const alphabetical = (a: T, b: T) => byName.compare(a.name, b.name);
   const [first, second] = sort === "newest" ? [newest, alphabetical] : [alphabetical, newest];
-  return decks.toSorted(
+  return items.toSorted(
     (a, b) => first(a, b) || second(a, b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
   );
 }

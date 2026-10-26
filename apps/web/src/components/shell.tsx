@@ -108,7 +108,8 @@ function TabBar() {
   );
 }
 
-/** A deck page belongs to Home, so Home stays current on it. */
+/** A deck or folder page belongs to Home, so Home stays current on it. */
 function activeProps(to: NavItem["to"], pathname: string) {
-  return to === "/" && pathname.startsWith("/decks/") ? { "aria-current": "page" as const } : {};
+  const inHome = pathname.startsWith("/decks/") || pathname.startsWith("/folders/");
+  return to === "/" && inHome ? { "aria-current": "page" as const } : {};
 }

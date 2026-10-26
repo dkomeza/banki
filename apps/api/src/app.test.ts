@@ -117,6 +117,7 @@ describe("migrations", () => {
       "0002_user_settings",
       "0003_grading",
       "0004_decks",
+      "0005_folders",
     ]);
     first.close();
 

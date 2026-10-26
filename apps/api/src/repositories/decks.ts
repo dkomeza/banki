@@ -4,11 +4,13 @@ import {
   type DeckResponse,
   type UpdateDeckRequest,
   deckNameKey,
+  nextFreeName,
 } from "@banki/shared";
 import { and, eq, isNull, ne } from "drizzle-orm";
 import type { z } from "zod";
 import type { Queryable } from "../db/database";
 import { deck } from "../db/schema";
+import { type Clash, type Place, type Refusal, isLivePlace, placeIs } from "./places";
 
 export type Deck = DeckResponse;
 
@@ -24,10 +26,17 @@ const COLUMNS = {
   id: deck.id,
   name: deck.name,
   description: deck.description,
+  folderId: deck.folderId,
   createdAt: deck.createdAt,
 } as const;
 
-type Row = { id: string; name: string; description: string | null; createdAt: Date };
+type Row = {
+  id: string;
+  name: string;
+  description: string | null;
+  folderId: string | null;
+  createdAt: Date;
+};
 
 const toDeck = (row: Row): Deck => ({ ...row, createdAt: row.createdAt.toISOString() });
 
@@ -35,32 +44,43 @@ const toDeck = (row: Row): Deck => ({ ...row, createdAt: row.createdAt.toISOStri
 const live = (userId: string, id: string) =>
   and(eq(deck.userId, userId), eq(deck.id, id), isNull(deck.deletedAt));
 
-/** Whether another of the User's Decks that isn't deleted has `name`, ignoring case. */
-const nameTaken = (db: Queryable, userId: string, name: string, except?: string) =>
+const findIn = (db: Queryable, userId: string, id: string): Deck | undefined => {
+  const row = db.select(COLUMNS).from(deck).where(live(userId, id)).get();
+  return row === undefined ? undefined : toDeck(row);
+};
+
+/** The live Deck in `place` named `name`, ignoring case, other than `except`. */
+const deckNamed = (db: Queryable, userId: string, place: Place, name: string, except?: string) =>
   db
-    .select({ id: deck.id })
+    .select({ id: deck.id, name: deck.name })
     .from(deck)
     .where(
       and(
         eq(deck.userId, userId),
+        placeIs(deck.folderId, place),
         eq(deck.nameKey, deckNameKey(name)),
         isNull(deck.deletedAt),
         except === undefined ? undefined : ne(deck.id, except),
       ),
     )
-    .get() !== undefined;
+    .get();
+
+/** Deletes the Deck `id` softly, as a Deletion of its own (ADR-0016). */
+const deleteDeck = (db: Queryable, userId: string, id: string, now: Date) =>
+  db
+    .update(deck)
+    .set({ deletedAt: now, deletionId: randomUUID(), updatedAt: now })
+    .where(live(userId, id))
+    .returning({ id: deck.id })
+    .all().length > 0;
 
 /**
  * The User's Decks. Every query is scoped by the User (ADR-0001), so another
  * User's Deck is as unknown as one that never existed, and a deleted Deck is
- * too. Names are expected already parsed (trimmed, 1 to 100 characters).
+ * too; so is a Folder that is deleted or another User's, as a place to put a
+ * Deck in. Names are expected already parsed (trimmed, 1 to 100 characters).
  */
 export function createDeckRepository(db: Queryable) {
-  const find = (userId: string, id: string): Deck | undefined => {
-    const row = db.select(COLUMNS).from(deck).where(live(userId, id)).get();
-    return row === undefined ? undefined : toDeck(row);
-  };
-
   return {
     /** The User's Decks that aren't deleted, oldest first. */
     list(userId: string): Deck[] {
@@ -74,24 +94,27 @@ export function createDeckRepository(db: Queryable) {
     },
 
     /** The User's Deck `id`, unless it is deleted. */
-    find,
+    find: (userId: string, id: string) => findIn(db, userId, id),
 
     /**
-     * Creates a Deck, unless another of the User's Decks that isn't deleted
-     * has its name. `id` and `now` are for the Seed data and tests.
+     * Creates a Deck in `folderId` (null for the Root), unless that isn't a
+     * live Folder of the User's, or another live Deck there has its name.
+     * `id` and `now` are for the Seed data and tests.
      */
     create(
       userId: string,
-      { name, description }: NewDeck,
+      { name, description, folderId }: NewDeck,
       { id = randomUUID(), now = new Date() }: { id?: string; now?: Date } = {},
-    ): Deck | "taken" {
+    ): Deck | "not_found" | "taken" {
       return db.transaction(
         (tx) => {
-          if (nameTaken(tx, userId, name)) return "taken";
+          if (!isLivePlace(tx, userId, folderId)) return "not_found";
+          if (deckNamed(tx, userId, folderId, name) !== undefined) return "taken";
           tx.insert(deck)
             .values({
               id,
               userId,
+              folderId,
               name,
               nameKey: deckNameKey(name),
               description,
@@ -99,56 +122,70 @@ export function createDeckRepository(db: Queryable) {
               updatedAt: now,
             })
             .run();
-          return toDeck({ id, name, description, createdAt: now });
+          return toDeck({ id, name, description, folderId, createdAt: now });
         },
         { behavior: "immediate" },
       );
     },
 
     /**
-     * Changes a Deck's name, description or both, unless the new name is
-     * another Deck's. Its creation time stays, so the Newest sort keeps it in
-     * place.
+     * Changes a Deck's name, description or both, and moves it to `folderId`.
+     * A new name another Deck beside it has is refused ("taken"). A move
+     * refuses a destination that isn't a live Folder ("not_found"), and a move
+     * into a place where a Deck has its name answers the clash, unless
+     * `onClash` says what to do: `replace` deletes that Deck first, as a
+     * Deletion of its own; `keepBoth` takes the next free "Name (n)". Its
+     * creation time stays, so the Newest sort keeps it in place.
      */
     update(
       userId: string,
       id: string,
-      changes: DeckChanges,
+      { name: newName, description, folderId, onClash }: DeckChanges,
       now = new Date(),
-    ): Deck | "not_found" | "taken" {
+    ): Deck | Refusal | { clash: Clash } {
       return db.transaction(
         (tx) => {
-          if (tx.select({ id: deck.id }).from(deck).where(live(userId, id)).get() === undefined) {
-            return "not_found";
-          }
-          if (changes.name !== undefined && nameTaken(tx, userId, changes.name, id)) {
+          const current = findIn(tx, userId, id);
+          if (current === undefined) return "not_found";
+          let name = newName ?? current.name;
+          const moving = folderId !== undefined && folderId !== current.folderId;
+          const place = moving ? folderId : current.folderId;
+          if (moving) {
+            if (!isLivePlace(tx, userId, place)) return "not_found";
+            const existing = deckNamed(tx, userId, place, name);
+            if (existing !== undefined) {
+              if (onClash === undefined) return { clash: { ...existing, replaceAllowed: true } };
+              if (onClash === "replace") deleteDeck(tx, userId, existing.id, now);
+              else name = nextFreeName(name, (n) => deckNamed(tx, userId, place, n) !== undefined);
+            }
+          } else if (
+            newName !== undefined &&
+            deckNamed(tx, userId, place, name, id) !== undefined
+          ) {
             return "taken";
           }
           tx.update(deck)
             .set({
-              ...(changes.name === undefined
-                ? {}
-                : { name: changes.name, nameKey: deckNameKey(changes.name) }),
-              ...(changes.description === undefined ? {} : { description: changes.description }),
+              name,
+              nameKey: deckNameKey(name),
+              folderId: place,
+              ...(description === undefined ? {} : { description }),
               updatedAt: now,
             })
             .where(live(userId, id))
             .run();
-          return createDeckRepository(tx).find(userId, id) ?? "not_found";
+          return findIn(tx, userId, id) ?? "not_found";
         },
         { behavior: "immediate" },
       );
     },
 
-    /** Deletes a Deck softly, setting `deletedAt`; false when there is no such Deck. */
+    /**
+     * Deletes a Deck softly, setting `deletedAt` and a deletion ID of its own
+     * (ADR-0016); false when there is no such Deck.
+     */
     softDelete(userId: string, id: string, now = new Date()): boolean {
-      const deleted = db
-        .update(deck)
-        .set({ deletedAt: now, updatedAt: now })
-        .where(live(userId, id))
-        .returning({ id: deck.id })
-        .all();
-      return deleted.length > 0;
+      return deleteDeck(db, userId, id, now);
     },
 
     /** Whether the User has any Deck at all, deleted ones too. */

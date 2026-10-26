@@ -31,15 +31,57 @@ export const DeckDescription = z
  * The key two Deck names are compared by: the same key means the same name,
  * ignoring case. Expects a name already trimmed. Upper case first, then lower,
  * so letters with more than one lower or upper form compare alike: "ß" and "SS",
- * a word-final "ς" and "σ".
+ * a word-final "ς" and "σ". Folder names are compared by it too.
  */
 export const deckNameKey = (name: string) => name.normalize("NFC").toUpperCase().toLowerCase();
 
-/** A Deck as the API answers it. `createdAt` is an ISO 8601 time. */
+/**
+ * The name Keep both gives an item moved in beside another of its name: the
+ * first of "Name (2)", "Name (3)", … that `taken` doesn't refuse, with the name
+ * cut short (and trimmed) where needed so the whole stays within 100
+ * characters. A cut never splits a character in two.
+ */
+export function nextFreeName(name: string, taken: (candidate: string) => boolean): string {
+  for (let n = 2; ; n++) {
+    const suffix = ` (${n})`;
+    let base = name.slice(0, DECK_NAME_MAX_LENGTH - suffix.length);
+    if (/[\uD800-\uDBFF]$/.test(base)) base = base.slice(0, -1);
+    const candidate = `${base.trimEnd()}${suffix}`;
+    if (!taken(candidate)) return candidate;
+  }
+}
+
+/**
+ * What a move does when something of the same kind beside the destination
+ * already has the name: `replace` deletes that one first, `keepBoth` moves in
+ * under the next free "Name (n)".
+ */
+export const OnClash = z.enum(["replace", "keepBoth"]);
+export type OnClash = z.infer<typeof OnClash>;
+
+/** Where something sits: a Folder's ID, or null for the Root. */
+export const PlaceId = z.string().min(1).nullable();
+
+/**
+ * The body of a 409 `name_clash`: a move found something of the same kind and
+ * name beside the destination. `replaceAllowed` is false when that something
+ * is a Folder holding the moved item.
+ */
+export const NameClashError = z.object({
+  error: z.object({ code: z.literal("name_clash"), message: z.string() }),
+  clash: z.object({ id: z.string(), name: z.string(), replaceAllowed: z.boolean() }),
+});
+export type NameClashError = z.infer<typeof NameClashError>;
+
+/**
+ * A Deck as the API answers it. `folderId` is the Folder it sits in, null at
+ * the Root. `createdAt` is an ISO 8601 time.
+ */
 export const DeckResponse = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string().nullable(),
+  folderId: z.string().nullable(),
   createdAt: z.iso.datetime(),
 });
 export type DeckResponse = z.infer<typeof DeckResponse>;
@@ -48,18 +90,36 @@ export type DeckResponse = z.infer<typeof DeckResponse>;
 export const DeckListResponse = z.array(DeckResponse);
 export type DeckListResponse = z.infer<typeof DeckListResponse>;
 
-/** The body of `POST /api/decks`: a name and an optional description. */
+/**
+ * The body of `POST /api/decks`: a name, an optional description, and the
+ * Folder to create it in (the Root when missing or null).
+ */
 export const CreateDeckRequest = z.strictObject({
   name: DeckName,
   description: DeckDescription.optional().transform((description) => description ?? null),
+  folderId: PlaceId.optional().transform((folderId) => folderId ?? null),
 });
 export type CreateDeckRequest = z.input<typeof CreateDeckRequest>;
 
-/** The body of `PATCH /api/decks/:id`: a new name, a new description, or both. */
+/**
+ * The body of `PATCH /api/decks/:id`: a new name, a new description, a Folder
+ * to move it to (null for the Root), or any of them together. `onClash` says
+ * what a move does about a name clash, and goes only with `folderId`.
+ */
 export const UpdateDeckRequest = z
-  .strictObject({ name: DeckName.optional(), description: DeckDescription.optional() })
+  .strictObject({
+    name: DeckName.optional(),
+    description: DeckDescription.optional(),
+    folderId: PlaceId.optional(),
+    onClash: OnClash.optional(),
+  })
   .refine(
-    (patch) => patch.name !== undefined || patch.description !== undefined,
-    "Expected a name or a description",
+    (patch) =>
+      patch.name !== undefined || patch.description !== undefined || patch.folderId !== undefined,
+    "Expected a name, a description or a folder",
+  )
+  .refine(
+    (patch) => patch.onClash === undefined || patch.folderId !== undefined,
+    "onClash goes with a move",
   );
 export type UpdateDeckRequest = z.input<typeof UpdateDeckRequest>;

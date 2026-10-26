@@ -40,6 +40,7 @@ const COMMITTED = [
   "0002_user_settings",
   "0003_grading",
   "0004_decks",
+  "0005_folders",
 ];
 
 /** The tables the committed migrations create. */
@@ -48,6 +49,7 @@ const COMMITTED_TABLES = [
   "auth_session",
   "auth_verification",
   "deck",
+  "folder",
   "user",
   "user_settings",
 ];

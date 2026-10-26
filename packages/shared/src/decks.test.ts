@@ -1,11 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import { CreateDeckRequest, UpdateDeckRequest, deckNameKey } from "./decks";
+import { CreateDeckRequest, UpdateDeckRequest, deckNameKey, nextFreeName } from "./decks";
 
 describe("CreateDeckRequest", () => {
   test("trims the name and the description, keeping the description's line breaks", () => {
     expect(
       CreateDeckRequest.parse({ name: "  Spanish  ", description: "\n Line one\n\nLine two \n" }),
-    ).toEqual({ name: "Spanish", description: "Line one\n\nLine two" });
+    ).toEqual({ name: "Spanish", description: "Line one\n\nLine two", folderId: null });
+  });
+
+  test("takes the Folder to create it in, the Root when missing or null", () => {
+    expect(CreateDeckRequest.parse({ name: "A", folderId: "f1" }).folderId).toBe("f1");
+    expect(CreateDeckRequest.parse({ name: "A", folderId: null }).folderId).toBeNull();
+    expect(CreateDeckRequest.safeParse({ name: "A", folderId: "" }).success).toBe(false);
   });
 
   test("reads a missing, empty or blank description as none", () => {
@@ -34,7 +40,7 @@ describe("CreateDeckRequest", () => {
   });
 
   test("refuses anything else", () => {
-    expect(CreateDeckRequest.safeParse({ name: "a", folderId: "x" }).success).toBe(false);
+    expect(CreateDeckRequest.safeParse({ name: "a", parentId: "x" }).success).toBe(false);
   });
 });
 
@@ -46,6 +52,19 @@ describe("UpdateDeckRequest", () => {
       name: "B",
       description: "d",
     });
+  });
+
+  test("takes a move, with what to do about a clash", () => {
+    expect(UpdateDeckRequest.parse({ folderId: null })).toEqual({ folderId: null });
+    expect(UpdateDeckRequest.parse({ folderId: "f1", onClash: "keepBoth" })).toEqual({
+      folderId: "f1",
+      onClash: "keepBoth",
+    });
+    expect(UpdateDeckRequest.safeParse({ folderId: "f1", onClash: "merge" }).success).toBe(false);
+  });
+
+  test("refuses onClash without a move", () => {
+    expect(UpdateDeckRequest.safeParse({ name: "B", onClash: "replace" }).success).toBe(false);
   });
 
   test("refuses neither, and the same limits as create", () => {
@@ -70,5 +89,28 @@ describe("deckNameKey", () => {
 
   test("is the same for the composed and decomposed forms of an accent", () => {
     expect(deckNameKey("Café")).toBe(deckNameKey("Café"));
+  });
+});
+
+/** Every "(n)" is taken until "(10)". */
+const takenUpTo10 = (candidate: string) => !candidate.endsWith("(10)");
+
+describe("nextFreeName", () => {
+  test("takes the first free (n), from 2", () => {
+    expect(nextFreeName("Cells", () => false)).toBe("Cells (2)");
+    const taken = new Set(["Cells (2)", "Cells (3)"]);
+    expect(nextFreeName("Cells", (c) => taken.has(c))).toBe("Cells (4)");
+  });
+
+  test("cuts the name short to stay within 100 characters", () => {
+    const long = "a".repeat(100);
+    expect(nextFreeName(long, () => false)).toBe(`${"a".repeat(96)} (2)`);
+    expect(nextFreeName(long, takenUpTo10)).toBe(`${"a".repeat(95)} (10)`);
+    expect(nextFreeName(long, takenUpTo10)).toHaveLength(100);
+  });
+
+  test("drops the spaces a cut leaves at the end, and never splits a character", () => {
+    expect(nextFreeName(`${"a".repeat(95)} bcd`, () => false)).toBe(`${"a".repeat(95)} (2)`);
+    expect(nextFreeName(`${"a".repeat(95)}😀😀`, () => false)).toBe(`${"a".repeat(95)} (2)`);
   });
 });

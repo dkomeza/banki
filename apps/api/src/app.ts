@@ -14,10 +14,12 @@ import { type PublicRoutes, requireSignedIn } from "./http/require-signed-in";
 import type { OpenRouterFetch } from "./openrouter/check-api-key";
 import { createHealthRepository } from "./repositories/health";
 import { createDeckRepository } from "./repositories/decks";
+import { createFolderRepository } from "./repositories/folders";
 import { createSettingsRepository } from "./repositories/settings";
 import { createUserRepository } from "./repositories/user";
 import { authRoutes } from "./routes/auth";
 import { deckRoutes } from "./routes/decks";
+import { folderRoutes } from "./routes/folders";
 import { healthRoutes } from "./routes/health";
 import { meRoutes } from "./routes/me";
 import { settingsRoutes } from "./routes/settings";
@@ -78,6 +80,7 @@ export function createApp(
   const users = createUserRepository(database.db);
   const settings = createSettingsRepository(database.db, createApiKeyCipher(encryptionKey));
   const decks = createDeckRepository(database.db);
+  const folders = createFolderRepository(database.db);
   const auth = createAuth({ db: database.db, config, secret });
   const setupToken: SetupToken | undefined = users.exists() ? undefined : createSetupToken();
 
@@ -99,7 +102,8 @@ export function createApp(
     .route("/api/auth", authRoutes({ auth, config }))
     .route("/api/me", meRoutes({ users, limiter: signInLimiter() }))
     .route("/api/settings", settingsRoutes({ settings, openRouterFetch }))
-    .route("/api/decks", deckRoutes({ decks }));
+    .route("/api/decks", deckRoutes({ decks }))
+    .route("/api/folders", folderRoutes({ folders }));
   app.notFound(notFound);
   app.onError(internalError);
 
