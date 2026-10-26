@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { CardListResponse, CardResponse, DeckListResponse, DeckResponse } from "@banki/shared";
+import {
+  CardListResponse,
+  CardResponse,
+  DeckListResponse,
+  DeckResponse,
+  FolderResponse,
+} from "@banki/shared";
 import { type App, bootApps, codeOf, get, send, setUp } from "../testing/app";
 
 const { boot } = bootApps();
@@ -307,7 +313,7 @@ describe("a Deck's card count", () => {
   test("deleting a Folder deletes the Cards of its Decks", async () => {
     const { app, cookie } = await signedIn();
     const folderRes = await send(app, "POST", "/api/folders", { name: "Maths" }, cookie);
-    const folder = (await folderRes.json()) as { id: string };
+    const folder = FolderResponse.parse(await folderRes.json());
     const deckRes = await send(
       app,
       "POST",

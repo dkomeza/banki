@@ -30,9 +30,10 @@ const COLUMNS = {
   folderId: deck.folderId,
   createdAt: deck.createdAt,
   /** Its live Cards. Spelt out: Drizzle leaves a column's table off inside `sql`. */
-  cardCount: sql<number>`(SELECT count(*) FROM "card" WHERE "card"."deck_id" = "deck"."id" AND "card"."user_id" = "deck"."user_id" AND "card"."deleted_at" IS NULL)`.mapWith(
-    Number,
-  ),
+  cardCount:
+    sql<number>`(SELECT count(*) FROM "card" WHERE "card"."deck_id" = "deck"."id" AND "card"."user_id" = "deck"."user_id" AND "card"."deleted_at" IS NULL)`.mapWith(
+      Number,
+    ),
 } as const;
 
 type Row = {

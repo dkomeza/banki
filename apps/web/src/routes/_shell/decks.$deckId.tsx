@@ -1,16 +1,19 @@
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
-import { CornerDownRight, Layers, Pencil, Trash2 } from "lucide-react";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { CornerDownRight, Pencil, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { CardTimeline } from "@/components/cards/card-timeline";
 import { ConfirmDelete } from "@/components/decks/confirm-delete";
 import { Cover, Stack } from "@/components/decks/cover";
 import { DeckDialog } from "@/components/decks/deck-dialog";
+import { DeckNotFound } from "@/components/not-found";
 import { Breadcrumb } from "@/components/folders/breadcrumb";
 import { placeRoute, usePlaceActions } from "@/components/folders/place-actions";
 import { useLibrary } from "@/components/folders/use-library";
 import { Page } from "@/components/page";
 import { OUTLINE_PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
+import { cardCountLabel, cardsQueryOptions } from "@/lib/cards";
 import {
   type Deck,
   createdLabel,
@@ -25,12 +28,14 @@ import { cn } from "@/lib/utils";
 // The deck page opens with the breadcrumb from "Decks" down to the Deck, then
 // the Deck's stack, its cover on top, beside the name and the whole
 // description, with Edit, Move… and Delete under them. Edit opens the same
-// dialog as create; Delete asks in a dialog. The cards follow below.
+// dialog as create; Delete asks in a dialog, naming how many Cards go with
+// it. The Cards follow below, on a timeline (CardTimeline).
 
 export const Route = createFileRoute("/_shell/decks/$deckId")({
   loader: ({ context: { queryClient }, params: { deckId } }) =>
     Promise.all([
       queryClient.ensureQueryData(deckQueryOptions(deckId)),
+      queryClient.ensureQueryData(cardsQueryOptions(deckId)),
       ensureLibrary(queryClient),
     ]),
   component: DeckPage,
@@ -56,6 +61,8 @@ function DeckBody({ deck }: { deck: Deck }) {
   const [deleting, setDeleting] = useState(false);
   const library = useLibrary();
   const actions = usePlaceActions(library);
+  // Null only when the Deck was deleted meanwhile, as its page is about to say.
+  const cards = useSuspenseQuery(cardsQueryOptions(deck.id)).data ?? [];
 
   return (
     <>
@@ -85,7 +92,7 @@ function DeckBody({ deck }: { deck: Deck }) {
             </button>
           )}
           <p className="text-sm text-muted-foreground tabular-nums">
-            Created {createdLabel(deck.createdAt)} · 0 cards
+            Created {createdLabel(deck.createdAt)} · {cardCountLabel(cards.length).toLowerCase()}
           </p>
           <div className="flex shrink-0 flex-wrap gap-2 pt-1">
             <Button
@@ -116,18 +123,7 @@ function DeckBody({ deck }: { deck: Deck }) {
         </div>
       </header>
 
-      <section aria-labelledby="cards-title" className="flex flex-col gap-4 border-t pt-6 lg:pt-8">
-        <h2 id="cards-title" className="text-xl font-semibold tracking-tight">
-          Cards
-        </h2>
-        <div className="flex flex-col items-center gap-3 rounded-[1.25rem] border-2 border-dashed border-input/60 px-6 py-16 text-center">
-          <Layers aria-hidden className="size-8 text-muted-foreground" />
-          <p className="text-lg font-medium">No cards yet</p>
-          <p className="max-w-xs text-sm text-balance text-muted-foreground">
-            Cards you add to this deck will be shown here.
-          </p>
-        </div>
-      </section>
+      <CardTimeline deckId={deck.id} cards={cards} />
 
       <DeckDialog
         open={editing}
@@ -146,6 +142,16 @@ function DeckBody({ deck }: { deck: Deck }) {
         open={deleting}
         onOpenChange={setDeleting}
         name={deck.name}
+        description={
+          <>
+            <span className="font-medium text-foreground [overflow-wrap:anywhere]">
+              “{deck.name}”
+            </span>
+            {cards.length === 0
+              ? " will be deleted."
+              : ` and its ${cardCountLabel(cards.length).toLowerCase()} will be deleted.`}
+          </>
+        }
         onConfirm={async () => {
           const outcome = await deleteDeck(queryClient, deck.id);
           if (!outcome.ok) return outcome.message;
@@ -156,20 +162,5 @@ function DeckBody({ deck }: { deck: Deck }) {
       />
       {actions.dialogs}
     </>
-  );
-}
-
-/** An unknown or deleted Deck's page, with the way back to Home. */
-function DeckNotFound() {
-  return (
-    <div className="flex flex-col items-start gap-4 py-10">
-      <h1 className="text-[2.25rem] leading-none font-semibold tracking-[-0.035em] lg:text-5xl">
-        Deck not found
-      </h1>
-      <p className="text-muted-foreground">It may have been deleted, or the link is wrong.</p>
-      <Link to="/" className="inline-flex h-11 items-center font-medium lg:h-auto">
-        Back to Home
-      </Link>
-    </div>
   );
 }

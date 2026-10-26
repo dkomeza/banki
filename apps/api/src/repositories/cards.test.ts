@@ -88,7 +88,8 @@ describe("create", () => {
       createdAt: "2026-10-01T10:00:00.000Z",
       updatedAt: "2026-10-01T10:00:00.000Z",
     });
-    expect(cards.find(USER, "card-1")).toEqual(created as never);
+    expect(frontsIn(deckId)).toEqual(["  el desayuno \n"]);
+    expect(cards.find(USER, "card-1")?.front).toBe("  el desayuno \n");
   });
 
   test("refuses a deleted Deck, an unknown one and another User's", () => {
