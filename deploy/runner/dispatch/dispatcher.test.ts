@@ -117,6 +117,25 @@ describe("a tick", () => {
     );
   });
 
+  test("logs the open issues Linear gave it, naming the ones it may act on", async () => {
+    const { deps, lines } = dispatcher(
+      [
+        fakeIssue("BAN-1"),
+        fakeIssue("BAN-2", { status: "Backlog" }),
+        fakeIssue("BAN-3", { status: "Backlog" }),
+        fakeIssue("BAN-4", { status: "In Design" }),
+        fakeIssue("BAN-5"),
+      ],
+      { now: WEDNESDAY },
+    );
+
+    await tick(deps);
+
+    expect(lines).toContain(
+      "Linear has 5 open issues: 2 Todo (BAN-1, BAN-5), 2 Backlog, 1 In Design (BAN-4)",
+    );
+  });
+
   test("starts nothing when the gate's reading fails", async () => {
     const { deps, started, lines } = dispatcher([fakeIssue("BAN-1")], {
       reading: async () => {
