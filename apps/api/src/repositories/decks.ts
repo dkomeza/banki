@@ -6,10 +6,11 @@ import {
   deckNameKey,
   nextFreeName,
 } from "@banki/shared";
-import { and, eq, isNull, ne } from "drizzle-orm";
+import { and, eq, isNull, ne, sql } from "drizzle-orm";
 import type { z } from "zod";
 import type { Queryable } from "../db/database";
 import { deck } from "../db/schema";
+import { stampCards } from "./cards";
 import { type Clash, type Place, type Refusal, isLivePlace, placeIs } from "./places";
 
 export type Deck = DeckResponse;
@@ -28,6 +29,10 @@ const COLUMNS = {
   description: deck.description,
   folderId: deck.folderId,
   createdAt: deck.createdAt,
+  /** Its live Cards. Spelt out: Drizzle leaves a column's table off inside `sql`. */
+  cardCount: sql<number>`(SELECT count(*) FROM "card" WHERE "card"."deck_id" = "deck"."id" AND "card"."user_id" = "deck"."user_id" AND "card"."deleted_at" IS NULL)`.mapWith(
+    Number,
+  ),
 } as const;
 
 type Row = {
@@ -36,6 +41,7 @@ type Row = {
   description: string | null;
   folderId: string | null;
   createdAt: Date;
+  cardCount: number;
 };
 
 const toDeck = (row: Row): Deck => ({ ...row, createdAt: row.createdAt.toISOString() });
@@ -65,14 +71,18 @@ const deckNamed = (db: Queryable, userId: string, place: Place, name: string, ex
     )
     .get();
 
-/** Deletes the Deck `id` softly, as a Deletion of its own (ADR-0016). */
-const deleteDeck = (db: Queryable, userId: string, id: string, now: Date) =>
-  db
-    .update(deck)
-    .set({ deletedAt: now, deletionId: randomUUID(), updatedAt: now })
-    .where(live(userId, id))
-    .returning({ id: deck.id })
-    .all().length > 0;
+/**
+ * Deletes the Deck `id` softly with its live Cards, as a Deletion of its own
+ * (ADR-0016). Expects to run inside a transaction. False when there is no
+ * such Deck.
+ */
+const deleteDeck = (db: Queryable, userId: string, id: string, now: Date) => {
+  const stamp = { deletedAt: now, deletionId: randomUUID(), updatedAt: now };
+  const deleted =
+    db.update(deck).set(stamp).where(live(userId, id)).returning({ id: deck.id }).all().length > 0;
+  if (deleted) stampCards(db, userId, [id], stamp);
+  return deleted;
+};
 
 /**
  * The User's Decks. Every query is scoped by the User (ADR-0001), so another
@@ -122,7 +132,7 @@ export function createDeckRepository(db: Queryable) {
               updatedAt: now,
             })
             .run();
-          return toDeck({ id, name, description, folderId, createdAt: now });
+          return toDeck({ id, name, description, folderId, createdAt: now, cardCount: 0 });
         },
         { behavior: "immediate" },
       );
@@ -181,11 +191,12 @@ export function createDeckRepository(db: Queryable) {
     },
 
     /**
-     * Deletes a Deck softly, setting `deletedAt` and a deletion ID of its own
-     * (ADR-0016); false when there is no such Deck.
+     * Deletes a Deck softly with its live Cards, setting `deletedAt` and a
+     * deletion ID of its own on all of them (ADR-0016); false when there is no
+     * such Deck.
      */
     softDelete(userId: string, id: string, now = new Date()): boolean {
-      return deleteDeck(db, userId, id, now);
+      return db.transaction((tx) => deleteDeck(tx, userId, id, now), { behavior: "immediate" });
     },
 
     /** Whether the User has any Deck at all, deleted ones too. */

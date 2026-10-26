@@ -9,6 +9,14 @@ export {
   SetupStatus,
 } from "./auth";
 export {
+  CARD_SIDE_MAX_LENGTH,
+  CardListResponse,
+  CardResponse,
+  CardSide,
+  CreateCardRequest,
+  UpdateCardRequest,
+} from "./cards";
+export {
   CreateDeckRequest,
   DECK_DESCRIPTION_MAX_LENGTH,
   DECK_NAME_MAX_LENGTH,

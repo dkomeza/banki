@@ -99,6 +99,7 @@ describe("the server process", () => {
       "0003_grading",
       "0004_decks",
       "0005_folders",
+      "0006_cards",
     ];
     expect(records.map(({ level, message, properties }) => [level, message, properties])).toEqual([
       ["INFO", `API starting "${dataDir}"`, { dataDir }],

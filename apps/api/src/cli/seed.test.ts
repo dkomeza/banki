@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import {
+  CardListResponse,
+  CardResponse,
   DeckListResponse,
   DeckResponse,
   FolderListResponse,
@@ -22,7 +24,7 @@ const GRADING_DEFAULTS = {
 
 const { boot, dataDir } = bootApps();
 
-const seed = () => runCli(["seed"], { dataDir: dataDir() });
+const seed = (env: Record<string, string> = {}) => runCli(["seed"], { dataDir: dataDir(), env });
 const setup = () =>
   runCli(["setup", "--email", EMAIL, "--password-stdin"], {
     dataDir: dataDir(),
@@ -182,5 +184,62 @@ describe("banki seed's Folders", () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("The User already has content, so nothing was seeded.");
+  });
+});
+
+describe("banki seed's Cards", () => {
+  test("loads each Deck's Cards, with their fixed IDs, at different times, Calculus 10 empty", async () => {
+    await setup();
+    await seed();
+
+    const { app } = boot();
+    const cookie = cookiesFrom(await signIn(app));
+    const listOf = async (deckId: string) =>
+      CardListResponse.parse(await (await get(app, `/api/decks/${deckId}/cards`, cookie)).json());
+    const { decks: D, cards: C } = SEED_IDS;
+
+    for (const [deck, ids] of [
+      [D.spanish, C.spanish],
+      [D.calculus2, C.calculus2],
+      [D.kanji, C.kanji],
+      [D.chemistry, C.chemistry],
+    ] as const) {
+      const cards = await listOf(deck);
+      // Newest first, so the fixed IDs (oldest first) come back reversed.
+      expect(cards.map((card) => card.id)).toEqual(ids.toReversed());
+      expect(new Set(cards.map((card) => card.createdAt)).size).toBe(ids.length);
+    }
+    expect(await listOf(D.calculus10)).toEqual([]);
+    const decks = DeckListResponse.parse(await (await get(app, "/api/decks", cookie)).json());
+    expect(decks.find((deck) => deck.id === D.spanish)?.cardCount).toBe(C.spanish.length);
+
+    const card = CardResponse.parse(
+      await (await get(app, `/api/cards/${SEED_IDS.card}`, cookie)).json(),
+    );
+    expect(card.deckId).toBe(D.calculus2);
+    expect(card.front).toContain("\n");
+    expect(card.back.split("\n").length).toBeGreaterThan(3);
+    expect(card.back).toContain("$$");
+  });
+
+  test("writes them relative to BANKI_SEED_NOW when it is set", async () => {
+    await setup();
+    await seed({ BANKI_SEED_NOW: "2026-10-26T12:00:00.000Z" });
+
+    const { app } = boot();
+    const cookie = cookiesFrom(await signIn(app));
+    const res = await get(app, `/api/decks/${SEED_IDS.decks.spanish}/cards`, cookie);
+    const [newest] = CardListResponse.parse(await res.json());
+
+    expect(newest?.createdAt).toBe("2026-10-26T10:00:00.000Z");
+  });
+
+  test("refuses a BANKI_SEED_NOW that isn't a time", async () => {
+    await setup();
+
+    const result = await seed({ BANKI_SEED_NOW: "soon" });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("BANKI_SEED_NOW isn't a time: soon");
   });
 });

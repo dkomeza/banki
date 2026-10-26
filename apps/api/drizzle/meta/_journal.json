@@ -43,6 +43,13 @@
       "when": 1793009767210,
       "tag": "0005_folders",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1793042298605,
+      "tag": "0006_cards",
+      "breakpoints": true
     }
   ]
 }
