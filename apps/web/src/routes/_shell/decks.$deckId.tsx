@@ -30,9 +30,9 @@ import { useUndoState } from "@/proto/toaster";
 // description, with Edit, Move… and Delete under them. Edit opens the same
 // dialog as create; Delete asks in a dialog. The cards follow below.
 //
-// Variant a, "Index cards": the Cards section is a grid of small index cards,
-// Front over a hairline and Back under it, each opening its edit page, with
-// Delete in its ⋯ menu. New card is the section's primary pill.
+// Variant e, "Contours": the Cards section is a dense grid of small tiles, two across on a phone
+// and four on a desktop, each a contour map above a solid muted strip
+// (card-tile.tsx). New card is the section's primary pill.
 
 export const Route = createFileRoute("/_shell/decks/$deckId")({
   loader: ({ context: { queryClient }, params: { deckId } }) =>

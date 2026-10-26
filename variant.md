@@ -1,5 +1,7 @@
-# a: Index cards
+# e: Contours
 
-Bet: a deck is a pile of index cards: the deck page shows its Cards as a grid of small cards (Front over a dashed fold, Back under it), each opening its edit page, Delete in its ⋯ menu and New card as the section's primary pill; new and edit write on one big index card at reading width, the actions along its foot (Done / Save card, Delete … Cancel / Save), "Card added" there too; the Undo toast sits at the bottom centre.
+Bet: the most Cards on screen at once: small tiles, two across even on a phone and four on a desktop, each a contour map in ink with one ring in the accent, the Front on a frosted band across the map's foot and the Back on a solid muted strip.
+
+Builds on Variant a (Index cards), from the Maintainer's feedback on round 1: every Card tile has the same height, its top 70% a graphic and its bottom 30% a solid colour, the Front on the graphic's lower part and the Back on the solid part, each at a fixed height, with an inset shadow where the text runs past it. New and edit are Variant a's, unchanged.
 
 States: `/decks/$deckId`: `empty`, `undo`. `/decks/$deckId/cards/new`: `added`, `invalid`, `discard`. `/cards/$cardId`: `discard`, `not-found`.
