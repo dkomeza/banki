@@ -67,39 +67,43 @@ export function readTail(path: string, maxBytes = TAIL_BYTES): string[] {
   );
 }
 
-/** Newline bytes in a file's first `end` bytes, counted a chunk at a time. */
-function linesBefore(fd: number, end: number): number {
-  let count = 0;
-  for (let position = 0; position < end; position += CHUNK_BYTES) {
-    const bytes = bytesAt(fd, position, Math.min(CHUNK_BYTES, end - position));
-    for (const byte of bytes) if (byte === 0x0a) count += 1;
-  }
-  return count;
-}
-
 export type LogTail = {
   /** Its last whole lines, at most `maxLines` of them within `maxBytes`. */
   lines: string[];
-  /** How many whole lines came before them, left out. */
-  skipped: number;
+  /**
+   * How many bytes come before them, left out: where the first of them
+   * starts, known without reading those bytes.
+   */
+  leftOutBytes: number;
   /** Where its last whole line ends: a stream goes on from there. */
   end: number;
 };
 
-/** A log's newest whole lines for its page, and how many earlier ones are left out. */
+/**
+ * A log's newest whole lines for its page, and how many bytes before them
+ * it leaves out. It reads its last `maxBytes` and nothing before them, so a
+ * page's load costs the same however big the log has grown.
+ */
 export function logTail(path: string, maxLines = PAGE_LINES, maxBytes = PAGE_BYTES): LogTail {
   return (
     withFile(path, (fd, size) => {
       const start = Math.max(0, size - maxBytes);
       const bytes = bytesAt(fd, start, size - start);
       const last = bytes.lastIndexOf(0x0a);
-      if (last === -1) return { lines: [], skipped: linesBefore(fd, start), end: start };
-      const end = start + last + 1;
-      let lines = bytes.subarray(0, last).toString("utf8").split("\n");
-      if (start > 0) lines = lines.slice(1);
-      const kept = lines.slice(-maxLines);
-      return { lines: kept, skipped: linesBefore(fd, end) - kept.length, end };
-    }) ?? { lines: [], skipped: 0, end: 0 }
+      if (last === -1) return { lines: [], leftOutBytes: start, end: start };
+      // Back from the last line, at most `maxLines` of them: `from` is where
+      // the earliest kept starts. A line at the tail's start is cut short,
+      // unless the tail is the whole file.
+      let from = last + 1;
+      for (let kept = 0; kept < maxLines; kept += 1) {
+        const newline = from < 2 ? -1 : bytes.lastIndexOf(0x0a, from - 2);
+        if (newline === -1 && start > 0) break;
+        from = newline + 1;
+        if (newline === -1) break;
+      }
+      const lines = from > last ? [] : bytes.subarray(from, last).toString("utf8").split("\n");
+      return { lines, leftOutBytes: start + from, end: start + last + 1 };
+    }) ?? { lines: [], leftOutBytes: 0, end: 0 }
   );
 }
 

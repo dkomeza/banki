@@ -1,4 +1,5 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, spyOn, test } from "bun:test";
+import * as fs from "node:fs";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
@@ -49,14 +50,16 @@ describe("a log over the bounds", () => {
     });
   });
 
-  test("gives its page its last lines only, and how many earlier ones it left out", () => {
+  test("gives its page its last lines only, and how many bytes come before them", () => {
     const tail = logTail(path, 100, 1 << 20);
+    const size = Bun.file(path).size;
 
     expect(tail.lines).toHaveLength(100);
     expect(tail.lines.at(-1)).toBe(result);
     expect(tail.lines[0]).toBe(say(19_901));
-    expect(tail.skipped).toBe(20_002 - 100);
-    expect(tail.end).toBe(Bun.file(path).size);
+    // The bytes before its first line shown: the whole lines after it, and their newlines.
+    expect(tail.leftOutBytes).toBe(size - Buffer.byteLength(`${tail.lines.join("\n")}\n`));
+    expect(tail.end).toBe(size);
   });
 
   test("keeps its page within the bytes when the lines would go over them", () => {
@@ -64,7 +67,28 @@ describe("a log over the bounds", () => {
 
     expect(tail.lines.length).toBeLessThan(50);
     expect(tail.lines.at(-1)).toBe(result);
-    expect(tail.skipped + tail.lines.length).toBe(20_002);
+    expect(tail.leftOutBytes).toBeGreaterThan(Bun.file(path).size - 10_000);
+  });
+
+  test("leaves nothing out of a log within the bounds, and counts what the lines leave out", () => {
+    const small = join(dir, "small.log");
+    writeFileSync(small, "one\ntwo\n");
+
+    expect(logTail(small)).toEqual({ lines: ["one", "two"], leftOutBytes: 0, end: 8 });
+    expect(logTail(small, 1)).toEqual({ lines: ["two"], leftOutBytes: 4, end: 8 });
+  });
+
+  test("reads only its tail for its page, never the part it leaves out", () => {
+    const read = spyOn(fs, "readSync");
+    try {
+      const tail = logTail(path, 100, 64 << 10);
+      const bytes = read.mock.results.reduce((sum, call) => sum + Number(call.value), 0);
+
+      expect(tail.leftOutBytes).toBeGreaterThan(4 << 20);
+      expect(bytes).toBeLessThanOrEqual(64 << 10);
+    } finally {
+      read.mockRestore();
+    }
   });
 });
 
