@@ -13,6 +13,7 @@ import { Route as ShellRouteImport } from './routes/_shell'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as SetupRouteImport } from './routes/setup'
 import { Route as ShellIndexRouteImport } from './routes/_shell/index'
+import { Route as ShellDeletedRouteImport } from './routes/_shell/deleted'
 import { Route as ShellSettingsRouteImport } from './routes/_shell/settings'
 import { Route as ShellCardsCardIdRouteImport } from './routes/_shell/cards.$cardId'
 import { Route as ShellDecksDeckIdRouteImport } from './routes/_shell/decks.$deckId'
@@ -36,6 +37,11 @@ const SetupRoute = SetupRouteImport.update({
 const ShellIndexRoute = ShellIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => ShellRoute,
+} as any)
+const ShellDeletedRoute = ShellDeletedRouteImport.update({
+  id: '/deleted',
+  path: '/deleted',
   getParentRoute: () => ShellRoute,
 } as any)
 const ShellSettingsRoute = ShellSettingsRouteImport.update({
@@ -69,6 +75,7 @@ export interface FileRoutesByFullPath {
   '/': typeof ShellIndexRoute
   '/login': typeof LoginRoute
   '/setup': typeof SetupRoute
+  '/deleted': typeof ShellDeletedRoute
   '/settings': typeof ShellSettingsRoute
   '/cards/$cardId': typeof ShellCardsCardIdRoute
   '/decks/$deckId': typeof ShellDecksDeckIdRoute
@@ -78,6 +85,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/setup': typeof SetupRoute
+  '/deleted': typeof ShellDeletedRoute
   '/settings': typeof ShellSettingsRoute
   '/': typeof ShellIndexRoute
   '/cards/$cardId': typeof ShellCardsCardIdRoute
@@ -90,6 +98,7 @@ export interface FileRoutesById {
   '/_shell': typeof ShellRouteWithChildren
   '/login': typeof LoginRoute
   '/setup': typeof SetupRoute
+  '/_shell/deleted': typeof ShellDeletedRoute
   '/_shell/settings': typeof ShellSettingsRoute
   '/_shell/': typeof ShellIndexRoute
   '/_shell/cards/$cardId': typeof ShellCardsCardIdRoute
@@ -103,6 +112,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/setup'
+    | '/deleted'
     | '/settings'
     | '/cards/$cardId'
     | '/decks/$deckId'
@@ -112,6 +122,7 @@ export interface FileRouteTypes {
   to:
     | '/login'
     | '/setup'
+    | '/deleted'
     | '/settings'
     | '/'
     | '/cards/$cardId'
@@ -123,6 +134,7 @@ export interface FileRouteTypes {
     | '/_shell'
     | '/login'
     | '/setup'
+    | '/_shell/deleted'
     | '/_shell/settings'
     | '/_shell/'
     | '/_shell/cards/$cardId'
@@ -167,6 +179,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellIndexRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/deleted': {
+      id: '/_shell/deleted'
+      path: '/deleted'
+      fullPath: '/deleted'
+      preLoaderRoute: typeof ShellDeletedRouteImport
+      parentRoute: typeof ShellRoute
+    }
     '/_shell/settings': {
       id: '/_shell/settings'
       path: '/settings'
@@ -206,6 +225,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface ShellRouteChildren {
+  ShellDeletedRoute: typeof ShellDeletedRoute
   ShellSettingsRoute: typeof ShellSettingsRoute
   ShellIndexRoute: typeof ShellIndexRoute
   ShellCardsCardIdRoute: typeof ShellCardsCardIdRoute
@@ -215,6 +235,7 @@ interface ShellRouteChildren {
 }
 
 const ShellRouteChildren: ShellRouteChildren = {
+  ShellDeletedRoute: ShellDeletedRoute,
   ShellSettingsRoute: ShellSettingsRoute,
   ShellIndexRoute: ShellIndexRoute,
   ShellCardsCardIdRoute: ShellCardsCardIdRoute,

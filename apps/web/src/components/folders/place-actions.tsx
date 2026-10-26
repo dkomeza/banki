@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { ConfirmDelete } from "@/components/decks/confirm-delete";
+import { showDeletedToast } from "@/components/deleted/toasts";
 import { type Deck, deleteDeck, forgetDeck } from "@/lib/decks";
 import {
   type Folder,
@@ -15,6 +16,7 @@ import {
   keepBothName,
   moveItem,
   placeName,
+  placePath,
   refreshLibrary,
   renameFolder,
 } from "@/lib/folders";
@@ -152,6 +154,11 @@ export function usePlaceActions(library: Library) {
           // Its parent first, so its own page doesn't turn into "Folder not found".
           await navigate(placeRoute(folder.parentId));
           await refreshLibrary(queryClient);
+          showDeletedToast(queryClient, {
+            name: folder.name,
+            deletionId: outcome.deletionId,
+            where: placePath(library.folders, folder.parentId),
+          });
           return undefined;
         }}
       />
@@ -166,6 +173,11 @@ export function usePlaceActions(library: Library) {
           if (!outcome.ok) return outcome.message;
           setDeletingDeck(undefined);
           forgetDeck(queryClient, deck.id);
+          showDeletedToast(queryClient, {
+            name: deck.name,
+            deletionId: outcome.deletionId,
+            where: placePath(library.folders, deck.folderId),
+          });
           return undefined;
         }}
       />

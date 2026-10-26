@@ -3,11 +3,22 @@ import { describe, expect, test, vi } from "vitest";
 import { cardQueryOptions, cardsQueryOptions } from "@/lib/cards";
 import { deleteWithUndo } from "./card-toasts";
 
-const toasts = vi.hoisted(() => ({ shown: [] as string[], errors: [] as string[] }));
+type Options = { action?: { label: string; onClick: () => void } };
+const toasts = vi.hoisted(() => ({
+  shown: [] as string[],
+  options: [] as Options[],
+  errors: [] as string[],
+}));
 vi.mock("sonner", () => ({
-  toast: Object.assign((title: string) => toasts.shown.push(title), {
-    error: (message: string) => toasts.errors.push(message),
-  }),
+  toast: Object.assign(
+    (title: string, options: Options = {}) => {
+      toasts.shown.push(title);
+      toasts.options.push(options);
+    },
+    {
+      error: (message: string) => toasts.errors.push(message),
+    },
+  ),
 }));
 
 const CARD = {
@@ -23,7 +34,7 @@ describe("deleteWithUndo", () => {
   test("leaves, then shows Card deleted, once the Card is deleted", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => new Response(null, { status: 204 })),
+      vi.fn(async () => Response.json({ deletionId: "x1" })),
     );
     const queryClient = new QueryClient();
     queryClient.setQueryData(cardQueryOptions("c1").queryKey, CARD);
@@ -54,5 +65,28 @@ describe("deleteWithUndo", () => {
 
     expect(leave).not.toHaveBeenCalled();
     expect(toasts.errors).toHaveLength(1);
+  });
+});
+
+const urlOf = (input: RequestInfo | URL) =>
+  input instanceof Request ? input.url : input.toString();
+
+describe("Undo", () => {
+  test("restores the Card's Deletion", async () => {
+    const fetch = vi.fn(async (input: RequestInfo | URL) =>
+      urlOf(input).includes("/restore")
+        ? Response.json({ kind: "card", id: "c1", name: "f", movedToRoot: false, renamed: false })
+        : Response.json({ deletionId: "x1" }),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    await deleteWithUndo(new QueryClient(), CARD);
+    toasts.options.at(-1)?.action?.onClick();
+
+    await vi.waitFor(() =>
+      expect(fetch.mock.calls.map(([input]) => urlOf(input))).toContainEqual(
+        expect.stringContaining("/api/deletions/x1/restore"),
+      ),
+    );
   });
 });

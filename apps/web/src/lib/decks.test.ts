@@ -196,10 +196,10 @@ describe("deleteDeck", () => {
     const outcome = await deleteDeck(
       queryClient,
       "d1",
-      answering(() => new Response(null, { status: 204 })),
+      answering(() => Response.json({ deletionId: "x1" })),
     );
 
-    expect(outcome).toEqual({ ok: true });
+    expect(outcome).toEqual({ ok: true, deletionId: "x1" });
     expect(queryClient.getQueryData(decksQueryOptions().queryKey)).toEqual([]);
   });
 
