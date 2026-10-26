@@ -1,16 +1,23 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "@tanstack/react-router";
-import { ChevronRight, House, type LucideIcon, Settings, UserRound } from "lucide-react";
+import { ChevronRight, House, type LucideIcon, Settings, Trash2, UserRound } from "lucide-react";
 import type { ReactNode } from "react";
 import { Logo } from "@/components/logo";
 import { Toaster } from "@/components/ui/sonner";
 import { meQueryOptions } from "@/lib/me";
 
-type NavItem = { to: "/" | "/settings"; label: string; icon: LucideIcon };
+type NavItem = {
+  to: "/" | "/deleted" | "/settings";
+  label: string;
+  /** The tab bar's shorter label, where it differs. */
+  short?: string;
+  icon: LucideIcon;
+};
 
 // Only real destinations. Later screens add theirs here.
 const NAV: readonly NavItem[] = [
   { to: "/", label: "Home", icon: House },
+  { to: "/deleted", label: "Recently deleted", short: "Deleted", icon: Trash2 },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
 
@@ -93,7 +100,7 @@ function TabBar() {
       className="fixed inset-x-0 bottom-0 z-10 border-t bg-background/95 pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] backdrop-blur lg:hidden"
     >
       <div className="mx-auto flex h-16 max-w-xs items-stretch gap-1 px-2 py-1.5">
-        {NAV.map(({ to, label, icon: Icon }) => (
+        {NAV.map(({ to, label, short, icon: Icon }) => (
           <Link
             key={to}
             to={to}
@@ -102,7 +109,7 @@ function TabBar() {
             className="flex flex-1 flex-col items-center justify-center gap-0.5 rounded-lg text-xs font-medium text-muted-foreground no-underline transition-colors motion-reduce:transition-none outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid aria-[current=page]:text-primary"
           >
             <Icon aria-hidden className="size-5" />
-            {label}
+            {short ?? label}
           </Link>
         ))}
       </div>
