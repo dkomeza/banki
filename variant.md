@@ -1,5 +1,7 @@
-# a: Index cards
+# d: Paper cut
 
-Bet: a deck is a pile of index cards: the deck page shows its Cards as a grid of small cards (Front over a dashed fold, Back under it), each opening its edit page, Delete in its ⋯ menu and New card as the section's primary pill; new and edit write on one big index card at reading width, the actions along its foot (Done / Save card, Delete … Cancel / Save), "Card added" there too; the Undo toast sits at the bottom centre.
+Bet: every Card is a tall tile, three across on a desktop, its top 70% a collage of paper shapes cut out and laid over each other (one in the accent, different on each Card), fading to the card colour where the Front sits, and the Back on a plain card strip below; the graphic is quiet, so the Front reads first.
+
+Builds on Variant a (Index cards), from the Maintainer's feedback on round 1: every Card tile has the same height, its top 70% a graphic and its bottom 30% a solid colour, the Front on the graphic's lower part and the Back on the solid part, each at a fixed height, with an inset shadow where the text runs past it. New and edit are Variant a's, unchanged.
 
 States: `/decks/$deckId`: `empty`, `undo`. `/decks/$deckId/cards/new`: `added`, `invalid`, `discard`. `/cards/$cardId`: `discard`, `not-found`.

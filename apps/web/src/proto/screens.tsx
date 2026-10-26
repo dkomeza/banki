@@ -1,15 +1,14 @@
-// PROTOTYPE (BAN-12), Variant a, "Index cards": the deck page's Cards are a
-// grid of small index cards, Front over a dashed fold and Back under it, Delete
-// in each one's ⋯ menu and New card as the section's primary pill. New and
-// edit are one index card at reading width, the two sides inside it, with the
-// actions along its foot.
+// PROTOTYPE (BAN-12), Variant d, "Paper cut", built on Variant a: the deck
+// page's Cards are tiles (card-tile.tsx), with Delete in each one's ⋯ menu and
+// New card as the section's primary pill. New and edit are Variant a's: one
+// index card at reading width, the two sides inside it, with the actions along
+// its foot.
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Layers, Plus, Trash2 } from "lucide-react";
 import { type ReactNode, type RefObject, useId, useState } from "react";
 import { useLibrary } from "@/components/folders/use-library";
 import { Page } from "@/components/page";
 import { Done, OUTLINE_PILL, PILL } from "@/components/settings/parts";
-import { TileMenu } from "@/components/tile-menu";
 import { Button } from "@/components/ui/button";
 import type { Deck } from "@/lib/decks";
 import { cn } from "@/lib/utils";
@@ -23,6 +22,7 @@ import {
   updateCard,
   useProtoState,
 } from "./cards";
+import { CardTile } from "./card-tile";
 import { CardCrumbs } from "./crumbs";
 import { useDiscardGuard } from "./discard";
 import { deleteWithUndo } from "./toaster";
@@ -63,35 +63,9 @@ export function CardsSection({ deckId, cards }: { deckId: string; cards: readonl
           <div className="pt-2">{newCard}</div>
         </div>
       ) : (
-        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 lg:gap-4">
+        <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {cards.map((card) => (
-            <li key={card.id} className="group/tile relative">
-              <Link
-                to="/cards/$cardId"
-                params={{ cardId: card.id }}
-                aria-label={`Edit card: ${card.front}`}
-                className="flex h-full flex-col rounded-[1.25rem] border bg-card text-card-foreground no-underline shadow-xs transition-[border-color,box-shadow] outline-none hover:border-foreground/25 hover:shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid motion-reduce:transition-none"
-              >
-                <p className="line-clamp-4 px-4 pt-4 pr-14 pb-3 font-medium whitespace-pre-wrap [overflow-wrap:anywhere]">
-                  {card.front}
-                </p>
-                <p className="line-clamp-5 border-t border-dashed px-4 pt-3 pb-4 text-sm whitespace-pre-wrap text-muted-foreground [overflow-wrap:anywhere]">
-                  {card.back}
-                </p>
-              </Link>
-              <TileMenu
-                label="Card actions"
-                className="absolute top-1.5 right-1.5"
-                actions={[
-                  {
-                    label: "Delete",
-                    icon: <Trash2 aria-hidden />,
-                    danger: true,
-                    onClick: () => deleteWithUndo(card),
-                  },
-                ]}
-              />
-            </li>
+            <CardTile key={card.id} card={card} />
           ))}
         </ul>
       )}
