@@ -78,7 +78,10 @@ export function MiniStacks() {
   return (
     <span className="grid grid-cols-3 gap-1.5">
       {[0, 1, 2].map((i) => (
-        <span key={i} className="h-5 rounded-[3px] border bg-card shadow-[2px_2px_0_var(--border)]" />
+        <span
+          key={i}
+          className="h-5 rounded-[3px] border bg-card shadow-[2px_2px_0_var(--border)]"
+        />
       ))}
     </span>
   );

@@ -1,7 +1,6 @@
-// PROTOTYPE (BAN-10), Variant a: one place, Home (the root) or a folder's
-// page. A toolbar under the title holds the sort, New folder and New deck;
-// then the place's folders as a row of kraft folders under "Folders", and its
-// decks as paper stacks under "Decks".
+// PROTOTYPE (BAN-10), Variant e: one place, Home (the root) or a folder's
+// page. Normal is Variant a: kraft folders and stacks, each with a ⋯ menu.
+// Compact is Variant b: explorer rows above the stacks, no ⋯ menus.
 import { useNavigate } from "@tanstack/react-router";
 import { CornerDownRight, FolderPlus, Pencil, Plus, Trash2 } from "lucide-react";
 import { type ReactNode, useState } from "react";
@@ -24,7 +23,9 @@ import {
   useLibrary,
 } from "../folders";
 import { useActions } from "./actions";
+import { useFolderStyle } from "../style";
 import { NameDialog } from "./dialogs";
+import { FolderRow } from "./rows";
 import { Breadcrumb, DeckTile, FolderTile, folderActions } from "./tiles";
 
 const SEED_ROOT_DECK = "5eed0000-0000-4000-8000-000000000004";
@@ -34,6 +35,7 @@ export function PlaceView({ folder, state }: { folder: Folder | null; state: str
   const lib = useLibrary();
   const navigate = useNavigate();
   const [sort, setSort] = useDeckSort();
+  const compact = useFolderStyle() === "compact";
   const place = folder?.id ?? null;
   const empty = state === "empty";
   const contents = empty ? { folders: [], decks: [] } : contentsOf(lib, place);
@@ -123,24 +125,37 @@ export function PlaceView({ folder, state }: { folder: Folder | null; state: str
         ) : (
           <>
             {subfolders.length > 0 && (
-              <Group title="Folders">
+              <Group title="Folders" rows={compact}>
                 {subfolders.map((f) => (
                   <li key={f.id} className="flex">
-                    <FolderTile
-                      folder={f}
-                      onMove={actions.drop}
-                      forceOver={drag && f.id === LANGUAGES}
-                      ghost={
-                        drag && f.id === LANGUAGES
-                          ? lib.decks.find((d) => d.id === SEED_ROOT_DECK)?.name
-                          : undefined
-                      }
-                      actions={folderActions(f, {
-                        rename: actions.rename,
-                        move: actions.move,
-                        remove: actions.removeFolder,
-                      })}
-                    />
+                    {compact ? (
+                      <FolderRow
+                        folder={f}
+                        onMove={actions.drop}
+                        forceOver={drag && f.id === LANGUAGES}
+                        ghost={
+                          drag && f.id === LANGUAGES
+                            ? lib.decks.find((d) => d.id === SEED_ROOT_DECK)?.name
+                            : undefined
+                        }
+                      />
+                    ) : (
+                      <FolderTile
+                        folder={f}
+                        onMove={actions.drop}
+                        forceOver={drag && f.id === LANGUAGES}
+                        ghost={
+                          drag && f.id === LANGUAGES
+                            ? lib.decks.find((d) => d.id === SEED_ROOT_DECK)?.name
+                            : undefined
+                        }
+                        actions={folderActions(f, {
+                          rename: actions.rename,
+                          move: actions.move,
+                          remove: actions.removeFolder,
+                        })}
+                      />
+                    )}
                   </li>
                 ))}
               </Group>
@@ -152,19 +167,23 @@ export function PlaceView({ folder, state }: { folder: Folder | null; state: str
                     <DeckTile
                       deck={d}
                       lifted={drag && d.id === SEED_ROOT_DECK}
-                      actions={[
-                        {
-                          label: "Move…",
-                          icon: <CornerDownRight aria-hidden />,
-                          onClick: () => actions.move({ kind: "deck", id: d.id }, d.name),
-                        },
-                        {
-                          label: "Delete",
-                          icon: <Trash2 aria-hidden />,
-                          danger: true,
-                          onClick: () => actions.removeDeck(d.id, d.name),
-                        },
-                      ]}
+                      actions={
+                        compact
+                          ? []
+                          : [
+                              {
+                                label: "Move…",
+                                icon: <CornerDownRight aria-hidden />,
+                                onClick: () => actions.move({ kind: "deck", id: d.id }, d.name),
+                              },
+                              {
+                                label: "Delete",
+                                icon: <Trash2 aria-hidden />,
+                                danger: true,
+                                onClick: () => actions.removeDeck(d.id, d.name),
+                              },
+                            ]
+                      }
                     />
                   </li>
                 ))}
@@ -206,11 +225,25 @@ export function PlaceView({ folder, state }: { folder: Folder | null; state: str
   );
 }
 
-function Group({ title, children }: { title: string; children: ReactNode }) {
+function Group({
+  title,
+  rows = false,
+  children,
+}: {
+  title: string;
+  rows?: boolean;
+  children: ReactNode;
+}) {
   return (
     <section aria-label={title} className="flex flex-col gap-4">
       <h2 className="text-sm font-medium tracking-wide text-muted-foreground uppercase">{title}</h2>
-      <ul className="grid grid-cols-2 gap-x-4 gap-y-7 sm:gap-x-6 sm:gap-y-9 lg:grid-cols-3">
+      <ul
+        className={
+          rows
+            ? "grid gap-2 sm:grid-cols-2 lg:grid-cols-3"
+            : "grid grid-cols-2 gap-x-4 gap-y-7 sm:gap-x-6 sm:gap-y-9 lg:grid-cols-3"
+        }
+      >
         {children}
       </ul>
     </section>

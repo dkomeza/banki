@@ -1,5 +1,5 @@
-# a: Kraft folders
+# e: Two whole looks
 
-Bet: folders are things you can see into: each one a kraft folder with a tab, the tops of the decks and subfolders inside sticking out of it, in the same grid as BAN-11's paper stacks under a "Folders" heading above "Decks"; every tile has a ⋯ menu (Rename, Move…, Delete), a folder page carries Rename / Move… / Delete as pills beside its title, Move… is a sheet with the whole tree indented, and the clash popup offers Replace and Keep both as rows that each say what they'll do.
+Bet: Normal is Variant a and Compact is Variant b, whole: the switch changes everything the two disagreed on, not just the folders. Normal: kraft folders in the stacks' grid, a ⋯ menu on every folder and deck, a breadcrumb that wraps, a Move… sheet with a Move button, a clash popup whose choices say what they do. Compact: explorer rows above the stacks, no ⋯ menus (actions on each page), a one-line breadcrumb that folds its middle into "…", a searchable Move… tree where one tap moves, a plain Replace / Keep both / Cancel dialog. The switch is a Setting, "Layout" in a Decks card of its own on Settings, the same on every device (the prototype keeps it in this browser).
 
-States: `/`: `empty`, `new-folder`, `drag`. `/folders/$folderId`: `empty`, `rename`, `move`, `clash`, `delete`, `deep`, `not-found`. `/decks/$deckId`: `move`, `clash`.
+States: `/`: `empty`, `new-folder`, `drag`. `/folders/$folderId`: `empty`, `rename`, `move`, `clash`, `delete`, `deep`, `not-found`. `/decks/$deckId`: `move`, `clash`. Each also as `compact-<state>` (Compact for that load) or `normal-<state>`; `?state=compact` opens a plain load in Compact. `/settings` holds the switch.

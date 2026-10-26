@@ -17,7 +17,12 @@ import {
 } from "../folders";
 import { useMove } from "../use-move";
 import { ConfirmDelete } from "@/components/decks/confirm-delete";
+import { useFolderStyle } from "../style";
 import { ClashDialog, ConfirmFolderDelete, MovePicker, NameDialog } from "./dialogs";
+import {
+  ClashDialog as CompactClashDialog,
+  MovePicker as CompactMovePicker,
+} from "./dialogs-compact";
 
 export function useActions(initial?: {
   renaming?: Folder | undefined;
@@ -28,6 +33,10 @@ export function useActions(initial?: {
   const lib = useLibrary();
   const navigate = useNavigate();
   const mover = useMove(initial?.clash);
+  // Variant e: Compact swaps in Variant b's searchable one-tap picker and plain clash dialog.
+  const compact = useFolderStyle() === "compact";
+  const Picker = compact ? CompactMovePicker : MovePicker;
+  const ClashPopup = compact ? CompactClashDialog : ClashDialog;
   const [renaming, setRenaming] = useState<Folder | undefined>(initial?.renaming);
   const [moving, setMoving] = useState<{ item: Item; name: string } | undefined>(initial?.moving);
   const [deleting, setDeleting] = useState<Folder | undefined>(initial?.deleting);
@@ -52,7 +61,7 @@ export function useActions(initial?: {
         }}
       />
       {moving && (
-        <MovePicker
+        <Picker
           open
           onOpenChange={(o) => {
             if (!o) {
@@ -66,7 +75,7 @@ export function useActions(initial?: {
           onMove={(place) => mover.request(moving.item, place, () => setMoving(undefined))}
         />
       )}
-      <ClashDialog
+      <ClashPopup
         clash={mover.clash}
         onResolve={(choice) => {
           mover.resolve(choice);

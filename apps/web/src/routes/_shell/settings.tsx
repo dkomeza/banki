@@ -8,6 +8,7 @@ import { ThisDeviceCard } from "@/components/settings/this-device-card";
 import { meQueryOptions } from "@/lib/me";
 import { settingsQueryOptions } from "@/lib/settings";
 import { useHiddenScrollbar } from "@/lib/use-hidden-scrollbar";
+import { DecksCard } from "@/proto/ui/decks-card";
 
 export const Route = createFileRoute("/_shell/settings")({
   loader: ({ context: { queryClient } }) =>
@@ -22,6 +23,8 @@ export const Route = createFileRoute("/_shell/settings")({
 const SECTIONS: readonly Section[] = [
   { id: "study-day", title: "Study day" },
   { id: "grading", title: "Grading" },
+  // PROTOTYPE (BAN-10), Variant e.
+  { id: "decks", title: "Decks" },
   { id: "account", title: "Account" },
   { id: "this-device", title: "This device" },
 ];
@@ -42,6 +45,7 @@ function SettingsPage() {
               the Tab order and the index follow what the eye reads. */}
           <div className="gap-x-5 md:columns-2 lg:gap-x-6 [&>section]:mb-5 [&>section]:break-inside-avoid lg:[&>section]:mb-6">
             <GradingCard />
+            <DecksCard />
             <AccountCard />
             <ThisDeviceCard />
           </div>

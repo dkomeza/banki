@@ -23,7 +23,9 @@ import {
   useFinePointer,
   useLibrary,
 } from "../folders";
+import { useFolderStyle } from "../style";
 import { dragSource, useDropTarget } from "../use-move";
+import { FoldingBreadcrumb } from "./breadcrumb-compact";
 
 export type MenuAction = { label: string; icon: ReactNode; danger?: boolean; onClick: () => void };
 
@@ -217,9 +219,11 @@ export function DeckTile({
           </span>
         </span>
       </Link>
-      <div className="absolute top-2 right-2 sm:top-3 sm:right-3">
-        <TileMenu label={`More for ${deck.name}`} actions={actions} />
-      </div>
+      {actions.length > 0 && (
+        <div className="absolute top-2 right-2 sm:top-3 sm:right-3">
+          <TileMenu label={`More for ${deck.name}`} actions={actions} />
+        </div>
+      )}
     </div>
   );
 }
@@ -273,7 +277,9 @@ export function Breadcrumb({
   last?: string;
   onMove: (item: Item, place: Place) => void;
 }) {
+  const compact = useFolderStyle() === "compact";
   const lib = useLibrary();
+  if (compact) return <FoldingBreadcrumb at={at} last={last} onMove={onMove} />;
   const path = pathTo(lib, at);
   const linked = last === undefined ? path.slice(0, -1) : path;
   const current = last ?? path.at(-1)?.name;
