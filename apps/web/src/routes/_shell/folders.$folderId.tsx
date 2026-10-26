@@ -1,6 +1,7 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { Page } from "@/components/page";
 import { ensureDeep, useLibrary, useProtoState } from "@/proto/folders";
+import { splitState } from "@/proto/style";
 import { PlaceView } from "@/proto/ui/place";
 
 // PROTOTYPE (BAN-10): a folder's page, its subfolders then its decks, under
@@ -8,7 +9,9 @@ import { PlaceView } from "@/proto/ui/place";
 
 export const Route = createFileRoute("/_shell/folders/$folderId")({
   // `deep` adds its chain of folders before the page renders.
-  loaderDeps: ({ search }: { search: Record<string, unknown> }) => ({ state: search["state"] }),
+  loaderDeps: ({ search }: { search: Record<string, unknown> }) => ({
+    state: splitState(search["state"]).state,
+  }),
   loader: ({ deps }) => ({ deepId: deps.state === "deep" ? ensureDeep() : undefined }),
   component: FolderPage,
 });

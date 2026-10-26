@@ -6,6 +6,7 @@ import { useSearch } from "@tanstack/react-router";
 import { useSyncExternalStore } from "react";
 import type { DeckResponse } from "@banki/shared";
 import type { DeckSort } from "@/lib/decks";
+import { splitState } from "./style";
 
 export type Folder = { id: string; name: string; parentId: string | null; createdAt: string };
 export type Deck = {
@@ -444,8 +445,7 @@ export function deckClashFixture(deck: Deck): Clash {
 /** The `?state=` a Variant's screen opens in, so every state has a URL. */
 export function useProtoState(): string | undefined {
   const search: Record<string, unknown> = useSearch({ strict: false });
-  const state = search["state"];
-  return typeof state === "string" ? state : undefined;
+  return splitState(search["state"]).state;
 }
 
 /** Whether this device drags with a mouse or trackpad: touch moves with Move… only. */
