@@ -67,6 +67,20 @@
   --danger-hue: 22;
 }
 
+/*
+ * How far toasts sit from the bottom: clear of the tab bar below 1024 px,
+ * where the shell shows it, and Sonner's own 2rem with the sidebar.
+ */
+:root {
+  --toast-bottom: calc(4.75rem + env(safe-area-inset-bottom));
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --toast-bottom: 2rem;
+  }
+}
+
 :root {
   --background: oklch(0.972 0.012 var(--paper-hue));
   --foreground: oklch(0.24 0.018 var(--ink-hue));

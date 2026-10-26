@@ -87,11 +87,12 @@ function EditCard({ deck, card }: { deck: Deck; card: Card }) {
     else setFormError(outcome.message);
   };
 
-  const remove = async () => {
-    guard.release();
-    await toDeck();
-    await deleteWithUndo(queryClient, card);
-  };
+  // Deletes first, so a delete that fails leaves the page, and what's typed, as it was.
+  const remove = () =>
+    deleteWithUndo(queryClient, card, async () => {
+      guard.release();
+      await toDeck();
+    });
 
   return (
     <>

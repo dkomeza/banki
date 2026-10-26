@@ -4,7 +4,9 @@ import { useThemeChoice } from "@/lib/theme";
 /**
  * shadcn's Sonner, mounted once in the shell and styled to Paper & ink: a
  * card-coloured toast at the bottom centre, kept clear of the tab bar below
- * 1024 px, with its action as a primary pill.
+ * 1024 px (`--toast-bottom`, in index.css: Sonner's own breakpoint for
+ * `mobileOffset` is narrower than the tab bar's), with its action as a primary
+ * pill.
  */
 export function Toaster(props: ToasterProps) {
   const [theme] = useThemeChoice();
@@ -12,7 +14,8 @@ export function Toaster(props: ToasterProps) {
     <Sonner
       theme={theme}
       position="bottom-center"
-      mobileOffset={{ bottom: "calc(4.75rem + env(safe-area-inset-bottom))" }}
+      offset={{ bottom: "var(--toast-bottom)" }}
+      mobileOffset={{ bottom: "var(--toast-bottom)" }}
       toastOptions={{
         classNames: {
           toast:

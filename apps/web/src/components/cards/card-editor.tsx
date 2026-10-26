@@ -58,10 +58,12 @@ function Side({
   error,
   inputRef,
   autoFocus,
+  readOnly,
   onChange,
   onKeyDown,
 }: {
   label: "Front" | "Back";
+  readOnly: boolean;
   placeholder: string;
   value: string;
   error: string | undefined;
@@ -87,6 +89,7 @@ function Side({
           rows={front ? 2 : 5}
           value={value}
           autoFocus={autoFocus}
+          readOnly={readOnly}
           spellCheck
           aria-invalid={error === undefined ? undefined : true}
           aria-describedby={error === undefined ? undefined : `${id}-error`}
@@ -127,6 +130,7 @@ export function CardEditor({
   dateline,
   form,
   onSave,
+  saving = false,
   autoFocus = false,
   foot,
   after,
@@ -136,6 +140,8 @@ export function CardEditor({
   dateline: ReactNode;
   form: CardForm;
   onSave: () => void;
+  /** While a save is on its way, the sides can't be changed, so nothing typed meanwhile is lost. */
+  saving?: boolean;
   autoFocus?: boolean;
   foot: ReactNode;
   after?: ReactNode;
@@ -178,6 +184,7 @@ export function CardEditor({
             error={form.errors.front}
             inputRef={form.frontRef}
             autoFocus={autoFocus}
+            readOnly={saving}
             onChange={(value) => form.set("front", value)}
             onKeyDown={onKeyDown}
           />
@@ -186,6 +193,7 @@ export function CardEditor({
             placeholder="What to recall"
             value={form.fields.back}
             error={form.errors.back}
+            readOnly={saving}
             onChange={(value) => form.set("back", value)}
             onKeyDown={onKeyDown}
           />

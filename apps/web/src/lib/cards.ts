@@ -137,7 +137,9 @@ export async function updateCard(
 /**
  * Deletes a Card with `DELETE /api/cards/:id`, taking it out of its Deck's
  * list at once. A Card that is gone already counts as deleted. Answers a
- * message when it couldn't be deleted, putting it back in the list.
+ * message when it couldn't be deleted, putting it back in the list. The Card's
+ * own cache entry stays until {@link forgetCard}, so its edit page doesn't turn
+ * into "Card not found" before it is left.
  */
 export async function deleteCard(
   queryClient: QueryClient,
@@ -159,9 +161,13 @@ export async function deleteCard(
       message: res === undefined ? CANT_REACH : "Banki couldn't delete the card. Try again.",
     };
   }
-  queryClient.removeQueries({ queryKey: cardQueryOptions(card.id).queryKey, exact: true });
   await refreshDeck(queryClient, card.deckId);
   return { ok: true };
+}
+
+/** Drops a deleted Card's own cache entry. */
+export function forgetCard(queryClient: QueryClient, id: string) {
+  queryClient.removeQueries({ queryKey: cardQueryOptions(id).queryKey, exact: true });
 }
 
 /**

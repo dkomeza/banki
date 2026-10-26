@@ -47,7 +47,6 @@ function Entry({ card, newest }: { card: Card; newest: boolean }) {
         <Link
           to="/cards/$cardId"
           params={{ cardId: card.id }}
-          aria-label={`Edit card: ${firstLine(card.front)}`}
           className={cn(
             "flex flex-col gap-1 rounded-xl border bg-card px-4 py-3 pr-14 no-underline shadow-xs outline-none transition-colors hover:border-input focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid sm:px-5 sm:py-3.5",
             newest && "border-primary/40 hover:border-primary/60",

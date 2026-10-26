@@ -53,13 +53,16 @@ function NewCard({ deck }: { deck: Deck }) {
   const [added, setAdded] = useState(false);
   const [formError, setFormError] = useState<string>();
   const saving = useRef(false);
+  const [busy, setBusy] = useState(false);
 
   const save = async () => {
     if (saving.current) return;
     saving.current = true;
+    setBusy(true);
     setFormError(undefined);
     const outcome = await createCard(queryClient, deck.id, form.fields);
     saving.current = false;
+    setBusy(false);
     if (outcome.ok) {
       setWritten((cards) => [outcome.card, ...cards]);
       form.markSaved(BLANK);
@@ -87,6 +90,7 @@ function NewCard({ deck }: { deck: Deck }) {
           },
         }}
         onSave={() => void save()}
+        saving={busy}
         autoFocus
         foot={
           <>
