@@ -102,6 +102,8 @@ The shots go to `.ui/shots/<agent>/<route>@<viewport>-<theme>.png`. In the file 
 
 Every browser the script opens is in the Seed data's Timezone, `Europe/Warsaw` (`SEED_TIMEZONE`, in `apps/api/src/seed/seed-ids.ts`), whatever the machine's zone, so shots don't change with it and Settings never shows its timezone mismatch hint.
 
+Every stack seeds at one fixed time, `SEED_NOW` (in the same file, passed to `banki seed` as `BANKI_SEED_NOW`), and the browsers `ui shoot` and `ui compare` open run on a clock fixed at it, so a time or a day shown relative to now, such as a Card's "Today, 11:00" on the deck page, is the same in every shot. A browser you drive with `playwright-cli` keeps the real clock.
+
 Each viewport is shot in the light theme and in the dark one. The dark shots emulate `prefers-color-scheme: dark` with no theme stored, so the web app's default, System, shows dark. The switch is in `apps/web/package.json`:
 
 ```json
