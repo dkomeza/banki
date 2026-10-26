@@ -245,7 +245,7 @@ function Group({
       <ul
         className={
           rows
-            ? "grid gap-2 sm:grid-cols-2 lg:grid-cols-3"
+            ? "grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3"
             : "grid grid-cols-2 gap-x-4 gap-y-7 sm:gap-x-6 sm:gap-y-9 lg:grid-cols-3"
         }
       >
