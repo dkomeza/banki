@@ -105,7 +105,7 @@ The read-only web page, for the Maintainer alone, that shows what the Runner and
 _Avoid_: status page, console, admin panel
 
 **Ceiling**:
-The share of the weekly usage window above which the Dispatcher starts no new Stage. The Maintainer's own use counts toward it, so whatever is left above it stays theirs.
+The share of the weekly usage window above which the Dispatcher starts no new Stage, but an urgent issue's. The Maintainer's own use counts toward it, so whatever is left above it stays theirs.
 _Avoid_: budget, quota
 
 **Variant**:

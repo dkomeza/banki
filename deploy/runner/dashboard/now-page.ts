@@ -1,4 +1,5 @@
 import { FIVE_HOUR_LIMIT, percent } from "../dispatch/gate";
+import { isUrgent } from "../dispatch/queue";
 import { supervisorLog } from "../dispatch/spawn";
 import { flagText } from "./flags";
 import { dollars, duration, type Html, markup, issueLink, page, time } from "./html";
@@ -29,7 +30,7 @@ export function nowFragment(live: LiveView, tz: string | undefined): string {
   parts.push(
     markup`<p class="meta">
       As of
-      ${time(live.at, tz)}${status.closed === undefined ? "" : markup`, <strong>${status.closed}</strong>: nothing starts now`}.
+      ${time(live.at, tz)}${status.closed === undefined ? "" : markup`, <strong>${status.closed}</strong>: only an urgent issue starts now`}.
     </p>`,
   );
   if (live.error !== undefined) {
@@ -107,14 +108,11 @@ export function nowFragment(live: LiveView, tz: string | undefined): string {
         ? []
         : markup`<ol>
             ${status.queue.map((verdict) => {
-              const verdictText =
-                status.closed === undefined
-                  ? verdict.start
-                    ? "would start now"
-                    : `waits: ${verdict.why}`
-                  : verdict.start
-                    ? "would fit the gate"
-                    : `waits: ${verdict.why}`;
+              const verdictText = verdict.start
+                ? status.closed === undefined || isUrgent(verdict.ready)
+                  ? "would start now"
+                  : "would fit the gate"
+                : `waits: ${verdict.why}`;
               return markup`<li>
                 ${issueLink(verdict.ready.issue)}
                 ${verdict.ready.stage}${verdict.ready.resume === true ? " (resume)" : ""}:

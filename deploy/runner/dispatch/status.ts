@@ -1,7 +1,7 @@
 import type { StageKind } from "../cli/args";
 import { percent } from "./gate";
 import type { ActiveRecord, StageRecord } from "./lifecycle";
-import type { Verdict } from "./queue";
+import { isUrgent, type Verdict } from "./queue";
 import type { WaitOn } from "./select";
 import type { GateFile } from "./store";
 
@@ -14,7 +14,7 @@ import type { GateFile } from "./store";
 
 export type StatusView = {
   now: Date;
-  /** Why nothing starts now whatever the gate says, such as being outside the window. */
+  /** Why only an urgent issue starts now whatever the gate says, such as being outside the window. */
   closed: string | undefined;
   running: ActiveRecord[];
   paused: ActiveRecord[];
@@ -64,7 +64,7 @@ export function renderStatus(view: StatusView): string {
     `Ready, in order${view.closed === undefined ? "" : ` (${view.closed})`}`,
     view.queue.map(
       (verdict) =>
-        `${verdict.ready.issue} ${verdict.ready.stage}${verdict.ready.resume === true ? " (resume)" : ""}: ${view.closed === undefined ? (verdict.start ? "would start now" : `waits: ${verdict.why}`) : verdict.start ? "would fit the gate" : `waits: ${verdict.why}`}`,
+        `${verdict.ready.issue} ${verdict.ready.stage}${verdict.ready.resume === true ? " (resume)" : ""}: ${verdict.start ? (view.closed === undefined || isUrgent(verdict.ready) ? "would start now" : "would fit the gate") : `waits: ${verdict.why}`}`,
     ),
     "nothing",
   );

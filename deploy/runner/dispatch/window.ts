@@ -3,7 +3,8 @@ import { ConfigError } from "../lib/config";
 // The window Stages start in (ADR-0013), in server time: every night, and all
 // day on the open days. An open day runs on until the night after it ends,
 // so with the defaults Saturday 00:00 to Monday 07:00 is one stretch. A
-// Stage that is running finishes past the window. Pure, so it is unit-tested.
+// Stage that is running finishes past the window, and an urgent issue's
+// Stages start any time. Pure, so it is unit-tested.
 
 /** A night, in minutes after midnight. `end` before `start` crosses midnight. */
 export type Night = { start: number; end: number };

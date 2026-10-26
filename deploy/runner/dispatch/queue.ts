@@ -3,10 +3,11 @@ import { gateCheck, type Reading } from "./gate";
 import { STATUS } from "./select";
 
 // Which ready Stages start this tick (ADR-0013): the paused ones that are due
-// first, then the ready queue, closest to Done first, then by Linear
-// priority, then oldest. Each must fit the gate, and at most `maxStages` run
-// or wait paused at once. A Stage that doesn't fit leaves room for a cheaper
-// one behind it. Pure, so it is unit-tested.
+// first, then the ready queue, urgent issues first, then closest to Done,
+// then by Linear priority, then oldest. Each must fit the gate, and at most
+// `maxStages` run or wait paused at once. A Stage that doesn't fit leaves
+// room for a cheaper one behind it. An urgent issue's Stage skips the
+// Ceiling, as it skips the window. Pure, so it is unit-tested.
 
 export type Ready = {
   issue: string;
@@ -26,9 +27,13 @@ const rank = (ready: Ready) => {
 };
 const urgency = (priority: number) => (priority >= 1 && priority <= 4 ? priority : 5);
 
+/** Linear's Urgent: its Stages start outside the window and skip the Ceiling. */
+export const isUrgent = (ready: Pick<Ready, "priority">) => ready.priority === 1;
+
 export function order(ready: readonly Ready[]): Ready[] {
   return ready.toSorted(
     (a, b) =>
+      Number(isUrgent(b)) - Number(isUrgent(a)) ||
       rank(a) - rank(b) ||
       urgency(a.priority) - urgency(b.priority) ||
       a.createdAt.localeCompare(b.createdAt) ||
@@ -84,7 +89,7 @@ export function plan(input: {
       ceiling: input.ceiling,
       running: runningEstimates,
       estimate,
-      force: input.force,
+      force: input.force === true || isUrgent(ready),
     });
     if (!check.ok) {
       verdicts.push({ ready, start: false, why: check.why });

@@ -15,7 +15,7 @@ import { ledger } from "./ledger";
 import { type Closing, MAINTAINER } from "./closing";
 import { type ActiveRecord, reconcile, type StageRecord } from "./lifecycle";
 import { type LinearIssue, moveTo } from "./linear";
-import { plan, type Ready, type Verdict } from "./queue";
+import { isUrgent, plan, type Ready, type Verdict } from "./queue";
 import { type Decision, STATUS } from "./select";
 import { openSession, type Session, type SessionDeps } from "./session";
 import type { Start } from "./spawn";
@@ -27,9 +27,10 @@ import { inWindow, localTime } from "./window";
 // Stages it started (a supervisor that is gone is a crash; a paused Stage
 // whose five-hour window has started over is due), decides each issue's next
 // move from Linear and GitHub, makes the moves that cost no tokens (handing
-// an issue back, the hand-offs, the stops), starts what the window, the cap
-// and the gate allow, and tidies up. `runner run-now` and `runner status`
-// share it, and the Dashboard shares `runner status`'s view.
+// an issue back, the hand-offs, the stops), starts what the window (which an
+// urgent issue skips), the cap and the gate allow, and tidies up. `runner
+// run-now` and `runner status` share it, and the Dashboard shares `runner
+// status`'s view.
 
 const AGENT_STATUSES: readonly string[] = [STATUS.todo, STATUS.inDesign, STATUS.inReview];
 
@@ -90,14 +91,22 @@ export async function tick(deps: DispatcherDeps): Promise<void> {
 async function dispatch(session: Session, deps: DispatcherDeps): Promise<void> {
   const now = deps.now();
   const issues = await session.linear.openIssues();
-  const resumes = await reconcileActive(session, deps, issues, now);
-  const { ready } = await survey(session, deps, issues, now, { act: true });
+  let resumes = await reconcileActive(session, deps, issues, now);
+  let { ready } = await survey(session, deps, issues, now, { act: true });
 
   if (ready.length === 0 && resumes.length === 0) return;
   const closed = closedNow(deps.config, now);
   if (closed !== undefined) {
-    deps.log(`${ready.length + resumes.length} ready, and nothing starts: ${closed}`);
-    return;
+    // An urgent issue's Stages start any time; the rest wait for the window.
+    const urgentResumes = resumes.filter(isUrgent);
+    const urgentReady = ready.filter(isUrgent);
+    const urgent = urgentResumes.length + urgentReady.length;
+    deps.log(
+      `${ready.length + resumes.length} ready, and ${urgent === 0 ? "nothing starts" : `only the ${urgent} urgent may start`}: ${closed}`,
+    );
+    if (urgent === 0) return;
+    resumes = urgentResumes;
+    ready = urgentReady;
   }
   const active = deps.records.activeRecords();
   if (resumes.length === 0 && active.length >= deps.config.maxStages) {
@@ -467,8 +476,8 @@ async function lockWithin(records: Store, ms: number): Promise<(() => void) | un
 /**
  * `runner run-now BAN-N [--force]`: starts the issue's next Stage, or
  * resumes its paused one, outside the window, still behind the cap, the
- * five-hour check and, unless forced, the Ceiling. Returns the log's path,
- * or why nothing starts.
+ * five-hour check and, unless forced or urgent, the Ceiling. Returns the
+ * log's path, or why nothing starts.
  */
 export async function runNow(
   identifier: string,
