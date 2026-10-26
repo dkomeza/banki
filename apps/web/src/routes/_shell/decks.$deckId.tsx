@@ -30,6 +30,9 @@ import { useUndoState } from "@/proto/toaster";
 // description, with Edit, Move… and Delete under them. Edit opens the same
 // dialog as create; Delete asks in a dialog. The cards follow below.
 //
+// Variant i, "Journal": the Cards section is a timeline of the Cards grouped
+// by the day they were written (proto/screens.tsx).
+//
 // Variant a, "Index cards": the Cards section is a grid of small index cards,
 // Front over a hairline and Back under it, each opening its edit page, with
 // Delete in its ⋯ menu. New card is the section's primary pill.
