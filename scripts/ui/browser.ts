@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { type Browser, chromium, type Page } from "playwright";
-import { SEED_TIMEZONE } from "../../apps/api/src/seed/seed-ids.ts";
+import { SEED_NOW, SEED_TIMEZONE } from "../../apps/api/src/seed/seed-ids.ts";
 import { hideStyle, shotFileName, type Theme, VIEWPORTS } from "./shots.ts";
 import { UiError } from "./stack.ts";
 
@@ -69,6 +69,7 @@ export async function shootRoutes({
   // A first visit lets Vite transform each route's modules and optimise any
   // dependency it discovers (which reloads the page), before anything is shot.
   const warmUp = await browser.newContext({ storageState, timezoneId: SEED_TIMEZONE });
+  await warmUp.clock.setFixedTime(SEED_NOW);
   try {
     for (const { path } of routes) await open(await warmUp.newPage(), url + path);
   } finally {
@@ -89,6 +90,9 @@ export async function shootRoutes({
         // and Settings never shows its mismatch hint.
         timezoneId: SEED_TIMEZONE,
       });
+      // The seed time, which the stack seeds at too, so the times and days
+      // shown relative to now (such as a Card's "Today, 13:00") never change.
+      await context.clock.setFixedTime(SEED_NOW);
       try {
         for (const { path: route, mask } of routes) {
           const page = await context.newPage();

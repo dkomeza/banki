@@ -12,12 +12,14 @@ import { internalError, notFound } from "./http/errors";
 import { createRateLimiter } from "./http/rate-limit";
 import { type PublicRoutes, requireSignedIn } from "./http/require-signed-in";
 import type { OpenRouterFetch } from "./openrouter/check-api-key";
-import { createHealthRepository } from "./repositories/health";
+import { createCardRepository } from "./repositories/cards";
 import { createDeckRepository } from "./repositories/decks";
+import { createHealthRepository } from "./repositories/health";
 import { createFolderRepository } from "./repositories/folders";
 import { createSettingsRepository } from "./repositories/settings";
 import { createUserRepository } from "./repositories/user";
 import { authRoutes } from "./routes/auth";
+import { cardRoutes, deckCardRoutes } from "./routes/cards";
 import { deckRoutes } from "./routes/decks";
 import { folderRoutes } from "./routes/folders";
 import { healthRoutes } from "./routes/health";
@@ -81,6 +83,7 @@ export function createApp(
   const settings = createSettingsRepository(database.db, createApiKeyCipher(encryptionKey));
   const decks = createDeckRepository(database.db);
   const folders = createFolderRepository(database.db);
+  const cards = createCardRepository(database.db);
   const auth = createAuth({ db: database.db, config, secret });
   const setupToken: SetupToken | undefined = users.exists() ? undefined : createSetupToken();
 
@@ -103,6 +106,8 @@ export function createApp(
     .route("/api/me", meRoutes({ users, limiter: signInLimiter() }))
     .route("/api/settings", settingsRoutes({ settings, openRouterFetch }))
     .route("/api/decks", deckRoutes({ decks }))
+    .route("/api/decks", deckCardRoutes({ cards }))
+    .route("/api/cards", cardRoutes({ cards }))
     .route("/api/folders", folderRoutes({ folders }));
   app.notFound(notFound);
   app.onError(internalError);

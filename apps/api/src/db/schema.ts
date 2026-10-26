@@ -112,3 +112,30 @@ export const deck = sqliteTable(
     index("deck_folder_id").on(table.folderId),
   ],
 );
+
+/**
+ * The User's Cards (ADR-0001), each in one Deck. `front` and `back` are
+ * Markdown with LaTeX, stored exactly as typed (ADR-0004). A deleted Card keeps
+ * its row with `deletedAt` and `deletionId` set: a deletion of its own, or its
+ * Deck's or Folder's when it went with them (ADR-0016).
+ */
+export const card = sqliteTable(
+  "card",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    deckId: text("deck_id")
+      .notNull()
+      .references(() => deck.id, { onDelete: "cascade" }),
+    front: text("front").notNull(),
+    back: text("back").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+    deletedAt: integer("deleted_at", { mode: "timestamp_ms" }),
+    /** The Deletion it went with (ADR-0016); null while live. */
+    deletionId: text("deletion_id"),
+  },
+  (table) => [index("card_user_id").on(table.userId), index("card_deck_id").on(table.deckId)],
+);

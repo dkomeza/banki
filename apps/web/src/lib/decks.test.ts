@@ -21,6 +21,7 @@ const deck = (name: string, createdAt: string, id = name): Deck => ({
   description: null,
   folderId: null,
   createdAt,
+  cardCount: 0,
 });
 
 const DECKS = [

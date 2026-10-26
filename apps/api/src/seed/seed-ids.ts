@@ -4,11 +4,13 @@
 
 /**
  * The Seed data's fixed IDs, for building concrete paths to its screens.
- * `deck` is the one the route manifest shoots the deck page at, and `folder`
- * the folder page.
+ * `deck` is the one the route manifest shoots the deck page at, `folder`
+ * the folder page, and `card` the edit-card page: a Calculus 2 Card with a
+ * Front and a Back of several lines.
  */
 export const SEED_IDS = {
   deck: "5eed0000-0000-4000-8000-000000000001",
+  card: "5eed0000-0000-4000-8000-0000000c0201",
   folder: "5eed0000-0000-4000-8000-0000000000f3",
   folders: {
     languages: "5eed0000-0000-4000-8000-0000000000f1",
@@ -23,6 +25,37 @@ export const SEED_IDS = {
     chemistry: "5eed0000-0000-4000-8000-000000000004",
     kanji: "5eed0000-0000-4000-8000-000000000005",
   },
+  /** Each seeded Deck's Cards, oldest first; Calculus 10 has none. */
+  cards: {
+    spanish: [
+      "5eed0000-0000-4000-8000-0000000c0101",
+      "5eed0000-0000-4000-8000-0000000c0102",
+      "5eed0000-0000-4000-8000-0000000c0103",
+      "5eed0000-0000-4000-8000-0000000c0104",
+      "5eed0000-0000-4000-8000-0000000c0105",
+      "5eed0000-0000-4000-8000-0000000c0106",
+      "5eed0000-0000-4000-8000-0000000c0107",
+      "5eed0000-0000-4000-8000-0000000c0108",
+    ],
+    calculus2: [
+      "5eed0000-0000-4000-8000-0000000c0200",
+      "5eed0000-0000-4000-8000-0000000c0201",
+      "5eed0000-0000-4000-8000-0000000c0202",
+      "5eed0000-0000-4000-8000-0000000c0203",
+      "5eed0000-0000-4000-8000-0000000c0204",
+    ],
+    kanji: [
+      "5eed0000-0000-4000-8000-0000000c0300",
+      "5eed0000-0000-4000-8000-0000000c0301",
+      "5eed0000-0000-4000-8000-0000000c0302",
+      "5eed0000-0000-4000-8000-0000000c0303",
+    ],
+    chemistry: [
+      "5eed0000-0000-4000-8000-0000000c0400",
+      "5eed0000-0000-4000-8000-0000000c0401",
+      "5eed0000-0000-4000-8000-0000000c0402",
+    ],
+  },
 } as const;
 
 /**
@@ -30,3 +63,11 @@ export const SEED_IDS = {
  * so the Settings page never shows the mismatch hint in its shots.
  */
 export const SEED_TIMEZONE = "Europe/Warsaw";
+
+/**
+ * The seed time the `ui` script's stacks seed at (`BANKI_SEED_NOW`), and the
+ * fixed clock its browsers run on, so the times and days the deck page shows
+ * its Cards under are the same on every run: a Monday, 13:00 in the seed
+ * Timezone.
+ */
+export const SEED_NOW = "2026-10-26T12:00:00.000Z";

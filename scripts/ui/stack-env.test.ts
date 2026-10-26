@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { SEED_NOW } from "../../apps/api/src/seed/seed-ids.ts";
 import { apiEnv, webEnv } from "./stack-env.ts";
 
 const ports = { dataDir: "/wt/.ui/data-1-a", apiPort: 5175, webPort: 5174 };
@@ -17,6 +18,11 @@ describe("apiEnv", () => {
     const env = apiEnv({ LOG_FORMAT: "pretty", LOG_LEVEL: "error" }, ports);
     assert.equal(env["LOG_FORMAT"], "json");
     assert.equal(env["LOG_LEVEL"], "info");
+  });
+
+  test("seeds at the fixed seed time, whatever the caller's shell says", () => {
+    const env = apiEnv({ BANKI_SEED_NOW: "2020-01-01T00:00:00.000Z" }, ports);
+    assert.equal(env["BANKI_SEED_NOW"], SEED_NOW);
   });
 
   test("overrides a DATA_DIR, PORT or ORIGIN from the caller's shell", () => {

@@ -181,7 +181,7 @@ export function createdLabel(createdAt: string, now = new Date()): string {
   });
 }
 
-/** Drops a deleted Deck's own cache entry, once its page is left. */
+/** Drops a deleted Deck's own cache entries, its Cards' list too, once its page is left. */
 export function forgetDeck(queryClient: QueryClient, id: string) {
-  queryClient.removeQueries({ queryKey: deckQueryOptions(id).queryKey, exact: true });
+  queryClient.removeQueries({ queryKey: deckQueryOptions(id).queryKey });
 }

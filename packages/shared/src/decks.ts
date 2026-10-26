@@ -75,7 +75,7 @@ export type NameClashError = z.infer<typeof NameClashError>;
 
 /**
  * A Deck as the API answers it. `folderId` is the Folder it sits in, null at
- * the Root. `createdAt` is an ISO 8601 time.
+ * the Root. `createdAt` is an ISO 8601 time. `cardCount` counts its live Cards.
  */
 export const DeckResponse = z.object({
   id: z.string(),
@@ -83,6 +83,7 @@ export const DeckResponse = z.object({
   description: z.string().nullable(),
   folderId: z.string().nullable(),
   createdAt: z.iso.datetime(),
+  cardCount: z.number().int().nonnegative(),
 });
 export type DeckResponse = z.infer<typeof DeckResponse>;
 

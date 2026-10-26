@@ -10,6 +10,7 @@ import { and, eq, inArray, isNull, ne } from "drizzle-orm";
 import type { z } from "zod";
 import type { Queryable } from "../db/database";
 import { deck, folder } from "../db/schema";
+import { stampCards } from "./cards";
 import {
   type Clash,
   type Place,
@@ -68,8 +69,8 @@ const folderNamed = (db: Queryable, userId: string, place: Place, name: string, 
     .get();
 
 /**
- * Deletes the Folder `id` softly, with every Folder and Deck inside it that
- * isn't deleted yet, as one Deletion: the same `deletedAt` and deletion ID on
+ * Deletes the Folder `id` softly, with every Folder, Deck and Card inside it
+ * that isn't deleted yet, as one Deletion: the same `deletedAt` and deletion ID on
  * all of them (ADR-0016). Expects to run inside a transaction. False when
  * there is no such Folder.
  */
@@ -82,10 +83,13 @@ export function deleteFolderTree(db: Queryable, userId: string, id: string, now:
     .set(stamp)
     .where(and(eq(folder.userId, userId), inArray(folder.id, folders), isNull(folder.deletedAt)))
     .run();
-  db.update(deck)
-    .set(stamp)
-    .where(and(eq(deck.userId, userId), inArray(deck.folderId, folders), isNull(deck.deletedAt)))
-    .run();
+  const decksInside = and(
+    eq(deck.userId, userId),
+    inArray(deck.folderId, folders),
+    isNull(deck.deletedAt),
+  );
+  stampCards(db, userId, db.select({ id: deck.id }).from(deck).where(decksInside), stamp);
+  db.update(deck).set(stamp).where(decksInside).run();
   return true;
 }
 

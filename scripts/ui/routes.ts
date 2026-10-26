@@ -32,4 +32,6 @@ export const ROUTES: RouteManifest = {
   "/setup": { mode: "before-setup" },
   "/decks/$deckId": { path: `/decks/${SEED_IDS.deck}` },
   "/folders/$folderId": { path: `/folders/${SEED_IDS.folder}` },
+  "/decks/$deckId/cards/new": { path: `/decks/${SEED_IDS.deck}/cards/new` },
+  "/cards/$cardId": { path: `/cards/${SEED_IDS.card}` },
 };

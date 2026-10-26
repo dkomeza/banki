@@ -44,16 +44,20 @@ function Crumb({
  * The path from "Decks" (the Root) down to `at`, such as Decks › Maths ›
  * Analysis, wrapping when it's long. Every item but the last links to its
  * place. On a Folder's page the Folder is the last item; on a Deck's page,
- * `last` (the Deck's name) comes after its Folder.
+ * `last` (the Deck's name) comes after its Folder; on a Card's page, the
+ * `deck` links after its Folder, and `last` ("New card", "Edit card") comes
+ * after it.
  */
 export function Breadcrumb({
   library,
   at,
+  deck,
   last,
   onMove,
 }: {
   library: Library;
   at: Place;
+  deck?: { id: string; name: string };
   last?: string;
   onMove: (item: Item, place: Place) => void;
 }) {
@@ -72,6 +76,18 @@ export function Breadcrumb({
             <Crumb library={library} place={folder.id} name={folder.name} onMove={onMove} />
           </li>
         ))}
+        {deck !== undefined && (
+          <li className="flex min-w-0 items-center">
+            <ChevronRight aria-hidden className="size-3.5 shrink-0 text-muted-foreground/70" />
+            <Link
+              to="/decks/$deckId"
+              params={{ deckId: deck.id }}
+              className={cn(CRUMB, "max-w-56")}
+            >
+              <span className="truncate">{deck.name}</span>
+            </Link>
+          </li>
+        )}
         <li className="flex min-w-0 items-center">
           <ChevronRight aria-hidden className="size-3.5 shrink-0 text-muted-foreground/70" />
           <span aria-current="page" className="truncate px-1 font-medium text-foreground">
