@@ -4,6 +4,7 @@ import { Monitor, Moon, Sun } from "lucide-react";
 import { useId } from "react";
 import { SettingsCard } from "@/components/settings/parts";
 import { THEME_CHOICES, type ThemeChoice, useThemeChoice } from "@/lib/theme";
+import { MiniFolders, MiniRows, MiniStacks, StylePicker } from "@/proto/ui/style-picker";
 
 const THEME_ICONS = { system: Monitor, light: Sun, dark: Moon } satisfies Record<
   ThemeChoice,
@@ -13,9 +14,11 @@ const THEME_ICONS = { system: Monitor, light: Sun, dark: Moon } satisfies Record
 const isThemeChoice = (value: unknown): value is ThemeChoice =>
   THEME_CHOICES.some((choice) => choice.value === value);
 
-/** This device: choices kept in this browser only, not Settings. So far the theme. */
+/** This device: choices kept in this browser only, not Settings: the theme and, in
+ * the BAN-10 prototype's Variant d, how folders look. */
 export function ThisDeviceCard() {
   const labelId = useId();
+  const foldersId = useId();
   const [choice, setChoice] = useThemeChoice();
   return (
     <SettingsCard id="this-device" title="This device">
@@ -45,6 +48,32 @@ export function ThisDeviceCard() {
             );
           })}
         </RadioGroup>
+      </div>
+      {/* PROTOTYPE (BAN-10), Variant d: Normal or Compact folders, for this device. */}
+      <div className="flex flex-col gap-2.5">
+        <p id={foldersId} className="text-sm text-muted-foreground">
+          Folders, for this device only
+        </p>
+        <StylePicker
+          labelledBy={foldersId}
+          pictures={{
+            normal: (
+              <>
+                <MiniFolders />
+                <MiniStacks />
+              </>
+            ),
+            compact: (
+              <>
+                <MiniRows count={2} />
+                <MiniStacks />
+              </>
+            ),
+          }}
+        />
+        <p className="text-sm text-muted-foreground">
+          Compact lists folders as rows above the decks, so more fit on a screen.
+        </p>
       </div>
     </SettingsCard>
   );

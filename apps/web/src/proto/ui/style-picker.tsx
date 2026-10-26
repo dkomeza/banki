@@ -34,7 +34,7 @@ export function StylePicker({
         >
           <span
             aria-hidden
-            className="flex h-16 flex-col justify-center gap-1 rounded-lg bg-background p-2"
+            className="flex h-20 flex-col justify-center gap-1 rounded-lg bg-background p-2"
           >
             {pictures[value]}
           </span>
@@ -50,7 +50,7 @@ export function MiniFolders() {
   return (
     <span className="grid grid-cols-3 gap-1.5">
       {[0, 1, 2].map((i) => (
-        <span key={i} className="flex h-9 flex-col">
+        <span key={i} className="flex h-7 flex-col">
           <span className={cn("h-1.5 w-[45%] rounded-t-[2px]", KRAFT_TAB)} />
           <span className={cn("-mt-px flex-1 rounded-tr-[3px] rounded-b-[3px]", KRAFT_BODY)} />
         </span>
@@ -78,7 +78,10 @@ export function MiniStacks() {
   return (
     <span className="grid grid-cols-3 gap-1.5">
       {[0, 1, 2].map((i) => (
-        <span key={i} className="h-5 rounded-[3px] border bg-card shadow-[2px_2px_0_var(--border)]" />
+        <span
+          key={i}
+          className="h-5 rounded-[3px] border bg-card shadow-[2px_2px_0_var(--border)]"
+        />
       ))}
     </span>
   );
