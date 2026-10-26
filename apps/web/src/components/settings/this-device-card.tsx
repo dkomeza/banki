@@ -4,6 +4,7 @@ import { Monitor, Moon, Sun } from "lucide-react";
 import { useId } from "react";
 import { SettingsCard } from "@/components/settings/parts";
 import { THEME_CHOICES, type ThemeChoice, useThemeChoice } from "@/lib/theme";
+import { MiniFolders, MiniRows, MiniStacks, StylePicker } from "@/proto/ui/style-picker";
 
 const THEME_ICONS = { system: Monitor, light: Sun, dark: Moon } satisfies Record<
   ThemeChoice,
@@ -13,9 +14,11 @@ const THEME_ICONS = { system: Monitor, light: Sun, dark: Moon } satisfies Record
 const isThemeChoice = (value: unknown): value is ThemeChoice =>
   THEME_CHOICES.some((choice) => choice.value === value);
 
-/** This device: choices kept in this browser only, not Settings. So far the theme. */
+/** This device: choices kept in this browser only, not Settings: the theme and, in
+ * the BAN-10 prototype's Variant f, how Home and the folder pages list things. */
 export function ThisDeviceCard() {
   const labelId = useId();
+  const listId = useId();
   const [choice, setChoice] = useThemeChoice();
   return (
     <SettingsCard id="this-device" title="This device">
@@ -45,6 +48,27 @@ export function ThisDeviceCard() {
             );
           })}
         </RadioGroup>
+      </div>
+      {/* PROTOTYPE (BAN-10), Variant f: Normal tiles or Compact rows, for this device. */}
+      <div className="flex flex-col gap-2.5">
+        <p id={listId} className="text-sm text-muted-foreground">
+          Folders and decks, for this device only
+        </p>
+        <StylePicker
+          labelledBy={listId}
+          pictures={{
+            normal: (
+              <>
+                <MiniFolders />
+                <MiniStacks />
+              </>
+            ),
+            compact: <MiniRows count={4} />,
+          }}
+        />
+        <p className="text-sm text-muted-foreground">
+          Compact lists folders and decks as rows, so a long list fits on one screen.
+        </p>
       </div>
     </SettingsCard>
   );

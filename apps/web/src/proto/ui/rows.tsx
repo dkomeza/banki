@@ -4,8 +4,10 @@
 import { Link } from "@tanstack/react-router";
 import { ChevronRight } from "lucide-react";
 import { Cover } from "@/components/decks/cover";
+import { createdLabel } from "@/lib/decks";
 import { cn } from "@/lib/utils";
 import {
+  type Deck,
   type Folder,
   type Item,
   type Place,
@@ -64,7 +66,7 @@ export function FolderRow({
         )}
       </Link>
       {actions.length > 0 && (
-        <div className="absolute top-1/2 right-2 -translate-y-1/2 [&_button]:bg-transparent [&_button]:shadow-none">
+        <div className="absolute top-1/2 right-2 -translate-y-1/2 [&_button]:bg-transparent [&_button]:shadow-none [&_button]:backdrop-blur-none">
           <TileMenu label={`More for ${folder.name}`} actions={actions} />
         </div>
       )}
@@ -98,5 +100,53 @@ export function FolderGlyph({ open = false, className }: { open?: boolean; class
         )}
       />
     </span>
+  );
+}
+
+/**
+ * Variant f: Compact's deck, a row like a folder's: a small index card with the
+ * monogram, the name and its description (or when it was made), and a ⋯ menu.
+ */
+export function DeckRow({
+  deck,
+  actions,
+  lifted = false,
+}: {
+  deck: Deck;
+  actions: MenuAction[];
+  lifted?: boolean;
+}) {
+  const fine = useFinePointer();
+  return (
+    <div className={cn("group/tile relative flex w-full", lifted && "opacity-35")}>
+      <Link
+        to="/decks/$deckId"
+        params={{ deckId: deck.id }}
+        {...dragSource({ kind: "deck", id: deck.id }, fine)}
+        className={cn(
+          "group flex min-h-16 w-full items-center gap-3.5 rounded-xl border bg-card py-3 pr-14 pl-4 text-foreground no-underline outline-none transition-colors hover:border-primary/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid motion-reduce:transition-none",
+          lifted && "border-dashed border-primary",
+        )}
+      >
+        <span aria-hidden className="relative h-8 w-10 shrink-0">
+          <span className="absolute inset-0 translate-x-[3px] translate-y-[3px] rounded-[5px] border bg-card" />
+          <Cover
+            name={deck.name}
+            className="absolute inset-0 rounded-[5px] border text-[0.7rem] [&>span:first-child]:left-1.5 [&>span:last-child]:pb-0.5 [&>span:last-child]:pl-2.5"
+          />
+        </span>
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate font-semibold tracking-tight group-hover:underline group-hover:underline-offset-4">
+            {deck.name}
+          </span>
+          <span className="truncate text-sm text-muted-foreground">
+            {deck.description?.split("\n")[0] ?? `Created ${createdLabel(deck.createdAt)}`}
+          </span>
+        </span>
+      </Link>
+      <div className="absolute top-1/2 right-2 -translate-y-1/2 [&_button]:bg-transparent [&_button]:shadow-none [&_button]:backdrop-blur-none">
+        <TileMenu label={`More for ${deck.name}`} actions={actions} />
+      </div>
+    </div>
   );
 }
