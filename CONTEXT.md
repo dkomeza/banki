@@ -86,6 +86,22 @@ The short name a Slug Preview is asked for by and reached at. One branch holds a
 The fixed sample content a Preview, or a developer's local copy, starts with: the same on every run, so two builds can be compared screen by screen.
 _Avoid_: fixtures, demo data
 
+**Edge**:
+The long-lived installation at `preview.banki.dkomeza.com` that runs the newest commit of `main`. Unlike a Preview, it keeps its data across deploys and migrates it in place, so a migration that breaks existing data shows there before a Release. It starts with Seed data and goes back to it only when it is reset.
+_Avoid_: staging, main preview, nightly
+
+**Production**:
+The installation at `banki.dkomeza.com` that holds the User's real data and runs the newest Release, once Edge has run that Release's commit.
+_Avoid_: prod, live
+
+**Release**:
+A numbered version of Banki, `v0.1.0` and up, cut when the Maintainer merges the Release PR. Its images are the very images Edge ran, and its notes say what changed for the User.
+_Avoid_: build, deploy
+
+**Snapshot**:
+The copy of an Edge or Production database taken before each deploy, which the deploy restores if the new version fails its health check.
+_Avoid_: backup
+
 ### Building Banki
 
 **Maintainer**:
