@@ -14,8 +14,10 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as SetupRouteImport } from './routes/setup'
 import { Route as ShellIndexRouteImport } from './routes/_shell/index'
 import { Route as ShellSettingsRouteImport } from './routes/_shell/settings'
+import { Route as ShellCardsCardIdRouteImport } from './routes/_shell/cards.$cardId'
 import { Route as ShellDecksDeckIdRouteImport } from './routes/_shell/decks.$deckId'
 import { Route as ShellFoldersFolderIdRouteImport } from './routes/_shell/folders.$folderId'
+import { Route as ShellDecksDeckIdCardsNewRouteImport } from './routes/_shell/decks.$deckId_.cards.new'
 
 const ShellRoute = ShellRouteImport.update({
   id: '/_shell',
@@ -41,6 +43,11 @@ const ShellSettingsRoute = ShellSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => ShellRoute,
 } as any)
+const ShellCardsCardIdRoute = ShellCardsCardIdRouteImport.update({
+  id: '/cards/$cardId',
+  path: '/cards/$cardId',
+  getParentRoute: () => ShellRoute,
+} as any)
 const ShellDecksDeckIdRoute = ShellDecksDeckIdRouteImport.update({
   id: '/decks/$deckId',
   path: '/decks/$deckId',
@@ -51,22 +58,32 @@ const ShellFoldersFolderIdRoute = ShellFoldersFolderIdRouteImport.update({
   path: '/folders/$folderId',
   getParentRoute: () => ShellRoute,
 } as any)
+const ShellDecksDeckIdCardsNewRoute =
+  ShellDecksDeckIdCardsNewRouteImport.update({
+    id: '/decks/$deckId_/cards/new',
+    path: '/decks/$deckId/cards/new',
+    getParentRoute: () => ShellRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof ShellIndexRoute
   '/login': typeof LoginRoute
   '/setup': typeof SetupRoute
   '/settings': typeof ShellSettingsRoute
+  '/cards/$cardId': typeof ShellCardsCardIdRoute
   '/decks/$deckId': typeof ShellDecksDeckIdRoute
   '/folders/$folderId': typeof ShellFoldersFolderIdRoute
+  '/decks/$deckId/cards/new': typeof ShellDecksDeckIdCardsNewRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/setup': typeof SetupRoute
   '/settings': typeof ShellSettingsRoute
   '/': typeof ShellIndexRoute
+  '/cards/$cardId': typeof ShellCardsCardIdRoute
   '/decks/$deckId': typeof ShellDecksDeckIdRoute
   '/folders/$folderId': typeof ShellFoldersFolderIdRoute
+  '/decks/$deckId/cards/new': typeof ShellDecksDeckIdCardsNewRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -75,8 +92,10 @@ export interface FileRoutesById {
   '/setup': typeof SetupRoute
   '/_shell/settings': typeof ShellSettingsRoute
   '/_shell/': typeof ShellIndexRoute
+  '/_shell/cards/$cardId': typeof ShellCardsCardIdRoute
   '/_shell/decks/$deckId': typeof ShellDecksDeckIdRoute
   '/_shell/folders/$folderId': typeof ShellFoldersFolderIdRoute
+  '/_shell/decks/$deckId_/cards/new': typeof ShellDecksDeckIdCardsNewRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -85,16 +104,20 @@ export interface FileRouteTypes {
     | '/login'
     | '/setup'
     | '/settings'
+    | '/cards/$cardId'
     | '/decks/$deckId'
     | '/folders/$folderId'
+    | '/decks/$deckId/cards/new'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/login'
     | '/setup'
     | '/settings'
     | '/'
+    | '/cards/$cardId'
     | '/decks/$deckId'
     | '/folders/$folderId'
+    | '/decks/$deckId/cards/new'
   id:
     | '__root__'
     | '/_shell'
@@ -102,8 +125,10 @@ export interface FileRouteTypes {
     | '/setup'
     | '/_shell/settings'
     | '/_shell/'
+    | '/_shell/cards/$cardId'
     | '/_shell/decks/$deckId'
     | '/_shell/folders/$folderId'
+    | '/_shell/decks/$deckId_/cards/new'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -149,6 +174,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellSettingsRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/cards/$cardId': {
+      id: '/_shell/cards/$cardId'
+      path: '/cards/$cardId'
+      fullPath: '/cards/$cardId'
+      preLoaderRoute: typeof ShellCardsCardIdRouteImport
+      parentRoute: typeof ShellRoute
+    }
     '/_shell/decks/$deckId': {
       id: '/_shell/decks/$deckId'
       path: '/decks/$deckId'
@@ -163,21 +195,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellFoldersFolderIdRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/decks/$deckId_/cards/new': {
+      id: '/_shell/decks/$deckId_/cards/new'
+      path: '/decks/$deckId/cards/new'
+      fullPath: '/decks/$deckId/cards/new'
+      preLoaderRoute: typeof ShellDecksDeckIdCardsNewRouteImport
+      parentRoute: typeof ShellRoute
+    }
   }
 }
 
 interface ShellRouteChildren {
   ShellSettingsRoute: typeof ShellSettingsRoute
   ShellIndexRoute: typeof ShellIndexRoute
+  ShellCardsCardIdRoute: typeof ShellCardsCardIdRoute
   ShellDecksDeckIdRoute: typeof ShellDecksDeckIdRoute
   ShellFoldersFolderIdRoute: typeof ShellFoldersFolderIdRoute
+  ShellDecksDeckIdCardsNewRoute: typeof ShellDecksDeckIdCardsNewRoute
 }
 
 const ShellRouteChildren: ShellRouteChildren = {
   ShellSettingsRoute: ShellSettingsRoute,
   ShellIndexRoute: ShellIndexRoute,
+  ShellCardsCardIdRoute: ShellCardsCardIdRoute,
   ShellDecksDeckIdRoute: ShellDecksDeckIdRoute,
   ShellFoldersFolderIdRoute: ShellFoldersFolderIdRoute,
+  ShellDecksDeckIdCardsNewRoute: ShellDecksDeckIdCardsNewRoute,
 }
 
 const ShellRouteWithChildren = ShellRoute._addFileChildren(ShellRouteChildren)

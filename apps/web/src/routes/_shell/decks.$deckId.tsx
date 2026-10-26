@@ -1,6 +1,6 @@
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
-import { CornerDownRight, Layers, Pencil, Trash2 } from "lucide-react";
+import { CornerDownRight, Pencil, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { ConfirmDelete } from "@/components/decks/confirm-delete";
 import { Cover, Stack } from "@/components/decks/cover";
@@ -21,11 +21,18 @@ import {
 } from "@/lib/decks";
 import { ensureLibrary } from "@/lib/folders";
 import { cn } from "@/lib/utils";
+import { cardCount, useCards, useProtoState } from "@/proto/cards";
+import { CardsSection } from "@/proto/screens";
+import { useUndoState } from "@/proto/toaster";
 
 // The deck page opens with the breadcrumb from "Decks" down to the Deck, then
 // the Deck's stack, its cover on top, beside the name and the whole
 // description, with Edit, Move… and Delete under them. Edit opens the same
 // dialog as create; Delete asks in a dialog. The cards follow below.
+//
+// Variant a, "Index cards": the Cards section is a grid of small index cards,
+// Front over a hairline and Back under it, each opening its edit page, with
+// Delete in its ⋯ menu. New card is the section's primary pill.
 
 export const Route = createFileRoute("/_shell/decks/$deckId")({
   loader: ({ context: { queryClient }, params: { deckId } }) =>
@@ -56,6 +63,10 @@ function DeckBody({ deck }: { deck: Deck }) {
   const [deleting, setDeleting] = useState(false);
   const library = useLibrary();
   const actions = usePlaceActions(library);
+  const state = useProtoState();
+  const all = useCards(deck.id);
+  useUndoState(state, all[0]);
+  const cards = state === "empty" ? [] : all;
 
   return (
     <>
@@ -85,7 +96,7 @@ function DeckBody({ deck }: { deck: Deck }) {
             </button>
           )}
           <p className="text-sm text-muted-foreground tabular-nums">
-            Created {createdLabel(deck.createdAt)} · 0 cards
+            Created {createdLabel(deck.createdAt)} · {cardCount(cards.length).toLowerCase()}
           </p>
           <div className="flex shrink-0 flex-wrap gap-2 pt-1">
             <Button
@@ -116,18 +127,7 @@ function DeckBody({ deck }: { deck: Deck }) {
         </div>
       </header>
 
-      <section aria-labelledby="cards-title" className="flex flex-col gap-4 border-t pt-6 lg:pt-8">
-        <h2 id="cards-title" className="text-xl font-semibold tracking-tight">
-          Cards
-        </h2>
-        <div className="flex flex-col items-center gap-3 rounded-[1.25rem] border-2 border-dashed border-input/60 px-6 py-16 text-center">
-          <Layers aria-hidden className="size-8 text-muted-foreground" />
-          <p className="text-lg font-medium">No cards yet</p>
-          <p className="max-w-xs text-sm text-balance text-muted-foreground">
-            Cards you add to this deck will be shown here.
-          </p>
-        </div>
-      </section>
+      <CardsSection deckId={deck.id} cards={cards} />
 
       <DeckDialog
         open={editing}
@@ -146,6 +146,17 @@ function DeckBody({ deck }: { deck: Deck }) {
         open={deleting}
         onOpenChange={setDeleting}
         name={deck.name}
+        title="Delete this deck?"
+        description={
+          <>
+            <span className="font-medium text-foreground [overflow-wrap:anywhere]">
+              “{deck.name}”
+            </span>
+            {cards.length === 0
+              ? " will be deleted."
+              : ` and its ${cardCount(cards.length).toLowerCase()} will be deleted.`}
+          </>
+        }
         onConfirm={async () => {
           const outcome = await deleteDeck(queryClient, deck.id);
           if (!outcome.ok) return outcome.message;

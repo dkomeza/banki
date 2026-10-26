@@ -5,10 +5,12 @@
 /**
  * The Seed data's fixed IDs, for building concrete paths to its screens.
  * `deck` is the one the route manifest shoots the deck page at, and `folder`
- * the folder page.
+ * the folder page, and `card` the edit-card page (a Card with a multi-line
+ * Front and Back).
  */
 export const SEED_IDS = {
   deck: "5eed0000-0000-4000-8000-000000000001",
+  card: "5eed0000-0000-4000-8000-0000000c0201",
   folder: "5eed0000-0000-4000-8000-0000000000f3",
   folders: {
     languages: "5eed0000-0000-4000-8000-0000000000f1",

@@ -3,6 +3,7 @@ import { Link, useLocation } from "@tanstack/react-router";
 import { ChevronRight, House, type LucideIcon, Settings, UserRound } from "lucide-react";
 import type { ReactNode } from "react";
 import { Logo } from "@/components/logo";
+import { ProtoToaster } from "@/proto/toaster";
 import { meQueryOptions } from "@/lib/me";
 
 type NavItem = { to: "/" | "/settings"; label: string; icon: LucideIcon };
@@ -27,6 +28,7 @@ export function Shell({ children }: { children: ReactNode }) {
         <main>{children}</main>
       </div>
       <TabBar />
+      <ProtoToaster />
     </div>
   );
 }
@@ -108,8 +110,8 @@ function TabBar() {
   );
 }
 
-/** A deck or folder page belongs to Home, so Home stays current on it. */
+/** A deck, folder or card page belongs to Home, so Home stays current on it. */
 function activeProps(to: NavItem["to"], pathname: string) {
-  const inHome = pathname.startsWith("/decks/") || pathname.startsWith("/folders/");
+  const inHome = ["/decks/", "/folders/", "/cards/"].some((p) => pathname.startsWith(p));
   return to === "/" && inHome ? { "aria-current": "page" as const } : {};
 }
