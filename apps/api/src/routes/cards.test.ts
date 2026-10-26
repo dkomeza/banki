@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  DeleteResponse,
   CardListResponse,
   CardResponse,
   DeckListResponse,
@@ -238,7 +239,8 @@ describe("DELETE /api/cards/:id", () => {
 
     const res = await send(app, "DELETE", `/api/cards/${card.id}`, undefined, cookie);
 
-    expect(res.status).toBe(204);
+    expect(res.status).toBe(200);
+    expect(DeleteResponse.parse(await res.json()).deletionId).toBeString();
     expect((await get(app, `/api/cards/${card.id}`, cookie)).status).toBe(404);
     expect(await frontsIn(app, cookie, deckId)).toEqual([]);
     const again = await send(app, "DELETE", `/api/cards/${card.id}`, undefined, cookie);
@@ -255,40 +257,15 @@ describe("DELETE /api/cards/:id", () => {
 });
 
 describe("POST /api/cards/:id/restore", () => {
-  test("brings a deleted Card back and answers it", async () => {
+  test("is gone: a Card's Undo restores its Deletion instead", async () => {
     const { app, cookie, deckId } = await signedIn();
-    const card = await createCard(app, cookie, deckId, "back again");
+    const card = await createCard(app, cookie, deckId);
     await send(app, "DELETE", `/api/cards/${card.id}`, undefined, cookie);
 
     const res = await send(app, "POST", `/api/cards/${card.id}/restore`, undefined, cookie);
 
-    expect(res.status).toBe(200);
-    expect(CardResponse.parse(await res.json())).toMatchObject({
-      id: card.id,
-      front: "back again",
-    });
-    expect(await frontsIn(app, cookie, deckId)).toEqual(["back again"]);
-  });
-
-  test("answers 404 not_found when the Deck was deleted meanwhile, or for an unknown Card", async () => {
-    const { app, cookie, deckId } = await signedIn();
-    const card = await createCard(app, cookie, deckId);
-    await send(app, "DELETE", `/api/cards/${card.id}`, undefined, cookie);
-    await send(app, "DELETE", `/api/decks/${deckId}`, undefined, cookie);
-
-    for (const id of [card.id, "nope"]) {
-      const res = await send(app, "POST", `/api/cards/${id}/restore`, undefined, cookie);
-      expect(res.status).toBe(404);
-      expect(await codeOf(res)).toBe("not_found");
-    }
-  });
-
-  test("answers 401 when signed out", async () => {
-    const { app, cookie, deckId } = await signedIn();
-    const card = await createCard(app, cookie, deckId);
-    await send(app, "DELETE", `/api/cards/${card.id}`, undefined, cookie);
-
-    expect((await send(app, "POST", `/api/cards/${card.id}/restore`, undefined)).status).toBe(401);
+    expect(res.status).toBe(404);
+    expect((await get(app, `/api/cards/${card.id}`, cookie)).status).toBe(404);
   });
 });
 
@@ -327,7 +304,5 @@ describe("a Deck's card count", () => {
     await send(app, "DELETE", `/api/folders/${folder.id}`, undefined, cookie);
 
     expect((await get(app, `/api/cards/${card.id}`, cookie)).status).toBe(404);
-    const restore = await send(app, "POST", `/api/cards/${card.id}/restore`, undefined, cookie);
-    expect(restore.status).toBe(404);
   });
 });

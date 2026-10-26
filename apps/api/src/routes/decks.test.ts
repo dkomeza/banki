@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { DeckListResponse, DeckResponse, FolderResponse, NameClashError } from "@banki/shared";
+import {
+  DeckListResponse,
+  DeckResponse,
+  DeleteResponse,
+  FolderResponse,
+  NameClashError,
+} from "@banki/shared";
 import { type App, bootApps, codeOf, get, send, setUp } from "../testing/app";
 
 const { boot } = bootApps();
@@ -188,7 +194,8 @@ describe("DELETE /api/decks/:id", () => {
 
     const res = await send(app, "DELETE", `/api/decks/${created.id}`, undefined, cookie);
 
-    expect(res.status).toBe(204);
+    expect(res.status).toBe(200);
+    expect(DeleteResponse.parse(await res.json()).deletionId).toBeString();
     const after = await get(app, `/api/decks/${created.id}`, cookie);
     expect(after.status).toBe(404);
     expect(await codeOf(after)).toBe("not_found");

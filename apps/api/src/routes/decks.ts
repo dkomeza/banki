@@ -12,7 +12,7 @@ const NAME_TAKEN = apiError("deck_name_taken", "There's already a deck with this
 /**
  * The signed-in User's Decks. `GET /` lists those that aren't deleted, `POST /`
  * creates one, and `GET`, `PATCH` and `DELETE /:id` read, change or move, and
- * softly delete one. A deleted Deck, an unknown one and another User's all
+ * softly delete one, a delete answering its `deletionId`. A deleted Deck, an unknown one and another User's all
  * answer 404 `not_found`, and so does such a Folder to put it in. A name
  * another Deck beside it has, ignoring case, answers 409 `deck_name_taken` on
  * a create or a change, and 409 `name_clash` on a move without `onClash`.
@@ -41,7 +41,8 @@ export function deckRoutes({ decks }: { decks: DeckRepository }) {
       return c.json(updated, 200);
     })
     .delete("/:id", (c) => {
-      if (!decks.softDelete(c.var.user.id, c.req.param("id"))) return c.json(NOT_FOUND, 404);
-      return c.body(null, 204);
+      const deletionId = decks.softDelete(c.var.user.id, c.req.param("id"));
+      if (deletionId === undefined) return c.json(NOT_FOUND, 404);
+      return c.json({ deletionId }, 200);
     });
 }

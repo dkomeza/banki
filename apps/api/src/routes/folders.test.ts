@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  DeleteResponse,
   DeckListResponse,
   DeckResponse,
   FolderListResponse,
@@ -262,7 +263,8 @@ describe("DELETE /api/folders/:id", () => {
 
     const res = await send(app, "DELETE", `/api/folders/${maths.id}`, undefined, cookie);
 
-    expect(res.status).toBe(204);
+    expect(res.status).toBe(200);
+    expect(DeleteResponse.parse(await res.json()).deletionId).toBeString();
     for (const path of [
       `/api/folders/${maths.id}`,
       `/api/folders/${analysis.id}`,

@@ -319,7 +319,7 @@ describe("softDelete", () => {
     const kept = deckIn("Spanish", null);
     const now = at("2026-10-20T12:00:00.000Z");
 
-    expect(folders.softDelete(USER, maths, now)).toBe(true);
+    expect(folders.softDelete(USER, maths, now)).toBeString();
 
     const rows = [folderRow(maths), folderRow(analysis), deckRow(calculus), deckRow(algebra)];
     for (const row of rows) expect(row?.deletedAt).toEqual(now);
@@ -351,7 +351,7 @@ describe("softDelete", () => {
     folders.softDelete(USER, gone);
     const theirs = make("Theirs", null, OTHER);
 
-    for (const id of ["nope", gone, theirs]) expect(folders.softDelete(USER, id)).toBe(false);
+    for (const id of ["nope", gone, theirs]) expect(folders.softDelete(USER, id)).toBeUndefined();
     expect(folders.find(OTHER, theirs)).toBeDefined();
   });
 
