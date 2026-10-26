@@ -143,7 +143,9 @@ function openIssuesLine(issues: readonly LinearIssue[]): string {
       ? `${found.length} ${name} (${found.map((issue) => issue.identifier).join(", ")})`
       : `${found.length} ${name}`,
   );
-  return `Linear has ${issues.length} open issues${parts.length === 0 ? "" : `: ${parts.join(", ")}`}`;
+  if (issues.length === 0)
+    return "Linear has 0 open issues, read again for a few seconds: none are open, or its token stayed blind";
+  return `Linear has ${issues.length} open issues: ${parts.join(", ")}`;
 }
 
 /** Why nothing may start now, outside the window; undefined inside it. */

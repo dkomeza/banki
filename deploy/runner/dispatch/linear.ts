@@ -8,7 +8,7 @@ import {
   isRecord,
   parseJson,
 } from "../lib/parse";
-import { seeing } from "../cli/linear";
+import { BLIND_RETRIES_MS, seeing } from "../cli/linear";
 import type { Comment } from "./closing";
 import type { Ended } from "./housekeeping";
 import type { Transition } from "./select";
@@ -73,6 +73,7 @@ export function linear(
   options: { fetch?: Fetch; signal?: AbortSignal; sleep?: (ms: number) => Promise<unknown> } = {},
 ) {
   const fetchFn: Fetch = options.fetch ?? fetch;
+  const sleep = options.sleep ?? Bun.sleep;
 
   async function query(
     text: string,
@@ -98,7 +99,7 @@ export function linear(
         throw new Error(`Linear: HTTP ${res.status}`);
       }
       return asObject(parseJson(body, "Linear"), "Linear");
-    }, options.sleep);
+    }, sleep);
     if (parsed.errors !== undefined) {
       throw new Error(`Linear: ${JSON.stringify(parsed.errors).slice(0, 300)}`);
     }
@@ -124,6 +125,16 @@ export function linear(
     }
   }
 
+  /** One reading of project Banki's issues that aren't over. */
+  async function listOpen(): Promise<LinearIssue[]> {
+    const nodes = await all(
+      `query ($after: String) { issues(first: ${PAGE}, after: $after, filter: { project: { name: { eq: "${PROJECT}" } }, state: { type: { nin: ["completed", "canceled"] } } }) { nodes { ${ISSUE_FIELDS} } pageInfo { hasNextPage endCursor } } }`,
+      {},
+      (data) => data.issues,
+    );
+    return nodes.map(toIssue);
+  }
+
   return {
     /** The Runner app's own user ID. */
     async viewer(): Promise<string> {
@@ -133,14 +144,18 @@ export function linear(
       );
     },
 
-    /** Project Banki's issues that aren't over. */
+    /**
+     * Project Banki's issues that aren't over. A fresh token's blindness
+     * lists none, with no error for `seeing` to catch, so an empty list is
+     * read again on the same waits: a project with none open is rare.
+     */
     async openIssues(): Promise<LinearIssue[]> {
-      const nodes = await all(
-        `query ($after: String) { issues(first: ${PAGE}, after: $after, filter: { project: { name: { eq: "${PROJECT}" } }, state: { type: { nin: ["completed", "canceled"] } } }) { nodes { ${ISSUE_FIELDS} } pageInfo { hasNextPage endCursor } } }`,
-        {},
-        (data) => data.issues,
-      );
-      return nodes.map(toIssue);
+      for (const wait of BLIND_RETRIES_MS) {
+        const issues = await listOpen();
+        if (issues.length > 0) return issues;
+        await sleep(wait);
+      }
+      return listOpen();
     },
 
     async issue(identifier: string): Promise<LinearIssue | undefined> {

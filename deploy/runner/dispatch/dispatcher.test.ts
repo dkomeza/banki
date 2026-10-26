@@ -136,6 +136,16 @@ describe("a tick", () => {
     );
   });
 
+  test("says so when Linear's open issues stay empty", async () => {
+    const { deps, lines } = dispatcher([]);
+
+    await tick(deps);
+
+    expect(lines).toContain(
+      "Linear has 0 open issues, read again for a few seconds: none are open, or its token stayed blind",
+    );
+  });
+
   test("starts nothing when the gate's reading fails", async () => {
     const { deps, started, lines } = dispatcher([fakeIssue("BAN-1")], {
       reading: async () => {
