@@ -80,6 +80,43 @@ describe("a tick", () => {
     expect(read).toBe(false);
   });
 
+  test("starts and resumes an urgent issue's Stages outside the window, and nothing else", async () => {
+    const { deps, started, lines } = dispatcher(
+      [
+        fakeIssue("BAN-1", { priority: 2 }),
+        fakeIssue("BAN-2", { priority: 1 }),
+        fakeIssue("BAN-3", { status: "In Progress", priority: 1 }),
+      ],
+      { now: WEDNESDAY, reading: async () => reading(0.9) },
+    );
+    deps.records.saveActive({
+      issue: "BAN-3",
+      kind: "implement",
+      state: "paused",
+      pid: null,
+      sessionId: "sess-3",
+      resetsAt: "2026-10-21T11:00:00.000Z",
+      runs: [
+        {
+          startedAt: "2026-10-21T09:00:00.000Z",
+          endedAt: "2026-10-21T10:00:00.000Z",
+          log: "/x.jsonl",
+          before: reading(),
+        },
+      ],
+    });
+
+    await tick(deps);
+
+    expect(started.map((start) => [start.issue, start.resume])).toEqual([
+      ["BAN-3", true],
+      ["BAN-2", false],
+    ]);
+    expect(lines.join("\n")).toContain(
+      "3 ready, and only the 2 urgent may start: outside the window",
+    );
+  });
+
   test("starts nothing when the gate's reading fails", async () => {
     const { deps, started, lines } = dispatcher([fakeIssue("BAN-1")], {
       reading: async () => {
@@ -533,6 +570,18 @@ describe("runner status", () => {
     expect(text).toContain("BAN-1 implement: would fit the gate");
     expect(text).toContain("In Progress, not started by a supervisor of the Runner:\n  BAN-2");
     expect(text).toContain("the week 30%");
+  });
+
+  test("shows an urgent issue as starting now outside the window, over the Ceiling", async () => {
+    const { deps } = dispatcher([fakeIssue("BAN-1"), fakeIssue("BAN-2", { priority: 1 })], {
+      now: WEDNESDAY,
+    });
+    deps.records.saveGate({ reading: reading(0.9), at: "2026-10-21T11:00:00.000Z" });
+
+    const text = await status(deps);
+
+    expect(text).toContain("BAN-2 implement: would start now");
+    expect(text).toContain("BAN-1 implement: waits: the week is at 90%");
   });
 
   test("lists the issues it skips while assigned, and decides past the Runner app's assignment without undoing it", async () => {

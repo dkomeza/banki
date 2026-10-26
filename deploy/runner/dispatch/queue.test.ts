@@ -40,13 +40,13 @@ const started = (verdicts: ReturnType<typeof plan>) =>
 describe("the ready queue", () => {
   test("runs closest to Done first, then by priority, then oldest", () => {
     const queue = order([
-      ready("BAN-1", STATUS.inDesign, { priority: 1 }),
+      ready("BAN-1", STATUS.inDesign, { priority: 2 }),
       ready("BAN-2", STATUS.todo, { priority: 0 }),
       ready("BAN-3", STATUS.todo, { priority: 4 }),
-      ready("BAN-4", STATUS.todo, { priority: 1, createdAt: "2026-10-02T00:00:00.000Z" }),
-      ready("BAN-5", STATUS.todo, { priority: 1, createdAt: "2026-09-02T00:00:00.000Z" }),
-      ready("BAN-6", STATUS.inReview, { priority: 3 }),
-      ready("BAN-7", STATUS.todo, { priority: 2 }),
+      ready("BAN-4", STATUS.todo, { priority: 2, createdAt: "2026-10-02T00:00:00.000Z" }),
+      ready("BAN-5", STATUS.todo, { priority: 2, createdAt: "2026-09-02T00:00:00.000Z" }),
+      ready("BAN-6", STATUS.inReview, { priority: 4 }),
+      ready("BAN-7", STATUS.todo, { priority: 3 }),
     ]);
 
     expect(queue.map((item) => item.issue)).toEqual([
@@ -58,6 +58,16 @@ describe("the ready queue", () => {
       "BAN-2",
       "BAN-1",
     ]);
+  });
+
+  test("runs an urgent issue first, wherever it stands", () => {
+    const queue = order([
+      ready("BAN-1", STATUS.inReview, { priority: 2 }),
+      ready("BAN-2", STATUS.inDesign, { priority: 1 }),
+      ready("BAN-3", STATUS.todo, { priority: 1 }),
+    ]);
+
+    expect(queue.map((item) => item.issue)).toEqual(["BAN-3", "BAN-2", "BAN-1"]);
   });
 });
 
@@ -91,7 +101,7 @@ describe("what starts", () => {
       ...base,
       reading: reading(0.5),
       ready: [
-        ready("BAN-1", STATUS.todo, { priority: 1 }),
+        ready("BAN-1", STATUS.todo, { priority: 2 }),
         ready("BAN-2", STATUS.inDesign),
         ready("BAN-3", STATUS.inReview, { stage: "review-round" }),
       ],
@@ -162,5 +172,15 @@ describe("what starts", () => {
     expect(started(plan({ ...base, force: true, reading: reading(0.1, 0.9), ready: one }))).toEqual(
       [],
     );
+  });
+  test("an urgent issue skips the Ceiling but not the cap or the five-hour check", () => {
+    const urgent = [ready("BAN-1", STATUS.todo, { priority: 1 })];
+    const routine = [ready("BAN-2", STATUS.todo, { priority: 2 })];
+
+    expect(
+      started(plan({ ...base, reading: reading(0.95), ready: [...urgent, ...routine] })),
+    ).toEqual(["BAN-1"]);
+    expect(started(plan({ ...base, active: 2, reading: reading(0.1), ready: urgent }))).toEqual([]);
+    expect(started(plan({ ...base, reading: reading(0.1, 0.9), ready: urgent }))).toEqual([]);
   });
 });
