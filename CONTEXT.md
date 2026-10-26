@@ -16,6 +16,18 @@ _Avoid_: collection, set
 A named place that holds Decks and other Folders, nested to any depth, for organizing only: it has no effect on study or scheduling. It sits at the root or in one other Folder, and no two folders beside each other share a name, ignoring case; a Folder and a Deck beside each other may. Deleting a Folder deletes everything in it, together.
 _Avoid_: directory, group, category
 
+**Card**:
+One thing to remember, written as a Front and a Back in Markdown with LaTeX, in exactly one Deck. A Deck's delete deletes its Cards with it, together.
+_Avoid_: note, flashcard, item
+
+**Front**:
+The side of a Card the User is shown and asked about.
+_Avoid_: question, prompt
+
+**Back**:
+The side of a Card that holds what the User should recall: what self-rating reveals, and the reference the Grader compares a written answer with. Never the User's own written answer.
+_Avoid_: answer, solution
+
 **Root**:
 The top of the folder tree, where Home lists what isn't in any Folder. It is not a Folder itself: it has no name of its own and can't be moved, renamed or deleted.
 _Avoid_: top level, home folder
