@@ -1,5 +1,10 @@
-// PROTOTYPE (BAN-12), Variant i, "Journal": a Deck is written over days, so
-// its Cards read as a journal. The deck page's Cards hang on a timeline,
+// PROTOTYPE (BAN-12), Variant l, "Slips": Variant i's journal, with each Card
+// contained by a background instead of a border: a filled paper slip in the
+// secondary tint, a small notch pointing at its dot on the rail, the newest
+// slip in the accent's tint. The writing page is one big slip.
+//
+// From Variant i, "Journal": a Deck is written over days, so its Cards read
+// as a journal. The deck page's Cards hang on a timeline,
 // grouped under the day they were written ("Today", "Yesterday", "Tue 20
 // Oct"), each with its time in the margin, the Front in ink and the Back under
 // it, Delete in its ⋯ menu; the newest Card's dot is the accent. New card is
@@ -68,16 +73,39 @@ const DOT = "absolute top-[0.55rem] -left-[0.3rem] size-2.5 rounded-full ring-4 
 function Entry({ card, newest }: { card: Card; newest: boolean }) {
   return (
     <li className="group/tile relative flex gap-3 sm:gap-4">
-      <p className={cn(TIME_COL, "pt-1 text-right text-sm text-muted-foreground tabular-nums")}>
+      <p
+        className={cn(
+          TIME_COL,
+          "pt-[0.95rem] text-right text-sm text-muted-foreground tabular-nums",
+        )}
+      >
         {time(card.createdAt)}
       </p>
-      <div className={cn(RAIL, "min-w-0 flex-1 pb-7")}>
-        <span aria-hidden className={cn(DOT, newest ? "bg-primary" : "bg-input")} />
+      <div className={cn(RAIL, "min-w-0 flex-1 pb-3")}>
+        <span
+          aria-hidden
+          className={cn(DOT, "top-[1.15rem]", newest ? "bg-primary" : "bg-input")}
+        />
+        {/* The slip's notch, pointing at its dot; it takes the slip's fill. */}
+        <span
+          aria-hidden
+          className={cn(
+            "absolute top-[1.1rem] left-[1.15rem] size-3 rotate-45 rounded-[2px] transition-colors sm:left-[1.65rem]",
+            newest
+              ? "bg-accent group-hover/tile:bg-sidebar-accent"
+              : "bg-secondary group-hover/tile:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_6%)]",
+          )}
+        />
         <Link
           to="/cards/$cardId"
           params={{ cardId: card.id }}
           aria-label={`Edit card: ${card.front}`}
-          className="-mx-3 -my-1.5 flex flex-col gap-1 rounded-xl px-3 py-1.5 pr-12 no-underline outline-none hover:bg-muted/70 focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-solid"
+          className={cn(
+            "relative flex flex-col gap-1 rounded-2xl px-4 py-3 pr-14 no-underline outline-none transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid sm:px-5 sm:py-3.5",
+            newest
+              ? "bg-accent hover:bg-sidebar-accent"
+              : "bg-secondary hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_6%)]",
+          )}
         >
           <p className="text-[1.1rem] leading-snug font-semibold tracking-tight whitespace-pre-wrap text-foreground [overflow-wrap:anywhere]">
             {card.front}
@@ -88,7 +116,7 @@ function Entry({ card, newest }: { card: Card; newest: boolean }) {
         </Link>
         <TileMenu
           label="Card actions"
-          className="absolute -top-1.5 right-0"
+          className="absolute top-1.5 right-1.5 shadow-none sm:top-2 sm:right-2"
           actions={[
             {
               label: "Delete",
@@ -154,7 +182,7 @@ export function CardsSection({ deckId, cards }: { deckId: string; cards: readonl
               <h3
                 className={cn(
                   RAIL,
-                  "pb-4 text-xs font-semibold tracking-[0.08em] text-muted-foreground uppercase",
+                  "pt-3 pb-3 text-xs font-semibold tracking-[0.08em] text-muted-foreground uppercase",
                 )}
               >
                 {day}
@@ -225,7 +253,9 @@ function Side({
           }}
           className={cn(
             "field-sizing-content w-full resize-none rounded-md bg-transparent px-1 py-0 leading-[2rem] outline-none placeholder:text-muted-foreground/70 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring focus-visible:outline-solid aria-invalid:outline-2 aria-invalid:outline-offset-4 aria-invalid:outline-destructive aria-invalid:outline-solid",
-            front ? "min-h-16 text-xl font-semibold tracking-tight" : "min-h-32 text-[1.05rem]",
+            front
+              ? "min-h-16 text-xl/[2rem] font-semibold tracking-tight"
+              : "min-h-32 text-[1.05rem]/[2rem]",
           )}
         />
         {error !== undefined && (
@@ -275,7 +305,7 @@ function JournalPage({
             event.preventDefault();
             save();
           }}
-          className="flex flex-col gap-7 border-t pt-7"
+          className="flex flex-col gap-7 rounded-3xl bg-secondary px-4 py-6 sm:px-6 sm:py-7"
         >
           <Side
             label="Front"
@@ -397,20 +427,27 @@ export function NewCardScreen({ deck }: { deck: Deck }) {
                     <p
                       className={cn(
                         TIME_COL,
-                        "text-right text-sm text-muted-foreground tabular-nums",
+                        "pt-3 text-right text-sm text-muted-foreground tabular-nums",
                       )}
                     >
                       {time(w.at)}
                     </p>
-                    <div className={cn(RAIL, "min-w-0 flex-1 pb-4")}>
+                    <div className={cn(RAIL, "min-w-0 flex-1 pb-2.5")}>
                       <span
                         aria-hidden
-                        className={cn(DOT, "top-1.5", i === 0 ? "bg-primary" : "bg-input")}
+                        className={cn(DOT, "top-3.5", i === 0 ? "bg-primary" : "bg-input")}
                       />
-                      <p className="truncate font-medium">{w.front.split("\n")[0]}</p>
-                      <p className="truncate text-sm text-muted-foreground">
-                        {w.back.split("\n")[0]}
-                      </p>
+                      <div
+                        className={cn(
+                          "rounded-xl px-4 py-2.5",
+                          i === 0 ? "bg-accent" : "bg-secondary",
+                        )}
+                      >
+                        <p className="truncate font-medium">{w.front.split("\n")[0]}</p>
+                        <p className="truncate text-sm text-muted-foreground">
+                          {w.back.split("\n")[0]}
+                        </p>
+                      </div>
                     </div>
                   </li>
                 ))}
