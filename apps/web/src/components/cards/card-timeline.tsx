@@ -1,10 +1,11 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Search, Trash2, X } from "lucide-react";
 import { TileMenu } from "@/components/tile-menu";
 import { byDay, timeLabel } from "@/lib/card-days";
 import type { Card } from "@/lib/cards";
 import { cn } from "@/lib/utils";
+import { deckTags, highlight, matches, useCardTags, useDeckFilter, wordsOf } from "@/proto/tags";
 import { deleteWithUndo } from "./card-toasts";
 
 // The deck page's Cards, written over days, hang on a timeline: grouped under
@@ -25,8 +26,21 @@ export const firstLine = (side: string) => {
 };
 
 /** One Card on the timeline, opening its edit page, with Delete in its ⋯ menu. */
-function Entry({ card, newest }: { card: Card; newest: boolean }) {
+function Entry({
+  card,
+  newest,
+  words,
+  picked,
+  onTag,
+}: {
+  card: Card;
+  newest: boolean;
+  words: readonly string[];
+  picked: readonly string[];
+  onTag: (tag: string) => void;
+}) {
   const queryClient = useQueryClient();
+  const tags = useCardTags(card.id);
   return (
     <li className="group/tile relative flex gap-3 sm:gap-4">
       <p
@@ -44,21 +58,45 @@ function Entry({ card, newest }: { card: Card; newest: boolean }) {
         />
         {/* A short tick from the rail to the card, so the card hangs on the line. */}
         <span aria-hidden className="absolute top-[1.45rem] left-0 h-px w-6 bg-border sm:w-8" />
-        <Link
-          to="/cards/$cardId"
-          params={{ cardId: card.id }}
+        <div
           className={cn(
-            "flex flex-col gap-1 rounded-xl border bg-card px-4 py-3 pr-14 no-underline shadow-xs outline-none transition-colors hover:border-input focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid sm:px-5 sm:py-3.5",
-            newest && "border-primary/40 hover:border-primary/60",
+            "rounded-xl border bg-card shadow-xs transition-colors has-[a:hover]:border-input",
+            newest && "border-primary/40 has-[a:hover]:border-primary/60",
           )}
         >
-          <p className="text-[1.1rem] leading-snug font-semibold tracking-tight whitespace-pre-wrap text-foreground [overflow-wrap:anywhere]">
-            {card.front}
-          </p>
-          <p className="line-clamp-6 leading-relaxed whitespace-pre-wrap text-muted-foreground [overflow-wrap:anywhere]">
-            {card.back}
-          </p>
-        </Link>
+          <Link
+            to="/cards/$cardId"
+            params={{ cardId: card.id }}
+            className="flex flex-col gap-1 rounded-xl px-4 py-3 pr-14 no-underline outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid sm:px-5 sm:py-3.5"
+          >
+            <p className="text-[1.1rem] leading-snug font-semibold tracking-tight whitespace-pre-wrap text-foreground [overflow-wrap:anywhere]">
+              <Marked text={card.front} words={words} />
+            </p>
+            <p className="line-clamp-6 leading-relaxed whitespace-pre-wrap text-muted-foreground [overflow-wrap:anywhere]">
+              <Marked text={card.back} words={words} />
+            </p>
+          </Link>
+          {tags.length > 0 && (
+            <ul aria-label="Tags" className="-mt-1 flex flex-wrap gap-1 px-3 pb-3 sm:px-4">
+              {tags.map((tag) => (
+                <li key={tag}>
+                  <button
+                    type="button"
+                    aria-pressed={picked.includes(tag)}
+                    title={picked.includes(tag) ? `Stop filtering by ` : `Show only `}
+                    onClick={() => onTag(tag)}
+                    className="inline-flex h-8 items-center rounded-full px-2 text-[0.8rem] font-medium text-muted-foreground hover:bg-muted hover:text-foreground aria-pressed:bg-primary/12 aria-pressed:text-primary lg:h-6"
+                  >
+                    <span aria-hidden className="text-muted-foreground/60">
+                      #
+                    </span>
+                    {tag}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
         <TileMenu
           label="Card actions"
           className="absolute top-1.5 right-1.5 shadow-none sm:top-2 sm:right-2"
@@ -108,19 +146,133 @@ function NewEntry({ deckId, empty }: { deckId: string; empty: boolean }) {
   );
 }
 
+/** Text with the runs matching the search marked. */
+function Marked({ text, words }: { text: string; words: readonly string[] }) {
+  return highlight(text, words).map((run, i) =>
+    run.hit ? (
+      <mark key={i} className="rounded-[0.2em] bg-primary/18 text-inherit">
+        {run.text}
+      </mark>
+    ) : (
+      run.text
+    ),
+  );
+}
+
+/**
+ * Variant a: the search and the deck's Tags in one bar that sticks to the top
+ * of the screen as the list scrolls: a search field, then every Tag as a chip
+ * with its count, in one row that scrolls sideways.
+ */
+function FilterBar({
+  cards,
+  filter,
+}: {
+  cards: readonly Card[];
+  filter: ReturnType<typeof useDeckFilter>;
+}) {
+  const tags = deckTags(cards);
+  return (
+    <div className="sticky top-0 z-20 -mx-5 flex flex-col gap-2.5 border-b border-transparent bg-background/92 px-5 pt-3 pb-3 backdrop-blur sm:mx-0 sm:px-0">
+      <div className="relative max-w-3xl">
+        <Search
+          aria-hidden
+          className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-muted-foreground"
+        />
+        <input
+          type="search"
+          aria-label="Search cards"
+          placeholder="Search fronts and backs"
+          value={filter.q}
+          onChange={(event) => filter.setQ(event.target.value)}
+          className="h-11 w-full rounded-full border border-input bg-card pr-11 pl-10 text-base outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid lg:h-10 lg:text-sm [&::-webkit-search-cancel-button]:hidden"
+        />
+        {filter.q !== "" && (
+          <button
+            type="button"
+            aria-label="Clear the search"
+            onClick={() => filter.setQ("")}
+            className="absolute top-1/2 right-1 flex size-11 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground hover:text-foreground lg:size-8 lg:right-1.5"
+          >
+            <X className="size-4" aria-hidden />
+          </button>
+        )}
+      </div>
+      <div
+        role="group"
+        aria-label="Filter by tag"
+        className="-mx-5 flex gap-1.5 overflow-x-auto px-5 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:px-0"
+      >
+        {tags.map(({ tag, count }) => {
+          const on = filter.picked.includes(tag);
+          return (
+            <button
+              key={tag}
+              type="button"
+              aria-pressed={on}
+              onClick={() => filter.toggle(tag)}
+              className={cn(
+                "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-3 text-sm font-medium transition-colors lg:h-8",
+                on
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border bg-card text-foreground hover:border-input hover:bg-muted",
+              )}
+            >
+              {tag}
+              <span
+                className={cn(
+                  "text-xs tabular-nums",
+                  on ? "text-primary-foreground/80" : "text-muted-foreground",
+                )}
+              >
+                {count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /** The deck page's Cards section: its live Cards on a timeline by day, newest first. */
 export function CardTimeline({ deckId, cards }: { deckId: string; cards: readonly Card[] }) {
+  const filter = useDeckFilter();
+  const words = wordsOf(filter.q);
+  const shown = cards.filter((card) => matches(card, words, filter.picked));
   return (
-    <section aria-labelledby="cards-title" className="flex flex-col gap-6 border-t pt-6 lg:pt-8">
+    <section aria-labelledby="cards-title" className="flex flex-col gap-3 border-t pt-6 lg:pt-8">
       <h2 id="cards-title" className="text-xl font-semibold tracking-tight">
         Cards{" "}
         {cards.length > 0 && (
-          <span className="font-normal text-muted-foreground tabular-nums">{cards.length}</span>
+          <span className="font-normal text-muted-foreground tabular-nums">
+            {filter.active ? `${shown.length} of ${cards.length}` : cards.length}
+          </span>
         )}
       </h2>
-      <div className="max-w-3xl">
+      {cards.length > 0 && <FilterBar cards={cards} filter={filter} />}
+      <div className="max-w-3xl pt-3">
         <NewEntry deckId={deckId} empty={cards.length === 0} />
-        {byDay(cards).map(({ day, items }, i) => (
+        {cards.length > 0 && shown.length === 0 && (
+          <div className="flex gap-3 sm:gap-4">
+            <span aria-hidden className={TIME_COL} />
+            <div className={cn(RAIL, "flex-1 border-dashed pb-8")}>
+              <p className="text-lg font-medium">No cards match</p>
+              <p className="max-w-sm pt-1 text-sm text-muted-foreground">
+                Nothing in this deck has every word
+                {filter.picked.length > 0 ? " and every picked tag" : ""}.
+              </p>
+              <button
+                type="button"
+                onClick={filter.clear}
+                className="mt-4 inline-flex h-11 items-center rounded-full border border-input px-5 text-sm font-medium hover:bg-muted lg:h-10"
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+        )}
+        {byDay(shown).map(({ day, items }, i) => (
           <section key={day} aria-label={day}>
             <div className="flex gap-3 sm:gap-4">
               <span aria-hidden className={TIME_COL} />
@@ -135,7 +287,14 @@ export function CardTimeline({ deckId, cards }: { deckId: string; cards: readonl
             </div>
             <ol>
               {items.map((card, j) => (
-                <Entry key={card.id} card={card} newest={i === 0 && j === 0} />
+                <Entry
+                  key={card.id}
+                  card={card}
+                  newest={!filter.active && i === 0 && j === 0}
+                  words={words}
+                  picked={filter.picked}
+                  onTag={filter.toggle}
+                />
               ))}
             </ol>
           </section>
