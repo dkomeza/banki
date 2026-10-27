@@ -188,15 +188,15 @@ npx --no-install playwright-cli -s=my-session close
 
 The API reads these environment variables at startup and exits with code 1, listing what's wrong, if any is invalid. An empty variable counts as unset.
 
-| Variable         | Default                 | What it sets                                                                                                                                                                                                                                                             |
-| ---------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `DATA_DIR`       | `/data`                 | The data directory. A relative path is resolved against the working directory.                                                                                                                                                                                           |
-| `PORT`           | `3000`                  | The port the API listens on, 1 to 65535                                                                                                                                                                                                                                  |
-| `LOG_FORMAT`     | `json`                  | `json` for JSON lines, `pretty` for terminal-friendly text                                                                                                                                                                                                               |
-| `LOG_LEVEL`      | `info`                  | The lowest level logged: `debug`, `info`, `warning` or `error`. Health checks log at `debug`                                                                                                                                                                             |
-| `ORIGIN`         | `http://localhost:5173` | The address the User opens Banki at: an `http:` or `https:` URL with no path, query or hash. Signing in is refused from any other origin, and the sign-in cookie is `Secure` exactly when it is `https:`. The default is the Vite dev server                             |
-| `AUTH_SECRET`    | none                    | The secret sign-in cookies are signed with, at least 32 characters. Unset, the API generates one into `<DATA_DIR>/auth-secret` on the first start. Changing it signs out every device                                                                                    |
-| `ENCRYPTION_KEY` | none                    | The key the stored OpenRouter API key is encrypted with: 32 random bytes as base64url (43 characters). Unset, the API generates one into `<DATA_DIR>/encryption-key` on the first start. Changing it makes the stored API key unreadable, and it has to be entered again |
+| Variable         | Default                 | What it sets                                                                                                                                                                                                                                                                    |
+| ---------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATA_DIR`       | `/data`                 | The data directory. A relative path is resolved against the working directory.                                                                                                                                                                                                  |
+| `PORT`           | `3000`                  | The port the API listens on, 1 to 65535                                                                                                                                                                                                                                         |
+| `LOG_FORMAT`     | `json`                  | `json` for JSON lines, `pretty` for terminal-friendly text                                                                                                                                                                                                                      |
+| `LOG_LEVEL`      | `info`                  | The lowest level logged: `debug`, `info`, `warning` or `error`. Health checks log at `debug`                                                                                                                                                                                    |
+| `ORIGIN`         | `http://localhost:5173` | The address the User opens Banki at: an `http:` or `https:` URL with no path, query or hash. Signing in is refused from any other origin, and the sign-in cookie is `__Host-` (`Secure`, `Path=/`, no `Domain`) exactly when it is `https:`. The default is the Vite dev server |
+| `AUTH_SECRET`    | none                    | The secret sign-in cookies are signed with, at least 32 characters. Unset, the API generates one into `<DATA_DIR>/auth-secret` on the first start. Changing it signs out every device                                                                                           |
+| `ENCRYPTION_KEY` | none                    | The key the stored OpenRouter API key is encrypted with: 32 random bytes as base64url (43 characters). Unset, the API generates one into `<DATA_DIR>/encryption-key` on the first start. Changing it makes the stored API key unreadable, and it has to be entered again        |
 
 The data directory holds everything Banki stores:
 
@@ -254,7 +254,7 @@ BANKI_ORIGIN=http://192.168.1.20:9000
 BANKI_ORIGIN=https://banki.example.com
 ```
 
-With an `https:` origin the sign-in cookie is `Secure` and `web` sends HSTS (see [Security headers](#security-headers)). A sign-in from the wrong address fails, and the API logs a warning naming both addresses.
+With an `https:` origin the sign-in cookie is `__Host-better-auth.session_token`, which is `Secure`, has `Path=/` and has no `Domain` (see [Sign-in cookies beside the Previews](#sign-in-cookies-beside-the-previews)), and `web` sends HSTS (see [Security headers](#security-headers)). A sign-in from the wrong address fails, and the API logs a warning naming both addresses.
 
 ### HTTPS
 
@@ -548,9 +548,11 @@ A Preview that fails is left stopped, its link gives a 404, and its deployment s
 - When `up` or the health check failed, the Preview's own containers have the story: `docker compose -p banki-pr-<N> logs` (or `-p banki-slug-<slug>`).
 - A Slug Preview whose build failed shows `build failed`; the `slug-preview` workflow's run has the build's log.
 
-### Cookies for a future production
+### Sign-in cookies beside the Previews
 
-A future production at `banki.dkomeza.com` would share its parent domain with the Previews, and a Preview runs any pull request's code, so it can set cookies for `banki.dkomeza.com` and `dkomeza.com`. Production's sign-in cookie must then use the `__Host-` prefix, which a browser only accepts from the exact host, over HTTPS and without a `Domain`, so a Preview can't plant or overwrite it.
+Edge and Production share their parent domain with the Previews ([ADR-0017](docs/adr/0017-edge-follows-main-and-releases-promote-its-images-to-production.md)), and a Preview runs any pull request's code, so it can set cookies for `banki.dkomeza.com` and `dkomeza.com`. A `__Secure-` cookie set for the parent domain would reach Edge and Production too, so the sign-in cookie uses the `__Host-` prefix instead: a browser only accepts it from the exact host, over HTTPS, with `Path=/` and without a `Domain`, so a Preview can't plant or overwrite it. Every `https:` origin gets it, the Previews included.
+
+The cookie was `__Secure-better-auth.session_token` before. The API ignores that name, so every device signs in once more, and the old cookie expires on its own within 30 days.
 
 ## Long-lived installations
 
