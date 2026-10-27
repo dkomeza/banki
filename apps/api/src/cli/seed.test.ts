@@ -5,8 +5,10 @@ import {
   CardResponse,
   DeckListResponse,
   DeckResponse,
+  DeletionListResponse,
   FolderListResponse,
   FolderResponse,
+  RestoreResponse,
   SettingsResponse,
 } from "@banki/shared";
 import { SEED_IDS } from "../seed/seed-ids";
@@ -241,5 +243,55 @@ describe("banki seed's Cards", () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("BANKI_SEED_NOW isn't a time: soon");
+  });
+});
+
+describe("banki seed's Deletions", () => {
+  test("loads one Deletion of each case Recently deleted shows, newest first", async () => {
+    await setup();
+    await seed({ BANKI_SEED_NOW: "2026-10-26T12:00:00.000Z" });
+
+    const { app } = boot();
+    const cookie = cookiesFrom(await signIn(app));
+    const deletions = DeletionListResponse.parse(
+      await (await get(app, "/api/deletions", cookie)).json(),
+    );
+    const D = SEED_IDS.deletions;
+
+    expect(deletions.map((d) => d.id)).toEqual([
+      D.physics,
+      D.madrugada,
+      D.statistics,
+      D.spanish,
+      D.oldSemester,
+      D.linearAlgebra,
+      D.german,
+      D.termin,
+      D.calculus1,
+    ]);
+    const byId = (id: string) => deletions.find((d) => d.id === id);
+    expect(byId(D.physics)).toMatchObject({
+      top: { kind: "folder", name: "Physics" },
+      counts: { folders: 1, decks: 2, cards: 30 },
+    });
+    expect(byId(D.madrugada)?.deck?.id).toBe(SEED_IDS.decks.spanish);
+    expect(byId(D.calculus1)).toMatchObject({
+      path: ["Maths", "Analysis"],
+      removesAt: "2026-10-27T10:00:00.000Z",
+    });
+
+    const restore = (id: string) =>
+      app.request(`/api/deletions/${id}/restore`, {
+        method: "POST",
+        headers: { origin: ORIGIN, cookie },
+      });
+    expect(RestoreResponse.parse(await (await restore(D.linearAlgebra)).json())).toMatchObject({
+      movedToRoot: true,
+    });
+    expect(RestoreResponse.parse(await (await restore(D.spanish)).json())).toMatchObject({
+      name: "Spanish vocabulary (2)",
+      renamed: true,
+    });
+    expect((await restore(D.termin)).status).toBe(409);
   });
 });

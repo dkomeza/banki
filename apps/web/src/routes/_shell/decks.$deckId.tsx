@@ -6,6 +6,7 @@ import { CardTimeline } from "@/components/cards/card-timeline";
 import { ConfirmDelete } from "@/components/decks/confirm-delete";
 import { Cover, Stack } from "@/components/decks/cover";
 import { DeckDialog } from "@/components/decks/deck-dialog";
+import { showDeletedToast } from "@/components/deleted/toasts";
 import { DeckNotFound } from "@/components/not-found";
 import { Breadcrumb } from "@/components/folders/breadcrumb";
 import { placeRoute, usePlaceActions } from "@/components/folders/place-actions";
@@ -22,7 +23,7 @@ import {
   forgetDeck,
   updateDeck,
 } from "@/lib/decks";
-import { ensureLibrary } from "@/lib/folders";
+import { ensureLibrary, placePath } from "@/lib/folders";
 import { cn } from "@/lib/utils";
 
 // The deck page opens with the breadcrumb from "Decks" down to the Deck, then
@@ -157,6 +158,11 @@ function DeckBody({ deck }: { deck: Deck }) {
           if (!outcome.ok) return outcome.message;
           await navigate(placeRoute(deck.folderId));
           forgetDeck(queryClient, deck.id);
+          showDeletedToast(queryClient, {
+            name: deck.name,
+            deletionId: outcome.deletionId,
+            where: placePath(library.folders, deck.folderId),
+          });
           return undefined;
         }}
       />

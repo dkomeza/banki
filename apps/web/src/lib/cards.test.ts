@@ -10,7 +10,6 @@ import {
   deleteCard,
   duplicatesOf,
   hasUnsavedChanges,
-  restoreCard,
   sideErrors,
   sideProblem,
   updateCard,
@@ -140,9 +139,12 @@ describe("deleteCard", () => {
   test("takes the Card out of its Deck's list", async () => {
     const queryClient = new QueryClient();
     queryClient.setQueryData(cardsQueryOptions("d1").queryKey, [card("c2"), card("c1")]);
-    const { client } = answering(() => new Response(null, { status: 204 }));
+    const { client } = answering(() => Response.json({ deletionId: "x1" }));
 
-    expect(await deleteCard(queryClient, card("c1"), client)).toEqual({ ok: true });
+    expect(await deleteCard(queryClient, card("c1"), client)).toEqual({
+      ok: true,
+      deletionId: "x1",
+    });
     expect(queryClient.getQueryData(cardsQueryOptions("d1").queryKey)?.map((c) => c.id)).toEqual([
       "c2",
     ]);
@@ -160,26 +162,6 @@ describe("deleteCard", () => {
     expect(await deleteCard(new QueryClient(), card("c1"), unreachable())).toEqual({
       ok: false,
       message: CANT_REACH,
-    });
-  });
-});
-
-describe("restoreCard", () => {
-  test("brings the Card back", async () => {
-    const { client, sent } = answering(() => Response.json(card("c1")));
-
-    expect(await restoreCard(new QueryClient(), card("c1"), client)).toEqual({ ok: true });
-    expect(sent[0]?.url).toContain("/api/cards/c1/restore");
-  });
-
-  test("says the Deck was deleted when the API answers 404", async () => {
-    const { client } = answering(() =>
-      Response.json({ error: { code: "not_found", message: "…" } }, { status: 404 }),
-    );
-
-    expect(await restoreCard(new QueryClient(), card("c1"), client)).toEqual({
-      ok: false,
-      message: "Couldn't undo: the card's deck was deleted.",
     });
   });
 });

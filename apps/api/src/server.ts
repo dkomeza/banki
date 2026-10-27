@@ -2,6 +2,7 @@ import { getLogger } from "@logtape/logtape";
 import { createApp } from "./app";
 import { type Config, ConfigError, parseConfig } from "./config";
 import { configureLogging, SETUP_ANNOUNCEMENT_CATEGORY } from "./logging";
+import { startRemovalSweep } from "./removal-sweep";
 
 // The API process: parse the environment, configure logging, boot the app,
 // serve it, and shut down cleanly on SIGTERM/SIGINT. Startup failures exit 1.
@@ -39,7 +40,15 @@ function start() {
     }
     const server = Bun.serve({ port: config.port, fetch: booted.app.fetch });
     logger.info("Listening {port}", { port: server.port });
-    return { server, close: booted.close };
+    const app = booted;
+    const stopSweep = startRemovalSweep(() => app.removeExpiredDeletions());
+    return {
+      server,
+      close: () => {
+        stopSweep();
+        app.close();
+      },
+    };
   } catch (error) {
     logger.error("API failed to start", { error });
     booted?.close();

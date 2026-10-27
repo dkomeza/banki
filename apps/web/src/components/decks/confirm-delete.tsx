@@ -7,7 +7,8 @@ import { cn } from "@/lib/utils";
 
 /**
  * Asks before a Deck is deleted, naming it, or a Folder, given its own
- * `title`, `description` and `confirmLabel`. `onConfirm` deletes it,
+ * `title`, `description` and `confirmLabel`, and says it can be restored from
+ * Recently deleted. `onConfirm` deletes it,
  * answering a message when that failed, which shows in the dialog.
  */
 export function ConfirmDelete({
@@ -61,7 +62,8 @@ export function ConfirmDelete({
                 </span>{" "}
                 and its cards will be deleted.
               </>
-            )}
+            )}{" "}
+            You can restore it from Recently deleted for 30 days.
           </AlertDialog.Description>
           {error !== undefined && <FormError>{error}</FormError>}
           <div className="mt-2 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">

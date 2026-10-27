@@ -237,7 +237,7 @@ describe("softDelete", () => {
     const created = create("Spanish");
     const now = at("2026-10-20T12:00:00.000Z");
 
-    expect(decks.softDelete(USER, created.id, now)).toBe(true);
+    expect(decks.softDelete(USER, created.id, now)).toBeString();
 
     const row = opened.db.select().from(deck).where(eq(deck.id, created.id)).get();
     expect(row?.deletedAt).toEqual(now);
@@ -249,9 +249,9 @@ describe("softDelete", () => {
     decks.softDelete(USER, created.id);
     const theirs = create("Theirs", null, undefined, OTHER);
 
-    expect(decks.softDelete(USER, "nope")).toBe(false);
-    expect(decks.softDelete(USER, created.id)).toBe(false);
-    expect(decks.softDelete(USER, theirs.id)).toBe(false);
+    expect(decks.softDelete(USER, "nope")).toBeUndefined();
+    expect(decks.softDelete(USER, created.id)).toBeUndefined();
+    expect(decks.softDelete(USER, theirs.id)).toBeUndefined();
     expect(decks.find(OTHER, theirs.id)).toBeDefined();
   });
 });

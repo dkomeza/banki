@@ -42,6 +42,7 @@ const COMMITTED = [
   "0004_decks",
   "0005_folders",
   "0006_cards",
+  "0007_deletions",
 ];
 
 /** The tables the committed migrations create. */

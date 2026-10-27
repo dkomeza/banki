@@ -11,6 +11,7 @@ import {
 import { type QueryClient, queryOptions } from "@tanstack/react-query";
 import { type ApiClient, api } from "./api";
 import { CANT_REACH, type Deck, decksQueryOptions } from "./decks";
+import { deletionIdOf, deletionsQueryOptions } from "./deletions";
 import { ApiRequestError } from "./query";
 
 export type Folder = FolderResponse;
@@ -93,6 +94,11 @@ export function countLabel({ decks, folders }: { decks: number; folders: number 
   if (decks > 0) parts.push(counted(decks, "deck"));
   if (folders > 0) parts.push(counted(folders, "folder"));
   return parts.join(" and ");
+}
+
+/** Where a place is, from the Root: "Decks › Maths › Analysis", or "Decks". */
+export function placePath(folders: readonly Folder[], place: Place): string {
+  return [ROOT_NAME, ...pathTo(folders, place).map((f) => f.name)].join(" › ");
 }
 
 /** A place's name: the Folder's, or "Decks" for the Root. */
@@ -178,6 +184,7 @@ export async function refreshLibrary(queryClient: QueryClient) {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: foldersQueryOptions().queryKey }),
     queryClient.invalidateQueries({ queryKey: decksQueryOptions().queryKey }),
+    queryClient.invalidateQueries({ queryKey: deletionsQueryOptions().queryKey }),
   ]);
 }
 
@@ -233,16 +240,17 @@ export function renameFolder(
 }
 
 /**
- * Deletes a Folder, with everything in it, with `DELETE /api/folders/:id`. A
- * Folder that is gone already counts as deleted. Answers a message when it
- * couldn't be deleted. The lists are left as they are until
+ * Deletes a Folder, with everything in it, with `DELETE /api/folders/:id`,
+ * answering its Deletion's ID for Undo. A Folder that is gone already counts
+ * as deleted, with no Deletion to undo. Answers a message when it couldn't be
+ * deleted. The lists are left as they are until
  * {@link refreshLibrary}, so the Folder's page doesn't turn into "Folder not
  * found" before it is left.
  */
 export async function deleteFolder(
   id: string,
   client: ApiClient = api,
-): Promise<{ ok: true } | { ok: false; message: string }> {
+): Promise<{ ok: true; deletionId?: string } | { ok: false; message: string }> {
   let res: Response;
   try {
     res = await client.api.folders[":id"].$delete({ param: { id } });
@@ -252,7 +260,7 @@ export async function deleteFolder(
   if (!res.ok && res.status !== 404) {
     return { ok: false, message: "Banki couldn't delete the folder. Try again." };
   }
-  return { ok: true };
+  return { ok: true, deletionId: await deletionIdOf(res) };
 }
 
 /** The clash a move ran into: the item of its kind and name at the destination. */

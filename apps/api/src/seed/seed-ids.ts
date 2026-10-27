@@ -56,6 +56,21 @@ export const SEED_IDS = {
       "5eed0000-0000-4000-8000-0000000c0402",
     ],
   },
+  /**
+   * The Deletions Recently deleted shows, one of each case (`deletedSeed`, in
+   * seed-data.ts), newest first.
+   */
+  deletions: {
+    physics: "5eed0000-0000-4000-8000-0000000de001",
+    madrugada: "5eed0000-0000-4000-8000-0000000de002",
+    statistics: "5eed0000-0000-4000-8000-0000000de003",
+    spanish: "5eed0000-0000-4000-8000-0000000de004",
+    oldSemester: "5eed0000-0000-4000-8000-0000000de005",
+    linearAlgebra: "5eed0000-0000-4000-8000-0000000de006",
+    german: "5eed0000-0000-4000-8000-0000000de007",
+    termin: "5eed0000-0000-4000-8000-0000000de008",
+    calculus1: "5eed0000-0000-4000-8000-0000000de009",
+  },
 } as const;
 
 /**

@@ -261,6 +261,105 @@ const CARDS: readonly {
   },
 ];
 
+/**
+ * When the deleted things in the Seed data were created: after the live
+ * Folders they were in, and before any of them was deleted.
+ */
+const DELETED_CREATED_DAYS_AGO = 30;
+
+/** The fixed ID of the `n`th Folder, Deck or Card the Seed data's Deletions hold. */
+const deletedSeedId = (n: number) =>
+  `5eed0000-0000-4000-8000-${(0xd0000000000 + n).toString(16).padStart(12, "0")}`;
+
+/** Throws unless a seed delete deleted something. */
+const deleted = (id: string | undefined) => {
+  if (id === undefined) throw new Error("A seed Deletion deleted nothing");
+};
+
+/**
+ * Writes what Recently deleted shows, one Deletion of each case
+ * (`SEED_IDS.deletions`), each deleted this many hours before the seed time:
+ * Physics, a Folder with a subfolder, two Decks and their Cards (3); la
+ * madrugada, a Card alone from the live Spanish vocabulary (5.5); Statistics
+ * from Maths (26); a Spanish vocabulary from Languages, whose name the live one
+ * there has now, so it restores as "Spanish vocabulary (2)" (99); Old semester
+ * (198), from which Linear algebra was deleted on its own before (242), so it
+ * restores to the Root; German verbs (364), from which der Termin was deleted
+ * on its own before (481), so its Restore is refused; and Calculus 1, from Maths
+ * › Analysis, with one day left (698).
+ *
+ * `takenSpanish` writes the old Spanish vocabulary, deleted, and runs before
+ * the live Decks are written, since a live Deck's name can't be taken twice;
+ * `rest` writes the others once the live Decks and Cards are there.
+ */
+function deletedSeed(db: Queryable, userId: string, now: Date) {
+  const folders = createFolderRepository(db);
+  const decks = createDeckRepository(db);
+  const cards = createCardRepository(db);
+  const createdAt = new Date(now.getTime() - DELETED_CREATED_DAYS_AGO * DAY_MS);
+  const hoursAgo = (hours: number) => new Date(now.getTime() - hours * HOUR_MS);
+  let written = 0;
+
+  const card = (deckId: string, front: string, back: string) => {
+    const id = deletedSeedId(++written);
+    const created = cards.create(userId, deckId, { front, back }, { id, now: createdAt });
+    if (typeof created === "string") throw new Error(`The seed Card ${front} is ${created}`);
+    return id;
+  };
+  const deck = (name: string, folderId: string | null, cardCount: number) => {
+    const id = deletedSeedId(++written);
+    const created = decks.create(
+      userId,
+      { name, description: null, folderId },
+      { id, now: createdAt },
+    );
+    if (typeof created === "string") throw new Error(`The seed Deck ${name} is ${created}`);
+    for (let n = 1; n <= cardCount; n++) card(id, `${name} ${n}`, `Answer ${n}`);
+    return id;
+  };
+  const folder = (name: string, parentId: string | null) => {
+    const id = deletedSeedId(++written);
+    const created = folders.create(userId, { name, parentId }, { id, now: createdAt });
+    if (typeof created === "string") throw new Error(`The seed Folder ${name} is ${created}`);
+    return id;
+  };
+  const { deletions } = SEED_IDS;
+
+  return {
+    takenSpanish() {
+      const old = deck("Spanish vocabulary", SEED_IDS.folders.languages, 24);
+      deleted(decks.softDelete(userId, old, hoursAgo(99), deletions.spanish));
+    },
+
+    rest() {
+      const physics = folder("Physics", null);
+      deck("Mechanics", physics, 18);
+      deck("Optics", folder("Waves", physics), 12);
+      deleted(folders.softDelete(userId, physics, hoursAgo(3), deletions.physics));
+
+      const madrugada = card(SEED_IDS.decks.spanish, "la madrugada", "the small hours");
+      deleted(cards.softDelete(userId, madrugada, hoursAgo(5.5), deletions.madrugada));
+
+      const statistics = deck("Statistics", SEED_IDS.folders.maths, 12);
+      deleted(decks.softDelete(userId, statistics, hoursAgo(26), deletions.statistics));
+
+      const oldSemester = folder("Old semester", null);
+      const linear = deck("Linear algebra", oldSemester, 16);
+      deck("Discrete maths", oldSemester, 9);
+      deleted(decks.softDelete(userId, linear, hoursAgo(242), deletions.linearAlgebra));
+      deleted(folders.softDelete(userId, oldSemester, hoursAgo(198), deletions.oldSemester));
+
+      const german = deck("German verbs", SEED_IDS.folders.languages, 40);
+      const termin = card(german, "der Termin", "the appointment");
+      deleted(cards.softDelete(userId, termin, hoursAgo(481), deletions.termin));
+      deleted(decks.softDelete(userId, german, hoursAgo(364), deletions.german));
+
+      const calculus1 = deck("Calculus 1", SEED_IDS.folders.analysis, 0);
+      deleted(decks.softDelete(userId, calculus1, hoursAgo(698), deletions.calculus1));
+    },
+  };
+}
+
 /** Writes the Seed data for `userId` through the repositories, timed relative to `now`. */
 export function writeSeedData({
   db,
@@ -287,6 +386,9 @@ export function writeSeedData({
     if (typeof created === "string") throw new Error(`The seed Folder ${name} is ${created}`);
   }
 
+  const deletions = deletedSeed(db, userId, now);
+  deletions.takenSpanish();
+
   const decks = createDeckRepository(db);
   for (const { id, folderId, daysAgo, name, description } of DECKS) {
     const created = decks.create(
@@ -307,6 +409,8 @@ export function writeSeedData({
     );
     if (typeof created === "string") throw new Error(`The seed Card ${id} is ${created}`);
   }
+
+  deletions.rest();
 }
 
 /**
