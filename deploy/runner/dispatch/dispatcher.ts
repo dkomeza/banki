@@ -257,6 +257,12 @@ async function reconcileActive(
           deps.redact,
         );
         deps.records.finish(ended(record, "crashed", now));
+      } else if (state.type === "unposted") {
+        deps.log(
+          `The ${record.kind} Stage on ${record.issue} ended, and its supervisor went before posting how: posting it`,
+        );
+        const outcome = await session.close(record, state.unposted, deps.log);
+        deps.records.finish(ended(record, outcome, now));
       } else if (state.type === "closed" && issue !== undefined) {
         const { result } = state.closing;
         deps.log(

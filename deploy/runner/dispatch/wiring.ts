@@ -64,6 +64,7 @@ export function supervisorDeps(): SupervisorDeps {
     executeStage: (kind, issue, options) => executeStage(kind, issue, stageDeps(), options),
     redact: hide,
     now: () => new Date(),
+    sleep: (ms) => Bun.sleep(ms),
     pid: process.pid,
   };
 }

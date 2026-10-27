@@ -39,8 +39,8 @@ export async function dashboard(options: {
     compute: liveComputer({ ...deps, readLog: (path) => readTail(localLog(paths.logs, path)) }),
     now: clock,
   });
-  // Each issue's Linear data is shared as the live view is: a Linear token
-  // for it at most once every 30 seconds, whoever asks and however often.
+  // Each issue's Linear data is shared as the live view is: read from Linear
+  // at most once every 30 seconds, whoever asks and however often.
   // Only Linear's: the volume's records and logs cost no call, so they are
   // read on every request, and a run that ended shows as ended at once.
   const linear = keyedViews({
