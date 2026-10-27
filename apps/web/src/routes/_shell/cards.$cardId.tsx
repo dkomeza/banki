@@ -11,7 +11,7 @@ import { Page } from "@/components/page";
 import { OUTLINE_PILL, PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
 import { dayLabel, timeLabel } from "@/lib/card-days";
-import { type Card, cardQueryOptions, updateCard } from "@/lib/cards";
+import { type Card, cardQueryOptions, cardsQueryOptions, updateCard } from "@/lib/cards";
 import { type Deck, deckQueryOptions } from "@/lib/decks";
 import { ensureLibrary } from "@/lib/folders";
 import { cn } from "@/lib/utils";
@@ -28,7 +28,12 @@ export const Route = createFileRoute("/_shell/cards/$cardId")({
       queryClient.ensureQueryData(cardQueryOptions(cardId)),
       ensureLibrary(queryClient),
     ]);
-    if (card !== null) await queryClient.ensureQueryData(deckQueryOptions(card.deckId));
+    if (card !== null) {
+      await Promise.all([
+        queryClient.ensureQueryData(deckQueryOptions(card.deckId)),
+        queryClient.ensureQueryData(cardsQueryOptions(card.deckId)),
+      ]);
+    }
   },
   component: EditCardPage,
 });
@@ -98,6 +103,7 @@ function EditCard({ deck, card }: { deck: Deck; card: Card }) {
     <>
       <CardEditor
         deck={deck}
+        selfId={card.id}
         title="Edit card"
         dateline={writtenLabel(card.createdAt)}
         form={form}

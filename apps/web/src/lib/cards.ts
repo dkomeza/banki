@@ -1,4 +1,4 @@
-import { CARD_SIDE_MAX_LENGTH, CardListResponse, CardResponse } from "@banki/shared";
+import { CARD_SIDE_MAX_LENGTH, CardListResponse, CardResponse, frontKey } from "@banki/shared";
 import { type QueryClient, queryOptions } from "@tanstack/react-query";
 import { type ApiClient, api } from "./api";
 import { CANT_REACH, deckQueryOptions, decksQueryOptions } from "./decks";
@@ -38,6 +38,30 @@ export type Sides = { front: string; back: string };
 
 /** What each side's field says is wrong with it. */
 export type SideErrors = { front?: string; back?: string };
+
+/** Each Card's Front key, worked out once per Card the cache holds. */
+const frontKeys = new WeakMap<Card, string>();
+const keyOf = (card: Card) => {
+  let key = frontKeys.get(card);
+  if (key === undefined) {
+    key = frontKey(card.front);
+    frontKeys.set(card, key);
+  }
+  return key;
+};
+
+/**
+ * The Cards of `cards`, a Deck's live Cards, that a Card with `front` would be
+ * a Duplicate of, newest first. The Card `selfId` names, the one being edited,
+ * never matches itself, and a Front with an empty key matches nothing.
+ */
+export function duplicatesOf(front: string, cards: readonly Card[], selfId?: string): Card[] {
+  const key = frontKey(front);
+  if (key === "") return [];
+  return cards
+    .filter((card) => card.id !== selfId && keyOf(card) === key)
+    .toSorted((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0));
+}
 
 /** What's wrong with a side, if anything, before it is sent; `name` is "Front" or "Back". */
 export function sideProblem(side: string, name: "Front" | "Back"): string | undefined {
