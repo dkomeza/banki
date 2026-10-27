@@ -155,6 +155,7 @@ export function crashStop(input: {
     headSha: null,
     pushed: false,
     roundsEnded: null,
+    conflicted: null,
     routes: [],
     variants: [],
     wait: null,

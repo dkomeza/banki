@@ -147,6 +147,7 @@ Each Stage ends by writing `<wt>/.ui/stage-result.json` (gitignored; the next St
   "headSha": "4f1c0de…",
   "pushed": false,
   "roundsEnded": null,
+  "conflicted": null,
   "routes": ["/decks", "/decks/01JD…"],
   "variants": [
     {
@@ -176,5 +177,6 @@ Each Stage ends by writing `<wt>/.ui/stage-result.json` (gitignored; the next St
 | `headSha`     | The commit at the tip of origin's `<branch>` when the Stage ended                                                                               |
 | `pushed`      | Whether the Stage pushed to `<branch>`                                                                                                          |
 | `roundsEnded` | Review round only, else `null`: `true` when, on `headSha`, `claude-review` passes and every review thread is resolved                           |
+| `conflicted`  | Review round only, else `null`: `true` when the PR conflicted with `main` as the round started (`review-round.md` § 2)                          |
 | `routes`      | Design only: the paths to open, a route with params at its path from the route manifest (`scripts/ui/routes.ts`)                                |
 | `variants`    | Design only: this round's Variants, each with its key, branch, pushed `commit`, Slug, name, one-line bet, and the `?state=` names of its states |

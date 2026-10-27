@@ -439,15 +439,30 @@ describe("In Review", () => {
     expect(decision.type === "stage" && decision.why).toContain("conflicts with `main`");
   });
 
-  test("stops when a review round ran on the conflicting head and pushed nothing", () => {
+  test("stops when the review round that found the head conflicting pushed nothing", () => {
+    const tried = closing(ago(20), {
+      stage: "review-round",
+      nextStatus: STATUS.inReview,
+      headSha: HEAD,
+      pushed: false,
+      conflicted: true,
+    });
     const stop = stopOf(
-      decide(inReview({ closings: [roundOn(HEAD, false)] }), NOW, {
+      decide(inReview({ closings: [tried] }), NOW, {
         review: review({ mergeable: false, check: null }),
       }),
     );
 
     expect(stop).toMatchObject({ stage: "review-round", wait: null });
-    expect(stop.summary).toContain("conflicts with `main`");
+    expect(stop.summary).toContain("found it conflicting");
+  });
+
+  test("rebases all the same after a round on this head from before main moved", () => {
+    const decision = decide(inReview({ closings: [roundOn(HEAD, false)] }), NOW, {
+      review: review({ mergeable: false, check: null }),
+    });
+
+    expect(stageOf(decision)).toBe("review-round");
   });
 
   test("waits for claude-review while GitHub hasn't worked out whether the PR merges", () => {

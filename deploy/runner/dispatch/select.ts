@@ -295,11 +295,13 @@ function inReview(
   );
 
   // GitHub runs no `claude-review` on a PR that conflicts with `main`: a
-  // round rebases it first (`review-round.md` § 2).
+  // round rebases it first (`review-round.md` § 2). One that found it
+  // conflicting on this head and pushed nothing couldn't, so it isn't tried
+  // again; an earlier round, from before `main` moved, doesn't count.
   if (review.mergeable === false) {
-    if (round !== undefined) {
+    if (round?.result.conflicted === true) {
       return fitsNone(
-        `PR #${pr.number} conflicts with \`main\`, and a review round ran on \`${short(head)}\` and pushed nothing.`,
+        `PR #${pr.number} conflicts with \`main\`, and the review round that found it conflicting on \`${short(head)}\` pushed nothing.`,
       );
     }
     return {
@@ -430,6 +432,7 @@ function dispatcherStop(
     headSha: null,
     pushed: false,
     roundsEnded: null,
+    conflicted: null,
     routes: [],
     variants: [],
     wait,

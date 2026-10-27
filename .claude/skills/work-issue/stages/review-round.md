@@ -26,7 +26,7 @@ GitHub builds no merge for a PR that conflicts with `main`, so `claude-review` n
 3. Run the root checks (typecheck, lint, format, test), and fix what the rebase broke in the commit it broke, so each commit stays whole.
 4. Push with `git push --force-with-lease=<branch>:<head SHA> origin <branch>`, the head SHA from § 1, so a push that came meanwhile is never overwritten.
 
-The round ends there (§ 7), with `pushed` true: the push runs `claude-review` on the new head, and its findings are the next round's. Not conflicting, carry on.
+The round ends there (§ 7), with `conflicted` and `pushed` true: the push runs `claude-review` on the new head, and its findings are the next round's. A round that found the PR conflicting and pushed nothing stops the Dispatcher from trying again on that head, so `conflicted` says so on every round: `false` when the PR merges, and you carry on.
 
 ## 3. Wait for `claude-review`
 
@@ -60,4 +60,4 @@ Done when every finding you triaged has an answer, and every thread you answered
 
 ## 7. End
 
-As `stages.md` § End: the issue stays In Review. The result's `pushed` says whether the round pushed, and `roundsEnded` whether the rounds have ended on `headSha` (it can be `true` only when the round pushed nothing).
+As `stages.md` § End: the issue stays In Review. The result's `pushed` says whether the round pushed, `conflicted` whether the PR conflicted with `main` as it started (§ 2), and `roundsEnded` whether the rounds have ended on `headSha` (it can be `true` only when the round pushed nothing).
