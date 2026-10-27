@@ -15,6 +15,8 @@ import { type Card, cardQueryOptions, updateCard } from "@/lib/cards";
 import { type Deck, deckQueryOptions } from "@/lib/decks";
 import { ensureLibrary } from "@/lib/folders";
 import { cn } from "@/lib/utils";
+import { TagField } from "@/proto/tag-field";
+import { FIELD_STATES, setCardTags, tagsOf, useProtoState, useTagInput } from "@/proto/tags";
 
 // The edit-card page, at a URL that doesn't name the Deck, so it outlasts a
 // move. Save writes both sides and goes back to the Deck; Cancel goes back
@@ -65,19 +67,27 @@ const writtenLabel = (createdAt: string) => {
 function EditCard({ deck, card }: { deck: Deck; card: Card }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const state = useProtoState();
+  const preset =
+    state === "suggest" || state === "tag-error" ? FIELD_STATES.edit[state] : undefined;
+  const savedTags = tagsOf(card.id);
+  const tags = useTagInput(savedTags, preset);
   const form = useCardForm({ front: card.front, back: card.back });
-  const guard = useDiscardGuard(form.unsaved);
+  const guard = useDiscardGuard(form.unsaved || tags.tags.join() !== savedTags.join());
   const [formError, setFormError] = useState<string>();
   const saving = useRef(false);
   const toDeck = () => navigate({ to: "/decks/$deckId", params: { deckId: deck.id } });
 
   const save = async () => {
     if (saving.current) return;
+    const nextTags = tags.add(tags.draft);
+    if (nextTags === false) return;
     saving.current = true;
     setFormError(undefined);
     const outcome = await updateCard(queryClient, card.id, form.fields);
     saving.current = false;
     if (outcome.ok) {
+      setCardTags(card.id, nextTags);
       guard.release();
       await toDeck();
       return;
@@ -102,6 +112,7 @@ function EditCard({ deck, card }: { deck: Deck; card: Card }) {
         dateline={writtenLabel(card.createdAt)}
         form={form}
         onSave={() => void save()}
+        tags={<TagField input={tags} autoFocus={preset !== undefined} />}
         foot={
           <>
             <div className="flex min-w-0 flex-1 flex-col items-start gap-1">

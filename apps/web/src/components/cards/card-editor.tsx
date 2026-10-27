@@ -134,6 +134,7 @@ export function CardEditor({
   autoFocus = false,
   foot,
   after,
+  tags,
 }: {
   deck: Deck;
   title: string;
@@ -145,6 +146,8 @@ export function CardEditor({
   autoFocus?: boolean;
   foot: ReactNode;
   after?: ReactNode;
+  /** Prototype (BAN-14): the Tags field, under Front and Back. */
+  tags?: ReactNode;
 }) {
   const library = useLibrary();
   const onKeyDown = (event: KeyboardEvent) => {
@@ -197,6 +200,7 @@ export function CardEditor({
             onChange={(value) => form.set("back", value)}
             onKeyDown={onKeyDown}
           />
+          {tags}
           <div className="flex flex-col gap-3 border-t pt-5 sm:flex-row sm:items-center sm:pl-22">
             {foot}
           </div>

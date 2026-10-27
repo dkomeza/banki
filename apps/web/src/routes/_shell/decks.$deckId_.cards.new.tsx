@@ -15,6 +15,8 @@ import { type Card, createCard } from "@/lib/cards";
 import { type Deck, deckQueryOptions } from "@/lib/decks";
 import { ensureLibrary } from "@/lib/folders";
 import { cn } from "@/lib/utils";
+import { TagField } from "@/proto/tag-field";
+import { FIELD_STATES, KEPT, setCardTags, useProtoState, useTagInput } from "@/proto/tags";
 
 // The new-card page: a dated writing page for one Card after another. Save
 // creates the Card and stays, the sides cleared and the Front focused for the
@@ -47,16 +49,24 @@ const BLANK = { front: "", back: "" };
 
 function NewCard({ deck }: { deck: Deck }) {
   const queryClient = useQueryClient();
+  const state = useProtoState();
+  const preset = state === "suggest" ? FIELD_STATES.new.suggest : undefined;
+  const initialTags = state === "kept" ? KEPT.tags : (preset?.tags ?? []);
+  const tags = useTagInput(initialTags, preset);
+  // The Tags kept from the last Save don't count as unsaved.
+  const [savedTags, setSavedTags] = useState<readonly string[]>(initialTags);
   const form = useCardForm(BLANK);
-  const guard = useDiscardGuard(form.unsaved);
-  const [written, setWritten] = useState<Card[]>([]);
-  const [added, setAdded] = useState(false);
+  const guard = useDiscardGuard(form.unsaved || tags.tags.join() !== savedTags.join());
+  const [written, setWritten] = useState<Card[]>(state === "kept" ? [keptCard(deck.id)] : []);
+  const [added, setAdded] = useState(state === "kept");
   const [formError, setFormError] = useState<string>();
   const saving = useRef(false);
   const [busy, setBusy] = useState(false);
 
   const save = async () => {
     if (saving.current) return;
+    const nextTags = tags.add(tags.draft);
+    if (nextTags === false) return;
     saving.current = true;
     setBusy(true);
     setFormError(undefined);
@@ -64,6 +74,8 @@ function NewCard({ deck }: { deck: Deck }) {
     saving.current = false;
     setBusy(false);
     if (outcome.ok) {
+      setCardTags(outcome.card.id, nextTags);
+      setSavedTags(nextTags);
       setWritten((cards) => [outcome.card, ...cards]);
       form.markSaved(BLANK);
       setAdded(true);
@@ -91,7 +103,8 @@ function NewCard({ deck }: { deck: Deck }) {
         }}
         onSave={() => void save()}
         saving={busy}
-        autoFocus
+        autoFocus={state === undefined}
+        tags={<TagField input={tags} autoFocus={state === "suggest"} />}
         foot={
           <>
             <div className="min-w-0 flex-1" aria-live="polite">
@@ -164,3 +177,13 @@ function WrittenThisVisit({ cards }: { cards: readonly Card[] }) {
     </section>
   );
 }
+
+/** The Card the `kept` state shows as just written. */
+const keptCard = (deckId: string): Card => ({
+  id: "5eed0000-0000-4000-8000-0000000c0999",
+  deckId,
+  front: KEPT.card.front,
+  back: KEPT.card.back,
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+});
