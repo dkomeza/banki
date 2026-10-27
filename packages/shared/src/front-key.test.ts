@@ -63,7 +63,7 @@ describe("frontKey", () => {
       expect(frontKey("# Heading")).toBe("heading");
       expect(frontKey("### Heading")).toBe("heading");
       expect(frontKey("> quoted")).toBe("quoted");
-      expect(frontKey("- one\n* two\n+ three\n1. four\n2) five")).toBe("one two three four five");
+      expect(frontKey("- one\n* two\n+ three\n1. four")).toBe("one two three four");
       expect(frontKey("> - nested")).toBe("nested");
     });
 
@@ -72,6 +72,7 @@ describe("frontKey", () => {
       expect(frontKey("#hashtag")).toBe("#hashtag");
       expect(frontKey("a > b - c + d")).toBe("a > b - c + d");
       expect(frontKey("1.5 litres")).toBe("1.5 litres");
+      expect(same("2) mitosis", "3) mitosis")).toBe(false);
     });
 
     test("keeps a link's text", () => {
@@ -81,10 +82,18 @@ describe("frontKey", () => {
       );
     });
 
+    test("keeps a link's text when its URL holds parentheses or is spaced out", () => {
+      expect(frontKey("[derivative](https://en.wikipedia.org/wiki/Function_(mathematics))")).toBe(
+        "derivative",
+      );
+      expect(frontKey("[a]( http://x )")).toBe("a");
+    });
+
     test("keeps an image's URL", () => {
       expect(same("![](a.png)", "![](b.png)")).toBe(false);
       expect(same("![](a.png)", "![](a.png)")).toBe(true);
-      expect(frontKey("What is ![](Leaf.PNG)?")).toBe("what is ![](Leaf.PNG)?");
+      expect(frontKey("What is ![](Leaf.PNG)?")).toBe("what is ![](leaf.png)?");
+      expect(frontKey("![a_b](x_(1).png)")).toBe("![a_b](x_(1).png)");
     });
 
     test("counts a backslash-escaped mark as the character itself", () => {
@@ -120,7 +129,8 @@ describe("frontKey", () => {
     expect(frontKey("#")).toBe("");
   });
 
-  test("leaves a private-use character that isn't a placeholder alone", () => {
-    expect(frontKey("7")).toBe("7");
+  test("never reads typed placeholder characters as a placeholder", () => {
+    expect(frontKey("\uE0007\uE001")).toBe("\uE0007\uE001");
+    expect(frontKey("$x$ \uE0000\uE001")).toBe("x \uE0000\uE001");
   });
 });

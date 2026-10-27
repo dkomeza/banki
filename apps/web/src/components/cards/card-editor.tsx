@@ -175,7 +175,13 @@ export function CardEditor({
   after?: ReactNode;
 }) {
   const library = useLibrary();
-  const cards = useSuspenseQuery(cardsQueryOptions(deck.id)).data;
+  const live = useSuspenseQuery(cardsQueryOptions(deck.id)).data;
+  // A save refreshes the list before the form clears, so while it is on its
+  // way the note keeps to the list as it stood: the Card being saved would
+  // otherwise match itself for a moment.
+  const [steady, setSteady] = useState(live);
+  if (!saving && steady !== live) setSteady(live);
+  const cards = saving ? steady : live;
   const duplicates = useMemo(
     () => duplicatesOf(form.fields.front, cards ?? [], selfId),
     [form.fields.front, cards, selfId],
@@ -251,14 +257,15 @@ function DuplicateNote({ duplicates }: { duplicates: readonly Card[] }) {
   if (newest === undefined) return null;
   const more = duplicates.length - 1;
   return (
-    <p className="flex items-start gap-2 rounded-md bg-muted px-3 py-2 text-sm text-foreground">
-      <Copy aria-hidden className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+    <p className="flex items-start gap-2 rounded-md bg-muted px-3 text-sm text-foreground lg:py-2">
+      <Copy aria-hidden className="mt-3.5 size-4 shrink-0 text-muted-foreground lg:mt-0.5" />
       <span className="min-w-0 break-words">
         Already in this deck:{" "}
         <Link
           to="/cards/$cardId"
           params={{ cardId: newest.id }}
-          className="font-medium underline underline-offset-2 hover:text-primary focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+          // At least 44 px tall below 1024 px, as every control is there.
+          className="inline-flex min-h-11 items-center font-medium underline lg:inline lg:min-h-0 underline-offset-2 hover:text-primary focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         >
           {firstLine(newest.front)}
         </Link>

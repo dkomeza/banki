@@ -38,7 +38,8 @@ function inlineMathEnd(text: string, start: number): number {
 /**
  * Sets aside the math spans and the escaped marks, leaving the rest as it is.
  * A math span keeps its content without its delimiters or any whitespace; an
- * escaped mark becomes the mark itself.
+ * escaped mark becomes the mark itself. The placeholder characters themselves,
+ * when typed, are set aside too, so they never read as a placeholder.
  */
 function stashMathAndEscapes(text: string, stash: string[]): string {
   const put = (piece: string) => `${OPEN}${stash.push(piece) - 1}${CLOSE}`;
@@ -48,6 +49,11 @@ function stashMathAndEscapes(text: string, stash: string[]): string {
   while (i < text.length) {
     const char = text.charAt(i);
     const next = text[i + 1];
+    if (char === OPEN || char === CLOSE) {
+      out += put(char);
+      i++;
+      continue;
+    }
     if (char === "\\" && (next === "(" || next === "[")) {
       const end = text.indexOf(next === "(" ? "\\)" : "\\]", i + 2);
       if (end !== -1) {
@@ -91,11 +97,17 @@ const unstash = (text: string, stash: readonly string[]) =>
   text.replace(PLACEHOLDER, (placeholder, index: string) => stash[Number(index)] ?? placeholder);
 
 /** A line's leading quote, heading and list markers, any number of them nested. */
-const LINE_MARKERS = /^[ \t]*(?:(?:>|#{1,6}(?=\s|$)|[-*+](?=\s)|[0-9]+[.)](?=\s))[ \t]*)+/gm;
+const LINE_MARKERS = /^[ \t]*(?:(?:>|#{1,6}(?=\s|$)|[-*+](?=\s)|[0-9]+\.(?=\s))[ \t]*)+/gm;
 
-/** `![alt](url)` or `[text](url)`, either with an optional "title". */
-const IMAGE = /!\[[^\]]*\]\([^)\s]*(?:\s+"[^"]*")?\)/g;
-const LINK = /\[([^\]]*)\]\([^)\s]*(?:\s+"[^"]*")?\)/g;
+/**
+ * A link's destination in parentheses: its URL, which may hold balanced
+ * parentheses one deep, and an optional "title", spaces allowed around them.
+ */
+const DESTINATION = String.raw`\(\s*(?:[^()\s]|\([^()\s]*\))*(?:\s+"[^"]*")?\s*\)`;
+
+/** `![alt](url)` or `[text](url)`. */
+const IMAGE = new RegExp(String.raw`!\[[^\]]*\]` + DESTINATION, "g");
+const LINK = new RegExp(String.raw`\[([^\]]*)\]` + DESTINATION, "g");
 
 /**
  * The key two Fronts are compared by: two Cards are Duplicates when their
@@ -106,12 +118,16 @@ const LINK = /\[([^\]]*)\]\([^)\s]*(?:\s+"[^"]*")?\)/g;
  * syntax (keeping the link's text) are dropped, a backslash-escaped mark
  * counting as the mark itself and an image kept as written, URL and all;
  * every run of whitespace becomes one space, the ends trimmed; and case is
- * folded outside math and images as {@link deckNameKey} folds it, accents kept.
+ * folded outside math as {@link deckNameKey} folds it, accents kept. Math
+ * keeps its case: what is inside it counts as written (`CONTEXT.md`).
  */
 export function frontKey(front: string): string {
   const stash: string[] = [];
   let text = stashMathAndEscapes(front.normalize("NFC"), stash);
-  text = text.replace(IMAGE, (image) => `${OPEN}${stash.push(unstash(image, stash)) - 1}${CLOSE}`);
+  text = text.replace(
+    IMAGE,
+    (image) => `${OPEN}${stash.push(unstash(deckNameKey(image), stash)) - 1}${CLOSE}`,
+  );
   text = text
     .replace(LINE_MARKERS, "")
     .replace(LINK, "$1")
