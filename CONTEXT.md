@@ -32,6 +32,10 @@ _Avoid_: answer, solution
 A one-word label on Cards, such as `irregular-verb`, for finding them again: it has no effect on study or scheduling. A Card carries any number of Tags, and the same Tag on Cards in different Decks is one Tag. A Tag exists only while some Card carries it; it has no name or life of its own to rename or delete.
 _Avoid_: label, category, keyword
 
+**Image**:
+A picture of up to 5 MB that the User uploads into Banki, kept in the installation's own storage. A Card shows an Image by referring to it from its Markdown, and any number of Cards may refer to the same one. An Image is kept while any Card that isn't Removed refers to it, deleted or not; once none does, it goes for good.
+_Avoid_: attachment, upload, asset, media, picture
+
 **Duplicate**:
 A Card whose Front reads the same as another live Card's in the same Deck, ignoring case, spacing and Markdown formatting, but not what is inside math. Banki warns about a Duplicate as it is written and still saves it; an import skips it.
 _Avoid_: copy, clone, repeat
