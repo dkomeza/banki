@@ -189,6 +189,7 @@ export function useDeckFilter() {
       set({ tags: picked.includes(tag) ? picked.filter((t) => t !== tag) : [...picked, tag] }),
     setTags: (value: readonly string[]) => set({ tags: value }),
     clear: () => set({ q: "", tags: [] }),
+    setBoth: (value: string, next: readonly string[]) => set({ q: value, tags: next }),
     active: q.trim() !== "" || picked.length > 0,
   };
 }

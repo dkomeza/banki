@@ -24,6 +24,7 @@ import {
 } from "@/lib/decks";
 import { ensureLibrary } from "@/lib/folders";
 import { cn } from "@/lib/utils";
+import { useProtoState } from "@/proto/tags";
 
 // The deck page opens with the breadcrumb from "Decks" down to the Deck, then
 // the Deck's stack, its cover on top, beside the name and the whole
@@ -62,7 +63,9 @@ function DeckBody({ deck }: { deck: Deck }) {
   const library = useLibrary();
   const actions = usePlaceActions(library);
   // Null only when the Deck was deleted meanwhile, as its page is about to say.
-  const cards = useSuspenseQuery(cardsQueryOptions(deck.id)).data ?? [];
+  const all = useSuspenseQuery(cardsQueryOptions(deck.id)).data ?? [];
+  // Prototype: `?state=empty` shows the Deck as if it had no Cards.
+  const cards = useProtoState() === "empty" ? [] : all;
 
   return (
     <>
