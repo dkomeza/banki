@@ -538,6 +538,40 @@ A Preview that fails is left stopped, its link gives a 404, and its deployment s
 
 A future production at `banki.dkomeza.com` would share its parent domain with the Previews, and a Preview runs any pull request's code, so it can set cookies for `banki.dkomeza.com` and `dkomeza.com`. Production's sign-in cookie must then use the `__Host-` prefix, which a browser only accepts from the exact host, over HTTPS and without a `Domain`, so a Preview can't plant or overwrite it.
 
+## Long-lived installations
+
+Beside the Previews, two [Long-lived installations](CONTEXT.md) run on the home server ([ADR-0017](docs/adr/0017-edge-follows-main-and-releases-promote-its-images-to-production.md)): [Edge](CONTEXT.md) at `preview.banki.dkomeza.com`, which runs the newest commit of `main`, and [Production](CONTEXT.md) at `banki.dkomeza.com`, which runs the newest Release and holds the User's real data. Unlike a Preview, each keeps its data across deploys and migrates it in place.
+
+They have a Pangolin site of their own, with its own Newt, on the `banki-long-lived` network (internal, `172.31.254.0/24`, Newt at `172.31.254.2`, and the rest handed out from `172.31.254.128/25`). Edge's and Production's `web` join it; the pull agent and every Preview never do, so no Preview can reach either of them.
+
+| Path                             | What it is                                                                                    |
+| -------------------------------- | --------------------------------------------------------------------------------------------- |
+| `deploy/long-lived/compose.yaml` | The Compose project `banki-long-lived`: their Newt and the `banki-long-lived` network         |
+| `deploy/long-lived/bootstrap`    | Prints the Pangolin and DNS steps, and asks for Newt's settings and Edge's Email and Password |
+
+### Setting them up
+
+You need the server set up for Previews first ([Setting up the server](#setting-up-the-server)), and `172.31.254.0/24` unused. Then, from a clone of `main` on the home server:
+
+```sh
+deploy/long-lived/bootstrap
+docker compose -f deploy/long-lived/compose.yaml up -d
+```
+
+`bootstrap` first prints the steps to do by hand, waiting for Enter after each:
+
+- In Pangolin's dashboard, a new site of type Newt for the Long-lived installations only: never the Previews' site, never the homelab one.
+- Two HTTP resources under the `banki.dkomeza.com` domain, both on that site and with SSO off (Banki's own sign-in is the gate): `Banki Edge` at the subdomain `preview`, targeting `http`, `banki-edge-web-1`, port `8080`; and `Banki Production` at the base domain itself, targeting `http`, `banki-production-web-1`, port `8080`.
+- On Cloudflare, a DNS record for `banki.dkomeza.com` itself pointing at the VPS, which `*.banki.dkomeza.com` doesn't cover, and a VPS certificate that covers it too.
+
+Then it asks for Newt's `PANGOLIN_ENDPOINT` (the Previews' Newt's by default), ID and secret, and for Edge's Email and Password. Edge's Password is yours to pick, 8 to 128 characters, typed twice; it can't be the Previews' shared Password, which every Preview can read.
+
+It writes `long-lived-newt.env`, `edge-email` and `edge-password` to `$BANKI_PREVIEW_SECRETS`, by default `~/.config/banki-preview`, beside the pull agent's files and never changing them (a `0700` directory of `0600` files, outside the clone). It writes no `AUTH_SECRET`: the api makes its own on its first start, in the data volume a Long-lived installation keeps across deploys. Newt gets its settings as environment variables; the agent's first Edge deploy sets Edge up from `edge-email` and `edge-password`. `bootstrap` itself starts nothing.
+
+Run `bootstrap` again to change a value: each one it has is the default, so Enter keeps it, and it shows the Pangolin and DNS steps only when you ask. When Edge is running (`banki-edge-api-1`), a new Password is set in Edge first, with `banki reset-password --password-stdin`, and saved only once that worked, which signs out every Edge device; Edge's Email can't change, so reset Edge instead. After changing Newt's settings, run `docker compose -f deploy/long-lived/compose.yaml up -d` again.
+
+The two Pangolin resources are made by hand, and the agent has no business with them. Its org API key reaches the whole org, so its code is the guard: it only ever touches a resource at a Preview's host, and `preview` is a reserved Slug while the bare `banki.dkomeza.com` is no Slug at all.
+
 ## Runner
 
 The [Runner](CONTEXT.md) runs the `/work-issue` [Stages](CONTEXT.md) unattended, at night, on the home server ([ADR-0012](docs/adr/0012-stages-run-unattended-in-a-runner-container-on-the-home-server.md)). It sits beside the pull agent and shares nothing with it: no Docker socket, not on `banki-previews`, none of `~/.config/banki-preview`. Which Stage runs when is the [Dispatcher](CONTEXT.md)'s job ([ADR-0013](docs/adr/0013-linear-statuses-drive-the-stages-through-a-dispatcher-without-an-llm.md)): a plain program, no LLM, that goes by the issues' statuses, assignees and closing comments, waits on CI and the Previews without spending tokens, and starts Stages only inside a window and under a usage gate ([below](#the-dispatcher)).
@@ -852,10 +886,10 @@ better-auth's tables (`user`, `auth_session`, `auth_account`, `auth_verification
 
 Run from the repo root; CI runs the same ones.
 
-| Script                 | What it does                                                                                                                                                                                          |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bun run typecheck`    | `tsc -b` across every workspace                                                                                                                                                                       |
-| `bun run lint`         | oxlint, type-aware, warnings fail                                                                                                                                                                     |
-| `bun run format`       | oxfmt, rewriting files in place                                                                                                                                                                       |
-| `bun run format:check` | oxfmt, failing on unformatted files                                                                                                                                                                   |
-| `bun run test`         | Each workspace's tests: `bun test` (api, shared), Vitest (web), the `ui` script's under `node --test`, and the Preview agent's (`deploy/preview`) and the Runner's (`deploy/runner`) under `bun test` |
+| Script                 | What it does                                                                                                                                                                                                                                               |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bun run typecheck`    | `tsc -b` across every workspace                                                                                                                                                                                                                            |
+| `bun run lint`         | oxlint, type-aware, warnings fail                                                                                                                                                                                                                          |
+| `bun run format`       | oxfmt, rewriting files in place                                                                                                                                                                                                                            |
+| `bun run format:check` | oxfmt, failing on unformatted files                                                                                                                                                                                                                        |
+| `bun run test`         | Each workspace's tests: `bun test` (api, shared), Vitest (web), the `ui` script's under `node --test`, and the Preview agent's (`deploy/preview`), the Long-lived installations' (`deploy/long-lived`) and the Runner's (`deploy/runner`) under `bun test` |

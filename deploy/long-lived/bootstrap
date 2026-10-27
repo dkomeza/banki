@@ -1,0 +1,222 @@
+#!/usr/bin/env bash
+# The one-off setup of the Long-lived installations, Edge and Production
+# (ADR-0017): prints the Pangolin and DNS steps to do by hand, then asks for
+# their Newt's settings and Edge's Email and Password. Re-runnable: every
+# value it already has is the default, so Enter keeps it, and Pangolin, DNS
+# and Newt are left as they are.
+#
+# Everything goes to $BANKI_PREVIEW_SECRETS (default ~/.config/banki-preview),
+# beside the pull agent's files, which it never changes: the directory is 0700
+# and every file 0600. compose.yaml hands long-lived-newt.env to Newt as its
+# environment; the agent sets Edge up from edge-email and edge-password on its
+# first Edge deploy. No AUTH_SECRET: the api makes its own on first start, in
+# a data volume a Long-lived installation keeps.
+#
+# Usage: deploy/long-lived/bootstrap
+set -euo pipefail
+
+dir="${BANKI_PREVIEW_SECRETS:-$HOME/.config/banki-preview}"
+# The same limits as Banki's Password (PASSWORD_MIN_LENGTH and
+# PASSWORD_MAX_LENGTH in packages/shared).
+password_min=8
+password_max=128
+edge_api="banki-edge-api-1"
+
+die() {
+  printf 'bootstrap: %s\n' "$1" >&2
+  exit 1
+}
+
+# Checked on the nearest directory that exists, before anything is created.
+probe="$dir"
+while [ ! -d "$probe" ]; do probe="$(dirname "$probe")"; done
+if command -v git >/dev/null 2>&1 && git -C "$probe" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  die "$dir is inside a git work tree. Keep the secrets outside the clone (set BANKI_PREVIEW_SECRETS)."
+fi
+
+umask 077
+mkdir -p "$dir"
+chmod 700 "$dir"
+
+# A value file's content, or nothing when it doesn't exist yet.
+current_file() {
+  if [ -f "$dir/$1" ]; then
+    printf '%s' "$(<"$dir/$1")"
+  fi
+}
+
+# KEY's value in an env file in the secrets directory, or nothing.
+current_env() {
+  local file="$dir/$1" key="$2" line
+  [ -f "$file" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    if [ "${line%%=*}" = "$key" ]; then
+      printf '%s' "${line#*=}"
+      return 0
+    fi
+  done <"$file"
+}
+
+# Asks for a value and prints the answer, or the current value on Enter.
+# FLAGS holds `secret` for a value read without echo, whose current value is
+# never shown, and `env` for one written to long-lived-newt.env: Compose
+# interpolates `$` in it, so it would silently change the value.
+ask() {
+  local prompt="$1" current="$2" flags=" ${3:-} " secret="" env="" answer hint="" eof=""
+  if [[ "$flags" == *" secret "* ]]; then secret=1; fi
+  if [[ "$flags" == *" env "* ]]; then env=1; fi
+  if [ -n "$current" ]; then
+    if [ -n "$secret" ]; then hint=" [set, Enter keeps it]"; else hint=" [$current]"; fi
+  fi
+  while :; do
+    answer=""
+    if [ -n "$secret" ]; then
+      read -r -s -p "$prompt$hint: " answer || eof=1
+      printf '\n' >&2
+    else
+      read -r -p "$prompt$hint: " answer || eof=1
+    fi
+    answer="${answer:-$current}"
+    if [ -z "$answer" ]; then
+      printf 'A value is needed.\n' >&2
+    elif [[ "$answer" =~ [[:space:]\'\"] ]]; then
+      printf 'No spaces or quotes, please.\n' >&2
+    elif [ -n "$env" ] && [[ "$answer" == *'$'* ]]; then
+      printf 'No $, please: Compose would read it as a variable.\n' >&2
+    else
+      printf '%s' "$answer"
+      return 0
+    fi
+    [ -z "$eof" ] || die "no answer for: $prompt"
+  done
+}
+
+# Asks for Edge's Password, hidden and twice, and prints it, or the current
+# one on Enter. Any characters, but never the Previews' shared Password.
+ask_password() {
+  local current="$1" previews="$2" first second hint="" eof=""
+  if [ -n "$current" ]; then hint=" [set, Enter keeps it]"; fi
+  while :; do
+    first=""
+    second=""
+    IFS= read -r -s -p "Edge's Password, $password_min to $password_max characters$hint: " first || eof=1
+    printf '\n' >&2
+    if [ -z "$first" ] && [ -n "$current" ]; then
+      printf '%s' "$current"
+      return 0
+    fi
+    if [ -z "$first" ]; then
+      printf 'A value is needed.\n' >&2
+    elif [ "${#first}" -lt "$password_min" ] || [ "${#first}" -gt "$password_max" ]; then
+      printf 'The Password must be %s to %s characters.\n' "$password_min" "$password_max" >&2
+    elif [ -n "$previews" ] && [ "$first" = "$previews" ]; then
+      printf "That is the Previews' Password, which every Preview can read. Pick another.\n" >&2
+    else
+      IFS= read -r -s -p "Edge's Password again: " second || eof=1
+      printf '\n' >&2
+      if [ "$first" = "$second" ]; then
+        printf '%s' "$first"
+        return 0
+      fi
+      printf "The two don't match.\n" >&2
+    fi
+    [ -z "$eof" ] || die "no answer for: Edge's Password"
+  done
+}
+
+# Waits for Enter after a step done by hand.
+wait_for_enter() {
+  local _
+  read -r -p "Press Enter once that's done. " _ || die "no answer to a Pangolin or DNS step"
+  printf '\n' >&2
+}
+
+# Writes a file in place (the same inode).
+write() {
+  printf '%s\n' "$2" >"$dir/$1"
+  chmod 600 "$dir/$1"
+}
+
+# Whether Edge's api container is running. No docker CLI means no Edge.
+edge_running() {
+  command -v docker >/dev/null 2>&1 &&
+    [ "$(docker inspect --format '{{.State.Running}}' "$edge_api" 2>/dev/null)" = "true" ]
+}
+
+show_steps() {
+  cat >&2 <<'EOF'
+1. In Pangolin's dashboard, add a new site of type Newt, for the Long-lived
+   installations only: never the Previews' site, never the homelab one.
+   Note the Newt ID and secret it shows.
+EOF
+  wait_for_enter
+  cat >&2 <<'EOF'
+2. Add two HTTP resources under the banki.dkomeza.com domain, both on that new
+   site and both with SSO off (Banki's own sign-in is the gate):
+     Banki Edge        at subdomain preview  ->  http  banki-edge-web-1        port 8080
+     Banki Production  at the base domain    ->  http  banki-production-web-1  port 8080
+EOF
+  wait_for_enter
+  cat >&2 <<'EOF'
+3. On Cloudflare, add a DNS record for banki.dkomeza.com itself pointing at the
+   VPS: *.banki.dkomeza.com doesn't cover it. Check that the VPS's certificate
+   covers banki.dkomeza.com too.
+EOF
+  wait_for_enter
+}
+
+printf 'Writing the Long-lived installations settings to %s\n\n' "$dir" >&2
+
+if [ -f "$dir/long-lived-newt.env" ]; then
+  read -r -p "Show the Pangolin and DNS steps again? [y/N]: " again || again=""
+  case "$again" in
+    y | Y | yes | YES | Yes) show_steps ;;
+  esac
+else
+  show_steps
+fi
+
+running=""
+if edge_running; then running=1; fi
+
+current_endpoint="$(current_env long-lived-newt.env PANGOLIN_ENDPOINT)"
+newt_endpoint="$(ask "Newt PANGOLIN_ENDPOINT (e.g. https://pangolin.example.com)" "${current_endpoint:-$(current_env newt.env PANGOLIN_ENDPOINT)}" env)"
+newt_id="$(ask "Newt ID" "$(current_env long-lived-newt.env NEWT_ID)" env)"
+newt_secret="$(ask "Newt secret" "$(current_env long-lived-newt.env NEWT_SECRET)" "secret env")"
+
+current_email="$(current_file edge-email)"
+edge_email="$(ask "Edge's Email (your own, say)" "$current_email")"
+# Edge keeps its User, and Banki has no command to change its Email.
+while [ -n "$running" ] && [ -n "$current_email" ] && [ "$edge_email" != "$current_email" ]; do
+  printf "Edge is running, and its Email can't change. Enter keeps it; to use another, reset Edge instead.\n" >&2
+  edge_email="$(ask "Edge's Email (your own, say)" "$current_email")"
+done
+
+current_password="$(current_file edge-password)"
+edge_password="$(ask_password "$current_password" "$(current_file preview-password)")"
+
+# Applied to a running Edge first, so the file and Edge never disagree: when
+# it fails, nothing is written. The Password goes on stdin only.
+applied=""
+if [ -n "$running" ] && [ "$edge_password" != "$current_password" ]; then
+  printf "\nSetting Edge's new Password in %s...\n" "$edge_api" >&2
+  if ! printf '%s\n' "$edge_password" |
+    docker exec -i "$edge_api" bun run banki reset-password --password-stdin >&2; then
+    die "couldn't set Edge's new Password, so nothing was saved. Edge keeps its old one."
+  fi
+  applied=1
+fi
+
+write long-lived-newt.env "PANGOLIN_ENDPOINT=$newt_endpoint
+NEWT_ID=$newt_id
+NEWT_SECRET=$newt_secret"
+write edge-email "$edge_email"
+write edge-password "$edge_password"
+
+printf '\nSaved long-lived-newt.env, edge-email and edge-password to %s.\n' "$dir" >&2
+if [ -n "$applied" ]; then
+  printf "Edge has the new Password, and every Edge device is signed out.\n" >&2
+elif [ -z "$running" ]; then
+  printf "No Edge is running: the agent's first Edge deploy sets it up with this Email and Password.\n" >&2
+fi
+printf '\nStart or update Newt with:\n  docker compose -f deploy/long-lived/compose.yaml up -d\n' >&2
