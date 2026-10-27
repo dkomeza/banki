@@ -110,6 +110,10 @@ _Avoid_: staging, main preview, nightly
 The installation at `banki.dkomeza.com` that holds the User's real data and runs the newest Release, once Edge has run that Release's commit.
 _Avoid_: prod, live
 
+**Long-lived installation**:
+Edge or Production: an installation that keeps its data across deploys, unlike a Preview, and that no Preview can reach.
+_Avoid_: installation (alone, which a Preview is too), permanent deployment
+
 **Release**:
 A numbered version of Banki, `v0.1.0` and up, cut when the Maintainer merges the Release PR. Its images are the very images Edge ran, and its notes say what changed for the User.
 _Avoid_: build, deploy
