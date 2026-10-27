@@ -68,6 +68,8 @@ export type ReviewFacts = {
   openThreads: number;
   /** The newest `preview` deployment on the head SHA. */
   preview: Deployment | null;
+  /** Whether GitHub can merge the PR into `main`: false when they conflict, null while it works it out. */
+  mergeable: boolean | null;
 };
 
 /** Each Variant's newest `slug-preview` deployment at its commit, by Slug. */
@@ -283,6 +285,30 @@ function inReview(
       .reduce((latest, closing) => later(latest, closing.at), pr.createdAt);
   const pushed = later(pushedAt, replyAt);
 
+  // A round that pushed nothing is on this SHA if it says so, or if it came
+  // after this SHA's push: its headSha is the Stage's own, and may be wrong.
+  const round = issue.closings.findLast(
+    (closing) =>
+      ran(closing, "review-round") &&
+      !closing.result.pushed &&
+      (sameSha(closing.result.headSha, head) || closing.at > pushedAt),
+  );
+
+  // GitHub runs no `claude-review` on a PR that conflicts with `main`: a
+  // round rebases it first (`review-round.md` § 2).
+  if (review.mergeable === false) {
+    if (round !== undefined) {
+      return fitsNone(
+        `PR #${pr.number} conflicts with \`main\`, and a review round ran on \`${short(head)}\` and pushed nothing.`,
+      );
+    }
+    return {
+      type: "stage",
+      stage: "review-round",
+      why: `PR #${pr.number} conflicts with \`main\`, so it is rebased`,
+    };
+  }
+
   const { check } = review;
   if (check === null || check.status !== "completed") {
     if (now.getTime() > Date.parse(pushed) + DEADLINES_MS["claude-review"]) {
@@ -314,14 +340,6 @@ function inReview(
     );
   }
 
-  // A round that pushed nothing is on this SHA if it says so, or if it came
-  // after this SHA's push: its headSha is the Stage's own, and may be wrong.
-  const round = issue.closings.findLast(
-    (closing) =>
-      ran(closing, "review-round") &&
-      !closing.result.pushed &&
-      (sameSha(closing.result.headSha, head) || closing.at > pushedAt),
-  );
   const findings =
     review.summary !== null && sameSha(review.summary.sha, head)
       ? review.summary.findings.filter(

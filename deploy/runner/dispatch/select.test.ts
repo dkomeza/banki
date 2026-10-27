@@ -71,6 +71,7 @@ function review(fields: Partial<ReviewFacts> = {}): ReviewFacts {
     summary: { sha: HEAD.slice(0, 7), findings: [] },
     openThreads: 0,
     preview: { state: "success", description: "", url: "https://pr-12.banki.dkomeza.com" },
+    mergeable: true,
     ...fields,
   };
 }
@@ -427,6 +428,32 @@ describe("In Review", () => {
       }).type,
     ).toBe("wait");
     expect(decide(inReview(), NOW, { review: review({ check: null }) }).type).toBe("wait");
+  });
+
+  // GitHub builds no merge for a PR that conflicts with main, so claude-review never runs on it.
+  test("is a review round, to rebase, when the PR conflicts with main, however long ago the push", () => {
+    const conflicting = review({ mergeable: false, check: null, pushedAt: ago(120) });
+    const decision = decide(inReview(), NOW, { review: conflicting });
+
+    expect(stageOf(decision)).toBe("review-round");
+    expect(decision.type === "stage" && decision.why).toContain("conflicts with `main`");
+  });
+
+  test("stops when a review round ran on the conflicting head and pushed nothing", () => {
+    const stop = stopOf(
+      decide(inReview({ closings: [roundOn(HEAD, false)] }), NOW, {
+        review: review({ mergeable: false, check: null }),
+      }),
+    );
+
+    expect(stop).toMatchObject({ stage: "review-round", wait: null });
+    expect(stop.summary).toContain("conflicts with `main`");
+  });
+
+  test("waits for claude-review while GitHub hasn't worked out whether the PR merges", () => {
+    expect(decide(inReview(), NOW, { review: review({ mergeable: null, check: null }) }).type).toBe(
+      "wait",
+    );
   });
 
   test("stops when claude-review hasn't finished 45 minutes after the push", () => {

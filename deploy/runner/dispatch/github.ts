@@ -195,6 +195,7 @@ export function github(token: () => Promise<string>, options: { fetch?: Fetch } 
         summary: null,
         openThreads: 0,
         preview: null,
+        mergeable: null,
       };
       if (pull === undefined) return empty;
       const number = asNumber(pull.number, "pull.number");
@@ -206,6 +207,9 @@ export function github(token: () => Promise<string>, options: { fetch?: Fetch } 
         createdAt: asString(pull.created_at, "pull.created_at"),
       };
       if (!pr.open) return { ...empty, pr };
+      // Only a single pull says whether it merges, once GitHub has worked it out.
+      const single = asObject(await get(`/repos/${REPO}/pulls/${number}`), "pull");
+      const mergeable = typeof single.mergeable === "boolean" ? single.mergeable : null;
 
       const suites = (
         await pages(
@@ -267,6 +271,7 @@ export function github(token: () => Promise<string>, options: { fetch?: Fetch } 
                 ...(await newestStatus(asNumber(newest.id, "deployment.id"))),
                 createdAt: asString(newest.created_at, "deployment.created_at"),
               },
+        mergeable,
       };
     },
 

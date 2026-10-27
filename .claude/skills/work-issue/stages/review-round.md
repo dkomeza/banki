@@ -17,11 +17,22 @@ Its check fails while a blocker or major finding is open. Read every comment by 
 
 As `stages.md` § Start. The head SHA is origin's `<branch>`, and `gh pr view <branch> --json number,headRefOid` shows the same commit.
 
-## 2. Wait for `claude-review`
+## 2. Rebase on `main`, when the PR conflicts
 
-Wait until the `claude-review` check has finished on the head SHA (`stages.md` § Waits; `gh pr checks <pr>`). Headless, the Dispatcher starts the Stage only once it has, so the wait ends at once. Live, when it fails, the options are to wait longer or to re-run the check (`gh run rerun`).
+GitHub builds no merge for a PR that conflicts with `main`, so `claude-review` never runs on it. `gh pr view <pr> --json mergeable` says `CONFLICTING` then (`UNKNOWN` while GitHub works it out: ask again in a minute). Headless, the Dispatcher starts a round on a conflicting PR for this alone.
 
-## 3. Triage
+1. In `<wt>`, `git fetch origin` and `git rebase origin/main`. Rebase, never merge: the branch stays a line of its own commits on top of `main`.
+2. Resolve each conflict so both sides' intent survives: what `main` changed and what the issue's commits do. A conflict only the Maintainer can settle (two behaviours that can't both hold) is a spec question: `git rebase --abort` and stop (`stages.md` § Questions and stops).
+3. Run the root checks (typecheck, lint, format, test), and fix what the rebase broke in the commit it broke, so each commit stays whole.
+4. Push with `git push --force-with-lease=<branch>:<head SHA> origin <branch>`, the head SHA from § 1, so a push that came meanwhile is never overwritten.
+
+The round ends there (§ 7), with `pushed` true: the push runs `claude-review` on the new head, and its findings are the next round's. Not conflicting, carry on.
+
+## 3. Wait for `claude-review`
+
+Wait until the `claude-review` check has finished on the head SHA (`stages.md` § Waits; `gh pr checks <pr>`). Headless, the Dispatcher starts a round that isn't for a rebase only once it has, so the wait ends at once. Live, when it fails, the options are to wait longer or to re-run the check (`gh run rerun`).
+
+## 4. Triage
 
 Triage the `new` and `open` findings from the summary comment, and the unresolved threads `claude[bot]` started, as in `implement.md` § 5.
 
@@ -32,11 +43,11 @@ The rounds have stopped converging, and that is a stop on the Maintainer (`stage
 
 Done when every finding has a verdict.
 
-## 4. Fix
+## 5. Fix
 
 If nothing was confirmed, the round pushes nothing. Otherwise a fresh `implementer` fixes them (`stages.md` § Builders), its prompt carrying `<wt>`, the spec, the confirmed findings and any spec answers (on a UI issue, `ui.md` § Step 3 too). Verify green yourself in `<wt>`, run `bun run ui down`, and push **once**: every push re-runs `claude-review`, so the next round waits for it again. When the round's fixes touched `apps/web/`, refresh the shots (`ui.md` § Refreshing the shots).
 
-## 5. Answer the findings
+## 6. Answer the findings
 
 Answer each finding you triaged, a fixed one with the commit that fixed it, a dismissed one with the reason:
 
@@ -47,6 +58,6 @@ The gate weighs these answers as arguments on its next run, but only the Maintai
 
 Done when every finding you triaged has an answer, and every thread you answered is resolved.
 
-## 6. End
+## 7. End
 
 As `stages.md` § End: the issue stays In Review. The result's `pushed` says whether the round pushed, and `roundsEnded` whether the rounds have ended on `headSha` (it can be `true` only when the round pushed nothing).

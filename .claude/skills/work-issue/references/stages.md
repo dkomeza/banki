@@ -53,7 +53,7 @@ Every wait has a deadline. Live, it is a background `until` loop; headless, the 
 | ---------------------------------------------------------------------- | ----------------------------------------- | ----------------------------------------------------------- | --------------------------------------- |
 | Each Variant's Slug Preview is claimed (`design.md` § 3)               | Its deployment exists                     | No deployment, and the dispatch's `slug-preview` run failed | 15 min after the dispatch               |
 | Each Variant's Slug Preview is up (`ui.md` § Live mode: Design Review) | Its newest deployment status is `success` | `failure` or `inactive`                                     | 60 min after the design closing comment |
-| `claude-review` on the head SHA (`review-round.md` § 2)                | Its check has finished                    | `claude-review` cancelled or skipped on the head SHA        | 45 min after the push                   |
+| `claude-review` on the head SHA (`review-round.md` § 3)                | Its check has finished                    | `claude-review` cancelled or skipped on the head SHA        | 45 min after the push                   |
 | The head SHA's PR Preview is up (`SKILL.md` § Live mode)               | Its newest deployment status is `success` | `failure` or `inactive`                                     | 60 min after the push                   |
 
 ## Builders
@@ -76,12 +76,14 @@ A Stage that runs again after a stop picks up from what origin holds, and from t
 - **on `<branch>`**: `git rev-parse --abbrev-ref HEAD` prints `<branch>`;
 - **dirty**: `git status --porcelain` prints anything;
 - **ahead**: `git rev-list origin/<branch>..HEAD` lists commits;
-- **behind**: `git rev-list HEAD..origin/<branch>` lists commits.
+- **behind**: `git rev-list HEAD..origin/<branch>` lists commits;
+- **rebased under**: ahead, but every local commit was on origin once, and a review round has rebased origin since (`review-round.md` § 2): `git rev-list HEAD --not $(git reflog --format=%H origin/<branch>)` lists nothing.
 
 | State                                                                                      | What to do                                                      |
 | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------- |
 | On `<branch>`, clean, not ahead                                                            | `git merge --ff-only origin/<branch>`                           |
 | On `<branch>`, clean, ahead, not behind, and the last result is this Stage's `stopped` one | Resume: keep the local commits its `keptCommits` names          |
+| On `<branch>`, clean, rebased under                                                        | `git reset --hard origin/<branch>`                              |
 | Anything else: dirty, another branch, ahead and behind, or ahead without such a stop       | Stop, saying which: the worktree holds work origin doesn't have |
 
 Done when `HEAD` is on `<branch>`, `git status --porcelain` prints nothing, `git rev-list HEAD..origin/<branch>` lists nothing, and `git rev-list origin/<branch>..HEAD` lists nothing, or only a resumed stop's commits.
