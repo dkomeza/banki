@@ -37,6 +37,8 @@ export type StageResult = {
   headSha: string | null;
   pushed: boolean;
   roundsEnded: boolean | null;
+  /** Review round only: whether the PR conflicted with `main` as the round started. */
+  conflicted: boolean | null;
   routes: string[];
   variants: Variant[];
   /** Only on a stop the Dispatcher made when a wait failed. */
@@ -81,6 +83,7 @@ export function parseResult(value: unknown): StageResult {
     headSha: optionalString(body.headSha),
     pushed: body.pushed === true,
     roundsEnded: typeof body.roundsEnded === "boolean" ? body.roundsEnded : null,
+    conflicted: typeof body.conflicted === "boolean" ? body.conflicted : null,
     routes: strings(body.routes),
     variants: Array.isArray(body.variants)
       ? body.variants.filter(isRecord).flatMap((variant) => {
