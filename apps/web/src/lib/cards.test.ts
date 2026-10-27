@@ -8,6 +8,7 @@ import {
   cardsQueryOptions,
   createCard,
   deleteCard,
+  duplicatesOf,
   hasUnsavedChanges,
   sideErrors,
   sideProblem,
@@ -170,5 +171,49 @@ describe("cardCountLabel", () => {
     expect(cardCountLabel(0)).toBe("No cards");
     expect(cardCountLabel(1)).toBe("1 card");
     expect(cardCountLabel(12)).toBe("12 cards");
+  });
+});
+
+/** A Card with `front`, created at `createdAt`. */
+const at = (id: string, front: string, createdAt: string): Card => ({
+  ...card(id, front),
+  createdAt,
+});
+
+describe("duplicatesOf", () => {
+  const older = at("c1", "el desayuno", "2026-10-01T10:00:00.000Z");
+  const newest = at("c3", "**El** desayuno", "2026-10-03T10:00:00.000Z");
+  const middle = at("c2", "El  Desayuno\n", "2026-10-02T10:00:00.000Z");
+  const other = at("c4", "la cena", "2026-10-04T10:00:00.000Z");
+  const deck = [other, middle, older, newest];
+
+  test("finds the Cards whose Front reads the same, newest first", () => {
+    expect(duplicatesOf("El  Desayuno", deck).map((c) => c.id)).toEqual(["c3", "c2", "c1"]);
+  });
+
+  test("finds nothing once the Front no longer matches", () => {
+    expect(duplicatesOf("el desayuno grande", deck)).toEqual([]);
+    expect(duplicatesOf("el desayun", deck)).toEqual([]);
+  });
+
+  test("never matches the Card being edited with itself", () => {
+    expect(duplicatesOf("la cena", deck, "c4")).toEqual([]);
+    expect(duplicatesOf("el desayuno", deck, "c3").map((c) => c.id)).toEqual(["c2", "c1"]);
+  });
+
+  test("never matches with a Front whose key is empty, even against another such Front", () => {
+    expect(duplicatesOf("**", [at("c5", "_", "2026-10-05T10:00:00.000Z")])).toEqual([]);
+    expect(duplicatesOf("   ", deck)).toEqual([]);
+  });
+
+  test("never matches a deleted Card: deleting takes it out of the Deck's list", async () => {
+    const queryClient = new QueryClient();
+    const listKey = cardsQueryOptions("d1").queryKey;
+    queryClient.setQueryData(listKey, [newest, older]);
+    const { client } = answering(() => new Response(null, { status: 204 }));
+    vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue();
+    await deleteCard(queryClient, newest, client);
+    const live = queryClient.getQueryData(listKey) ?? [];
+    expect(duplicatesOf("el desayuno", live).map((c) => c.id)).toEqual(["c1"]);
   });
 });

@@ -44,7 +44,7 @@ describe("a Stage log's page", () => {
         issue: "BAN-11",
         file: "a.jsonl",
         lines: shownLines("a.jsonl", LINES),
-        skipped: 0,
+        leftOutBytes: 0,
         offset: 100,
         running: false,
         attempt: {
@@ -72,25 +72,27 @@ describe("a Stage log's page", () => {
     expect(text).not.toContain("/live.js");
   });
 
-  test("says how many earlier lines it left out, when it shows only the last ones", () => {
+  test("says how much of the log comes before the lines it shows, when it leaves that out", () => {
     const text = logPage(
       {
         issue: "BAN-11",
         file: "a.jsonl",
         lines: ["claude exited 0"],
-        skipped: 31_337,
+        leftOutBytes: 25_165_824,
         offset: 9,
         running: false,
       },
       "UTC",
     );
 
-    expect(text).toContain("The log's first 31337 lines are left out");
+    expect(text).toContain(
+      "The log's earlier part is left out: 25.2 MB before these lines, the last 2000 at most.",
+    );
   });
 
   test("streams a running Stage's log from where the page ends", () => {
     const text = logPage(
-      { issue: "BAN-12", file: "b.jsonl", lines: [], skipped: 0, offset: 4096, running: true },
+      { issue: "BAN-12", file: "b.jsonl", lines: [], leftOutBytes: 0, offset: 4096, running: true },
       "UTC",
     );
 

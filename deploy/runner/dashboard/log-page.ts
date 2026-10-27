@@ -1,6 +1,6 @@
 import { percent } from "../dispatch/gate";
 import { logLines } from "../dispatch/stage-log";
-import { dollars, duration, markup, issueLink, page, time } from "./html";
+import { dollars, duration, markup, issueLink, megabytes, page, time } from "./html";
 import { PAGE_LINES } from "./files";
 import { outcome } from "./parts";
 import { closingDetail, type Entry } from "./timeline";
@@ -23,8 +23,8 @@ export type LogView = {
   file: string;
   /** The lines shown, as `shownLines` makes them, of the log's last lines. */
   lines: string[];
-  /** How many of the log's lines came before those, left out. */
-  skipped: number;
+  /** How many of the log's bytes come before those lines, left out. */
+  leftOutBytes: number;
   /** Where in the file the page ends, in bytes: the stream goes on from there. */
   offset: number;
   /** Whether this is the log of a Stage's run going on now. */
@@ -74,7 +74,7 @@ export function logPage(view: LogView, tz: string | undefined): string {
       }
       <section>
         <h2>Events</h2>
-        ${view.skipped === 0 ? "" : markup`<p class="meta">The log's first ${view.skipped} lines are left out: only its last ${PAGE_LINES} at most are shown here.</p>`}
+        ${view.leftOutBytes === 0 ? "" : markup`<p class="meta">The log's earlier part is left out: ${megabytes(view.leftOutBytes)} before these lines, the last ${PAGE_LINES} at most.</p>`}
 ${view.lines.length === 0 && !view.running ? markup`<p class="empty">The log is empty.</p>` : lines}
       </section>
       <section>

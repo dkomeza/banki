@@ -80,6 +80,12 @@ export function duration(ms: number): string {
 
 export const dollars = (usd: number): string => `$${usd.toFixed(2)}`;
 
+/** A size in bytes: `25.2 MB`, or `340 kB` under a megabyte. */
+export function megabytes(bytes: number): string {
+  if (bytes < 1_000_000) return `${Math.max(1, Math.round(bytes / 1_000))} kB`;
+  return `${(bytes / 1_000_000).toFixed(1)} MB`;
+}
+
 export type PageOptions = {
   title: string;
   /** The page's main content. */

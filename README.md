@@ -188,15 +188,15 @@ npx --no-install playwright-cli -s=my-session close
 
 The API reads these environment variables at startup and exits with code 1, listing what's wrong, if any is invalid. An empty variable counts as unset.
 
-| Variable         | Default                 | What it sets                                                                                                                                                                                                                                                             |
-| ---------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `DATA_DIR`       | `/data`                 | The data directory. A relative path is resolved against the working directory.                                                                                                                                                                                           |
-| `PORT`           | `3000`                  | The port the API listens on, 1 to 65535                                                                                                                                                                                                                                  |
-| `LOG_FORMAT`     | `json`                  | `json` for JSON lines, `pretty` for terminal-friendly text                                                                                                                                                                                                               |
-| `LOG_LEVEL`      | `info`                  | The lowest level logged: `debug`, `info`, `warning` or `error`. Health checks log at `debug`                                                                                                                                                                             |
-| `ORIGIN`         | `http://localhost:5173` | The address the User opens Banki at: an `http:` or `https:` URL with no path, query or hash. Signing in is refused from any other origin, and the sign-in cookie is `Secure` exactly when it is `https:`. The default is the Vite dev server                             |
-| `AUTH_SECRET`    | none                    | The secret sign-in cookies are signed with, at least 32 characters. Unset, the API generates one into `<DATA_DIR>/auth-secret` on the first start. Changing it signs out every device                                                                                    |
-| `ENCRYPTION_KEY` | none                    | The key the stored OpenRouter API key is encrypted with: 32 random bytes as base64url (43 characters). Unset, the API generates one into `<DATA_DIR>/encryption-key` on the first start. Changing it makes the stored API key unreadable, and it has to be entered again |
+| Variable         | Default                 | What it sets                                                                                                                                                                                                                                                                    |
+| ---------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATA_DIR`       | `/data`                 | The data directory. A relative path is resolved against the working directory.                                                                                                                                                                                                  |
+| `PORT`           | `3000`                  | The port the API listens on, 1 to 65535                                                                                                                                                                                                                                         |
+| `LOG_FORMAT`     | `json`                  | `json` for JSON lines, `pretty` for terminal-friendly text                                                                                                                                                                                                                      |
+| `LOG_LEVEL`      | `info`                  | The lowest level logged: `debug`, `info`, `warning` or `error`. Health checks log at `debug`                                                                                                                                                                                    |
+| `ORIGIN`         | `http://localhost:5173` | The address the User opens Banki at: an `http:` or `https:` URL with no path, query or hash. Signing in is refused from any other origin, and the sign-in cookie is `__Host-` (`Secure`, `Path=/`, no `Domain`) exactly when it is `https:`. The default is the Vite dev server |
+| `AUTH_SECRET`    | none                    | The secret sign-in cookies are signed with, at least 32 characters. Unset, the API generates one into `<DATA_DIR>/auth-secret` on the first start. Changing it signs out every device                                                                                           |
+| `ENCRYPTION_KEY` | none                    | The key the stored OpenRouter API key is encrypted with: 32 random bytes as base64url (43 characters). Unset, the API generates one into `<DATA_DIR>/encryption-key` on the first start. Changing it makes the stored API key unreadable, and it has to be entered again        |
 
 The data directory holds everything Banki stores:
 
@@ -254,7 +254,7 @@ BANKI_ORIGIN=http://192.168.1.20:9000
 BANKI_ORIGIN=https://banki.example.com
 ```
 
-With an `https:` origin the sign-in cookie is `Secure` and `web` sends HSTS (see [Security headers](#security-headers)). A sign-in from the wrong address fails, and the API logs a warning naming both addresses.
+With an `https:` origin the sign-in cookie is `__Host-better-auth.session_token`, which is `Secure`, has `Path=/` and has no `Domain` (see [Sign-in cookies beside the Previews](#sign-in-cookies-beside-the-previews)), and `web` sends HSTS (see [Security headers](#security-headers)). A sign-in from the wrong address fails, and the API logs a warning naming both addresses.
 
 ### HTTPS
 
@@ -349,19 +349,33 @@ Two scripts check the images and the stack. Both run on demand only, not in CI.
 
 For Previews, every push to a pull request from a branch of this repo builds both images for `linux/amd64` on GitHub's runners and pushes them to GHCR as `ghcr.io/<owner>/banki-api` and `ghcr.io/<owner>/banki-web` (`.github/workflows/preview-images.yml`). The home server only pulls them, so no PR code runs there outside a Preview container. Each push adds one version per package, tagged:
 
-| Tag            | What it marks                                                                                                                                                                                                                        |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `pr-<N>`       | The newest push to PR `<N>`; it moves on every push                                                                                                                                                                                  |
-| `sha-<sha>`    | The push of the PR's head commit `<sha>` (the full SHA)                                                                                                                                                                              |
-| `pr-<N>-<sha>` | The same push. The pull agent waits for it and pulls by its digest, and cleanup finds every version PR `<N>` ever pushed by it. Only PR `<N>` pushes it, while two PRs on one commit share `sha-<sha>`, and one's cleanup deletes it |
+| Tag            | What it marks                                                                                                                                                                                           |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pr-<N>`       | The newest push to PR `<N>`; it moves on every push                                                                                                                                                     |
+| `pr-<N>-<sha>` | The push of the PR's head commit `<sha>` (the full SHA). The pull agent waits for it and pulls by its digest, and cleanup finds every version PR `<N>` ever pushed by it, since only PR `<N>` pushes it |
 
-When a PR closes, cleanup sweeps both packages and deletes every version of every PR that is no longer open: a version with a `pr-<M>` or `pr-<M>-…` tag whose PR `<M>` is closed, and with no tags but `pr-…` and `sha-…` ones. A version with any other tag, such as a release's `v1.0.0` or `latest`, is never touched. GHCR refuses to delete a package's last tagged version, so when a closed PR's version is the only one left, it stays until a later cleanup sweeps it after another PR has pushed, or for good once a release version lives in the same package. Pull requests from forks and Dependabot get no images.
+When a PR closes, cleanup sweeps both packages and deletes every version of every PR that is no longer open: a version with a `pr-<M>` or `pr-<M>-…` tag whose PR `<M>` is closed, and with no tags but `pr-…` and `sha-…` ones (PR images were once tagged `sha-<sha>` too). A version with any other tag, such as a release's `v1.0.0` or `latest`, is never touched, and neither is a [main build](#main-images), which never has a `pr-<M>` tag. GHCR refuses to delete a package's last tagged version, and a public version downloaded more than 5000 times, so such a version stays: when a closed PR's version is the only one left, until a later cleanup sweeps it after another PR has pushed, or for good once a release version lives in the same package. Pull requests from forks and Dependabot get no images.
 
 [Slug Previews](#slug-previews) push their images to the same two packages from the `slug-preview` workflow, each build tagged only `slug-<slug>-<sha>`, so PR cleanup never touches them. Their own sweep, after every `down` and once a day, deletes every version whose tags are all `slug-…` tags of Slugs that are down (the Slug's newest `slug-preview` deployment is inactive, or it has none), and never a version with any other tag. It keeps a package's last tagged version, as cleanup does.
 
+### Main images
+
+Every push to `main` builds both images for `linux/amd64` and `linux/arm64`, each natively on its own runner (`.github/workflows/main-images.yml`), and pushes them to the same two packages. Each platform image is pushed by digest, untagged; a merge job then joins each pair into one multi-arch manifest, tagged:
+
+| Tag         | What it marks                                                                                      |
+| ----------- | -------------------------------------------------------------------------------------------------- |
+| `main`      | The newest build Edge deployed. It moves once the `edge` deployment is created, so never backwards |
+| `sha-<sha>` | The build of `main`'s commit `<sha>` (the full SHA). Only main builds have `sha-…` tags            |
+
+Once both manifests exist, the workflow creates an `edge` GitHub deployment of the commit, `queued` (`waiting for the agent`), whose payload holds the commit and the index digests of both images, `{ "sha", "api", "web" }`. The pull agent deploys [Edge](CONTEXT.md) from those digests, and a Release promotes the very same ones (ADR-0017). Edge never goes backwards: when the newest `edge` deployment is of a descendant of the commit, the build finished out of order and creates none, and leaves `main` where it is. No run is ever cancelled, so every commit gets its images, and the workflow doesn't wait for CI on `main`, since every PR passed CI before it merged.
+
+To redeploy Edge, re-run a push's run of the workflow: it finds the images already pushed, skips the builds, and creates a fresh deployment with the same digests.
+
+A sweep, once a day and on `gh workflow run main-images.yml`, keeps the ten newest main builds in each package, and always the one tagged `main`, and deletes the rest along with their platform manifests. A main build is a version whose tags are all `main` or `sha-…`; a version with any other tag, a Release's `v…`, the `v0.0.1` placeholder, a PR's or a Slug's, is never touched. It keeps what GHCR won't delete, as cleanup does. The untagged platform images of a merge job that failed are not swept.
+
 Both packages start out private. Make each one public once, after its first push (on GitHub: the package's **Package settings**, then **Change visibility**), so the home server can pull them without credentials.
 
-`GET /api/health` reports the commit its image was built from as `commit`: the full SHA in a preview image, and `"dev"` in local dev and in images built locally, such as with `docker compose`.
+`GET /api/health` reports the commit its image was built from as `commit`: the full SHA in a preview or main image, and `"dev"` in local dev and in images built locally, such as with `docker compose`.
 
 ## Previews
 
@@ -534,9 +548,45 @@ A Preview that fails is left stopped, its link gives a 404, and its deployment s
 - When `up` or the health check failed, the Preview's own containers have the story: `docker compose -p banki-pr-<N> logs` (or `-p banki-slug-<slug>`).
 - A Slug Preview whose build failed shows `build failed`; the `slug-preview` workflow's run has the build's log.
 
-### Cookies for a future production
+### Sign-in cookies beside the Previews
 
-A future production at `banki.dkomeza.com` would share its parent domain with the Previews, and a Preview runs any pull request's code, so it can set cookies for `banki.dkomeza.com` and `dkomeza.com`. Production's sign-in cookie must then use the `__Host-` prefix, which a browser only accepts from the exact host, over HTTPS and without a `Domain`, so a Preview can't plant or overwrite it.
+Edge and Production share their parent domain with the Previews ([ADR-0017](docs/adr/0017-edge-follows-main-and-releases-promote-its-images-to-production.md)), and a Preview runs any pull request's code, so it can set cookies for `banki.dkomeza.com` and `dkomeza.com`. A `__Secure-` cookie set for the parent domain would reach Edge and Production too, so the sign-in cookie uses the `__Host-` prefix instead: a browser only accepts it from the exact host, over HTTPS, with `Path=/` and without a `Domain`, so a Preview can't plant or overwrite it. Every `https:` origin gets it, the Previews included.
+
+The cookie was `__Secure-better-auth.session_token` before. The API ignores that name, so every device signs in once more, and the old cookie expires on its own within 30 days.
+
+## Long-lived installations
+
+Beside the Previews, two [Long-lived installations](CONTEXT.md) run on the home server ([ADR-0017](docs/adr/0017-edge-follows-main-and-releases-promote-its-images-to-production.md)): [Edge](CONTEXT.md) at `preview.banki.dkomeza.com`, which runs the newest commit of `main`, and [Production](CONTEXT.md) at `banki.dkomeza.com`, which runs the newest Release and holds the User's real data. Unlike a Preview, each keeps its data across deploys and migrates it in place.
+
+They have a Pangolin site of their own, with its own Newt, on the `banki-long-lived` network (internal, `172.31.254.0/24`, Newt at `172.31.254.2`, and the rest handed out from `172.31.254.128/25`). Edge's and Production's `web` join it; the pull agent and every Preview never do, so no Preview can reach either of them.
+
+| Path                             | What it is                                                                                    |
+| -------------------------------- | --------------------------------------------------------------------------------------------- |
+| `deploy/long-lived/compose.yaml` | The Compose project `banki-long-lived`: their Newt and the `banki-long-lived` network         |
+| `deploy/long-lived/bootstrap`    | Prints the Pangolin and DNS steps, and asks for Newt's settings and Edge's Email and Password |
+
+### Setting them up
+
+You need the server set up for Previews first ([Setting up the server](#setting-up-the-server)), and `172.31.254.0/24` unused. Then, from a clone of `main` on the home server:
+
+```sh
+deploy/long-lived/bootstrap
+docker compose -f deploy/long-lived/compose.yaml up -d
+```
+
+`bootstrap` first prints the steps to do by hand, waiting for Enter after each:
+
+- In Pangolin's dashboard, a new site of type Newt for the Long-lived installations only: never the Previews' site, never the homelab one.
+- Two HTTP resources under the `banki.dkomeza.com` domain, both on that site and with SSO off (Banki's own sign-in is the gate): `Banki Edge` at the subdomain `preview`, targeting `http`, `banki-edge-web-1`, port `8080`; and `Banki Production` at the base domain itself, targeting `http`, `banki-production-web-1`, port `8080`.
+- On Cloudflare, a DNS record for `banki.dkomeza.com` itself pointing at the VPS, which `*.banki.dkomeza.com` doesn't cover, and a VPS certificate that covers it too.
+
+Then it asks for Newt's `PANGOLIN_ENDPOINT` (the Previews' Newt's by default), ID and secret, and for Edge's Email and Password. Edge's Password is yours to pick, 8 to 128 characters, typed twice; it can't be the Previews' shared Password, which every Preview can read.
+
+It writes `long-lived-newt.env`, `edge-email` and `edge-password` to `$BANKI_PREVIEW_SECRETS`, by default `~/.config/banki-preview`, beside the pull agent's files and never changing them (a `0700` directory of `0600` files, outside the clone). It writes no `AUTH_SECRET`: the api makes its own on its first start, in the data volume a Long-lived installation keeps across deploys. Newt gets its settings as environment variables; the agent's first Edge deploy sets Edge up from `edge-email` and `edge-password`. `bootstrap` itself starts nothing.
+
+Run `bootstrap` again to change a value: each one it has is the default, so Enter keeps it, and it shows the Pangolin and DNS steps only when you ask. When Edge is running (`banki-edge-api-1`), a new Password is set in Edge first, with `banki reset-password --password-stdin`, and saved only once that worked, which signs out every Edge device; Edge's Email can't change, so reset Edge instead. Run it as a user who can use Docker: when Docker can't say whether Edge is running, it stops without saving anything. After changing Newt's settings, run `docker compose -f deploy/long-lived/compose.yaml up -d` again.
+
+The two Pangolin resources are made by hand, and the agent has no business with them. Its org API key reaches the whole org, so its code is the guard: it only ever touches a resource at a Preview's host, and `preview` is a reserved Slug while the bare `banki.dkomeza.com` is no Slug at all.
 
 ## Runner
 
@@ -772,7 +822,7 @@ The [Dashboard](CONTEXT.md) shows what the Runner and the Dispatcher are doing, 
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `/`, Now                    | What `runner status` shows, live, from the same view: the Stages running (for how long, their cost so far in dollars, their logs) and paused, the ready queue with why each would or wouldn't start, each wait with its deadline, how far along it is and its deployments' states, the gate's last reading against the Ceiling, and the In Progress issues no supervisor started |
 | `/issues/BAN-N`             | The issue's timeline, oldest first: every attempt at a Stage (its outcome, a one-line reason, its cost and duration, its runs' logs), its closing comments (a Stage run live is marked live, a stop shows its question) and its moves in Linear. A run whose log has no `claude` init event **never started**, which is told apart from a crash                                  |
-| `/issues/BAN-N/logs/<file>` | One Stage log, as the one-line summaries `runner stage` prints, never the raw JSON (its last 2000 lines at most, saying how many earlier ones it leaves out), then the Stage's result. A running Stage's log streams as it grows. Only files under `/work/logs/BAN-N/` are served                                                                                                |
+| `/issues/BAN-N/logs/<file>` | One Stage log, as the one-line summaries `runner stage` prints, never the raw JSON (its last 2000 lines at most, saying how many MB before them it leaves out), then the Stage's result. A running Stage's log streams as it grows. Only files under `/work/logs/BAN-N/` are served                                                                                              |
 | `/ticks`                    | The tick log, newest first, with consecutive identical lines collapsed (`Tick on main abc1234 ×60`)                                                                                                                                                                                                                                                                              |
 
 It also flags the pull agent's health, from GitHub alone: a `preview` or `slug-preview` deployment still `queued`, or with no status, 10 minutes after it was made says "the pull agent hasn't claimed it for N min", on the Now page and in the wait that waits on it.
@@ -852,10 +902,10 @@ better-auth's tables (`user`, `auth_session`, `auth_account`, `auth_verification
 
 Run from the repo root; CI runs the same ones.
 
-| Script                 | What it does                                                                                                                                                                                          |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bun run typecheck`    | `tsc -b` across every workspace                                                                                                                                                                       |
-| `bun run lint`         | oxlint, type-aware, warnings fail                                                                                                                                                                     |
-| `bun run format`       | oxfmt, rewriting files in place                                                                                                                                                                       |
-| `bun run format:check` | oxfmt, failing on unformatted files                                                                                                                                                                   |
-| `bun run test`         | Each workspace's tests: `bun test` (api, shared), Vitest (web), the `ui` script's under `node --test`, and the Preview agent's (`deploy/preview`) and the Runner's (`deploy/runner`) under `bun test` |
+| Script                 | What it does                                                                                                                                                                                                                                               |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bun run typecheck`    | `tsc -b` across every workspace                                                                                                                                                                                                                            |
+| `bun run lint`         | oxlint, type-aware, warnings fail                                                                                                                                                                                                                          |
+| `bun run format`       | oxfmt, rewriting files in place                                                                                                                                                                                                                            |
+| `bun run format:check` | oxfmt, failing on unformatted files                                                                                                                                                                                                                        |
+| `bun run test`         | Each workspace's tests: `bun test` (api, shared), Vitest (web), the `ui` script's under `node --test`, and the Preview agent's (`deploy/preview`), the Long-lived installations' (`deploy/long-lived`) and the Runner's (`deploy/runner`) under `bun test` |

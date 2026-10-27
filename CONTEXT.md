@@ -28,6 +28,10 @@ _Avoid_: question, prompt
 The side of a Card that holds what the User should recall: what self-rating reveals, and the reference the Grader compares a written answer with. Never the User's own written answer.
 _Avoid_: answer, solution
 
+**Duplicate**:
+A Card whose Front reads the same as another live Card's in the same Deck, ignoring case, spacing and Markdown formatting, but not what is inside math. Banki warns about a Duplicate as it is written and still saves it; an import skips it.
+_Avoid_: copy, clone, repeat
+
 **Deletion**:
 One act of deleting, and everything it took with it: a Card on its own, a Deck with its Cards, or a Folder with everything inside it. It is restored or removed as a whole. Something deleted earlier on its own keeps its own Deletion.
 _Avoid_: trash item, deleted item
@@ -121,6 +125,10 @@ _Avoid_: staging, main preview, nightly
 **Production**:
 The installation at `banki.dkomeza.com` that holds the User's real data and runs the newest Release, once Edge has run that Release's commit.
 _Avoid_: prod, live
+
+**Long-lived installation**:
+Edge or Production: an installation that keeps its data across deploys, unlike a Preview, and that no Preview can reach.
+_Avoid_: installation (alone, which a Preview is too), permanent deployment
 
 **Release**:
 A numbered version of Banki, `v0.1.0` and up, cut when the Maintainer merges the Release PR. Its images are the very images Edge ran, and its notes say what changed for the User.

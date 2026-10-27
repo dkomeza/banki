@@ -35,7 +35,7 @@ const logger: BetterAuthOptions["logger"] = {
 
 /**
  * better-auth's options for Banki. Every setting that better-auth would
- * otherwise derive from `NODE_ENV` (secure cookies, rate limiting, the secret,
+ * otherwise derive from `NODE_ENV` (the cookies' prefix and `Secure`, rate limiting, the secret,
  * the origin check) is set explicitly from `Config`.
  */
 export function authOptions({
@@ -47,6 +47,7 @@ export function authOptions({
   config: Pick<Config, "origin">;
   secret: string;
 }) {
+  const secure = new URL(config.origin).protocol === "https:";
   return {
     appName: "Banki",
     baseURL: config.origin,
@@ -86,7 +87,13 @@ export function authOptions({
       },
     },
     advanced: {
-      useSecureCookies: new URL(config.origin).protocol === "https:",
+      // On https every cookie is `__Host-`: Secure, `Path=/` and no `Domain`,
+      // so a Preview on a sibling host can't set or overwrite it (ADR-0008).
+      // `useSecureCookies` would put `__Secure-` in front of any name, so it
+      // stays off and the prefix and `Secure` are set here instead.
+      useSecureCookies: false,
+      cookiePrefix: secure ? "__Host-better-auth" : "better-auth",
+      defaultCookieAttributes: { secure, path: "/" },
       disableCSRFCheck: false,
       disableOriginCheck: false,
       // Caddy sends a single-value X-Forwarded-For with the client's IP, and

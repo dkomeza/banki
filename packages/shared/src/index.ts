@@ -49,6 +49,7 @@ export {
   RestoreResponse,
 } from "./deletions";
 export { ApiError } from "./error";
+export { frontKey } from "./front-key";
 export { HealthResponse } from "./health";
 export {
   DEFAULT_MODEL_ID,
