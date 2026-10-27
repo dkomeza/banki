@@ -362,12 +362,12 @@ When a PR closes, cleanup sweeps both packages and deletes every version of ever
 
 Every push to `main` builds both images for `linux/amd64` and `linux/arm64`, each natively on its own runner (`.github/workflows/main-images.yml`), and pushes them to the same two packages. Each platform image is pushed by digest, untagged; a merge job then joins each pair into one multi-arch manifest, tagged:
 
-| Tag         | What it marks                                                                           |
-| ----------- | --------------------------------------------------------------------------------------- |
-| `main`      | The newest main build; it moves on every push                                           |
-| `sha-<sha>` | The build of `main`'s commit `<sha>` (the full SHA). Only main builds have `sha-…` tags |
+| Tag         | What it marks                                                                                      |
+| ----------- | -------------------------------------------------------------------------------------------------- |
+| `main`      | The newest build Edge deployed. It moves once the `edge` deployment is created, so never backwards |
+| `sha-<sha>` | The build of `main`'s commit `<sha>` (the full SHA). Only main builds have `sha-…` tags            |
 
-Once both manifests exist, the workflow creates an `edge` GitHub deployment of the commit, `queued` (`waiting for the agent`), whose payload holds the commit and the index digests of both images, `{ "sha", "api", "web" }`. The pull agent deploys [Edge](CONTEXT.md) from those digests, and a Release promotes the very same ones (ADR-0017). Edge never goes backwards: when the newest `edge` deployment is of a descendant of the commit, the build finished out of order and creates none. No run is ever cancelled, so every commit gets its images, and the workflow doesn't wait for CI on `main`, since every PR passed CI before it merged.
+Once both manifests exist, the workflow creates an `edge` GitHub deployment of the commit, `queued` (`waiting for the agent`), whose payload holds the commit and the index digests of both images, `{ "sha", "api", "web" }`. The pull agent deploys [Edge](CONTEXT.md) from those digests, and a Release promotes the very same ones (ADR-0017). Edge never goes backwards: when the newest `edge` deployment is of a descendant of the commit, the build finished out of order and creates none, and leaves `main` where it is. No run is ever cancelled, so every commit gets its images, and the workflow doesn't wait for CI on `main`, since every PR passed CI before it merged.
 
 To redeploy Edge, re-run a push's run of the workflow: it finds the images already pushed, skips the builds, and creates a fresh deployment with the same digests.
 

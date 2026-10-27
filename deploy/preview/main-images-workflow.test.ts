@@ -55,7 +55,7 @@ describe("merging the platform images", () => {
   const merge = (fixtures: Record<string, Answer>, files: Record<string, string> = built) =>
     runStep("merge", "merge", { SHA, DIGESTS: "digests" }, fixtures, files);
 
-  test("joins each image's two platforms into one manifest tagged main and sha-<sha>", async () => {
+  test("joins each image's two platforms into one manifest tagged sha-<sha>, leaving main alone", async () => {
     const result = await merge(manifests);
 
     expect(result.exitCode).toBe(0);
@@ -66,8 +66,6 @@ describe("merging the platform images", () => {
         "imagetools",
         "create",
         "--tag",
-        `${image("api")}:main`,
-        "--tag",
         `${image("api")}:sha-${SHA}`,
         `${image("api")}@${API_AMD64}`,
         `${image("api")}@${API_ARM64}`,
@@ -76,8 +74,6 @@ describe("merging the platform images", () => {
         "buildx",
         "imagetools",
         "create",
-        "--tag",
-        `${image("web")}:main`,
         "--tag",
         `${image("web")}:sha-${SHA}`,
         `${image("web")}@${WEB_AMD64}`,
@@ -117,7 +113,11 @@ describe("merging the platform images", () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.out).toContain(`no linux/arm64 image of web was built for ${SHA}`);
-    expect(result.docker.filter((args) => args.includes(`${image("web")}:main`))).toEqual([]);
+    expect(
+      result.docker.filter(
+        (args) => args.includes("create") && args.includes(`${image("web")}:sha-${SHA}`),
+      ),
+    ).toEqual([]);
   });
 
   test("fails when the manifest doesn't hold both platforms", async () => {
@@ -237,6 +237,57 @@ describe("the Edge Deployment", () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.calls).toEqual([]);
+  });
+});
+
+describe("the main tag", () => {
+  const moveMain = (fixtures: Record<string, Answer>) =>
+    runStep("edge", "main", { API: API_INDEX, WEB: WEB_INDEX }, fixtures);
+  const tagged = {
+    [inspectJson(`${image("api")}:main`)]: { digest: API_INDEX },
+    [inspectJson(`${image("web")}:main`)]: { digest: WEB_INDEX },
+  };
+
+  test("moves to the index digests the Deployment records", async () => {
+    const result = await moveMain(tagged);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.docker.filter((args) => args.includes("create"))).toEqual([
+      [
+        "buildx",
+        "imagetools",
+        "create",
+        "--tag",
+        `${image("api")}:main`,
+        `${image("api")}@${API_INDEX}`,
+      ],
+      [
+        "buildx",
+        "imagetools",
+        "create",
+        "--tag",
+        `${image("web")}:main`,
+        `${image("web")}@${WEB_INDEX}`,
+      ],
+    ]);
+  });
+
+  test("fails when tagging gave main another digest", async () => {
+    const result = await moveMain({
+      ...tagged,
+      [inspectJson(`${image("web")}:main`)]: { digest: digest("9") },
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.out).toContain(`${image("web")}:main is ${digest("9")}, not ${WEB_INDEX}`);
+  });
+
+  test("moves only once the Deployment is created, so never backwards", () => {
+    const create = job("edge").steps.findIndex((each) => each.id === "create");
+    const main = job("edge").steps.findIndex((each) => each.id === "main");
+
+    expect(create).toBeLessThan(main);
+    expect(step("edge", "main").if).toBe("steps.create.outputs.deployment != ''");
   });
 });
 
@@ -421,7 +472,11 @@ describe("the workflow", () => {
     expect(workflow.permissions).toEqual({});
     expect(job("build").permissions).toEqual({ contents: "read", packages: "write" });
     expect(job("merge").permissions).toEqual({ packages: "write" });
-    expect(job("edge").permissions).toEqual({ contents: "read", deployments: "write" });
+    expect(job("edge").permissions).toEqual({
+      contents: "read",
+      deployments: "write",
+      packages: "write",
+    });
     expect(job("sweep").permissions).toEqual({ packages: "write" });
   });
 
