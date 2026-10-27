@@ -1,0 +1,380 @@
+name: Main images
+
+# Builds the api and web images of every push to main for linux/amd64 and
+# linux/arm64, each natively on its own runner, joins each pair into one
+# multi-arch manifest tagged sha-<sha>, and then creates an `edge` Deployment
+# of the commit for the pull agent, which deploys Edge from the manifests'
+# digests (ADR-0017), and moves the main tag to them. A Release later promotes
+# those very digests.
+# Once a day, and on a dispatch, a sweep deletes all but the ten newest main
+# builds.
+#
+# There is no CI gate here: the ruleset already requires CI on every PR before
+# it merges. Re-running a push's run is how Edge is redeployed: it finds the
+# images pushed, skips the builds, and creates a fresh Deployment.
+#
+#   gh workflow run main-images.yml   # sweeps now
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # The daily sweep.
+    - cron: "41 4 * * *"
+  workflow_dispatch:
+
+# Every commit gets its images, a Release's included: a run is never cancelled,
+# and only a re-run of the same commit waits for another.
+concurrency:
+  group: ${{ github.event_name == 'push' && format('main-images-{0}', github.sha) || 'main-images-sweep' }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  build:
+    name: build (${{ matrix.app }}, ${{ matrix.arch }})
+    if: github.event_name == 'push'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        app: [api, web]
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    env:
+      APP: ${{ matrix.app }}
+      ARCH: ${{ matrix.arch }}
+      SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      # Image names must be lowercase, and the owner may not be.
+      - name: Name the image
+        id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/banki-$APP" >>"$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # A re-run of a commit whose manifest is already pushed: a rebuild would
+      # get a new digest, move sha-<sha> to it and orphan the old index
+      # untagged. Any failure here means a build: a needless rebuild is the
+      # safe side.
+      - name: Check whether this commit is already pushed
+        id: pushed
+        continue-on-error: true
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+        run: |
+          if docker buildx imagetools inspect "$IMAGE:sha-$SHA" >/dev/null 2>&1; then
+            echo "$IMAGE:sha-$SHA is already pushed, skipping the build"
+            echo "exists=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "$IMAGE:sha-$SHA isn't pushed yet, building it"
+          fi
+      # Pushed by digest, untagged: the merge job tags the manifest that joins
+      # both platforms. One plain image per platform, so a build is one index
+      # and two platform manifests, which the sweep deletes together.
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        id: build
+        if: steps.pushed.outputs.exists != 'true'
+        with:
+          context: .
+          file: apps/${{ matrix.app }}/Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          provenance: false
+          sbom: false
+          build-args: ${{ matrix.app == 'api' && format('COMMIT={0}', github.sha) || '' }}
+          # amd64 shares the PR builds' scope, so a new PR's first build starts
+          # from main's cache.
+          cache-from: type=gha,scope=banki-${{ matrix.app }}${{ matrix.arch == 'arm64' && '-arm64' || '' }}
+          cache-to: type=gha,mode=max,scope=banki-${{ matrix.app }}${{ matrix.arch == 'arm64' && '-arm64' || '' }}
+      # Empty when the build was skipped: the merge job then reads the
+      # manifest already pushed.
+      - name: Write the digest
+        id: digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          DIGESTS: ${{ runner.temp }}/digests
+        run: |
+          set -euo pipefail
+          mkdir -p "$DIGESTS"
+          printf '%s' "$DIGEST" >"$DIGESTS/$APP-$ARCH"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: digest-${{ matrix.app }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/${{ matrix.app }}-${{ matrix.arch }}
+          if-no-files-found: error
+          retention-days: 1
+          # A re-run of this job uploads it again.
+          overwrite: true
+
+  merge:
+    name: merge
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      packages: write
+    outputs:
+      api: ${{ steps.merge.outputs.api }}
+      web: ${{ steps.merge.outputs.web }}
+    env:
+      SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: digest-*
+          path: ${{ runner.temp }}/digests
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # Joins each image's two platform digests into one manifest tagged
+      # sha-<sha>, or keeps the one a run before pushed, and reads back the
+      # index digest the Deployment records. The main tag waits for the edge
+      # job, which moves it only forwards.
+      - name: Merge the platform images
+        id: merge
+        env:
+          DIGESTS: ${{ runner.temp }}/digests
+        run: |
+          set -euo pipefail
+          fail() {
+            echo "::error::$1"
+            exit 1
+          }
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          for app in api web; do
+            image="ghcr.io/$owner/banki-$app"
+            if docker buildx imagetools inspect "$image:sha-$SHA" >/dev/null 2>&1; then
+              echo "$image:sha-$SHA is already pushed, keeping it"
+            else
+              refs=()
+              for arch in amd64 arm64; do
+                digest="$(cat "$DIGESTS/$app-$arch" 2>/dev/null || true)"
+                if ! [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+                  fail "no linux/$arch image of $app was built for $SHA"
+                fi
+                refs+=("$image@$digest")
+              done
+              docker buildx imagetools create --tag "$image:sha-$SHA" "${refs[@]}"
+              echo "Pushed $image:sha-$SHA"
+            fi
+            manifest="$(docker buildx imagetools inspect "$image:sha-$SHA" --format '{{json .Manifest}}')"
+            index="$(jq -r '.digest // empty' <<<"$manifest")"
+            platforms="$(jq -c '[.manifests[]?.platform | "\(.os)/\(.architecture)"] | sort' <<<"$manifest")"
+            if ! [[ "$index" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              fail "$image:sha-$SHA has no index digest"
+            fi
+            if [ "$platforms" != '["linux/amd64","linux/arm64"]' ]; then
+              fail "$image:sha-$SHA holds $platforms, not linux/amd64 and linux/arm64"
+            fi
+            echo "$image:sha-$SHA is $index"
+            echo "$app=$index" >>"$GITHUB_OUTPUT"
+          done
+
+  edge:
+    name: edge deployment
+    needs: merge
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      deployments: write
+      packages: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SHA: ${{ github.sha }}
+      API: ${{ needs.merge.outputs.api }}
+      WEB: ${{ needs.merge.outputs.web }}
+    steps:
+      # Edge never goes backwards: when the newest `edge` Deployment's commit
+      # is a descendant of this one, this build finished out of order and
+      # creates nothing. The same commit, a re-run, gets a fresh Deployment,
+      # which redeploys Edge. The agent deploys it and reports back on it;
+      # this workflow never waits for it.
+      - name: Create the Deployment, queued
+        id: create
+        run: |
+          set -euo pipefail
+          fail() {
+            echo "::error::$1"
+            exit 1
+          }
+          for digest in "$API" "$WEB"; do
+            if ! [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              fail "the merge job gave no index digest"
+            fi
+          done
+          # The newest by created_at and then ID; GitHub lists the newest first.
+          newest="$(gh api "repos/$GITHUB_REPOSITORY/deployments?environment=edge&per_page=100" \
+            | jq -r 'max_by([.created_at, .id]) // empty | .sha')"
+          if [ -n "$newest" ] && [ "$newest" != "$SHA" ]; then
+            # ahead: the newest is a descendant of this commit.
+            status="$(gh api "repos/$GITHUB_REPOSITORY/compare/$SHA...$newest" | jq -r '.status // empty')"
+            case "$status" in
+              ahead)
+                echo "Edge's newest Deployment is of $newest, a descendant of $SHA: this build finished out of order, so it creates no Deployment"
+                exit 0
+                ;;
+              behind | diverged) ;;
+              *) fail "couldn't compare $SHA with $newest" ;;
+            esac
+          fi
+          body="$(jq -n --arg sha "$SHA" --arg api "$API" --arg web "$WEB" '{
+            ref: $sha,
+            environment: "edge",
+            payload: { sha: $sha, api: $api, web: $web },
+            description: "Edge \($sha[0:7])",
+            required_contexts: [],
+            auto_merge: false,
+            transient_environment: false,
+            production_environment: false
+          }')"
+          id="$(gh api --method POST "repos/$GITHUB_REPOSITORY/deployments" --input - <<<"$body" | jq -r '.id // empty')"
+          if ! [[ "$id" =~ ^[0-9]+$ ]]; then
+            fail "GitHub didn't create the Deployment"
+          fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/deployments/$id/statuses" --input - --silent \
+            <<<'{"state":"queued","description":"waiting for the agent","auto_inactive":false}'
+          echo "Deployment $id deploys $SHA to Edge"
+          echo "deployment=$id" >>"$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        if: steps.create.outputs.deployment != ''
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        if: steps.create.outputs.deployment != ''
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # main follows Edge, so a build that finished out of order never moves
+      # it back. Tagging an index by its digest pushes the same index: the
+      # digest stays the one the Deployment records.
+      - name: Move main to this build
+        id: main
+        if: steps.create.outputs.deployment != ''
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          for app in api web; do
+            image="ghcr.io/$owner/banki-$app"
+            if [ "$app" = api ]; then digest="$API"; else digest="$WEB"; fi
+            docker buildx imagetools create --tag "$image:main" "$image@$digest"
+            tagged="$(docker buildx imagetools inspect "$image:main" --format '{{json .Manifest}}' | jq -r '.digest // empty')"
+            if [ "$tagged" != "$digest" ]; then
+              echo "::error::$image:main is $tagged, not $digest"
+              exit 1
+            fi
+            echo "$image:main is $digest"
+          done
+
+  sweep:
+    name: sweep images
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      packages: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    # In banki-api and banki-web, a main-only build is a version whose tags are
+    # all main or sha-…, and there is at least one. The sweep keeps the ten
+    # newest by created_at, and always the one tagged main, and deletes the
+    # rest: each one's platform manifests first (the digests its index lists,
+    # matched to versions by name), then the index. A version with any other
+    # tag (a Release's v…, the v0.0.1 placeholder, a PR's pr-… or a Slug's
+    # slug-…) is never touched, and PR cleanup never touches main builds.
+    # Untagged leftovers of a failed merge job are left alone.
+    #
+    # GHCR refuses to delete a package's last tagged version, and a public
+    # version downloaded more than 5000 times (HTTP 400): those stay. A 404 is
+    # a version already deleted.
+    steps:
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Delete all but the ten newest main builds
+        id: sweep
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          errors="$(mktemp)"
+          delete_version() {
+            local pkg="$1" id="$2"
+            if ! gh api --method DELETE "users/$owner/packages/container/$pkg/versions/$id" --silent </dev/null 2>"$errors"; then
+              if grep "(HTTP 400)" "$errors" | grep -q \
+                -e "You cannot delete the last tagged version of a package" \
+                -e "Publicly visible package versions with more than 5000 downloads cannot be deleted"; then
+                echo "$pkg: kept version $id, GHCR won't delete it"
+                return 0
+              fi
+              if grep -q "(HTTP 404)" "$errors"; then
+                echo "$pkg: version $id is already deleted"
+                return 0
+              fi
+              cat "$errors" >&2
+              exit 1
+            fi
+          }
+          for pkg in banki-api banki-web; do
+            if ! pages="$(gh api --paginate "users/$owner/packages/container/$pkg/versions?per_page=100" 2>"$errors")"; then
+              if grep -q "(HTTP 404)" "$errors"; then
+                echo "$pkg: no package, nothing to delete"
+                continue
+              fi
+              cat "$errors" >&2
+              exit 1
+            fi
+            # Pages arrive as concatenated arrays.
+            listed="$(jq -cs 'add // []' <<<"$pages")"
+            doomed="$(jq -r '
+              map(select(
+                (.metadata.container.tags // []) as $tags
+                | ($tags | length > 0) and all($tags[]; . == "main" or startswith("sha-"))
+              ))
+              | sort_by([.created_at, .id]) | reverse | .[10:]
+              | .[] | select(any(.metadata.container.tags[]; . == "main") | not)
+              | "\(.id)\t\(.name)\t\(.metadata.container.tags | join(" "))"
+            ' <<<"$listed")"
+            if [ -z "$doomed" ]; then
+              echo "$pkg: no main builds past the newest ten"
+              continue
+            fi
+            while IFS=$'\t' read -r id digest tags; do
+              echo "$pkg: deleting build $id ($tags)"
+              manifests="$(docker buildx imagetools inspect "ghcr.io/$owner/$pkg@$digest" --format '{{json .Manifest}}' </dev/null)"
+              for platform in $(jq -r '.manifests[]?.digest' <<<"$manifests"); do
+                platform_id="$(jq -r --arg name "$platform" 'map(select(.name == $name)) | .[0].id // empty' <<<"$listed")"
+                if [ -z "$platform_id" ]; then
+                  echo "$pkg: platform manifest $platform isn't listed"
+                  continue
+                fi
+                echo "$pkg: deleting platform manifest $platform_id ($platform)"
+                delete_version "$pkg" "$platform_id"
+              done
+              delete_version "$pkg" "$id"
+            done <<<"$doomed"
+          done
