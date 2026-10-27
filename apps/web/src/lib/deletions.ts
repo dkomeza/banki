@@ -162,21 +162,29 @@ export function whereLabel(d: Deletion): string {
 export const kindLabel = (kind: DeletionKind) =>
   kind === "folder" ? "Folder" : kind === "deck" ? "Deck" : "Card";
 
-/** "just now", "3 hours ago", "yesterday", "4 days ago". */
+/** The start of `date`'s day, in this device's timezone. */
+const midnight = (date: Date) => new Date(date.toDateString()).getTime();
+
+/** How many days, by this device's calendar, lie between `deletedAt` and `now`. */
+const calendarDays = (deletedAt: string, now: Date) =>
+  Math.round((midnight(now) - midnight(new Date(deletedAt))) / DAY_MS);
+
+/**
+ * "just now", "3 hours ago", "yesterday", "4 days ago". Past a day it counts
+ * calendar days, as `groupOf` does, so a tile never says "yesterday" under
+ * "This week".
+ */
 export function agoLabel(deletedAt: string, now = new Date()): string {
   const hours = Math.floor((now.getTime() - Date.parse(deletedAt)) / HOUR_MS);
   if (hours < 1) return "just now";
   if (hours < 24) return hours === 1 ? "an hour ago" : `${hours} hours ago`;
-  const days = Math.floor(hours / 24);
+  const days = calendarDays(deletedAt, now);
   return days === 1 ? "yesterday" : `${days} days ago`;
 }
 
-/** The start of `date`'s day, in this device's timezone. */
-const midnight = (date: Date) => new Date(date.toDateString()).getTime();
-
 /** Which group Recently deleted shows it under: "Today", "Yesterday", "This week" or "Earlier". */
 export function groupOf(deletedAt: string, now = new Date()): string {
-  const days = Math.round((midnight(now) - midnight(new Date(deletedAt))) / DAY_MS);
+  const days = calendarDays(deletedAt, now);
   if (days <= 0) return "Today";
   if (days === 1) return "Yesterday";
   if (days < 7) return "This week";

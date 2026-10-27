@@ -54,8 +54,11 @@ export function DeletedPage() {
     setRestoring(d.id);
     const outcome = await restoreDeletion(queryClient, d.id);
     setRestoring(undefined);
-    if (outcome.ok) showRestoredToast(outcome.restored, nameOf(d), whereLabel(d));
-    else if ("placeDeleted" in outcome) {
+    if (outcome.ok) {
+      // It may be the Deck a refusal named: those Restores can be tried again.
+      setRefused(new Map());
+      showRestoredToast(outcome.restored, nameOf(d), whereLabel(d));
+    } else if ("placeDeleted" in outcome) {
       setRefused((all) => new Map(all).set(d.id, outcome.placeDeleted));
     } else toast.error(outcome.message);
   };

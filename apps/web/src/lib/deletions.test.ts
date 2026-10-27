@@ -131,6 +131,14 @@ describe("names and places", () => {
     expect(groupOf(local(20), today)).toBe("This week");
     expect(groupOf(local(19), today)).toBe("Earlier");
   });
+
+  test("counts days past the first by the calendar, so the label agrees with the group", () => {
+    // Deleted on the 24th at 18:00, read on the 26th at 10:00: 40 hours, two days ago.
+    const deletedAt = new Date(2026, 9, 24, 18).toISOString();
+    const now = new Date(2026, 9, 26, 10);
+    expect(agoLabel(deletedAt, now)).toBe("2 days ago");
+    expect(groupOf(deletedAt, now)).toBe("This week");
+  });
 });
 
 describe("restoredToast", () => {
