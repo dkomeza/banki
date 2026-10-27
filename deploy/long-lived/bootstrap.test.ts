@@ -49,11 +49,13 @@ const FIRST_ANSWERS = [...STEPS, ENDPOINT, "newt-id", NEWT_SECRET, EMAIL, PASSWO
 /** A rerun: the answer to showing the steps again, then Enter for every question. */
 const keepAll = (show = "") => [show, ...(show === "y" ? STEPS : []), "", "", "", "", ""];
 
-/** What the fake docker CLI does: `inspect` says whether Edge runs, `exec` records what it got. */
+/** What the fake docker CLI does: `ps` says whether Edge runs (or fails), `exec` records what it got. */
 const FAKE_DOCKER = `#!/usr/bin/env bash
 case "$1" in
-  inspect)
-    if [ -n "\${FAKE_EDGE_RUNNING:-}" ]; then echo true; else echo "Error: No such object" >&2; exit 1; fi ;;
+  ps)
+    printf '%s\\n' "$*" >>"$FAKE_DOCKER_LOG/ps-argv"
+    if [ -n "\${FAKE_PS_FAILS:-}" ]; then echo "permission denied" >&2; exit 1; fi
+    if [ -n "\${FAKE_EDGE_RUNNING:-}" ]; then echo 0123456789ab; fi ;;
   exec)
     printf '%s\\n' "$*" >>"$FAKE_DOCKER_LOG/argv"
     cat >"$FAKE_DOCKER_LOG/stdin"
@@ -62,7 +64,7 @@ case "$1" in
 esac
 `;
 
-type Edge = { running?: boolean; execExit?: number };
+type Edge = { running?: boolean; execExit?: number; psFails?: boolean };
 
 async function bootstrap(dir: string, answers: string[], edge: Edge = {}) {
   const fake = tempDir();
@@ -76,6 +78,7 @@ async function bootstrap(dir: string, answers: string[], edge: Edge = {}) {
       FAKE_DOCKER_LOG: fake,
       FAKE_EDGE_RUNNING: edge.running === true ? "1" : "",
       FAKE_EXEC_EXIT: String(edge.execExit ?? 0),
+      FAKE_PS_FAILS: edge.psFails === true ? "1" : "",
     },
     stdin: "pipe",
     stdout: "pipe",
@@ -90,7 +93,14 @@ async function bootstrap(dir: string, answers: string[], edge: Edge = {}) {
   ]);
   const logged = (file: string) =>
     existsSync(join(fake, file)) ? readFileSync(join(fake, file), "utf8") : undefined;
-  return { stdout, stderr, exitCode, execArgv: logged("argv"), execStdin: logged("stdin") };
+  return {
+    stdout,
+    stderr,
+    exitCode,
+    execArgv: logged("argv"),
+    execStdin: logged("stdin"),
+    psArgv: logged("ps-argv"),
+  };
 }
 
 const read = (dir: string, file: string) => readFileSync(join(dir, file), "utf8");
@@ -349,6 +359,40 @@ describe("bootstrap", () => {
 
     expect(result.exitCode).toBe(0);
     expect(read(dir, "edge-email")).toBe("new@example.com\n");
+  });
+
+  test("asks Docker for exactly Edge's running api container", async () => {
+    const result = await bootstrap(secretsDir(), FIRST_ANSWERS);
+
+    expect(result.psArgv).toBe(
+      "ps --quiet --filter name=^banki-edge-api-1$ --filter status=running\n",
+    );
+  });
+
+  test("stops and writes nothing when Docker can't say whether Edge is running", async () => {
+    const dir = secretsDir();
+    await bootstrap(dir, FIRST_ANSWERS);
+    const before = snapshot(dir);
+    const answers = [...keepAll().slice(0, 5), OTHER_PASSWORD, OTHER_PASSWORD];
+
+    const result = await bootstrap(dir, answers, { psFails: true });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("couldn't ask Docker whether Edge");
+    expect(snapshot(dir)).toEqual(before);
+  });
+
+  test("stops and writes nothing when Edge is running but there is no edge-email to check against", async () => {
+    const dir = secretsDir();
+    withPreviewFiles(dir);
+    const before = snapshot(dir);
+
+    const result = await bootstrap(dir, FIRST_ANSWERS, { running: true });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("no edge-email");
+    expect(result.execArgv).toBeUndefined();
+    expect(snapshot(dir)).toEqual(before);
   });
 
   test("exits 1 and writes nothing when stdin runs out before a needed value", async () => {

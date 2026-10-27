@@ -131,16 +131,23 @@ wait_for_enter() {
   printf '\n' >&2
 }
 
-# Writes a file in place (the same inode).
+# Writes a file in place (the same inode), narrowing an existing one to 0600
+# before the new value goes in.
 write() {
+  if [ -e "$dir/$1" ]; then chmod 600 "$dir/$1"; fi
   printf '%s\n' "$2" >"$dir/$1"
   chmod 600 "$dir/$1"
 }
 
-# Whether Edge's api container is running. No docker CLI means no Edge.
+# Whether Edge's api container is running. No docker CLI means no Edge, but a
+# Docker that can't answer (no daemon, no permission) stops it: taking that
+# for no Edge would save a Password Edge never got.
 edge_running() {
-  command -v docker >/dev/null 2>&1 &&
-    [ "$(docker inspect --format '{{.State.Running}}' "$edge_api" 2>/dev/null)" = "true" ]
+  local found
+  command -v docker >/dev/null 2>&1 || return 1
+  found="$(docker ps --quiet --filter "name=^$edge_api\$" --filter status=running)" ||
+    die "couldn't ask Docker whether Edge ($edge_api) is running. Run it as a user who can use Docker."
+  [ -n "$found" ]
 }
 
 show_steps() {
@@ -178,6 +185,9 @@ fi
 
 running=""
 if edge_running; then running=1; fi
+if [ -n "$running" ] && [ ! -f "$dir/edge-email" ]; then
+  die "Edge is running, but $dir has no edge-email, so Edge's Email can't be checked. Reset Edge instead."
+fi
 
 current_endpoint="$(current_env long-lived-newt.env PANGOLIN_ENDPOINT)"
 newt_endpoint="$(ask "Newt PANGOLIN_ENDPOINT (e.g. https://pangolin.example.com)" "${current_endpoint:-$(current_env newt.env PANGOLIN_ENDPOINT)}" env)"
@@ -187,7 +197,7 @@ newt_secret="$(ask "Newt secret" "$(current_env long-lived-newt.env NEWT_SECRET)
 current_email="$(current_file edge-email)"
 edge_email="$(ask "Edge's Email (your own, say)" "$current_email")"
 # Edge keeps its User, and Banki has no command to change its Email.
-while [ -n "$running" ] && [ -n "$current_email" ] && [ "$edge_email" != "$current_email" ]; do
+while [ -n "$running" ] && [ "$edge_email" != "$current_email" ]; do
   printf "Edge is running, and its Email can't change. Enter keeps it; to use another, reset Edge instead.\n" >&2
   edge_email="$(ask "Edge's Email (your own, say)" "$current_email")"
 done
