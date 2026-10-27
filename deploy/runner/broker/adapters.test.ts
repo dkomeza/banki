@@ -205,6 +205,17 @@ describe("revoking a Linear token", () => {
     }
   });
 
+  // Linear revokes some tokens under their holder, seemingly when two mints come at the same moment.
+  test("is done on a 401 for a token Linear has revoked already, once it no longer authenticates", async () => {
+    const { calls, fetch } = fakeLinear(
+      [{ status: 401, body: { error: "Token has already been revoked." } }],
+      DEAD_401,
+    );
+
+    expect(await revokeWith(fetch)).toBe("revoked");
+    expect(calls.map((c) => c.url)).toEqual([REVOKE, GRAPHQL]);
+  });
+
   test("tries the token in the form next, when a 400 leaves it working", async () => {
     const { calls, fetch } = fakeLinear(
       [{ status: 400, body: { error: "invalid_request" } }, { status: 200 }],

@@ -6,12 +6,14 @@ import { errorText } from "../lib/config";
 import { run } from "../lib/run";
 import { dashboard } from "./app";
 import { watchHead } from "./head";
+import { heldToken } from "./held-token";
 import { handler } from "./server";
 
 // The Dashboard (ADR-0015), the `dashboard` service in compose.yaml: run by
 // bin/dashboard from the clone of `main` on the Runner's volume, mounted
 // read-only, like the tick. It reads Linear and GitHub through the Broker's
-// socket, as `runner status` does, and holds no secret of its own. It
+// socket, as `runner status` does, on one Linear token it holds for 15
+// minutes (held-token.ts), and holds no secret of its own. It
 // listens on 8790, which compose.yaml publishes on the host's 127.0.0.1
 // alone, for a Pangolin resource behind its SSO. Every 30 seconds it looks
 // at the clone's HEAD, and once that has moved it exits, so Docker starts it
@@ -30,13 +32,17 @@ async function head(): Promise<string | undefined> {
   return result.exitCode === 0 && /^[0-9a-f]{40}$/.test(sha) ? sha : undefined;
 }
 
+const shared = broker();
+// One Linear token for every view, held 15 minutes, rather than one a view.
+const held = heldToken({ broker: shared, now: () => Date.now(), log });
+
 let deps: Awaited<ReturnType<typeof dashboard>>;
 try {
   deps = await dashboard({
     work: WORK,
     session: {
-      broker: broker(),
-      linear: (token) => linear(token),
+      broker: { ...shared, ...held },
+      linear: (token) => linear(token, { onRefused: () => held.refused(token) }),
       github: (token) => github(token),
       log,
     },
@@ -66,6 +72,9 @@ await watchHead({
   everyMs: HEAD_EVERY_MS,
   onMove: (now) => {
     log(`The clone is on main ${now.slice(0, 7)} now: exiting, for Docker to start it on that`);
-    void server.stop(true).finally(() => process.exit(0));
+    void server
+      .stop(true)
+      .then(() => held.release())
+      .finally(() => process.exit(0));
   },
 });

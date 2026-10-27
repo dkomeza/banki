@@ -176,6 +176,47 @@ describe("an active record, each tick", () => {
     ).toBe("crashed");
   });
 
+  test("unposted when its supervisor kept how the Stage ended and died before posting it", () => {
+    const json = {
+      stage: "implement",
+      issue: "BAN-7",
+      outcome: "stopped",
+      nextStatus: "Todo",
+      question: "Which?",
+    };
+    const kept = started({ unposted: { type: "closing", result: parseResult(json), json } });
+    const crash = started({
+      unposted: { type: "crash", outcome: "timed-out", why: "3 hours", tail: ["say: hi"] },
+    });
+
+    expect(reconcile(kept, { alive: false, issue: inProgress, now: NOW })).toEqual({
+      type: "unposted",
+      unposted: { type: "closing", result: parseResult(json), json },
+    });
+    expect(reconcile(crash, { alive: false, issue: inProgress, now: NOW })).toEqual({
+      type: "unposted",
+      unposted: { type: "crash", outcome: "timed-out", why: "3 hours", tail: ["say: hi"] },
+    });
+  });
+
+  test("closed over unposted, when the closing comment made it before the supervisor died", () => {
+    const json = { stage: "implement", issue: "BAN-7", outcome: "done", nextStatus: "In Review" };
+    const kept = started({ unposted: { type: "closing", result: parseResult(json), json } });
+    const closing = closingSince("implement", "2026-10-24T02:00:00.000Z");
+
+    expect(reconcile(kept, { alive: false, issue: inProgress, closing, now: NOW }).type).toBe(
+      "closed",
+    );
+  });
+
+  test("crashed when the ending it kept can't be read back", () => {
+    // As read back from a volume whose file holds what no supervisor wrote.
+    const broken = started();
+    Object.assign(broken, { unposted: { type: "closing", json: { stage: 3 } } });
+
+    expect(reconcile(broken, { alive: false, issue: inProgress, now: NOW }).type).toBe("crashed");
+  });
+
   test("starting, for 2 minutes after it was written, while its supervisor hasn't recorded its pid", () => {
     const fresh = record({ pid: null, since: "2026-10-24T02:59:00.000Z" });
     const stale = record({ pid: null, since: "2026-10-24T02:57:00.000Z" });
