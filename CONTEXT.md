@@ -28,6 +28,10 @@ _Avoid_: question, prompt
 The side of a Card that holds what the User should recall: what self-rating reveals, and the reference the Grader compares a written answer with. Never the User's own written answer.
 _Avoid_: answer, solution
 
+**Duplicate**:
+A Card whose Front reads the same as another live Card's in the same Deck, ignoring case, spacing and Markdown formatting, but not what is inside math. Banki warns about a Duplicate as it is written and still saves it; an import skips it.
+_Avoid_: copy, clone, repeat
+
 **Root**:
 The top of the folder tree, where Home lists what isn't in any Folder. It is not a Folder itself: it has no name of its own and can't be moved, renamed or deleted.
 _Avoid_: top level, home folder

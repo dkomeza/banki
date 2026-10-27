@@ -1,16 +1,28 @@
+import { useSuspenseQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
+import { Copy } from "lucide-react";
 import {
   type FormEvent,
   type KeyboardEvent,
   type ReactNode,
   type RefObject,
   useId,
+  useMemo,
   useRef,
   useState,
 } from "react";
 import { Breadcrumb } from "@/components/folders/breadcrumb";
 import { useLibrary } from "@/components/folders/use-library";
 import { Page } from "@/components/page";
-import { type SideErrors, type Sides, hasUnsavedChanges } from "@/lib/cards";
+import { firstLine } from "@/components/cards/card-timeline";
+import {
+  type Card,
+  type SideErrors,
+  type Sides,
+  cardsQueryOptions,
+  duplicatesOf,
+  hasUnsavedChanges,
+} from "@/lib/cards";
 import type { Deck } from "@/lib/decks";
 import { cn } from "@/lib/utils";
 
@@ -56,6 +68,7 @@ function Side({
   placeholder,
   value,
   error,
+  note,
   inputRef,
   autoFocus,
   readOnly,
@@ -67,6 +80,8 @@ function Side({
   placeholder: string;
   value: string;
   error: string | undefined;
+  /** A note under the field, announced politely: the Duplicate warning. */
+  note?: ReactNode;
   inputRef?: RefObject<HTMLTextAreaElement | null>;
   autoFocus?: boolean;
   onChange: (value: string) => void;
@@ -74,6 +89,9 @@ function Side({
 }) {
   const id = useId();
   const front = label === "Front";
+  const describedBy = [error !== undefined && `${id}-error`, note && `${id}-note`]
+    .filter(Boolean)
+    .join(" ");
   return (
     <div className="flex flex-col gap-1 sm:flex-row sm:gap-6">
       <label
@@ -92,7 +110,7 @@ function Side({
           readOnly={readOnly}
           spellCheck
           aria-invalid={error === undefined ? undefined : true}
-          aria-describedby={error === undefined ? undefined : `${id}-error`}
+          aria-describedby={describedBy === "" ? undefined : describedBy}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={onKeyDown}
           placeholder={placeholder}
@@ -114,6 +132,12 @@ function Side({
             {error}
           </p>
         )}
+        {note !== undefined && (
+          // Always there, so what appears in it is announced.
+          <div id={`${id}-note`} aria-live="polite">
+            {note}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -122,10 +146,13 @@ function Side({
 /**
  * The writing page: the breadcrumb down to the Deck, the dateline over the
  * title, then the form, with `foot` along the card's foot and `after` below
- * it. Ctrl/Cmd+Enter in either side saves.
+ * it. Ctrl/Cmd+Enter in either side saves. Under the Front, a note warns
+ * while it makes the Card a Duplicate of another live Card in the Deck; the
+ * Card `selfId` names, the one being edited, never counts.
  */
 export function CardEditor({
   deck,
+  selfId,
   title,
   dateline,
   form,
@@ -136,6 +163,7 @@ export function CardEditor({
   after,
 }: {
   deck: Deck;
+  selfId?: string;
   title: string;
   dateline: ReactNode;
   form: CardForm;
@@ -147,6 +175,17 @@ export function CardEditor({
   after?: ReactNode;
 }) {
   const library = useLibrary();
+  const live = useSuspenseQuery(cardsQueryOptions(deck.id)).data;
+  // A save refreshes the list before the form clears, so while it is on its
+  // way the note keeps to the list as it stood: the Card being saved would
+  // otherwise match itself for a moment.
+  const [steady, setSteady] = useState(live);
+  if (!saving && steady !== live) setSteady(live);
+  const cards = saving ? steady : live;
+  const duplicates = useMemo(
+    () => duplicatesOf(form.fields.front, cards ?? [], selfId),
+    [form.fields.front, cards, selfId],
+  );
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
       event.preventDefault();
@@ -182,6 +221,7 @@ export function CardEditor({
             placeholder="What to be asked"
             value={form.fields.front}
             error={form.errors.front}
+            note={duplicates.length > 0 ? <DuplicateNote duplicates={duplicates} /> : null}
             inputRef={form.frontRef}
             autoFocus={autoFocus}
             readOnly={saving}
@@ -204,6 +244,34 @@ export function CardEditor({
         {after}
       </div>
     </Page>
+  );
+}
+
+/**
+ * "Already in this deck: <the newest match's first line>", linking to its
+ * edit page, with "and N more" for the other matches. A warning, not an
+ * error: it never stops a save.
+ */
+function DuplicateNote({ duplicates }: { duplicates: readonly Card[] }) {
+  const [newest] = duplicates;
+  if (newest === undefined) return null;
+  const more = duplicates.length - 1;
+  return (
+    <p className="flex items-start gap-2 rounded-md bg-muted px-3 text-sm text-foreground lg:py-2">
+      <Copy aria-hidden className="mt-3.5 size-4 shrink-0 text-muted-foreground lg:mt-0.5" />
+      <span className="min-w-0 break-words">
+        Already in this deck:{" "}
+        <Link
+          to="/cards/$cardId"
+          params={{ cardId: newest.id }}
+          // At least 44 px tall below 1024 px, as every control is there.
+          className="inline-flex min-h-11 items-center font-medium underline lg:inline lg:min-h-0 underline-offset-2 hover:text-primary focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+        >
+          {firstLine(newest.front)}
+        </Link>
+        {more > 0 && ` and ${more} more`}
+      </span>
+    </p>
   );
 }
 

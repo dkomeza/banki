@@ -11,7 +11,7 @@ import { Page } from "@/components/page";
 import { OUTLINE_PILL, PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
 import { longDateLabel, timeLabel } from "@/lib/card-days";
-import { type Card, createCard } from "@/lib/cards";
+import { type Card, cardsQueryOptions, createCard } from "@/lib/cards";
 import { type Deck, deckQueryOptions } from "@/lib/decks";
 import { ensureLibrary } from "@/lib/folders";
 import { cn } from "@/lib/utils";
@@ -26,6 +26,7 @@ export const Route = createFileRoute("/_shell/decks/$deckId_/cards/new")({
   loader: ({ context: { queryClient }, params: { deckId } }) =>
     Promise.all([
       queryClient.ensureQueryData(deckQueryOptions(deckId)),
+      queryClient.ensureQueryData(cardsQueryOptions(deckId)),
       ensureLibrary(queryClient),
     ]),
   component: NewCardPage,
