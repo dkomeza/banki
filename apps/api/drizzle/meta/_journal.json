@@ -57,6 +57,13 @@
       "when": 1793049638306,
       "tag": "0007_deletions",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1793150016734,
+      "tag": "0008_tags",
+      "breakpoints": true
     }
   ]
 }

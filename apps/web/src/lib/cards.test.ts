@@ -16,11 +16,12 @@ import {
 } from "./cards";
 import { CANT_REACH } from "./decks";
 
-const card = (id: string, front = "f", back = "b"): Card => ({
+const card = (id: string, front = "f", back = "b", tags: string[] = []): Card => ({
   id,
   deckId: "d1",
   front,
   back,
+  tags,
   createdAt: "2026-10-01T10:00:00.000Z",
   updatedAt: "2026-10-01T10:00:00.000Z",
 });
@@ -82,27 +83,38 @@ describe("sideProblem and sideErrors", () => {
 });
 
 describe("createCard", () => {
-  test("sends the sides exactly as typed, and answers the new Card", async () => {
+  test("sends the sides exactly as typed, with the Tags, and answers the new Card", async () => {
     const queryClient = new QueryClient();
-    const created = card("c1", " $x^2$\n", "line\n\nline ");
+    const created = card("c1", " $x^2$\n", "line\n\nline ", ["exam", "verb"]);
     const { client, sent } = answering(() => Response.json(created, { status: 201 }));
 
     const outcome = await createCard(
       queryClient,
       "d1",
       { front: " $x^2$\n", back: "line\n\nline " },
+      ["exam", "verb"],
       client,
     );
 
     expect(outcome).toEqual({ ok: true, card: created });
-    expect(sent[0]?.body).toEqual({ front: " $x^2$\n", back: "line\n\nline " });
+    expect(sent[0]?.body).toEqual({
+      front: " $x^2$\n",
+      back: "line\n\nline ",
+      tags: ["exam", "verb"],
+    });
     expect(queryClient.getQueryData(cardQueryOptions("c1").queryKey)).toEqual(created);
   });
 
   test("sends nothing when a side is blank, naming it", async () => {
     const { client, fetch } = answering(() => Response.json({}, { status: 201 }));
 
-    const outcome = await createCard(new QueryClient(), "d1", { front: "  ", back: "b" }, client);
+    const outcome = await createCard(
+      new QueryClient(),
+      "d1",
+      { front: "  ", back: "b" },
+      [],
+      client,
+    );
 
     expect(outcome).toEqual({ ok: false, errors: { front: "Write the Front." } });
     expect(fetch).not.toHaveBeenCalled();
@@ -114,23 +126,24 @@ describe("createCard", () => {
     );
 
     expect(
-      await createCard(new QueryClient(), "d1", { front: "f", back: "b" }, gone.client),
+      await createCard(new QueryClient(), "d1", { front: "f", back: "b" }, [], gone.client),
     ).toEqual({ ok: false, notFound: true });
     expect(
-      await createCard(new QueryClient(), "d1", { front: "f", back: "b" }, unreachable()),
+      await createCard(new QueryClient(), "d1", { front: "f", back: "b" }, [], unreachable()),
     ).toEqual({ ok: false, message: CANT_REACH });
   });
 });
 
 describe("updateCard", () => {
-  test("answers the changed Card and caches it", async () => {
+  test("sends the sides and the Tags, answers the changed Card and caches it", async () => {
     const queryClient = new QueryClient();
-    const changed = card("c1", "new", "new back");
-    const { client } = answering(() => Response.json(changed));
+    const changed = card("c1", "new", "new back", ["noun"]);
+    const { client, sent } = answering(() => Response.json(changed));
 
-    expect(await updateCard(queryClient, "c1", { front: "new", back: "new back" }, client)).toEqual(
-      { ok: true, card: changed },
-    );
+    expect(
+      await updateCard(queryClient, "c1", { front: "new", back: "new back" }, ["noun"], client),
+    ).toEqual({ ok: true, card: changed });
+    expect(sent[0]?.body).toEqual({ front: "new", back: "new back", tags: ["noun"] });
     expect(queryClient.getQueryData(cardQueryOptions("c1").queryKey)).toEqual(changed);
   });
 });

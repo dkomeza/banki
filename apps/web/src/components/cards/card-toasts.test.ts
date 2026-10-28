@@ -26,6 +26,7 @@ const CARD = {
   deckId: "d1",
   front: "f",
   back: "b",
+  tags: [],
   createdAt: "2026-10-01T10:00:00.000Z",
   updatedAt: "2026-10-01T10:00:00.000Z",
 };

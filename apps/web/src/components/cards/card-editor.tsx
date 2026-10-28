@@ -15,6 +15,7 @@ import { Breadcrumb } from "@/components/folders/breadcrumb";
 import { useLibrary } from "@/components/folders/use-library";
 import { Page } from "@/components/page";
 import { firstLine } from "@/components/cards/card-timeline";
+import { TagField, type TagInput } from "@/components/cards/tag-field";
 import {
   type Card,
   type SideErrors,
@@ -28,7 +29,8 @@ import { cn } from "@/lib/utils";
 
 // New card and Edit card are one writing page: a dated page with the two
 // sides written on ruled lines inside a bordered card, their labels in the
-// margin from 640 px, and the actions along the card's foot under a hairline.
+// margin from 640 px, the Tags field under them, and the actions along the
+// card's foot under a hairline.
 
 /** The form's state: the sides as typed, what counts as saved, and each side's error. */
 export function useCardForm(saved0: Sides) {
@@ -145,8 +147,9 @@ function Side({
 
 /**
  * The writing page: the breadcrumb down to the Deck, the dateline over the
- * title, then the form, with `foot` along the card's foot and `after` below
- * it. Ctrl/Cmd+Enter in either side saves. Under the Front, a note warns
+ * title, then the form, the Tags field under the sides, with `foot` along the
+ * card's foot and `after` below it. Ctrl/Cmd+Enter in either side, or in the
+ * Tags, saves. Under the Front, a note warns
  * while it makes the Card a Duplicate of another live Card in the Deck; the
  * Card `selfId` names, the one being edited, never counts.
  */
@@ -156,6 +159,7 @@ export function CardEditor({
   title,
   dateline,
   form,
+  tags,
   onSave,
   saving = false,
   autoFocus = false,
@@ -167,6 +171,7 @@ export function CardEditor({
   title: string;
   dateline: ReactNode;
   form: CardForm;
+  tags: TagInput;
   onSave: () => void;
   /** While a save is on its way, the sides can't be changed, so nothing typed meanwhile is lost. */
   saving?: boolean;
@@ -237,6 +242,7 @@ export function CardEditor({
             onChange={(value) => form.set("back", value)}
             onKeyDown={onKeyDown}
           />
+          <TagField input={tags} readOnly={saving} onSave={onSave} />
           <div className="flex flex-col gap-3 border-t pt-5 sm:flex-row sm:items-center sm:pl-22">
             {foot}
           </div>

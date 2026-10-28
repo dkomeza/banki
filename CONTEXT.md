@@ -28,6 +28,10 @@ _Avoid_: question, prompt
 The side of a Card that holds what the User should recall: what self-rating reveals, and the reference the Grader compares a written answer with. Never the User's own written answer.
 _Avoid_: answer, solution
 
+**Tag**:
+A one-word label on Cards, such as `irregular-verb`, for finding them again: it has no effect on study or scheduling. A Card carries any number of Tags, and the same Tag on Cards in different Decks is one Tag. A Tag exists only while some Card carries it; it has no name or life of its own to rename or delete.
+_Avoid_: label, category, keyword
+
 **Duplicate**:
 A Card whose Front reads the same as another live Card's in the same Deck, ignoring case, spacing and Markdown formatting, but not what is inside math. Banki warns about a Duplicate as it is written and still saves it; an import skips it.
 _Avoid_: copy, clone, repeat

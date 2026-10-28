@@ -38,11 +38,11 @@ export async function deletionIdOf(res: Response): Promise<string | undefined> {
 
 /**
  * Has everything a Restore or a Removal can change fetched again: Recently
- * deleted, the Folders and Decks, each Deck's Cards and each Card.
+ * deleted, the Folders and Decks, each Deck's Cards and each Card, and the Tags.
  */
 export async function refreshAfterDeletion(queryClient: QueryClient) {
   await Promise.all(
-    [["deletions"], ["folders"], ["decks"], ["cards"]].map((queryKey) =>
+    [["deletions"], ["folders"], ["decks"], ["cards"], ["tags"]].map((queryKey) =>
       queryClient.invalidateQueries({ queryKey }),
     ),
   );

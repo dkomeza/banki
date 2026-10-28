@@ -262,6 +262,43 @@ const CARDS: readonly {
 ];
 
 /**
+ * The Seed data's Tags, by Card: word classes and levels in Spanish
+ * vocabulary, topics in Calculus 2, and so on. `exam` is on Cards in two Decks,
+ * and quedar carries enough Tags to wrap.
+ */
+const TAGS: Readonly<Record<string, readonly string[]>> = {
+  [spanish[0]]: ["a1", "food", "noun"],
+  [spanish[1]]: ["a1", "food", "noun", "restaurant"],
+  [spanish[2]]: ["b1", "daily-routine", "verb"],
+  [spanish[3]]: ["b1", "noun", "travel"],
+  [spanish[4]]: [
+    "b1",
+    "exam",
+    "false-friend",
+    "phrasal",
+    "polysemous",
+    "reflexive",
+    "social",
+    "verb",
+  ],
+  [spanish[5]]: ["culture", "food", "noun", "untranslatable"],
+  [spanish[6]]: ["a2", "irregular", "phrase", "verb"],
+  [spanish[7]]: ["city", "noun"],
+  [calculus2[0]]: ["exam", "integrals", "technique"],
+  [calculus2[1]]: ["derivation", "exam", "series"],
+  [calculus2[2]]: ["convergence", "series", "tests"],
+  [calculus2[3]]: ["integrals", "trig"],
+  [calculus2[4]]: ["convergence", "series"],
+  [kanji[0]]: ["n4", "place"],
+  [kanji[1]]: ["n4", "on-yomi"],
+  [kanji[2]]: ["n4", "verb", "動詞"],
+  [kanji[3]]: ["grammar", "n4"],
+  [chemistry[0]]: ["mechanism", "substitution"],
+  [chemistry[1]]: ["carbonyl", "mechanism", "named-reaction"],
+  [chemistry[2]]: ["carbonyl", "grignard", "named-reaction"],
+};
+
+/**
  * When the deleted things in the Seed data were created: after the live
  * Folders they were in, and before any of them was deleted.
  */
@@ -280,7 +317,8 @@ const deleted = (id: string | undefined) => {
  * Writes what Recently deleted shows, one Deletion of each case
  * (`SEED_IDS.deletions`), each deleted this many hours before the seed time:
  * Physics, a Folder with a subfolder, two Decks and their Cards (3); la
- * madrugada, a Card alone from the live Spanish vocabulary (5.5); Statistics
+ * madrugada, a Card alone from the live Spanish vocabulary, its Tag `time` on no
+ * live Card (5.5); Statistics
  * from Maths (26); a Spanish vocabulary from Languages, whose name the live one
  * there has now, so it restores as "Spanish vocabulary (2)" (99); Old semester
  * (198), from which Linear algebra was deleted on its own before (242), so it
@@ -300,9 +338,9 @@ function deletedSeed(db: Queryable, userId: string, now: Date) {
   const hoursAgo = (hours: number) => new Date(now.getTime() - hours * HOUR_MS);
   let written = 0;
 
-  const card = (deckId: string, front: string, back: string) => {
+  const card = (deckId: string, front: string, back: string, tags: readonly string[] = []) => {
     const id = deletedSeedId(++written);
-    const created = cards.create(userId, deckId, { front, back }, { id, now: createdAt });
+    const created = cards.create(userId, deckId, { front, back, tags }, { id, now: createdAt });
     if (typeof created === "string") throw new Error(`The seed Card ${front} is ${created}`);
     return id;
   };
@@ -337,7 +375,10 @@ function deletedSeed(db: Queryable, userId: string, now: Date) {
       deck("Optics", folder("Waves", physics), 12);
       deleted(folders.softDelete(userId, physics, hoursAgo(3), deletions.physics));
 
-      const madrugada = card(SEED_IDS.decks.spanish, "la madrugada", "the small hours");
+      const madrugada = card(SEED_IDS.decks.spanish, "la madrugada", "the small hours", [
+        "noun",
+        "time",
+      ]);
       deleted(cards.softDelete(userId, madrugada, hoursAgo(5.5), deletions.madrugada));
 
       const statistics = deck("Statistics", SEED_IDS.folders.maths, 12);
@@ -404,7 +445,7 @@ export function writeSeedData({
     const created = cards.create(
       userId,
       deckId,
-      { front, back },
+      { front, back, tags: TAGS[id] ?? [] },
       { id, now: new Date(now.getTime() - hoursAgo * HOUR_MS) },
     );
     if (typeof created === "string") throw new Error(`The seed Card ${id} is ${created}`);

@@ -112,25 +112,34 @@ async function outcomeOf(
   return { ok: false, message: failed };
 }
 
-/** Has the Deck's list, and its count, fetched again. */
+/** Has the Deck's list, its count and the User's Tags fetched again. */
 async function refreshDeck(queryClient: QueryClient, deckId: string) {
   await Promise.all([
+    queryClient.invalidateQueries({ queryKey: ["tags"], exact: true }),
     queryClient.invalidateQueries({ queryKey: cardsQueryOptions(deckId).queryKey, exact: true }),
     queryClient.invalidateQueries({ queryKey: deckQueryOptions(deckId).queryKey, exact: true }),
     queryClient.invalidateQueries({ queryKey: decksQueryOptions().queryKey, exact: true }),
   ]);
 }
 
-/** Creates a Card in a Deck with `POST /api/decks/:deckId/cards`, and says how it went. */
+/**
+ * Creates a Card in a Deck, with its Tags, with `POST /api/decks/:deckId/cards`,
+ * and says how it went.
+ */
 export async function createCard(
   queryClient: QueryClient,
   deckId: string,
   sides: Sides,
+  tags: readonly string[],
   client: ApiClient = api,
 ): Promise<CardOutcome> {
   const outcome = await outcomeOf(
     sides,
-    () => client.api.decks[":deckId"].cards.$post({ param: { deckId }, json: sides }),
+    () =>
+      client.api.decks[":deckId"].cards.$post({
+        param: { deckId },
+        json: { ...sides, tags: [...tags] },
+      }),
     "Banki couldn't save the card. Try again.",
   );
   if (outcome.ok) {
@@ -140,16 +149,17 @@ export async function createCard(
   return outcome;
 }
 
-/** Changes a Card's sides with `PATCH /api/cards/:id`, and says how it went. */
+/** Changes a Card's sides and Tags with `PATCH /api/cards/:id`, and says how it went. */
 export async function updateCard(
   queryClient: QueryClient,
   id: string,
   sides: Sides,
+  tags: readonly string[],
   client: ApiClient = api,
 ): Promise<CardOutcome> {
   const outcome = await outcomeOf(
     sides,
-    () => client.api.cards[":id"].$patch({ param: { id }, json: sides }),
+    () => client.api.cards[":id"].$patch({ param: { id }, json: { ...sides, tags: [...tags] } }),
     "Banki couldn't save the card. Try again.",
   );
   if (outcome.ok) {

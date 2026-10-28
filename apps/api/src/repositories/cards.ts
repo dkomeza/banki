@@ -1,16 +1,23 @@
 import { randomUUID } from "node:crypto";
-import type { CardResponse, CreateCardRequest, UpdateCardRequest } from "@banki/shared";
+import {
+  type CardResponse,
+  type CreateCardRequest,
+  type UpdateCardRequest,
+  sortTags,
+} from "@banki/shared";
 import { type SQLWrapper, and, desc, eq, inArray, isNull } from "drizzle-orm";
 import type { z } from "zod";
 import type { Queryable } from "../db/database";
-import { card, deck } from "../db/schema";
+import { card, card_tag, deck } from "../db/schema";
 
 export type Card = CardResponse;
 
 export type CardRepository = ReturnType<typeof createCardRepository>;
 
-/** A new Card, as `CreateCardRequest` parses it. */
-export type NewCard = z.output<typeof CreateCardRequest>;
+/** A new Card, as `CreateCardRequest` parses it; no Tags unless given. */
+export type NewCard = Omit<z.output<typeof CreateCardRequest>, "tags"> & {
+  tags?: readonly string[];
+};
 
 /** Changes to a Card, as `UpdateCardRequest` parses them. */
 export type CardChanges = z.output<typeof UpdateCardRequest>;
@@ -36,8 +43,11 @@ type Row = {
   updatedAt: Date;
 };
 
-const toCard = (row: Row): Card => ({
+const NO_TAGS: readonly string[] = [];
+
+const toCard = (row: Row, tags: readonly string[]): Card => ({
   ...row,
+  tags: [...tags],
   createdAt: row.createdAt.toISOString(),
   updatedAt: row.updatedAt.toISOString(),
 });
@@ -48,6 +58,35 @@ const liveDeck = (userId: string, id: string) =>
 
 const isLiveDeck = (db: Queryable, userId: string, id: string) =>
   db.select({ id: deck.id }).from(deck).where(liveDeck(userId, id)).get() !== undefined;
+
+/** The Tags of the User's Cards `cardIds` picks, each Card's A–Z. */
+function tagsOf(db: Queryable, userId: string, cardIds: SQLWrapper | string[]) {
+  const rows = db
+    .select({ cardId: card_tag.cardId, name: card_tag.name })
+    .from(card_tag)
+    .where(and(eq(card_tag.userId, userId), inArray(card_tag.cardId, cardIds)))
+    .all();
+  const byCard = new Map<string, string[]>();
+  for (const { cardId, name } of rows) {
+    const tags = byCard.get(cardId);
+    if (tags === undefined) byCard.set(cardId, [name]);
+    else tags.push(name);
+  }
+  for (const [cardId, tags] of byCard) byCard.set(cardId, sortTags(tags));
+  return byCard;
+}
+
+/** Gives the User's Card `cardId` exactly these Tags, already parsed (`CardTags`). */
+function writeTags(db: Queryable, userId: string, cardId: string, tags: readonly string[]) {
+  db.delete(card_tag)
+    .where(and(eq(card_tag.userId, userId), eq(card_tag.cardId, cardId)))
+    .run();
+  if (tags.length > 0) {
+    db.insert(card_tag)
+      .values(tags.map((name) => ({ cardId, userId, name })))
+      .run();
+  }
+}
 
 /** The User's live Card `id` in a live Deck. */
 const findIn = (db: Queryable, userId: string, id: string): Card | undefined => {
@@ -65,7 +104,7 @@ const findIn = (db: Queryable, userId: string, id: string): Card | undefined => 
       ),
     )
     .get();
-  return row === undefined ? undefined : toCard(row);
+  return row === undefined ? undefined : toCard(row, tagsOf(db, userId, [id]).get(id) ?? NO_TAGS);
 };
 
 /**
@@ -86,11 +125,13 @@ export function stampCards(
 }
 
 /**
- * The User's Cards. Every query is scoped by the User (ADR-0001), so another
- * User's Card is as unknown as one that never existed, and so is a deleted
- * Card, or one whose Deck is deleted; so is a Deck that is deleted or another
- * User's, as a Deck to list or to create a Card in. Fronts and Backs are
- * expected already parsed (`CardSide`), and are stored exactly as given.
+ * The User's Cards, each with its Tags. Every query is scoped by the User
+ * (ADR-0001), so another User's Card is as unknown as one that never existed,
+ * and so is a deleted Card, or one whose Deck is deleted; so is a Deck that is
+ * deleted or another User's, as a Deck to list or to create a Card in. Fronts
+ * and Backs are expected already parsed (`CardSide`), and are stored exactly as
+ * given; Tags too (`CardTags`: lowercase, without duplicates). A soft delete
+ * leaves a Card's Tags alone, so they come back with it on Restore.
  */
 export function createCardRepository(db: Queryable) {
   return {
@@ -98,13 +139,15 @@ export function createCardRepository(db: Queryable) {
     list(userId: string, deckId: string): Card[] | "not_found" {
       return db.transaction((tx) => {
         if (!isLiveDeck(tx, userId, deckId)) return "not_found";
-        return tx
+        const live = and(eq(card.userId, userId), eq(card.deckId, deckId), isNull(card.deletedAt));
+        const rows = tx
           .select(COLUMNS)
           .from(card)
-          .where(and(eq(card.userId, userId), eq(card.deckId, deckId), isNull(card.deletedAt)))
+          .where(live)
           .orderBy(desc(card.createdAt), desc(card.id))
-          .all()
-          .map(toCard);
+          .all();
+        const tags = tagsOf(tx, userId, tx.select({ id: card.id }).from(card).where(live));
+        return rows.map((row) => toCard(row, tags.get(row.id) ?? NO_TAGS));
       });
     },
 
@@ -112,13 +155,14 @@ export function createCardRepository(db: Queryable) {
     find: (userId: string, id: string) => findIn(db, userId, id),
 
     /**
-     * Creates a Card in the User's Deck `deckId`, unless that isn't a live
-     * Deck of the User's. `id` and `now` are for the Seed data and tests.
+     * Creates a Card in the User's Deck `deckId`, with its Tags, unless that
+     * isn't a live Deck of the User's. `id` and `now` are for the Seed data and
+     * tests.
      */
     create(
       userId: string,
       deckId: string,
-      { front, back }: NewCard,
+      { front, back, tags = NO_TAGS }: NewCard,
       { id = randomUUID(), now = new Date() }: { id?: string; now?: Date } = {},
     ): Card | "not_found" {
       return db.transaction(
@@ -128,13 +172,17 @@ export function createCardRepository(db: Queryable) {
           tx.insert(card)
             .values({ ...row, userId })
             .run();
-          return toCard(row);
+          writeTags(tx, userId, id, tags);
+          return toCard(row, sortTags(tags));
         },
         { behavior: "immediate" },
       );
     },
 
-    /** Changes a Card's Front, Back or both; "not_found" for no such Card. */
+    /**
+     * Changes a Card's Front, Back, Tags or any of them, Tags given replacing
+     * all of its own; "not_found" for no such Card.
+     */
     update(userId: string, id: string, changes: CardChanges, now = new Date()): Card | "not_found" {
       return db.transaction(
         (tx) => {
@@ -147,10 +195,35 @@ export function createCardRepository(db: Queryable) {
             })
             .where(and(eq(card.userId, userId), eq(card.id, id)))
             .run();
+          if (changes.tags !== undefined) writeTags(tx, userId, id, changes.tags);
           return findIn(tx, userId, id) ?? "not_found";
         },
         { behavior: "immediate" },
       );
+    },
+
+    /**
+     * The User's Tags that some live Card in a live Deck carries, A–Z: what
+     * `GET /api/tags` answers. A deleted Card's Tags aren't among them until
+     * it is restored.
+     */
+    tags(userId: string): string[] {
+      const rows = db
+        .selectDistinct({ name: card_tag.name })
+        .from(card_tag)
+        .innerJoin(card, eq(card.id, card_tag.cardId))
+        .innerJoin(deck, eq(deck.id, card.deckId))
+        .where(
+          and(
+            eq(card_tag.userId, userId),
+            eq(card.userId, userId),
+            isNull(card.deletedAt),
+            eq(deck.userId, userId),
+            isNull(deck.deletedAt),
+          ),
+        )
+        .all();
+      return sortTags(rows.map(({ name }) => name));
     },
 
     /**

@@ -11,6 +11,7 @@ import {
   check,
   index,
   integer,
+  primaryKey,
   sqliteTable,
   text,
   uniqueIndex,
@@ -146,5 +147,27 @@ export const card = sqliteTable(
     index("card_deck_id").on(table.deckId),
     index("card_deletion_id").on(table.deletionId),
     index("card_deleted_at").on(table.deletedAt),
+  ],
+);
+
+/**
+ * A Tag a Card carries, one row per Card and Tag. `name` is stored lowercase,
+ * as `TagName` parses it. Soft deletes leave it alone: a deleted Card keeps its
+ * Tags and gets them back on Restore, and they go only with the Card's Removal.
+ */
+export const card_tag = sqliteTable(
+  "card_tag",
+  {
+    cardId: text("card_id")
+      .notNull()
+      .references(() => card.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.cardId, table.name] }),
+    index("card_tag_user_id_name").on(table.userId, table.name),
   ],
 );
