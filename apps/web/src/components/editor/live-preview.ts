@@ -756,6 +756,7 @@ class TableGrid {
     if (!view) return;
     this.current = { r, c };
     view.focus();
+    view.dom.parentElement?.scrollIntoView({ block: "nearest", inline: "nearest" });
     const at = offset ?? view.state.doc.length;
     view.dispatch({ selection: { anchor: Math.min(at, view.state.doc.length) } });
   }

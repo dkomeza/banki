@@ -14,6 +14,9 @@ import {
 } from "react";
 import { LiveEditor } from "@/components/editor/live-editor";
 import { protoSides } from "@/components/editor/proto-state";
+import { SideToolbar } from "@/components/editor/side-toolbar";
+import { useKeyboardInset } from "@/components/editor/use-keyboard-inset";
+import "@/components/editor/editor-skin.css";
 import {
   AddImageButton,
   ImageStrip,
@@ -163,7 +166,7 @@ function Side({
     .filter(Boolean)
     .join(" ");
   return (
-    <div className="flex flex-col gap-1 sm:flex-row sm:gap-6">
+    <div className="side flex flex-col gap-1 sm:flex-row sm:gap-6">
       <label
         id={`${id}-label`}
         onClick={() => inputRef.current?.focus()}
@@ -204,7 +207,7 @@ function Side({
             className={front ? "min-h-16" : "min-h-32"}
           />
         </div>
-        {toolbar}
+        {toolbar ?? <SideToolbar view={inputRef} label={label} />}
         {images}
         {error !== undefined && (
           <p id={`${id}-error`} className="text-sm font-medium text-destructive">
@@ -260,6 +263,7 @@ export function CardEditor({
   foot: ReactNode;
   after?: ReactNode;
 }) {
+  useKeyboardInset();
   const library = useLibrary();
   const live = useSuspenseQuery(cardsQueryOptions(deck.id)).data;
   // A save refreshes the list before the form clears, so while it is on its

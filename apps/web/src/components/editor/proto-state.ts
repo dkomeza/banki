@@ -43,11 +43,11 @@ const SAMPLES: Record<ProtoState, { front: string; back: string }> = {
   },
   table: {
     front: "Derivatives to know by heart",
-    back: `Each row is one rule; the last one is for compositions.\n${TABLE}\nAll hold on the domain of the function.`,
+    back: `Each row is one rule; the last one is for compositions.\n${TABLE}\n\nAll hold on the domain of the function.`,
   },
   "table-menu": {
     front: "Derivatives to know by heart",
-    back: `Each row is one rule; the last one is for compositions.\n${TABLE}\nAll hold on the domain of the function.`,
+    back: `Each row is one rule; the last one is for compositions.\n${TABLE}\n\nAll hold on the domain of the function.`,
   },
   toolbar: {
     front: "Integrate $\\int x e^x \\, dx$ by parts.",
