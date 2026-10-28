@@ -644,11 +644,12 @@ Once, in the repo's **Settings**, **Actions**, **General**: turn on **Allow GitH
 
 ### The Release PR
 
-Every push to `main` runs release-please, which keeps one Release PR open, titled `chore(main): release banki X.Y.Z`. It holds the next version, in the root, `apps/api`, `apps/web` and `packages/shared` `package.json` and in `.release-please-manifest.json`, and the Release's notes, at the top of `CHANGELOG.md` and in its body. One version covers the whole repo, tagged `vX.Y.Z`.
+Every push to `main` runs release-please, which keeps one Release PR open, titled `chore(main): release banki X.Y.Z`. It holds the next version, in the root, `apps/api`, `apps/web` and `packages/shared` `package.json`, in `bun.lock` and in `.release-please-manifest.json`, and the Release's notes, at the top of `CHANGELOG.md` and in its body. One version covers the whole repo, tagged `vX.Y.Z`.
 
 - **The version** is SemVer from the squash-merged PR titles since the last Release: a `feat` bumps the minor version, a `fix` the patch. Before `1.0.0`, a breaking change bumps the minor version too, so `1.0.0` only ever comes from a deliberate `release-as`. The first Release is `0.1.0`, and its notes start at the walking skeleton (BAN-74), leaving out the prototype's commits.
 - **The notes** are for the User and self-hosters: a **Features** and a **Fixes** section, and every other commit type left out. So is a commit that touches only `deploy/`, `.github/`, `.claude/`, `docs/` or `scripts/`. A stretch of only such commits opens no Release PR.
-- **To edit the notes**, edit the Release PR just before you merge it: its body becomes the GitHub Release, and `CHANGELOG.md` on its branch the changelog. Each push to `main` rewrites the Release PR, edits included. A commit that touched the app only by the way still lands in the notes: take it out there.
+- **To edit the notes**, edit the Release PR just before you merge it: its body becomes the GitHub Release, and `CHANGELOG.md` on its branch the changelog. Each push to `main` rewrites the Release PR, edits included. release-please leaves out only whole directories, so an infrastructure `feat` or `fix` that also touched a root doc (`README.md`, `CONTEXT.md`, `AGENTS.md` or `CLAUDE.md`) still lands in the notes: rewrite its entry there as one generic line, such as "Improved release architecture".
+- **`bun.lock`** records each workspace's version, so whenever release-please opens or updates the Release PR, the workflow runs `bun install --lockfile-only` on its branch and pushes the new `bun.lock` there, as `github-actions[bot]`. The PR after a Release then carries no lockfile diff.
 
 The Release PR runs no workflows, since `GITHUB_TOKEN` can't trigger them, so its checks never appear. Merge it with the ruleset's admin bypass; CI runs on `main` right after.
 

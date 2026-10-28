@@ -170,7 +170,8 @@ export function workflowHarness(fileName: string) {
   /**
    * Runs one step's script as Actions does (`bash -eo pipefail`), with `env`,
    * and `gh` and `docker` answering from `fixtures`. `files` are written under
-   * the run's directory, where the script runs.
+   * the run's directory, where the script runs, and then `prepare` gets that
+   * directory, for what plain files can't set up, such as a git repo.
    */
   async function runStep(
     jobName: string,
@@ -178,6 +179,7 @@ export function workflowHarness(fileName: string) {
     env: Record<string, string>,
     fixtures: Record<string, Answer> = {},
     files: Record<string, string> = {},
+    prepare?: (dir: string) => void,
   ) {
     const dir = join(scratch, `run-${runs++}`);
     mkdirSync(dir);
@@ -204,6 +206,7 @@ export function workflowHarness(fileName: string) {
       mkdirSync(join(file, ".."), { recursive: true });
       writeFileSync(file, content);
     }
+    prepare?.(dir);
     const file = join(dir, "step.sh");
     writeFileSync(file, script(jobName, stepId));
     const ghLog = join(dir, "gh.log");

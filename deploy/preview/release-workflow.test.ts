@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { isRecord } from "./agent/parse";
 import { type Answer, REPO, workflowHarness, writes } from "./workflow-harness";
@@ -561,6 +561,122 @@ describe("marking the Release not shipped", () => {
   });
 });
 
+const prBody = (headBranchName: unknown) =>
+  JSON.stringify({ headBranchName, baseBranchName: "main", number: 61 });
+
+describe("finding the Release PR's branch", () => {
+  test("gives the branch of the PR release-please opened or updated", async () => {
+    const result = await runStep("release-please", "branch", {
+      PR: prBody("release-please--branches--main"),
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toBe("name=release-please--branches--main\n");
+  });
+
+  test("fails on anything but a release-please branch", async () => {
+    for (const branch of ["main", "release-please--x;rm -rf /", "", null]) {
+      const result = await runStep("release-please", "branch", { PR: prBody(branch) });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.out).toContain("release-please gave no Release PR branch");
+      expect(result.output).toBe("");
+    }
+  });
+});
+
+const RELEASE_BRANCH = "release-please--branches--main";
+
+const run = (cwd: string, command: string[]) => {
+  const proc = Bun.spawnSync(command, {
+    cwd,
+    stdout: "pipe",
+    stderr: "pipe",
+    env: { ...process.env, HOME: cwd },
+  });
+  if (proc.exitCode !== 0) throw new Error(`${command.join(" ")}: ${proc.stderr.toString()}`);
+  return proc.stdout.toString().trim();
+};
+const git = (cwd: string, ...args: string[]) =>
+  run(cwd, ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com", ...args]);
+
+const writeWorkspace = (dir: string, version: string) => {
+  mkdirSync(join(dir, "packages", "shared"), { recursive: true });
+  writeFileSync(
+    join(dir, "package.json"),
+    JSON.stringify({ name: "banki", version, private: true, workspaces: ["packages/*"] }),
+  );
+  writeFileSync(
+    join(dir, "packages", "shared", "package.json"),
+    JSON.stringify({ name: "@banki/shared", version }),
+  );
+};
+
+/**
+ * The Release PR's branch on a bare origin beside the step's directory, and
+ * checked out in it: bun.lock written at 0.0.0, then release-please's bump to
+ * `version` and its notes, without it. Gives the origin's path.
+ */
+function releaseBranch(dir: string, version: string): string {
+  const origin = `${dir}-origin.git`;
+  git(join(dir, ".."), "init", "--quiet", "--bare", origin);
+  git(dir, "init", "--quiet", "--initial-branch", RELEASE_BRANCH);
+  git(dir, "remote", "add", "origin", origin);
+  writeWorkspace(dir, "0.0.0");
+  run(dir, [process.execPath, "install", "--lockfile-only", "--ignore-scripts"]);
+  git(dir, "add", "package.json", "packages", "bun.lock");
+  git(dir, "commit", "--quiet", "--message", "feat: something");
+  writeWorkspace(dir, version);
+  writeFileSync(join(dir, "CHANGELOG.md"), `## ${version}\n`);
+  git(dir, "add", "package.json", "packages", "CHANGELOG.md");
+  git(dir, "commit", "--quiet", "--message", `chore(main): release banki ${version}`);
+  git(dir, "push", "--quiet", "origin", `HEAD:refs/heads/${RELEASE_BRANCH}`);
+  return origin;
+}
+
+/** Runs the step on a Release PR's branch bumped to `version`. */
+const updateLockfile = async (version: string) => {
+  let origin = "";
+  const result = await runStep(
+    "release-please",
+    "lockfile",
+    { BRANCH: RELEASE_BRANCH },
+    {},
+    {},
+    (dir) => {
+      origin = releaseBranch(dir, version);
+    },
+  );
+  const onOrigin = (...args: string[]) => git(origin, "--git-dir", origin, ...args);
+  return { ...result, onOrigin };
+};
+
+describe("updating bun.lock on the Release PR", () => {
+  test("pushes bun.lock at the Release's version to the Release PR's branch", async () => {
+    const result = await updateLockfile("0.1.0");
+
+    expect(result.exitCode).toBe(0);
+    expect(result.out).toContain(`Pushed bun.lock to ${RELEASE_BRANCH}`);
+    const lock = result.onOrigin("show", `${RELEASE_BRANCH}:bun.lock`);
+    expect(lock).toContain('"version": "0.1.0"');
+    expect(lock).not.toContain('"version": "0.0.0"');
+    expect(result.onOrigin("log", "-1", "--format=%an <%ae>|%s", RELEASE_BRANCH)).toBe(
+      "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>|chore: update bun.lock to the Release's version",
+    );
+    expect(result.onOrigin("show", "--name-only", "--format=", RELEASE_BRANCH)).toBe("bun.lock");
+  });
+
+  test("pushes nothing when bun.lock is already at the version", async () => {
+    const result = await updateLockfile("0.0.0");
+
+    expect(result.exitCode).toBe(0);
+    expect(result.out).toContain("bun.lock is up to date");
+    expect(result.onOrigin("log", "-1", "--format=%s", RELEASE_BRANCH)).toBe(
+      "chore(main): release banki 0.0.0",
+    );
+  });
+});
+
 describe("the workflow", () => {
   test("runs on every push to main", () => {
     expect(workflow.on).toEqual({ push: { branches: ["main"] } });
@@ -605,6 +721,27 @@ describe("the workflow", () => {
     expect(release.with).toEqual({
       "config-file": "release-please-config.json",
       "manifest-file": ".release-please-manifest.json",
+    });
+  });
+
+  test("updates bun.lock only when release-please opened or updated the Release PR", () => {
+    const steps = job("release-please").steps;
+    expect(steps.map((each) => each.id ?? each.uses?.split("@")[0])).toEqual([
+      "release",
+      "branch",
+      "actions/checkout",
+      "oven-sh/setup-bun",
+      "lockfile",
+    ]);
+    expect(step("release-please", "branch").if).toBe("steps.release.outputs.prs_created == 'true'");
+    expect(step("release-please", "branch").env).toEqual({
+      PR: "${{ steps.release.outputs.pr }}",
+    });
+    for (const each of steps.slice(2)) expect(each.if).toBe("steps.branch.outputs.name != ''");
+    expect(steps[2]?.with).toEqual({ ref: "${{ steps.branch.outputs.name }}" });
+    expect(steps[3]?.with).toEqual({ "bun-version-file": "package.json" });
+    expect(step("release-please", "lockfile").env).toEqual({
+      BRANCH: "${{ steps.branch.outputs.name }}",
     });
   });
 
@@ -685,6 +822,12 @@ describe("release-please's config", () => {
       { type: "feat", section: "Features" },
       { type: "fix", section: "Fixes" },
     ]);
+  });
+
+  test("leaves out commits that touch only the infrastructure and docs directories", () => {
+    expect(readJson("release-please-config.json")).toMatchObject({
+      packages: { ".": { "exclude-paths": ["deploy", ".github", ".claude", "docs", "scripts"] } },
+    });
   });
 
   test("starts after the prototype, at the walking skeleton's parent", () => {
