@@ -62,6 +62,19 @@ export { ApiError } from "./error";
 export { frontKey } from "./front-key";
 export { HealthResponse } from "./health";
 export {
+  IMAGE_FORMAT_MESSAGE,
+  IMAGE_FORMATS,
+  IMAGE_MAX_BYTES,
+  IMAGE_SIGNATURE_BYTES,
+  type ImageFormat,
+  imageFormatOf,
+  imageMarkdown,
+  type ImageReference,
+  imageReferencesIn,
+  imageTooLargeMessage,
+  ImageUploadResponse,
+} from "./images";
+export {
   DEFAULT_MODEL_ID,
   effectiveModelId,
   isModelId,

@@ -17,12 +17,15 @@ export type OpenedDatabase = {
   close: () => void;
 };
 
+/** Where the Images are stored in the data directory `dataDir`. */
+export const uploadsDirOf = (dataDir: string) => join(dataDir, "uploads");
+
 /**
  * Prepares the data directory (`<dataDir>/banki.db` and `<dataDir>/uploads/`),
  * creating whatever is missing, and opens the database with Banki's defaults.
  */
 export function openDatabase(dataDir: string): OpenedDatabase {
-  mkdirSync(join(dataDir, "uploads"), { recursive: true });
+  mkdirSync(uploadsDirOf(dataDir), { recursive: true });
 
   const sqlite = new SQLite(join(dataDir, "banki.db"), { create: true, strict: true });
   try {

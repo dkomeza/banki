@@ -6,7 +6,7 @@ import { type SetupToken, createSetupToken } from "./auth/setup-token";
 import type { Config } from "./config";
 import { createApiKeyCipher } from "./crypto/api-key-cipher";
 import { loadEncryptionKey } from "./crypto/encryption-key";
-import { openDatabase } from "./db/database";
+import { openDatabase, uploadsDirOf } from "./db/database";
 import { applyMigrations } from "./db/migrate";
 import { internalError, notFound } from "./http/errors";
 import { createRateLimiter } from "./http/rate-limit";
@@ -16,6 +16,7 @@ import { createCardRepository } from "./repositories/cards";
 import { createDeckRepository } from "./repositories/decks";
 import { createDeletionRepository } from "./repositories/deletions";
 import { createHealthRepository } from "./repositories/health";
+import { createImageRepository } from "./repositories/images";
 import { createFolderRepository } from "./repositories/folders";
 import { createSettingsRepository } from "./repositories/settings";
 import { createUserRepository } from "./repositories/user";
@@ -25,6 +26,7 @@ import { deckRoutes } from "./routes/decks";
 import { deletionRoutes } from "./routes/deletions";
 import { folderRoutes } from "./routes/folders";
 import { healthRoutes } from "./routes/health";
+import { imageRoutes } from "./routes/images";
 import { meRoutes } from "./routes/me";
 import { settingsRoutes } from "./routes/settings";
 import { setupRoutes } from "./routes/setup";
@@ -88,6 +90,7 @@ export function createApp(
   const folders = createFolderRepository(database.db);
   const cards = createCardRepository(database.db);
   const deletions = createDeletionRepository(database.db);
+  const images = createImageRepository(database.db, uploadsDirOf(config.dataDir));
   const auth = createAuth({ db: database.db, config, secret });
   const setupToken: SetupToken | undefined = users.exists() ? undefined : createSetupToken();
 
@@ -114,7 +117,8 @@ export function createApp(
     .route("/api/cards", cardRoutes({ cards }))
     .route("/api/tags", tagRoutes({ cards }))
     .route("/api/folders", folderRoutes({ folders }))
-    .route("/api/deletions", deletionRoutes({ deletions }));
+    .route("/api/deletions", deletionRoutes({ deletions }))
+    .route("/api/images", imageRoutes({ images }));
   app.notFound(notFound);
   app.onError(internalError);
 
@@ -124,6 +128,11 @@ export function createApp(
     setupToken,
     /** Removes every Deletion 30 days old or older; the server runs it at start and hourly. */
     removeExpiredDeletions: (now?: Date) => deletions.removeExpired(now),
+    /**
+     * Deletes the Images no Card that isn't Removed refers to, and the files in
+     * `uploads/` with no Image row, once 24 hours old; run after each Removal sweep.
+     */
+    sweepImages: (now?: Date) => images.sweep(now),
     close: database.close,
   };
 }

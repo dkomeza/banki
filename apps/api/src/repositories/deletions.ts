@@ -91,8 +91,10 @@ function pathTo(folders: Map<string, { name: string; parentId: string | null }>,
  * such Deletion.
  *
  * Removal is this one function, for the 30-day sweep and Delete permanently
- * alike, so whatever else a Card holds that must go with it (its images,
- * BAN-17) is deleted here. Reviews never are (ADR-0018).
+ * alike, so whatever else a Card holds that must go with it is deleted here.
+ * Reviews never are (ADR-0018), and neither are Images: an Image a Removed
+ * Card referred to goes with the hourly sweep once no Card refers to it
+ * (ADR-0019, `ImageRepository.sweep`).
  *
  * Something deleted on its own earlier, inside what this Deletion removes,
  * keeps its own Deletion: a Deck or Folder in a removed Folder moves to the

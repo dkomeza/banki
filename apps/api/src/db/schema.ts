@@ -171,3 +171,27 @@ export const card_tag = sqliteTable(
     index("card_tag_user_id_name").on(table.userId, table.name),
   ],
 );
+
+/**
+ * The User's Images (ADR-0001): one row per uploaded file, kept byte for byte
+ * as `<dataDir>/uploads/<id>.<ext>`, the extension its `format` has
+ * (`IMAGE_FORMATS`). An Image has no owner among the Cards: it is kept while
+ * any Card of the User's that isn't Removed refers to it (ADR-0019).
+ */
+export const image = sqliteTable(
+  "image",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    format: text("format", { enum: ["png", "jpeg", "webp", "gif"] }).notNull(),
+    /** Its size in bytes. */
+    size: integer("size").notNull(),
+    uploadedAt: integer("uploaded_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    index("image_user_id").on(table.userId),
+    index("image_uploaded_at").on(table.uploadedAt),
+  ],
+);

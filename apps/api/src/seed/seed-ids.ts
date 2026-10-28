@@ -6,11 +6,13 @@
  * The Seed data's fixed IDs, for building concrete paths to its screens.
  * `deck` is the one the route manifest shoots the deck page at, `folder`
  * the folder page, and `card` the edit-card page: a Calculus 2 Card with a
- * Front and a Back of several lines.
+ * Front of two lines and a Back of several, which refers to the one seeded
+ * Image, `image`, so the page shows its thumbnail.
  */
 export const SEED_IDS = {
   deck: "5eed0000-0000-4000-8000-000000000001",
-  card: "5eed0000-0000-4000-8000-0000000c0201",
+  card: "5eed0000-0000-4000-8000-0000000c0205",
+  image: "5eed0000-0000-4000-8000-00000000a001",
   folder: "5eed0000-0000-4000-8000-0000000000f3",
   folders: {
     languages: "5eed0000-0000-4000-8000-0000000000f1",
@@ -43,6 +45,7 @@ export const SEED_IDS = {
       "5eed0000-0000-4000-8000-0000000c0202",
       "5eed0000-0000-4000-8000-0000000c0203",
       "5eed0000-0000-4000-8000-0000000c0204",
+      "5eed0000-0000-4000-8000-0000000c0205",
     ],
     kanji: [
       "5eed0000-0000-4000-8000-0000000c0300",

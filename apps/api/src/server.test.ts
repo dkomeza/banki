@@ -102,6 +102,7 @@ describe("the server process", () => {
       "0006_cards",
       "0007_deletions",
       "0008_tags",
+      "0009_images",
     ];
     expect(records.map(({ level, message, properties }) => [level, message, properties])).toEqual([
       ["INFO", `API starting "${dataDir}"`, { dataDir }],
