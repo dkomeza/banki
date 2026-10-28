@@ -121,7 +121,7 @@ function Formula({
     return (
       <span
         tabIndex={-1}
-        className="block max-w-full overflow-x-auto overflow-y-hidden py-1 outline-none [&_.katex-display]:m-0"
+        className="block max-w-full overflow-x-auto overflow-y-hidden py-1 outline-none"
         dangerouslySetInnerHTML={{ __html: result.html }}
       />
     );
@@ -271,20 +271,37 @@ function alignments(row: string): ("left" | "center" | "right" | undefined)[] {
     });
 }
 
+/**
+ * A table row's columns, each with its cell's node: an empty cell has none,
+ * so the columns are read from where the `|`s are.
+ */
+function rowCells(row: CardNode): { from: number; cell: CardNode | null }[] {
+  const pipes = row.getChildren("TableDelimiter");
+  const bounds = [row.from, ...pipes.flatMap((pipe) => [pipe.from, pipe.to]), row.to];
+  const columns: { from: number; cell: CardNode | null }[] = [];
+  for (let i = 0; i < bounds.length; i += 2) {
+    const from = bounds[i] ?? row.from;
+    const to = bounds[i + 1] ?? row.to;
+    // No column before a leading `|` or after a trailing one.
+    if (from === to && (i === 0 || i === bounds.length - 2)) continue;
+    const cell = row.getChildren("TableCell").find((c) => c.from >= from && c.to <= to);
+    columns.push({ from, cell: cell ?? null });
+  }
+  return columns;
+}
+
 /** A table row's cells. */
 function cells(row: CardNode, cx: Context, header: boolean, align: ReturnType<typeof alignments>) {
-  return row.getChildren("TableCell").map((cell, i) => {
-    const Cell = header ? "th" : "td";
-    return (
-      <Cell
-        key={cell.from}
-        style={{ textAlign: align[i] }}
-        className={cn("border px-2 py-1 align-top", header && "font-semibold")}
-      >
-        {inline(cell, cx)}
-      </Cell>
-    );
-  });
+  const Cell = header ? "th" : "td";
+  return rowCells(row).map(({ from, cell }, i) => (
+    <Cell
+      key={from}
+      style={{ textAlign: align[i] }}
+      className={cn("border px-2 py-1 align-top", header && "font-semibold")}
+    >
+      {cell && inline(cell, cx)}
+    </Cell>
+  ));
 }
 
 /** The text of a code block, without its fences or indent. */
@@ -494,7 +511,9 @@ export function CardText({
     return blocks(tree.topNode, { doc: side, oneLine: false, ended: false, words: searched });
   }, [side, search]);
   return (
-    <div className={cn("flex flex-col gap-2 [overflow-wrap:anywhere]", className)}>{content}</div>
+    <div className={cn("card-text flex flex-col gap-2 [overflow-wrap:anywhere]", className)}>
+      {content}
+    </div>
   );
 }
 
@@ -510,7 +529,7 @@ export function CardLine({ text: side, className }: { text: string; className?: 
       ? []
       : firstLineOf(leaf, { doc: side, oneLine: true, ended: false, words: NO_WORDS });
   }, [side]);
-  return <span className={cn("block truncate", className)}>{content}</span>;
+  return <span className={cn("card-text block truncate", className)}>{content}</span>;
 }
 
 /**
@@ -533,7 +552,11 @@ export function FadingCardText({
   useLayoutEffect(() => {
     const element = box.current;
     const check = () => {
-      if (element !== null) setCut(element.scrollHeight > element.clientHeight + 1);
+      // The content's own height, not scrollHeight: KaTeX's boxes poke out a
+      // pixel or so past a line, which isn't being cut.
+      const content = element?.firstElementChild;
+      if (element && content)
+        setCut(content.getBoundingClientRect().height > element.clientHeight + 1);
     };
     // The box stops growing at its cap, so the content is watched too: it
     // grows when KaTeX's fonts arrive or the page gets narrower.

@@ -99,7 +99,7 @@ describe("CardText", () => {
 
   test("makes every newline a line break and a blank line a new paragraph", () => {
     expect(html("one\n  two\n\nthree")).toBe(
-      '<div class="flex flex-col gap-2 [overflow-wrap:anywhere]"><p>one<br/>two</p><p>three</p></div>',
+      '<div class="card-text flex flex-col gap-2 [overflow-wrap:anywhere]"><p>one<br/>two</p><p>three</p></div>',
     );
   });
 
@@ -182,14 +182,14 @@ describe("CardText", () => {
 describe("CardLine", () => {
   test("renders the first line with something on it, inline, cut by an ellipsis", () => {
     expect(line("\n\n**Bold** start\nsecond line")).toBe(
-      '<span class="block truncate"><strong>Bold</strong> start</span>',
+      '<span class="card-text block truncate"><strong>Bold</strong> start</span>',
     );
   });
 
   test("keeps each Formula whole, so the ellipsis never cuts one", () => {
     const out = line("When does $\\sum \\frac{1}{n^p}$ converge?");
     expect(outside(out)).toBe(
-      '<span class="block truncate">When does <span class="inline-block">{math}</span> converge?</span>',
+      '<span class="card-text block truncate">When does <span class="inline-block">{math}</span> converge?</span>',
     );
   });
 
@@ -200,12 +200,12 @@ describe("CardLine", () => {
   });
 
   test("ends at a line break inside a paragraph, even inside emphasis", () => {
-    expect(line("*one\ntwo*")).toBe('<span class="block truncate"><em>one</em></span>');
+    expect(line("*one\ntwo*")).toBe('<span class="card-text block truncate"><em>one</em></span>');
   });
 
   test("reads the first line out of a list or a quote", () => {
-    expect(line("- first\n- second")).toBe('<span class="block truncate">first</span>');
-    expect(line("> quoted\n> more")).toBe('<span class="block truncate">quoted</span>');
+    expect(line("- first\n- second")).toBe('<span class="card-text block truncate">first</span>');
+    expect(line("> quoted\n> more")).toBe('<span class="card-text block truncate">quoted</span>');
   });
 
   test("shows a broken Formula's source and message on the line", () => {
@@ -216,7 +216,21 @@ describe("CardLine", () => {
 
   test("shows an image as its alt text", () => {
     expect(line("![a cell](/cell.png) under a microscope")).toBe(
-      '<span class="block truncate">a cell under a microscope</span>',
+      '<span class="card-text block truncate">a cell under a microscope</span>',
     );
+  });
+});
+
+describe("CardText's tables", () => {
+  test("keep an empty cell in its column", () => {
+    const out = html("|  | ser |\n| --- | --- |\n| yo | soy |\n| a |  |");
+    expect(out).toMatch(/<thead><tr><th[^>]*><\/th><th[^>]*>ser<\/th><\/tr><\/thead>/);
+    expect(out).toMatch(/<tr><td[^>]*>yo<\/td><td[^>]*>soy<\/td><\/tr>/);
+    expect(out).toMatch(/<tr><td[^>]*>a<\/td><td[^>]*><\/td><\/tr>/);
+  });
+
+  test("read without outer pipes", () => {
+    const out = html("a | b\n--- | ---\n1 | 2");
+    expect(out).toMatch(/<tr><td[^>]*>1<\/td><td[^>]*>2<\/td><\/tr>/);
   });
 });

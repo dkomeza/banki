@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Plus, Search, Trash2, X } from "lucide-react";
-import { type MouseEvent, useState } from "react";
+import { type MouseEvent, useRef, useState } from "react";
 import { TileMenu } from "@/components/tile-menu";
 import { byDay, timeLabel } from "@/lib/card-days";
 import type { Card } from "@/lib/cards";
@@ -26,20 +26,30 @@ export const RAIL = "relative border-l border-border pl-6 sm:pl-8";
 export const DOT =
   "absolute top-[0.55rem] -left-[0.3rem] size-2.5 rounded-full ring-4 ring-background";
 
+/** How far the pointer may move between press and release for it to be a click. */
+const CLICK_SLOP_PX = 4;
+
 /**
- * Keeps a click that ends a text selection inside a Card from opening it, so
- * its text and Formulas can be selected and copied.
+ * Keeps a drag across a Card, which selects its text and Formulas to copy,
+ * from opening it when the button comes up: a mouse click opens it only when
+ * the pointer stayed put. A click from the keyboard (`detail` 0) always does.
  */
-const keepSelection = (event: MouseEvent<HTMLAnchorElement>) => {
-  const selection = window.getSelection();
-  if (
-    selection !== null &&
-    !selection.isCollapsed &&
-    event.currentTarget.contains(selection.anchorNode)
-  ) {
-    event.preventDefault();
-  }
-};
+function useSelectableLink() {
+  const pressedAt = useRef<{ x: number; y: number } | null>(null);
+  return {
+    onMouseDown: (event: MouseEvent<HTMLAnchorElement>) => {
+      pressedAt.current = { x: event.clientX, y: event.clientY };
+    },
+    onClick: (event: MouseEvent<HTMLAnchorElement>) => {
+      const from = pressedAt.current;
+      pressedAt.current = null;
+      if (event.detail === 0 || from === null) return;
+      if (Math.hypot(event.clientX - from.x, event.clientY - from.y) > CLICK_SLOP_PX) {
+        event.preventDefault();
+      }
+    },
+  };
+}
 
 /**
  * One Card on the timeline, opening its edit page, with Delete in its ⋯ menu,
@@ -60,6 +70,7 @@ function Entry({
   onTag: (tag: string) => void;
 }) {
   const queryClient = useQueryClient();
+  const selectable = useSelectableLink();
   return (
     <li className="group/tile relative flex gap-3 sm:gap-4">
       <p
@@ -88,7 +99,7 @@ function Entry({
             params={{ cardId: card.id }}
             // Dragging across the card selects its text rather than dragging the link.
             draggable={false}
-            onClick={keepSelection}
+            {...selectable}
             // overflow-hidden: nothing in a Card ever widens the page.
             className="flex flex-col gap-1 overflow-hidden rounded-xl px-4 py-3 pr-14 no-underline outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid sm:px-5 sm:py-3.5"
           >

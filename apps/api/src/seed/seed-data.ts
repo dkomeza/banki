@@ -357,7 +357,7 @@ const CARDS: readonly {
     deckId: SEED_IDS.decks.chemistry,
     hoursAgo: 150,
     front: "Esterification of ethanoic acid with ethanol",
-    back: "$\\ce{CH3COOH + C2H5OH <=>[H+] CH3COOC2H5 + H2O}$\nAn equilibrium: taking the water away drives it to the ester.",
+    back: "$$\\ce{CH3COOH + C2H5OH <=>[H+] CH3COOC2H5 + H2O}$$\nAn equilibrium: taking the water away drives it to the ester.",
   },
   {
     id: chemistry[3],
