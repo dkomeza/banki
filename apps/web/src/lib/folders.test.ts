@@ -11,6 +11,7 @@ import {
   countInside,
   countLabel,
   createFolder,
+  deckRows,
   folderNameProblem,
   foldersInside,
   keepBothName,
@@ -107,6 +108,26 @@ describe("countLabel", () => {
     expect(countLabel({ decks: 1, folders: 0 })).toBe("1 deck");
     expect(countLabel({ decks: 0, folders: 3 })).toBe("3 folders");
     expect(countLabel({ decks: 0, folders: 0 })).toBe("");
+  });
+});
+
+describe("deckRows", () => {
+  test("lists every Deck under its Folders, the Root's first, each level A–Z, empty Folders left out", () => {
+    expect(
+      deckRows(LIBRARY).map(
+        (r) => `${"-".repeat(r.depth)}${r.kind === "deck" ? r.deck.name : `[${r.name}]`}`,
+      ),
+    ).toEqual([
+      "Organic",
+      "[Languages]",
+      "-Kanji",
+      "-Spanish",
+      "[Maths]",
+      "-[Analysis]",
+      "--Calculus 2",
+      "--[Real analysis]",
+      "---Calculus 10",
+    ]);
   });
 });
 

@@ -2,7 +2,9 @@ import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { CornerDownRight, Pencil, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { deleteAllWithUndo, showMovedToast } from "@/components/cards/card-toasts";
 import { CardTimeline } from "@/components/cards/card-timeline";
+import { DeckPicker } from "@/components/cards/deck-picker";
 import { ConfirmDelete } from "@/components/decks/confirm-delete";
 import { Cover, Stack } from "@/components/decks/cover";
 import { DeckDialog } from "@/components/decks/deck-dialog";
@@ -14,7 +16,7 @@ import { useLibrary } from "@/components/folders/use-library";
 import { Page } from "@/components/page";
 import { OUTLINE_PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
-import { cardCountLabel, cardsQueryOptions } from "@/lib/cards";
+import { type Card, cardCountLabel, cardsQueryOptions, moveCards } from "@/lib/cards";
 import {
   type Deck,
   createdLabel,
@@ -24,6 +26,7 @@ import {
   updateDeck,
 } from "@/lib/decks";
 import { ensureLibrary, placePath } from "@/lib/folders";
+import { useSelection } from "@/lib/selection";
 import { deckSearch, rememberDeckSearch } from "@/lib/tags";
 import { cn } from "@/lib/utils";
 
@@ -33,7 +36,10 @@ import { cn } from "@/lib/utils";
 // dialog as create; Delete asks in a dialog, naming how many Cards go with
 // it. The Cards follow below, on a timeline (CardTimeline), searched and
 // filtered by Tag through the URL (`?q=…&tags=verb,irregular`), so Back from a
-// Card's edit page comes back to the same list.
+// Card's edit page comes back to the same list. Cards Move to another Deck
+// one at a time from a Card's ⋯ menu, or several at once from selection mode,
+// through the destination picker (DeckPicker); selected Cards can be deleted
+// together too.
 
 export const Route = createFileRoute("/_shell/decks/$deckId")({
   validateSearch: deckSearch,
@@ -72,6 +78,43 @@ function DeckBody({ deck }: { deck: Deck }) {
   useEffect(() => {
     rememberDeckSearch(deck.id, filter);
   }, [deck.id, filter]);
+  const selection = useSelection();
+  // The Cards the destination picker is open for, while it is.
+  const [moving, setMoving] = useState<readonly Card[]>();
+  const [moveBusy, setMoveBusy] = useState(false);
+  const [moveError, setMoveError] = useState<string>();
+  const pick = (chosen: readonly Card[]) => {
+    setMoveError(undefined);
+    setMoving(chosen);
+  };
+  const move = async (to: Deck) => {
+    if (moving === undefined) return;
+    const ids = moving.map((card) => card.id);
+    setMoveBusy(true);
+    const outcome = await moveCards(queryClient, ids, deck.id, to.id);
+    setMoveBusy(false);
+    if (!outcome.ok) {
+      setMoveError(
+        "notFound" in outcome
+          ? "A card or that deck was deleted meanwhile, so nothing moved."
+          : outcome.message,
+      );
+      return;
+    }
+    setMoving(undefined);
+    selection.exit();
+    showMovedToast(queryClient, ids, deck, to);
+  };
+  // Esc leaves selection mode, unless the picker is open: Esc closes that first.
+  const { active: selecting, exit } = selection;
+  useEffect(() => {
+    if (!selecting || moving !== undefined) return undefined;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") exit();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [selecting, exit, moving]);
 
   return (
     <>
@@ -137,6 +180,12 @@ function DeckBody({ deck }: { deck: Deck }) {
         cards={cards}
         filter={filter}
         onFilter={(search) => void navigate({ to: ".", search, replace: true })}
+        selection={selection}
+        onMove={pick}
+        onDelete={(chosen) => {
+          selection.exit();
+          void deleteAllWithUndo(queryClient, deck.id, chosen);
+        }}
       />
 
       <DeckDialog
@@ -178,6 +227,15 @@ function DeckBody({ deck }: { deck: Deck }) {
           });
           return undefined;
         }}
+      />
+      <DeckPicker
+        library={library}
+        from={deck}
+        cards={moving}
+        busy={moveBusy}
+        error={moveError}
+        onMove={(to) => void move(to)}
+        onClose={() => setMoving(undefined)}
       />
       {actions.dialogs}
     </>
