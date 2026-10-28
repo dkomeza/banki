@@ -256,16 +256,12 @@ function FilterBar({
   picked,
   onSearch,
   onToggle,
-  selecting,
-  onSelectMode,
 }: {
   cards: readonly Card[];
   q: string;
   picked: readonly string[];
   onSearch: (q: string) => void;
   onToggle: (tag: string) => void;
-  selecting: boolean;
-  onSelectMode: () => void;
 }) {
   const counts = tagCounts(cards);
   const gone = picked.filter((tag) => !counts.some((c) => c.tag === tag));
@@ -297,16 +293,6 @@ function FilterBar({
             </button>
           )}
         </div>
-        <button
-          type="button"
-          aria-pressed={selecting}
-          onClick={onSelectMode}
-          disabled={selecting}
-          className="inline-flex h-11 shrink-0 items-center gap-2 rounded-full border border-input bg-card px-4 text-sm font-medium hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid disabled:border-primary disabled:bg-primary/10 disabled:text-primary lg:h-10"
-        >
-          <ListChecks aria-hidden className="size-4" />
-          Select
-        </button>
       </div>
       {chips.length > 0 && (
         <div
@@ -495,24 +481,28 @@ export function CardTimeline({
 
   return (
     <section aria-labelledby="cards-title" className="flex flex-col gap-3 border-t pt-6 lg:pt-8">
-      <h2 id="cards-title" className="text-xl font-semibold tracking-tight">
-        Cards{" "}
-        {cards.length > 0 && (
-          <span className="font-normal text-muted-foreground tabular-nums">
-            {active ? `${shown.length} of ${cards.length}` : cards.length}
-          </span>
+      <div className="flex max-w-3xl items-center justify-between gap-4">
+        <h2 id="cards-title" className="text-xl font-semibold tracking-tight">
+          Cards{" "}
+          {cards.length > 0 && (
+            <span className="font-normal text-muted-foreground tabular-nums">
+              {active ? `${shown.length} of ${cards.length}` : cards.length}
+            </span>
+          )}
+        </h2>
+        {cards.length > 0 && !selection.active && (
+          <button
+            type="button"
+            onClick={selection.enter}
+            className="-mr-3 inline-flex h-11 items-center gap-2 rounded-full px-3 text-sm font-medium text-primary hover:bg-primary/10 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid lg:h-9"
+          >
+            <ListChecks aria-hidden className="size-4" />
+            Select cards
+          </button>
         )}
-      </h2>
+      </div>
       {cards.length > 0 && (
-        <FilterBar
-          cards={cards}
-          q={q}
-          picked={picked}
-          onSearch={search}
-          onToggle={toggle}
-          selecting={selection.active}
-          onSelectMode={selection.enter}
-        />
+        <FilterBar cards={cards} q={q} picked={picked} onSearch={search} onToggle={toggle} />
       )}
       <div className="max-w-3xl pt-3">
         {!selection.active && <NewEntry deckId={deckId} empty={cards.length === 0} />}
