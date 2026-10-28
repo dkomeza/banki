@@ -14,6 +14,8 @@ import {
 } from "react";
 import { LiveEditor } from "@/components/editor/live-editor";
 import { protoSides } from "@/components/editor/proto-state";
+import { SideToolbar } from "@/components/editor/side-toolbar";
+import "@/components/editor/editor-skin.css";
 import {
   AddImageButton,
   ImageStrip,
@@ -163,15 +165,16 @@ function Side({
     .filter(Boolean)
     .join(" ");
   return (
-    <div className="flex flex-col gap-1 sm:flex-row sm:gap-6">
+    <div className="side flex flex-col gap-1 sm:flex-row sm:gap-6">
       <label
         id={`${id}-label`}
         onClick={() => inputRef.current?.focus()}
-        className="pt-1 text-xs font-semibold tracking-[0.08em] text-muted-foreground uppercase sm:w-16 sm:shrink-0 sm:pt-2.5 sm:text-right"
+        className="pt-1 text-xs font-semibold tracking-[0.08em] text-muted-foreground uppercase sm:w-16 sm:shrink-0 sm:pt-[4rem] sm:text-right lg:pt-[3rem]"
       >
         {label}
       </label>
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        {toolbar ?? <SideToolbar view={inputRef} label={label} />}
         <div
           data-side={label.toLowerCase()}
           data-invalid={error === undefined ? undefined : true}
@@ -204,7 +207,6 @@ function Side({
             className={front ? "min-h-16" : "min-h-32"}
           />
         </div>
-        {toolbar}
         {images}
         {error !== undefined && (
           <p id={`${id}-error`} className="text-sm font-medium text-destructive">
