@@ -150,6 +150,10 @@ _Avoid_: build, deploy
 The copy of an Edge or Production database taken before each deploy, which the deploy restores if the new version fails its health check.
 _Avoid_: backup
 
+**Reset**:
+Putting Edge back to Seed data, on the Maintainer's request, after taking a Snapshot of what it held. Production is never reset.
+_Avoid_: wipe, reseed
+
 ### Building Banki
 
 **Maintainer**:

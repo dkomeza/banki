@@ -560,12 +560,13 @@ Beside the Previews, two [Long-lived installations](CONTEXT.md) run on the home 
 
 They have a Pangolin site of their own, with its own Newt, on the `banki-long-lived` network (internal, `172.31.254.0/24`, Newt at `172.31.254.2`, and the rest handed out from `172.31.254.128/25`). Edge's and Production's `web` join it; the pull agent and every Preview never do, so no Preview can reach either of them.
 
-| Path                                     | What it is                                                                                                                       |
-| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `deploy/long-lived/compose.yaml`         | The Compose project `banki-long-lived`: their Newt and the `banki-long-lived` network                                            |
-| `deploy/long-lived/bootstrap`            | Prints the Pangolin and DNS steps, and asks for Newt's settings and Edge's Email and Password                                    |
-| `deploy/preview/long-lived.compose.yaml` | The Long-lived template: Edge or Production as the Compose project `banki-edge` or `banki-production`, which the pull agent runs |
-| `deploy/preview/agent/long-lived-*.ts`   | The agent's third pool: `long-lived-planner.ts` decides, unit-tested; `snapshot.ts` takes, restores and prunes Snapshots         |
+| Path                                     | What it is                                                                                                                                       |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `deploy/long-lived/compose.yaml`         | The Compose project `banki-long-lived`: their Newt and the `banki-long-lived` network                                                            |
+| `deploy/long-lived/bootstrap`            | Prints the Pangolin and DNS steps, and asks for Newt's settings and Edge's Email and Password                                                    |
+| `deploy/preview/long-lived.compose.yaml` | The Long-lived template: Edge or Production as the Compose project `banki-edge` or `banki-production`, which the pull agent runs                 |
+| `deploy/preview/agent/long-lived-*.ts`   | The agent's third pool: `long-lived-planner.ts` decides, unit-tested; `snapshot.ts` takes, restores and prunes Snapshots, and clears for a Reset |
+| `.github/workflows/reset-edge.yml`       | Resets Edge to Seed data ([Resetting Edge](#resetting-edge))                                                                                     |
 
 ### Setting them up
 
@@ -586,9 +587,9 @@ Run `bootstrap` before the agent takes the update that deploys Edge and Producti
 
 Then it asks for Newt's `PANGOLIN_ENDPOINT` (the Previews' Newt's by default), ID and secret, and for Edge's Email and Password. Edge's Password is yours to pick, 8 to 128 characters, typed twice; it can't be the Previews' shared Password, which every Preview can read.
 
-It writes `long-lived-newt.env`, `edge-email` and `edge-password` to `$BANKI_PREVIEW_SECRETS`, by default `~/.config/banki-preview`, beside the pull agent's files and never changing them (a `0700` directory of `0600` files, outside the clone). It writes no `AUTH_SECRET`: the api makes its own on its first start, in the data volume a Long-lived installation keeps across deploys. Newt gets its settings as environment variables; the agent's first Edge deploy sets Edge up from `edge-email` and `edge-password`. `bootstrap` itself starts nothing.
+It writes `long-lived-newt.env`, `edge-email` and `edge-password` to `$BANKI_PREVIEW_SECRETS`, by default `~/.config/banki-preview`, beside the pull agent's files and never changing them (a `0700` directory of `0600` files, outside the clone). It writes no `AUTH_SECRET`: the api makes its own on its first start, in the data volume a Long-lived installation keeps across deploys. Newt gets its settings as environment variables; the agent's first Edge deploy, and each Reset, sets Edge up from `edge-email` and `edge-password`. `bootstrap` itself starts nothing.
 
-Run `bootstrap` again to change a value: each one it has is the default, so Enter keeps it, and it shows the Pangolin and DNS steps only when you ask. When Edge is running (`banki-edge-api-1`), a new Password is set in Edge first, with `banki reset-password --password-stdin`, and saved only once that worked, which signs out every Edge device; Edge's Email can't change, so reset Edge instead. Run it as a user who can use Docker: when Docker can't say whether Edge is running, it stops without saving anything. After changing Newt's settings, run `docker compose -f deploy/long-lived/compose.yaml up -d` again.
+Run `bootstrap` again to change a value: each one it has is the default, so Enter keeps it, and it shows the Pangolin and DNS steps only when you ask. When Edge is running (`banki-edge-api-1`), a new Password is set in Edge first, with `banki reset-password --password-stdin`, and saved only once that worked, which signs out every Edge device. A new Email is saved too, but a running Edge keeps its current one until it's reset: `bootstrap` says so and prints the command ([Resetting Edge](#resetting-edge)). Run it as a user who can use Docker: when Docker can't say whether Edge is running, it stops without saving anything. After changing Newt's settings, run `docker compose -f deploy/long-lived/compose.yaml up -d` again.
 
 The two Pangolin resources are made by hand, and the agent has no business with them. Its org API key reaches the whole org, so its code is the guard: it only ever touches a resource at a Preview's host, and `preview` is a reserved Slug while the bare `banki.dkomeza.com` is no Slug at all.
 
@@ -620,6 +621,25 @@ The deployment shows `failure` with a short reason, and the agent's log has the 
 - **A failed first boot** shows just the reason: the agent removes the project and the volume it created, which held nothing else, so the next deployment starts afresh, Edge's setup included.
 
 To redeploy Edge, after a fix on `main` or to try the same commit again, re-run the push's run of the `main-images` workflow: it makes a fresh `edge` deployment of the same images.
+
+### Resetting Edge
+
+Edge keeps its data across deploys, so when it has drifted too far from [Seed data](#seed-data), **reset** it, without ssh:
+
+```sh
+gh workflow run reset-edge.yml
+```
+
+The `reset-edge` workflow, dispatched from `main`, copies Edge's newest `edge` deployment, whatever its status: a new `edge` deployment of the same commit and images, with `"reset": true` in its payload, `Edge reset <sha>`. So a Reset runs the commit Edge was last asked to run, its images are always built already, and Edge never goes backwards. It fails, creating nothing, when Edge has no deployment yet, or the newest one's payload isn't a valid `{ "sha", "api", "web" }`.
+
+The agent deploys it like any upgrade (`in_progress`, `resetting to <sha>`): it pulls, stops api and web, and takes the Snapshot, `snapshots/<deployment ID>.db`, which holds what Edge had before the Reset. Then it clears the database (`banki.db` and its WAL files, in the Snapshot's one-off container), runs `banki setup` with `edge-email` and `edge-password` and `banki seed` on the new images, and starts them. On success the deployment shows `success`, `reset to <sha>`.
+
+- **What's cleared**: the database alone, so every Edge device is signed out. Uploads, the `AUTH_SECRET` and encryption key files, and `snapshots/` stay; the app's own sweep deletes uploads no Card refers to after 24 hours.
+- **A newer push** that overtakes a Reset still waiting carries it on: the newest deployment is deployed as a Reset, and the older one is marked `inactive` as usual. A Reset cut short by a restart, once it cleared the database, is finished by whichever deploy comes next, its retry or a newer push's: a mark in the volume (`snapshots/reset`) says so, and every one of them keeps the Snapshot from before the Reset to roll back to.
+- **A failed Reset** is rolled back like any failed deploy ([When a Long-lived deploy fails](#when-a-long-lived-deploy-fails)): the Snapshot goes back over `banki.db` and the previous images start, so Edge holds exactly what it held before.
+- **With no data volume** yet, a Reset is just a first boot, which sets up and seeds anyway.
+
+To change Edge's Email, rerun `deploy/long-lived/bootstrap` with the new one, then reset Edge: Banki has no command to change an Email, so Edge takes it only when it's set up again. Production is never reset.
 
 ### Production's first Setup
 

@@ -261,6 +261,104 @@ describe("planning a Long-lived installation", () => {
   });
 });
 
+/** A Deployment carrying the reset mark, `reset: true` in its payload. */
+function marked(
+  status: LongLivedDeployment["status"],
+  overrides: Partial<LongLivedDeployment> & { digests?: { api: string; web: string } } = {},
+): LongLivedDeployment {
+  const { sha = SHA, digests = NEW } = overrides;
+  return deployment(status, { ...overrides, payload: { sha, ...digests, reset: true } });
+}
+
+/** Each deploy's installation, Deployment and whether it is a Reset. */
+const resets = (actions: LongLivedAction[]) =>
+  actions.flatMap((action) =>
+    action.kind === "deploy"
+      ? [`${action.environment} ${action.deploymentId} ${action.reset}`]
+      : [],
+  );
+
+describe("a Reset", () => {
+  test("is planned from the mark on the newest Edge Deployment", () => {
+    const head = marked("queued");
+
+    expect(planLongLived(input([head]))).toEqual([
+      expect.objectContaining({ kind: "deploy", deploymentId: head.id, reset: true }),
+    ]);
+  });
+
+  test("an ordinary deploy is no Reset", () => {
+    expect(resets(planLongLived(input([deployment("queued")])))).toEqual([
+      expect.stringMatching(/ false$/),
+    ]);
+  });
+
+  test("carries from an older one still waiting onto the newest, which still supersedes it", () => {
+    for (const status of [undefined, "queued", "in_progress"] as const) {
+      const older = marked(status, { sha: OLD_SHA, digests: OLD });
+      const head = deployment("queued");
+
+      const { upkeep, deploys } = planLongLivedParts(input([older, head]));
+
+      expect(upkeep).toEqual([
+        expect.objectContaining({
+          kind: "mark-inactive",
+          deploymentId: older.id,
+          reason: "superseded",
+        }),
+      ]);
+      expect(resets(deploys)).toEqual([`edge ${head.id} true`]);
+    }
+  });
+
+  test("an ended one doesn't carry", () => {
+    for (const status of ["success", "failure", "error", "inactive"] as const) {
+      const older = marked(status, { sha: OLD_SHA, digests: OLD });
+      const head = deployment("queued");
+
+      expect(resets(planLongLived(input([older, head])))).toEqual([`edge ${head.id} false`]);
+    }
+  });
+
+  test("one with a bad payload doesn't carry", () => {
+    const older = deployment("queued", { sha: OLD_SHA, payload: { sha: OLD_SHA, reset: true } });
+    const head = deployment("queued");
+
+    expect(resets(planLongLived(input([older, head])))).toEqual([`edge ${head.id} false`]);
+  });
+
+  test("an ordinary deploy cut short stays ordinary: the volume's Reset mark, not GitHub, finishes a Reset", () => {
+    const plain = deployment("in_progress", { description: "resetting to aaaaaaa" });
+
+    expect(resets(planLongLived(input([plain])))).toEqual([`edge ${plain.id} false`]);
+  });
+
+  test("the mark is ignored on Production", () => {
+    const head = marked("queued", { environment: "production" });
+    const later = deployment("queued", { environment: "production", sha: OLD_SHA, digests: OLD });
+
+    expect(resets(planLongLived(input([head])))).toEqual([`production ${head.id} false`]);
+    expect(resets(planLongLived(input([head, later])))).toEqual([`production ${later.id} false`]);
+  });
+
+  test("only `reset: true` is the mark: any other value is an ordinary deploy", () => {
+    for (const reset of [false, "true", 1, null, {}, [true]]) {
+      const head = deployment("queued");
+      const withReset = { ...head, payload: { sha: SHA, ...NEW, reset } };
+
+      expect(resets(planLongLived(input([withReset])))).toEqual([`edge ${head.id} false`]);
+    }
+  });
+
+  test("on a missing volume, is planned as a Reset of a first boot", () => {
+    const head = marked("queued");
+
+    expect(planLongLived(input([head], { edge: NONE }))).toEqual([
+      expect.objectContaining({ kind: "deploy", volume: "missing", reset: true }),
+    ]);
+  });
+});
+
 describe("the images a success removes", () => {
   test("are the installation's older Deployments' images, keeping this deploy's and the rollback's", () => {
     const oldest = deployment("success", { sha: OLDER_SHA, digests: OLDER });
