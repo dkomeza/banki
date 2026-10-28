@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { main, prune, restore, take } from "./snapshot";
+import { clear, main, prune, restore, take } from "./snapshot";
 
 // The Snapshot script against a real SQLite database in WAL mode, as the api
 // leaves it in its data volume: a temporary directory stands in for /data.
@@ -163,14 +163,47 @@ describe("prune", () => {
   });
 });
 
+describe("clear", () => {
+  test("deletes banki.db and its WAL and SHM files, and nothing else", () => {
+    writeDatabase(["first"]).close();
+    take(data, 7);
+    writeFileSync(`${database()}-wal`, "a WAL");
+    writeFileSync(`${database()}-shm`, "an index");
+    writeFileSync(join(data, "auth-secret"), "secret");
+    writeFileSync(join(data, "encryption-key"), "key");
+    mkdirSync(join(data, "uploads", "ab"), { recursive: true });
+    writeFileSync(join(data, "uploads", "ab", "image.png"), "png");
+
+    clear(data);
+
+    expect(readdirSync(data).toSorted()).toEqual(
+      ["auth-secret", "encryption-key", "snapshots", "uploads"].toSorted(),
+    );
+    expect(readdirSync(join(data, "uploads", "ab"))).toEqual(["image.png"]);
+    expect(readdirSync(snapshots())).toEqual(["7.db"]);
+    expect(valuesIn(join(snapshots(), "7.db"))).toEqual(["first"]);
+  });
+
+  test("does nothing once cleared, so a Reset cut short clears again on its retry", () => {
+    writeFileSync(join(data, "auth-secret"), "secret");
+
+    clear(data);
+    clear(data);
+
+    expect(readdirSync(data)).toEqual(["auth-secret"]);
+  });
+});
+
 describe("the command line", () => {
-  test("takes, restores and prunes", () => {
+  test("takes, restores, prunes and clears", () => {
     writeDatabase(["x"]).close();
 
     expect(main(["take", "7"], data)).toBe("taken snapshots/7.db");
     expect(main(["take", "7"], data)).toBe("kept snapshots/7.db");
     expect(main(["restore", "7"], data)).toBe("restored snapshots/7.db");
     expect(main(["prune"], data)).toBe("pruned none");
+    expect(main(["clear"], data)).toBe("cleared banki.db");
+    expect(existsSync(database())).toBe(false);
   });
 
   test("refuses anything but a Deployment ID, so no path reaches the file names", () => {

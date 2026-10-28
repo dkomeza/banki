@@ -149,4 +149,10 @@ describe("snapshotInvocation", () => {
     expect(argv).not.toContain("/var/run/docker.sock");
     expect(argv.slice(-3)).toEqual(["bun", "agent/snapshot.ts", "prune"]);
   });
+
+  test("clears a Reset's database in the same one-off container", () => {
+    const argv = snapshotInvocation("edge", ["clear"]);
+
+    expect(argv).toEqual([...snapshotInvocation("edge", ["prune"]).slice(0, -1), "clear"]);
+  });
 });

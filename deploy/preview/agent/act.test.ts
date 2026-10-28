@@ -84,6 +84,7 @@ const longLivedDeploy = (environment: "edge" | "production"): LongLivedAction =>
   deploymentId: 902,
   digests: { api: "sha256:1", web: "sha256:2" },
   volume: "kept",
+  reset: false,
   rollbackTo: undefined,
   staleImages: [],
   deployedAt: new Date("2026-10-20T12:00:00Z"),

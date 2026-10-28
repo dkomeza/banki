@@ -3,14 +3,15 @@ import { AGENT_ERROR, check, checkHealthOf, DeployFailure, errorText, notUpOf } 
 import type { GitHub } from "./github";
 import type * as longLivedDocker from "./long-lived-docker";
 import type { LongLivedTarget } from "./long-lived-docker";
-import type { LongLivedAction } from "./long-lived-planner";
+import { type LongLivedAction, RESETTING } from "./long-lived-planner";
 import { longLivedProject, longLivedUrl, shortSha } from "./naming";
 
 // One deploy of Edge or Production (ADR-0017), start to finish. Unlike a
 // Preview's, it keeps the installation's data: the api is stopped, a
 // Snapshot taken, and the new images migrate the data on their start. A
 // failure restores the Snapshot and the previous images, or, when even that
-// fails, leaves both services stopped. It blocks the loop like a Preview's,
+// fails, leaves both services stopped. A Reset of Edge clears the data after
+// its Snapshot, and sets it up and seeds it again, as a first boot does. It blocks the loop like a Preview's,
 // with a timeout on each step, and its Deployment's description is one of a
 // few fixed, short reasons, the detail going to the agent's log.
 
@@ -62,7 +63,11 @@ export async function deployLongLived(
     digests: action.digests,
   };
   const firstBoot = action.volume !== "kept";
-  await services.github.setStatus(deploymentId, "in_progress", `starting ${shortSha(sha)}`);
+  await services.github.setStatus(
+    deploymentId,
+    "in_progress",
+    `${action.reset ? RESETTING : "starting "}${shortSha(sha)}`,
+  );
 
   const progress: Progress = { ownsVolume: action.volume === "own", snapshot: false };
   let reason: string | undefined;
@@ -80,11 +85,12 @@ export async function deployLongLived(
   }
 
   if (reason === undefined) {
-    console.log(`${name}: deployed ${shortSha(sha)} at ${longLivedUrl(environment)}`);
+    const done = action.reset ? "reset to" : "deployed";
+    console.log(`${name}: ${done} ${shortSha(sha)} at ${longLivedUrl(environment)}`);
     await services.github.setStatus(
       deploymentId,
       "success",
-      `deployed ${shortSha(sha)}`,
+      `${done} ${shortSha(sha)}`,
       longLivedUrl(environment),
     );
     await tidy(action, services, progress);
@@ -139,27 +145,36 @@ async function bootSteps(
   progress.ownsVolume = true;
   check(await run.pull(target), "pull", "couldn't pull the images");
 
-  if (target.environment === "edge") {
-    // Read now, so a Password `bootstrap` rewrote applies to this first boot.
-    let email: string;
-    let password: string;
-    try {
-      email = services.readSecret(SECRETS.edgeEmail);
-      password = services.readSecret(SECRETS.edgePassword);
-    } catch (error) {
-      if (!(error instanceof ConfigError)) throw error;
-      console.error(`${longLivedProject(target.environment)}: ${error.message}`);
-      throw new DeployFailure("no Edge Email or Password, run deploy/long-lived/bootstrap");
-    }
-    check(await run.setup(target, email, password), "setup");
-    check(await run.seed(target), "seed");
-  }
+  if (target.environment === "edge") await setUpAndSeed(target, services);
   await start(target, services);
+}
+
+/**
+ * Edge's `banki setup`, with its own Email and Password, and `banki seed`
+ * (ADR-0007), on an empty database: a first boot's, or a Reset's.
+ */
+async function setUpAndSeed(target: LongLivedTarget, services: LongLivedServices) {
+  // Read now, so an Email or Password `bootstrap` rewrote applies to this deploy.
+  let email: string;
+  let password: string;
+  try {
+    email = services.readSecret(SECRETS.edgeEmail);
+    password = services.readSecret(SECRETS.edgePassword);
+  } catch (error) {
+    if (!(error instanceof ConfigError)) throw error;
+    console.error(`${longLivedProject(target.environment)}: ${error.message}`);
+    throw new DeployFailure("no Edge Email or Password, run deploy/long-lived/bootstrap");
+  }
+  check(await services.docker.setup(target, email, password), "setup");
+  check(await services.docker.seed(target), "seed");
 }
 
 /**
  * Any later deploy: the running api stopped, so the Snapshot holds every
  * write the old version made, then the new images, which migrate on start.
+ * A Reset clears the database after the Snapshot, then sets it up and seeds
+ * it on the new images. A retry keeps the Snapshot its first try took, and
+ * clears, sets up and seeds again.
  */
 async function upgradeSteps(
   action: LongLivedDeployAction,
@@ -176,6 +191,14 @@ async function upgradeSteps(
     "couldn't take the Snapshot",
   );
   progress.snapshot = true;
+  if (action.reset) {
+    check(
+      await run.snapshot(target.environment, ["clear"]),
+      "clear",
+      "couldn't clear the database",
+    );
+    await setUpAndSeed(target, services);
+  }
   await start(target, services);
 }
 

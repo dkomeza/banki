@@ -78,6 +78,11 @@ export type LongLivedAction = InLongLivedPool<
        * the installation's data, which is never removed.
        */
       volume: "missing" | "own" | "kept";
+      /**
+       * A Reset of Edge (see {@link isReset}): the data volume is cleared,
+       * then set up and seeded, after its Snapshot. Never on Production.
+       */
+      reset: boolean;
       /** The newest `success` Deployment's images, to roll back to, if there is one. */
       rollbackTo: Release | undefined;
       /** Images of the installation's own older Deployments, removed after a success. */
@@ -111,6 +116,38 @@ export function longLivedPayload(
   if (typeof api !== "string" || !DIGEST.test(api)) return undefined;
   if (typeof web !== "string" || !DIGEST.test(web)) return undefined;
   return { api, web };
+}
+
+/** How a Reset's `in_progress` status starts (long-lived-deploy.ts), which a retry reads back. */
+export const RESETTING = "resetting to ";
+
+/** Whether a Deployment carries the reset mark: `reset: true` in its payload, and nothing else. */
+const hasResetMark = (deployment: Pick<LongLivedDeployment, "payload">): boolean =>
+  isRecord(deployment.payload) && deployment.payload.reset === true;
+
+/**
+ * Whether the newest `edge` Deployment deploys as a Reset: it carries the
+ * mark, or an older one still waiting with a good payload does, which it
+ * supersedes. So a Reset is never lost to a newer push. And one the agent
+ * started as a Reset and a restart cut short is retried as one, even once
+ * the older one it carried is superseded, so a half-cleared database never
+ * goes to an ordinary upgrade. Production is never reset.
+ */
+function isReset(
+  environment: LongLivedEnvironment,
+  [newest, ...older]: LongLivedDeployment[],
+): boolean {
+  if (environment !== "edge" || newest === undefined) return false;
+  return (
+    hasResetMark(newest) ||
+    (newest.status === "in_progress" && newest.description?.startsWith(RESETTING) === true) ||
+    older.some(
+      (deployment) =>
+        hasResetMark(deployment) &&
+        isWaiting(deployment) &&
+        longLivedPayload(deployment) !== undefined,
+    )
+  );
 }
 
 export function planLongLived(input: LongLivedPlanInput): LongLivedAction[] {
@@ -174,6 +211,7 @@ export function planLongLivedParts(input: LongLivedPlanInput): PlanParts<LongLiv
       deploymentId: newest.id,
       digests,
       volume: !volume.exists ? "missing" : volume.deploymentId === newest.id ? "own" : "kept",
+      reset: isReset(environment, own),
       rollbackTo,
       staleImages: [...new Set(own.flatMap((d) => refsOf(longLivedPayload(d))))].filter(
         (ref) => !keep.has(ref),

@@ -3,7 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } 
 import { join } from "node:path";
 
 // Takes, restores and prunes a Long-lived installation's Snapshots
-// (ADR-0017). The agent runs it in a one-off container of its own image, with
+// (ADR-0017), and clears its database for a Reset. The agent runs it in a one-off container of its own image, with
 // only the installation's data volume mounted at /data, no network, a
 // read-only root and the volume owner's uid, so it works the same whatever
 // the app image, the one that just failed included:
@@ -11,9 +11,10 @@ import { join } from "node:path";
 //   bun agent/snapshot.ts take <deploymentId>
 //   bun agent/snapshot.ts restore <deploymentId>
 //   bun agent/snapshot.ts prune
+//   bun agent/snapshot.ts clear
 //
-// Only `banki.db` is copied: uploads and the key files stay in place in the
-// volume.
+// Only `banki.db` is copied or cleared: uploads and the key files stay in
+// place in the volume.
 
 const DATABASE = "banki.db";
 const SNAPSHOTS = "snapshots";
@@ -82,6 +83,17 @@ export function prune(dataDir: string, keep = KEEP_SNAPSHOTS): number[] {
   return removed;
 }
 
+/**
+ * Deletes `banki.db` and its WAL and shared-memory files, with the api
+ * stopped, so the next `banki setup` starts on an empty database: a Reset.
+ * Uploads, the key files and `snapshots/` stay. Run again, it does nothing,
+ * so a Reset cut short clears again on its retry.
+ */
+export function clear(dataDir: string): void {
+  const database = join(dataDir, DATABASE);
+  for (const suffix of ["", "-wal", "-shm"]) rmSync(`${database}${suffix}`, { force: true });
+}
+
 function deploymentIdOf(arg: string | undefined): number {
   if (arg === undefined || !/^[1-9][0-9]*$/.test(arg)) {
     throw new Error(`expected a Deployment ID, got ${JSON.stringify(arg)}`);
@@ -89,7 +101,7 @@ function deploymentIdOf(arg: string | undefined): number {
   return Number(arg);
 }
 
-/** The command line: one of the three, against `dataDir`. Its one line of output says what it did. */
+/** The command line: one of the four, against `dataDir`. Its one line of output says what it did. */
 export function main(args: string[], dataDir = "/data"): string {
   const [command, arg] = args;
   switch (command) {
@@ -102,8 +114,11 @@ export function main(args: string[], dataDir = "/data"): string {
       const removed = prune(dataDir);
       return removed.length === 0 ? "pruned none" : `pruned ${removed.join(", ")}`;
     }
+    case "clear":
+      clear(dataDir);
+      return `cleared ${DATABASE}`;
     default:
-      throw new Error(`unknown command ${JSON.stringify(command)}: take, restore or prune`);
+      throw new Error(`unknown command ${JSON.stringify(command)}: take, restore, prune or clear`);
   }
 }
 

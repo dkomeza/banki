@@ -1,0 +1,89 @@
+name: Reset Edge
+
+# Resets Edge to Seed data (CONTEXT.md, ADR-0017) without ssh: it creates an
+# `edge` Deployment of the commit Edge was last asked to run, with the same
+# images and the reset mark, queued. The pull agent takes the Snapshot, clears
+# the database, sets Edge up with edge-email and edge-password, seeds it, and
+# reports back on that Deployment; this workflow never waits for it. A newer
+# push to main that overtakes it carries the Reset on.
+#
+# It copies the newest `edge` Deployment, whatever its status, so its images
+# are always already built and Edge never goes backwards. Dispatch it from
+# `main` (the default):
+#
+#   gh workflow run reset-edge.yml
+#
+# Nothing reaches a script as `${{ }}` text: each value goes in through an
+# environment variable.
+
+on:
+  workflow_dispatch:
+
+# A second dispatch waits for the first, so each copies the newest.
+concurrency:
+  group: reset-edge
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  reset:
+    name: reset edge
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      deployments: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Create the reset Deployment, queued
+        id: create
+        run: |
+          set -euo pipefail
+          fail() {
+            echo "::error::$1"
+            exit 1
+          }
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            fail "dispatch it from main, not $GITHUB_REF: gh workflow run reset-edge.yml"
+          fi
+          # The newest by created_at and then ID, as main-images reads it.
+          newest="$(gh api "repos/$GITHUB_REPOSITORY/deployments?environment=edge&per_page=100" \
+            | jq -c 'max_by([.created_at, .id]) // empty')"
+          if [ -z "$newest" ]; then
+            fail "Edge has no Deployment to reset to: push to main first"
+          fi
+          id="$(jq -r '.id' <<<"$newest")"
+          # A payload may come back as a JSON string; anything else but
+          # { sha, api, web } for the Deployment's own commit is refused.
+          payload="$(jq -c '
+            (.payload | if type == "string" then (try fromjson catch null) else . end) as $p
+            | if ($p | type) == "object"
+                and ($p.sha | type) == "string"
+                and ($p.sha | ascii_downcase) == (.ref | ascii_downcase)
+                and ([$p.api, $p.web] | all(type == "string" and test("^sha256:[0-9a-f]{64}$")))
+              then { sha: $p.sha, api: $p.api, web: $p.web }
+              else empty end' <<<"$newest")"
+          if [ -z "$payload" ]; then
+            fail "Edge's newest Deployment, $id, has no valid { sha, api, web } payload to reset to"
+          fi
+          sha="$(jq -r '.sha' <<<"$payload")"
+          body="$(jq -n --argjson payload "$payload" '{
+            ref: $payload.sha,
+            environment: "edge",
+            payload: ($payload + { reset: true }),
+            description: "Edge reset \($payload.sha[0:7])",
+            required_contexts: [],
+            auto_merge: false,
+            transient_environment: false,
+            production_environment: false
+          }')"
+          created="$(gh api --method POST "repos/$GITHUB_REPOSITORY/deployments" --input - <<<"$body" | jq -r '.id // empty')"
+          if ! [[ "$created" =~ ^[0-9]+$ ]]; then
+            fail "GitHub didn't create the Deployment"
+          fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/deployments/$created/statuses" --input - --silent \
+            <<<'{"state":"queued","description":"waiting for the agent","auto_inactive":false}'
+          echo "Deployment $created resets Edge to $sha, the commit of Deployment $id"
+          echo "deployment=$created" >>"$GITHUB_OUTPUT"
