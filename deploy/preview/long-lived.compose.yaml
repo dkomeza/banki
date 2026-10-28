@@ -1,0 +1,91 @@
+# The Long-lived template (ADR-0017): Edge or Production, run by the pull
+# agent as the Compose project `banki-edge` or `banki-production`. Like the
+# Preview template beside it, the agent bakes this file into its image from
+# `main`, and it runs the images CI pushed, pinned by digest, and builds
+# nothing. Unlike a Preview, an installation keeps its data across deploys in
+# a volume outside the project, and reaches the internet.
+#
+# The agent sets these for each run; none of them is a secret:
+#   LONG_LIVED_ENV       `edge` or `production`
+#   LONG_LIVED_HOST      preview.banki.dkomeza.com, or banki.dkomeza.com
+#   LONG_LIVED_VOLUME    banki-edge-data, or banki-production-data
+#   LONG_LIVED_SHA       the commit it runs
+#   LONG_LIVED_DEPLOYED_AT  when this deploy started (ISO 8601)
+#   API_DIGEST, WEB_DIGEST  the images' digests, from the Deployment's payload
+#
+# No AUTH_SECRET and no ENCRYPTION_KEY: the api generates both in the data
+# volume on its first start, and they persist with it (ADR-0014). Edge's
+# Password reaches `banki setup` on stdin only.
+
+# Every object the project makes carries these, so the agent finds the
+# installation, its commit and its images from Docker alone.
+x-labels: &labels
+  banki.long-lived.environment: ${LONG_LIVED_ENV:?}
+  banki.long-lived.sha: ${LONG_LIVED_SHA:?}
+  banki.long-lived.deployed-at: ${LONG_LIVED_DEPLOYED_AT:?}
+  banki.long-lived.api-digest: ${API_DIGEST:?}
+  banki.long-lived.web-digest: ${WEB_DIGEST:?}
+
+services:
+  api:
+    image: ghcr.io/dkomeza/banki-api@${API_DIGEST:?}
+    restart: unless-stopped
+    environment:
+      ORIGIN: https://${LONG_LIVED_HOST:?}
+    labels: *labels
+    # Only the project's own network: just `web` reaches the API.
+    networks: [default]
+    volumes:
+      - data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    # The same for Edge and Production, so Edge runs exactly what Production
+    # will get.
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 128
+
+  web:
+    image: ghcr.io/dkomeza/banki-web@${WEB_DIGEST:?}
+    restart: unless-stopped
+    environment:
+      # The api's ORIGIN: an https one, so Caddy sends HSTS.
+      BANKI_ORIGIN: https://${LONG_LIVED_HOST:?}
+      # The Long-lived Newt on `banki-long-lived`, the only proxy in front.
+      BANKI_TRUSTED_PROXIES: 172.31.254.2
+    labels: *labels
+    networks: [default, banki-long-lived]
+    depends_on:
+      api:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /config:uid=1000,gid=1000
+      - /data:uid=1000,gid=1000
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 64
+
+networks:
+  # api <-> web, and out to the internet: Edge and Production run only code
+  # that was merged.
+  default:
+    labels: *labels
+  # Edge's and Production's `web` and the Long-lived Newt, defined in
+  # deploy/long-lived/compose.yaml. Never banki-previews.
+  banki-long-lived:
+    external: true
+
+volumes:
+  # Created by the agent on the installation's first boot, labelled with the
+  # Deployment that made it. External, so no `down`, with `--volumes` or not,
+  # can remove it.
+  data:
+    name: ${LONG_LIVED_VOLUME:?}
+    external: true

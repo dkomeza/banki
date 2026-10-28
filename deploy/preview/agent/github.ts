@@ -1,4 +1,5 @@
-import { ENVIRONMENT, REPO, SLUG_ENVIRONMENT } from "./naming";
+import { readEnoughLongLived, type LongLivedDeployment } from "./long-lived-planner";
+import { ENVIRONMENT, LONG_LIVED_ENVIRONMENTS, REPO, SLUG_ENVIRONMENT } from "./naming";
 import {
   asArray,
   asNumber,
@@ -146,9 +147,30 @@ export function gitHub(token: string) {
     ): Promise<SlugDeployment[]> {
       return deploymentsOf(
         SLUG_ENVIRONMENT,
-        parseSlugDeployment,
+        (node) => parseSlugDeployment(node),
         (read, batch) => !full && readEnoughSlugDeployments(projects, read, batch),
       );
+    },
+
+    /**
+     * The `edge` and `production` Deployments with their latest statuses,
+     * newest first in each, every one with its payload, good or not: as far
+     * back as the long-lived planner needs (see {@link readEnoughLongLived}),
+     * or all of them when `full`.
+     */
+    async longLivedDeployments({ full }: { full: boolean }): Promise<LongLivedDeployment[]> {
+      const read = await Promise.all(
+        LONG_LIVED_ENVIRONMENTS.map(async (environment) =>
+          (
+            await deploymentsOf(
+              environment,
+              (node) => parseSlugDeployment(node, environment),
+              (deployments, batch) => !full && readEnoughLongLived(deployments, batch),
+            )
+          ).map((deployment): LongLivedDeployment => ({ ...deployment, environment })),
+        ),
+      );
+      return read.flat();
     },
 
     /** A Deployment's latest status, or undefined when it has none. */
@@ -241,18 +263,23 @@ function parseDeployment(value: unknown): Deployment | undefined {
 
 /**
  * Every `slug-preview` Deployment, its payload decoded and left for the slug
- * planner to check. Anyone with write access can create one, so a node that
- * doesn't parse never fails the whole read: one with an ID comes back with no
- * payload, which the planner marks invalid, and one without is skipped.
+ * planner to check, and the same for an `edge` or `production` one and the
+ * long-lived planner. Anyone with write access can create one, so a node
+ * that doesn't parse never fails the whole read: one with an ID comes back
+ * with no payload, which the planner marks invalid, and one without is
+ * skipped.
  */
-export function parseSlugDeployment(value: unknown): SlugDeployment | undefined {
+export function parseSlugDeployment(
+  value: unknown,
+  environment: string = SLUG_ENVIRONMENT,
+): SlugDeployment | undefined {
   try {
     const node = asObject(value, "deployment");
     return { payload: decodePayload(node.payload), ...deploymentFields(node) };
   } catch (error) {
     const id = isRecord(value) ? value.databaseId : undefined;
     if (typeof id !== "number" || !Number.isInteger(id)) {
-      console.warn(`Skipped a slug-preview Deployment that doesn't parse: ${String(error)}`);
+      console.warn(`Skipped a ${environment} Deployment that doesn't parse: ${String(error)}`);
       return undefined;
     }
     const latest = isRecord(value) && isRecord(value.latestStatus) ? value.latestStatus : undefined;

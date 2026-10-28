@@ -1,6 +1,7 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { type AnyAction, NO_PLAN, orderPlans, orSkip, runActions } from "./act";
 import { ConfigError } from "./config";
+import type { LongLivedAction } from "./long-lived-planner";
 import type { Action, DockerProject } from "./planner";
 import type { SlugAction, SlugProject } from "./slug-planner";
 
@@ -74,7 +75,24 @@ const slugDeploy = (slug: string, needs: string[] = []): SlugAction => ({
   needs,
 });
 
+/** A Long-lived installation's deploy. */
+const longLivedDeploy = (environment: "edge" | "production"): LongLivedAction => ({
+  pool: "long-lived",
+  environment,
+  kind: "deploy",
+  sha: "d".repeat(40),
+  deploymentId: 902,
+  digests: { api: "sha256:1", web: "sha256:2" },
+  volume: "kept",
+  rollbackTo: undefined,
+  staleImages: [],
+  deployedAt: new Date("2026-10-20T12:00:00Z"),
+});
+
 const label = (action: AnyAction) => {
+  if ("pool" in action && action.pool === "long-lived") {
+    return `${action.kind} ${action.environment}`;
+  }
   if (action.kind === "mark-invalid") return `${action.kind} ${action.deploymentId}`;
   if (action.kind === "teardown") {
     return `${action.kind} ${"slug" in action.project ? action.project.slug : action.project.pr}`;
@@ -239,6 +257,63 @@ describe("ordering the two pools", () => {
       "remove amber",
       "deploy blue",
     ]);
+  });
+});
+
+describe("ordering the Long-lived installations' pool", () => {
+  const pr = { upkeep: [], deploys: [deploy(3)] };
+  const slug = { upkeep: [], deploys: [slugDeploy("blue")] };
+  const longLived = {
+    upkeep: [
+      {
+        pool: "long-lived",
+        environment: "production",
+        kind: "mark-inactive",
+        deploymentId: 5,
+        reason: "superseded",
+      } as const,
+    ],
+    deploys: [longLivedDeploy("edge"), longLivedDeploy("production")],
+  };
+
+  test("its deploy goes before either Preview pool's, after every upkeep", () => {
+    for (const turn of ["pr", "slug"] as const) {
+      const { actions } = orderPlans(pr, slug, turn, longLived);
+
+      expect(actions.map(label).slice(0, 2)).toEqual(["mark-inactive production", "deploy edge"]);
+    }
+  });
+
+  test("a loop still runs one deploy: Edge's, and no Preview's", async () => {
+    expect(await ran(orderPlans(pr, slug, "pr", longLived).actions)).toEqual([
+      "mark-inactive production",
+      "deploy edge",
+    ]);
+  });
+
+  test("a deploy it fails still ends the loop's deploys", async () => {
+    expect(await ran(orderPlans(pr, slug, "pr", longLived).actions, ["deploy edge"])).toEqual([
+      "mark-inactive production",
+      "deploy edge",
+    ]);
+  });
+
+  test("keeps the Preview pools' turn while it goes first, so neither loses its turn to it", () => {
+    expect(orderPlans(pr, slug, "pr", longLived).turn).toBe("pr");
+    expect(orderPlans(pr, slug, "slug", longLived).turn).toBe("slug");
+    expect(orderPlans(pr, slug, "pr", { upkeep: longLived.upkeep, deploys: [] }).turn).toBe("slug");
+  });
+
+  test("counts on no Preview being gone: a failed eviction never holds it back", async () => {
+    const prPlan = { upkeep: [], deploys: [removal(1, "evicted"), deploy(3, [1])] };
+    const actions = [
+      removal(1, "evicted"),
+      ...orderPlans(NO_PLAN, NO_PLAN, "pr", { upkeep: [], deploys: [longLivedDeploy("edge")] })
+        .actions,
+      ...prPlan.deploys,
+    ];
+
+    expect(await ran(actions, ["remove 1"])).toEqual(["remove 1", "deploy edge"]);
   });
 });
 

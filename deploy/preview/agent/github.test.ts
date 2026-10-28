@@ -1,5 +1,6 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { decodePayload, parseSlugDeployment, prOfPayload } from "./github";
+import { planLongLived } from "./long-lived-planner";
 import { planSlugs } from "./slug-planner";
 
 // GraphQL's `Deployment.payload` for a Deployment created with
@@ -97,5 +98,42 @@ describe("parseSlugDeployment", () => {
     } finally {
       warn.mockRestore();
     }
+  });
+});
+
+/** The long-lived planner's plan for one `edge` Deployment, on an Edge that has no volume yet. */
+const planEdge = (deployment: ReturnType<typeof parseSlugDeployment>) =>
+  planLongLived({
+    installations: {
+      edge: { project: undefined, volume: { exists: false } },
+      production: { project: undefined, volume: { exists: false } },
+    },
+    deployments: deployment === undefined ? [] : [{ ...deployment, environment: "edge" }],
+    now: new Date(),
+  });
+
+describe("parseSlugDeployment for an edge or production node", () => {
+  const sha = "a".repeat(40);
+  const digests = { api: `sha256:${"1".repeat(64)}`, web: `sha256:${"2".repeat(64)}` };
+  const node = {
+    databaseId: 11,
+    commitOid: sha,
+    createdAt: "2026-10-20T11:00:00Z",
+    payload: JSON.stringify(JSON.stringify({ sha, ...digests })),
+    latestStatus: { state: "QUEUED", description: "waiting for the agent" },
+  };
+
+  test("reads the payload main-images writes, which the long-lived planner deploys", () => {
+    expect(planEdge(parseSlugDeployment(node, "edge"))).toEqual([
+      expect.objectContaining({ kind: "deploy", deploymentId: 11, digests }),
+    ]);
+  });
+
+  test("gives a malformed one no payload, so the long-lived planner marks it invalid", () => {
+    const broken = parseSlugDeployment({ ...node, createdAt: 5, latestStatus: null }, "edge");
+
+    expect(planEdge(broken)).toEqual([
+      { pool: "long-lived", environment: "edge", kind: "mark-invalid", deploymentId: 11 },
+    ]);
   });
 });

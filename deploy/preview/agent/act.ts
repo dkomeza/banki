@@ -1,16 +1,20 @@
 import { ConfigError } from "./config";
+import type { LongLivedAction } from "./long-lived-planner";
 import { keyOf, type PreviewKey } from "./naming";
 import type { Action, PlanParts } from "./planner";
 import type { SlugAction } from "./slug-planner";
 
-// Runs the two pools' plans in order, one action at a time. A failed action is
+// Runs the three pools' plans in order, one action at a time. A failed action is
 // logged and the rest go on: the next loop observes again and retries
 // whatever is still wrong.
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-/** An action of either pool: a PR Preview's (planner.ts) or a Slug Preview's (slug-planner.ts). */
-export type AnyAction = Action | SlugAction;
+/**
+ * An action of any pool: a PR Preview's (planner.ts), a Slug Preview's
+ * (slug-planner.ts) or a Long-lived installation's (long-lived-planner.ts).
+ */
+export type AnyAction = Action | SlugAction | LongLivedAction;
 
 export type Pool = "pr" | "slug";
 
@@ -35,22 +39,25 @@ export async function orSkip<T>(pool: string, read: () => Promise<T>): Promise<T
 }
 
 /**
- * Both pools' plans as one: every upkeep first, then the deploys of the pool
- * whose `turn` it is, then the other's. The loop runs at most one deploy, so
- * when both pools have one waiting the turn passes to the other pool for the
+ * The pools' plans as one: every upkeep first, then a Long-lived
+ * installation's deploy, which always goes first (ADR-0017), then the
+ * deploys of the Preview pool whose `turn` it is, then the other's. The loop
+ * runs at most one deploy, so when both Preview pools have one waiting, and
+ * no Long-lived one goes first, the turn passes to the other pool for the
  * next loop, and a pool with a steady stream of deploys can't starve the
- * other's. While only one pool has a deploy waiting, the turn stays put.
+ * other's. Otherwise the turn stays put.
  */
 export function orderPlans(
   pr: PlanParts<Action>,
   slug: PlanParts<SlugAction>,
   turn: Pool,
+  longLived: PlanParts<LongLivedAction> = NO_PLAN,
 ): { actions: AnyAction[]; turn: Pool } {
   const deploys: AnyAction[] =
     turn === "pr" ? [...pr.deploys, ...slug.deploys] : [...slug.deploys, ...pr.deploys];
-  const both = pr.deploys.length > 0 && slug.deploys.length > 0;
+  const both = longLived.deploys.length === 0 && pr.deploys.length > 0 && slug.deploys.length > 0;
   return {
-    actions: [...pr.upkeep, ...slug.upkeep, ...deploys],
+    actions: [...longLived.upkeep, ...pr.upkeep, ...slug.upkeep, ...longLived.deploys, ...deploys],
     turn: both ? (turn === "pr" ? "slug" : "pr") : turn,
   };
 }
@@ -74,7 +81,8 @@ export async function runActions<A extends AnyAction>(
   // so a stuck cleanup can't hold every deploy back.
   const failed = new Set<PreviewKey>();
   for (const action of actions) {
-    const needs: PreviewKey[] = action.kind === "deploy" ? action.needs : [];
+    // A Long-lived installation's deploy counts on no Preview: it has no cap.
+    const needs: PreviewKey[] = action.kind === "deploy" && "needs" in action ? action.needs : [];
     const missing = needs.filter((key) => failed.has(key));
     if (missing.length > 0) {
       const whose = typeof missing[0] === "number" ? "PR" : "Slug";

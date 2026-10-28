@@ -15,7 +15,18 @@ import * as docker from "./docker";
 import { lookUp } from "./ghcr";
 import { gitHub, type GitHub } from "./github";
 import { HELPER, removeFinishedHelper, runHelper, START_WAIT_MS } from "./helper";
-import { keyOf, type PreviewKey, projectName, REPO, shortSha, SLUG_ENVIRONMENT } from "./naming";
+import { deployLongLived } from "./long-lived-deploy";
+import * as longLivedDocker from "./long-lived-docker";
+import { type LongLivedAction, planLongLivedParts } from "./long-lived-planner";
+import {
+  keyOf,
+  longLivedProject,
+  type PreviewKey,
+  projectName,
+  REPO,
+  shortSha,
+  SLUG_ENVIRONMENT,
+} from "./naming";
 import { type Pangolin, pangolin } from "./pangolin";
 import {
   type Action,
@@ -37,11 +48,12 @@ import {
   slugImagesToCheck,
 } from "./slug-planner";
 
-// The pull agent (ADR-0008, ADR-0011): every 30 s it first moves itself onto
-// `main` when its own code changed there (ADR-0009), then observes the open
-// PRs, the Docker projects, the `preview` and `slug-preview` Deployments, the
-// images and the Pangolin resources, asks each pool's planner what to do, and
-// does it, one action at a time.
+// The pull agent (ADR-0008, ADR-0011, ADR-0017): every 30 s it first moves
+// itself onto `main` when its own code changed there (ADR-0009), then
+// observes the open PRs, the Docker projects, the `preview`, `slug-preview`,
+// `edge` and `production` Deployments, the images and the Pangolin
+// resources, asks each pool's planner what to do, and does it, one action at
+// a time.
 
 const SLEEP_MS = 30_000;
 
@@ -141,17 +153,22 @@ async function reconcile(settings: Settings, loop: number): Promise<void> {
   const github = gitHub(readSecret(SECRETS.githubToken));
   // The Deployments are read only as far back as the open PRs and the Docker
   // projects need, so Docker comes first (it is local and quick). Docker and
-  // Pangolin serve both pools, so failing them fails the loop; each pool's
-  // own GitHub reads fail only that pool, which then waits, untouched.
-  const projects = await docker.discoverProjects();
+  // Pangolin serve every pool (Pangolin only the Previews, but it fails the
+  // loop all the same), so failing them fails the loop; each pool's own
+  // GitHub reads fail only that pool, which then waits, untouched.
+  const [projects, installations] = await Promise.all([
+    docker.discoverProjects(),
+    longLivedDocker.discoverLongLived(),
+  ]);
   const full = isFullReadLoop(loop);
-  const [prRead, slugDeployments, resources] = await Promise.all([
+  const [prRead, slugDeployments, longLivedDeployments, resources] = await Promise.all([
     orSkip("PR Previews", async () => {
       const pullRequests = await github.openPullRequests();
       const deployments = await github.previewDeployments(pullRequests, projects.prs, { full });
       return { pullRequests, deployments };
     }),
     orSkip("Slug Previews", () => github.slugPreviewDeployments(projects.slugs, { full })),
+    orSkip("Long-lived installations", () => github.longLivedDeployments({ full })),
     previews.resources(),
   ]);
   const now = new Date();
@@ -187,13 +204,23 @@ async function reconcile(settings: Settings, loop: number): Promise<void> {
     slugPlan = planSlugParts({ ...observed, images, missing });
   }
 
-  const ordered = orderPlans(prPlan, slugPlan, turn);
+  // No images to look up: a Long-lived Deployment's payload names them.
+  const longLivedPlan =
+    longLivedDeployments === undefined
+      ? NO_PLAN
+      : planLongLivedParts({ installations, deployments: longLivedDeployments, now });
+
+  const ordered = orderPlans(prPlan, slugPlan, turn, longLivedPlan);
   turn = ordered.turn;
   const resourcesFor = (key: PreviewKey) =>
     typeof key === "number" ? PR_PREVIEW_RESOURCES : slugLimits.resources;
   const context = { github, previews, now, resourcesFor };
   await runActions(ordered.actions, summary, (action) =>
-    isSlugAction(action) ? executeSlug(action, context) : execute(action, context),
+    isLongLivedAction(action)
+      ? executeLongLived(action, context)
+      : isSlugAction(action)
+        ? executeSlug(action, context)
+        : execute(action, context),
   );
 }
 
@@ -204,7 +231,11 @@ type Context = {
   resourcesFor: (key: PreviewKey) => ServiceResources;
 };
 
-const isSlugAction = (action: AnyAction): action is SlugAction => "pool" in action;
+const isSlugAction = (action: AnyAction): action is SlugAction =>
+  "pool" in action && action.pool === "slug";
+
+const isLongLivedAction = (action: AnyAction): action is LongLivedAction =>
+  "pool" in action && action.pool === "long-lived";
 
 async function execute(action: Action, context: Context) {
   const { github, previews } = context;
@@ -286,6 +317,22 @@ async function executeSlug(action: SlugAction, context: Context) {
   }
 }
 
+async function executeLongLived(action: LongLivedAction, { github }: Context) {
+  switch (action.kind) {
+    case "deploy":
+      return deployLongLived(action, {
+        github,
+        docker: longLivedDocker,
+        readSecret,
+        sleep: (ms) => Bun.sleep(ms),
+      });
+    case "mark-inactive":
+      return github.setStatus(action.deploymentId, "inactive", "superseded by a newer deploy");
+    case "mark-invalid":
+      return github.setStatus(action.deploymentId, "failure", "invalid payload");
+  }
+}
+
 async function teardown(project: DockerProject | SlugProject, context: Context): Promise<void> {
   const target = docker.targetOf(project, context.now, context.resourcesFor(keyOf(project)));
   const result = await docker.down(target);
@@ -302,6 +349,11 @@ const services = ({ github, previews, resourcesFor }: Context): Services => ({
 });
 
 function summary(action: AnyAction): string {
+  if (isLongLivedAction(action)) {
+    const project = longLivedProject(action.environment);
+    if (action.kind === "deploy") return `${project}: deploy ${shortSha(action.sha)}`;
+    return `${project}: ${action.kind} deployment ${action.deploymentId}`;
+  }
   if (action.kind === "mark-invalid") {
     return `${SLUG_ENVIRONMENT} deployment ${action.deploymentId}: mark-invalid`;
   }

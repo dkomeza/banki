@@ -4,10 +4,11 @@ import type { Limits } from "./planner";
 import type { SlugLimits } from "./slug-planner";
 
 // What the agent reads from outside: compose secrets under /run/secrets (the
-// GitHub token, the Pangolin key, and the Preview's Email and Password, so
-// none of them is in its environment in `docker inspect`), and the Pangolin
-// IDs, which aren't secret, from its environment. All of it is written by
-// `deploy/preview/bootstrap`, outside the clone.
+// GitHub token, the Pangolin key, the Preview's Email and Password, and
+// Edge's, so none of them is in its environment in `docker inspect`), and
+// the Pangolin IDs, which aren't secret, from its environment. All of it is
+// written by `deploy/preview/bootstrap` and `deploy/long-lived/bootstrap`,
+// outside the clone.
 
 const SECRETS_DIR = process.env.SECRETS_DIR ?? "/run/secrets";
 
@@ -20,16 +21,19 @@ export class ConfigError extends Error {
  * use, so a value `bootstrap` rewrites in place applies without a restart.
  */
 export function readSecret(name: string): string {
+  const bootstrap = name.startsWith("edge-")
+    ? "deploy/long-lived/bootstrap"
+    : "deploy/preview/bootstrap";
   let value: string;
   try {
     value = readFileSync(join(SECRETS_DIR, name), "utf8").trim();
   } catch (error) {
     throw new ConfigError(
-      `Can't read the secret ${name} in ${SECRETS_DIR}: ${error instanceof Error ? error.message : String(error)}. Run deploy/preview/bootstrap.`,
+      `Can't read the secret ${name} in ${SECRETS_DIR}: ${error instanceof Error ? error.message : String(error)}. Run ${bootstrap}.`,
     );
   }
   if (value === "") {
-    throw new ConfigError(`The secret ${name} is empty. Run deploy/preview/bootstrap.`);
+    throw new ConfigError(`The secret ${name} is empty. Run ${bootstrap}.`);
   }
   return value;
 }
@@ -39,6 +43,9 @@ export const SECRETS = {
   pangolinApiKey: "pangolin-api-key",
   previewEmail: "preview-email",
   previewPassword: "preview-password",
+  // Edge's own, from deploy/long-lived/bootstrap, for its first boot.
+  edgeEmail: "edge-email",
+  edgePassword: "edge-password",
 } as const;
 
 function requiredEnv(name: string): string {

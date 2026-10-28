@@ -34,8 +34,17 @@ const SLUG_SAMPLE = composeEnv({
 // A fake value, built at runtime so secret scanners don't flag it.
 const NEWT_SECRET = ["fake", "newt", "secret"].join("-");
 
+const SECRET_FILES = [
+  "github-token",
+  "pangolin-api-key",
+  "preview-email",
+  "preview-password",
+  "edge-email",
+  "edge-password",
+];
+
 const secrets = mkdtempSync(join(tmpdir(), "banki-preview-secrets-"));
-for (const file of ["github-token", "pangolin-api-key", "preview-email", "preview-password"]) {
+for (const file of SECRET_FILES) {
   writeFileSync(join(secrets, file), "dummy\n", { mode: 0o600 });
 }
 writeFileSync(
@@ -265,7 +274,7 @@ describe.skipIf(!hasDocker)("agent.compose.yaml", () => {
       expect.objectContaining({ type: "volume", source: "banki-preview-src", target: "/src" }),
     ]);
     expect(agent?.secrets).toEqual(
-      ["github-token", "pangolin-api-key", "preview-email", "preview-password"].map((name) => ({
+      SECRET_FILES.map((name) => ({
         source: name,
         target: `/run/secrets/${name}`,
       })),
@@ -306,7 +315,7 @@ describe.skipIf(!hasDocker)("agent.compose.yaml", () => {
 
   test("passes the Preview limits from agent.env to the agent, the slug pool's too", async () => {
     const withLimits = mkdtempSync(join(tmpdir(), "banki-preview-secrets-"));
-    for (const file of ["github-token", "pangolin-api-key", "preview-email", "preview-password"]) {
+    for (const file of SECRET_FILES) {
       writeFileSync(join(withLimits, file), "dummy\n", { mode: 0o600 });
     }
     writeFileSync(join(withLimits, "newt.env"), "NEWT_ID=id\n");
