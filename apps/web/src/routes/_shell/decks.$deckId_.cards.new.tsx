@@ -4,7 +4,8 @@ import { Check } from "lucide-react";
 import { useRef, useState } from "react";
 import { FormError } from "@/components/auth-card";
 import { CardEditor, SaveHint, useCardForm } from "@/components/cards/card-editor";
-import { DOT, RAIL, TIME_COL, firstLine } from "@/components/cards/card-timeline";
+import { CardLine } from "@/components/cards/card-text";
+import { DOT, RAIL, TIME_COL } from "@/components/cards/card-timeline";
 import { useDiscardGuard } from "@/components/cards/discard-guard";
 import { useTagInput } from "@/components/cards/tag-field";
 import { DeckNotFound } from "@/components/not-found";
@@ -164,8 +165,8 @@ function WrittenThisVisit({ cards }: { cards: readonly Card[] }) {
                 className={cn(DOT, "top-3.5", i === 0 ? "bg-primary" : "bg-input")}
               />
               <div className="rounded-xl border bg-card px-4 py-2.5 shadow-xs">
-                <p className="truncate font-medium">{firstLine(card.front)}</p>
-                <p className="truncate text-sm text-muted-foreground">{firstLine(card.back)}</p>
+                <CardLine text={card.front} className="font-medium" />
+                <CardLine text={card.back} className="text-sm text-muted-foreground" />
               </div>
             </div>
           </li>

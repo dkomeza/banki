@@ -104,9 +104,13 @@ const IMAGE = {
  * The Cards, each written this many hours before the seed time (after its
  * Deck), so the deck page's newest-first order and its days show: short word
  * Cards in Spanish vocabulary, some Backs with an example sentence on a
- * second line; LaTeX source in Calculus 2, one a derivation over several
- * lines, and one whose Back refers to the Image (`SEED_IDS.card`); a few in Japanese kanji and Organic chemistry, one
- * of them very long. Calculus 10 stays empty, for the empty state.
+ * second line, one heavy with Markdown (bold, a list, code, a table), one with
+ * a literal `\$` and one reading "$5 and $10"; Formulas in Calculus 2, one a
+ * derivation over several lines, one whose Back refers to the Image
+ * (`SEED_IDS.card`), with `align`, `cases`, a matrix and one broken Formula
+ * (`\fracc`); a few in Japanese kanji and Organic chemistry, one of them very
+ * long, and mhchem reactions (`\ce`, `\pu`). Calculus 10 stays empty, for the
+ * empty state.
  */
 const CARDS: readonly {
   id: string;
@@ -153,19 +157,56 @@ const CARDS: readonly {
   {
     id: spanish[5],
     deckId: SEED_IDS.decks.spanish,
+    hoursAgo: 300,
+    front: "**ser** or **estar**?",
+    back: [
+      "**ser** for what something *is*, **estar** for how or where it is.",
+      "",
+      "- `ser`: origin, job, time",
+      "- `estar`: place, mood, a result",
+      "",
+      "|  | ser | estar |",
+      "| --- | --- | --- |",
+      "| yo | soy | estoy |",
+      "| tú | eres | estás |",
+      "| él | es | está |",
+      "",
+      "```",
+      "Soy de Madrid.",
+      "Estoy en Madrid.",
+      "```",
+    ].join("\n"),
+  },
+  {
+    id: spanish[6],
+    deckId: SEED_IDS.decks.spanish,
     hoursAgo: 220,
     front: "la sobremesa",
     back: "the time spent chatting at the table after a meal",
   },
   {
-    id: spanish[6],
+    id: spanish[7],
+    deckId: SEED_IDS.decks.spanish,
+    hoursAgo: 150,
+    front: "¿Cuánto cuesta?",
+    back: "How much is it?\nThe coffee is $5 and the cake $10.",
+  },
+  {
+    id: spanish[8],
     deckId: SEED_IDS.decks.spanish,
     hoursAgo: 90,
     front: "estar de acuerdo",
     back: "to agree\nEstoy de acuerdo contigo.",
   },
   {
-    id: spanish[7],
+    id: spanish[9],
+    deckId: SEED_IDS.decks.spanish,
+    hoursAgo: 50,
+    front: "el menú del día",
+    back: "the set lunch menu\nEl menú del día cuesta \\$12.",
+  },
+  {
+    id: spanish[10],
     deckId: SEED_IDS.decks.spanish,
     hoursAgo: 2,
     front: "el ayuntamiento",
@@ -196,26 +237,60 @@ const CARDS: readonly {
   {
     id: calculus2[2],
     deckId: SEED_IDS.decks.calculus2,
+    hoursAgo: 400,
+    front: "Integrate $\\int x e^x \\, dx$ by parts.",
+    back: [
+      "$$\\begin{align}",
+      "\\int x e^x \\, dx &= x e^x - \\int e^x \\, dx \\\\",
+      "&= (x - 1) e^x + C",
+      "\\end{align}$$",
+    ].join("\n"),
+  },
+  {
+    id: calculus2[3],
+    deckId: SEED_IDS.decks.calculus2,
     hoursAgo: 300,
     front: "Ratio test",
     back: "If $\\lim_{n\\to\\infty} \\left|\\frac{a_{n+1}}{a_n}\\right| = L < 1$, then $\\sum a_n$ converges absolutely; $L > 1$ diverges; $L = 1$ says nothing.",
   },
   {
-    id: calculus2[3],
+    id: calculus2[4],
+    deckId: SEED_IDS.decks.calculus2,
+    hoursAgo: 200,
+    front: "$\\lvert x \\rvert$ as a piecewise function",
+    back: "$$\\lvert x \\rvert = \\begin{cases} x & \\text{if } x \\ge 0 \\\\ -x & \\text{if } x < 0 \\end{cases}$$",
+  },
+  {
+    id: calculus2[5],
     deckId: SEED_IDS.decks.calculus2,
     hoursAgo: 120,
     front: "$\\int \\sec x \\, dx$",
     back: "$\\ln\\lvert \\sec x + \\tan x \\rvert + C$",
   },
   {
-    id: calculus2[4],
+    id: calculus2[6],
+    deckId: SEED_IDS.decks.calculus2,
+    hoursAgo: 80,
+    front:
+      "The Jacobian of polar coordinates, $(r, \\theta) \\mapsto (r\\cos\\theta, r\\sin\\theta)$",
+    back: "$$J = \\begin{pmatrix} \\cos\\theta & -r\\sin\\theta \\\\ \\sin\\theta & r\\cos\\theta \\end{pmatrix}, \\quad \\det J = r$$",
+  },
+  {
+    id: calculus2[7],
+    deckId: SEED_IDS.decks.calculus2,
+    hoursAgo: 60,
+    front: "The derivative of $\\fracc{1}{x}$",
+    back: "$-\\frac{1}{x^2}$, for $x \\ne 0$",
+  },
+  {
+    id: calculus2[8],
     deckId: SEED_IDS.decks.calculus2,
     hoursAgo: 30,
     front: "When does $\\sum \\frac{1}{n^p}$ converge?",
     back: "For $p > 1$ (the $p$-series test).",
   },
   {
-    id: calculus2[5],
+    id: calculus2[9],
     deckId: SEED_IDS.decks.calculus2,
     hoursAgo: 10,
     front: "Sketch $y = \\ln(1+x)$ near $x = 0$.\n\nWhere is it defined?",
@@ -280,9 +355,23 @@ const CARDS: readonly {
   {
     id: chemistry[2],
     deckId: SEED_IDS.decks.chemistry,
+    hoursAgo: 150,
+    front: "Esterification of ethanoic acid with ethanol",
+    back: "$\\ce{CH3COOH + C2H5OH <=>[H+] CH3COOC2H5 + H2O}$\nAn equilibrium: taking the water away drives it to the ester.",
+  },
+  {
+    id: chemistry[3],
+    deckId: SEED_IDS.decks.chemistry,
     hoursAgo: 100,
     front: "Grignard reagent + ketone gives…",
     back: "a tertiary alcohol (after an acidic workup)",
+  },
+  {
+    id: chemistry[4],
+    deckId: SEED_IDS.decks.chemistry,
+    hoursAgo: 50,
+    front: "The combustion of methane, and its enthalpy",
+    back: "$$\\ce{CH4 + 2O2 -> CO2 + 2H2O}$$\n$\\Delta_c H^\\circ = \\pu{-890 kJ/mol}$",
   },
 ];
 
@@ -306,21 +395,30 @@ const TAGS: Readonly<Record<string, readonly string[]>> = {
     "social",
     "verb",
   ],
-  [spanish[5]]: ["culture", "food", "noun", "untranslatable"],
-  [spanish[6]]: ["a2", "irregular", "phrase", "verb"],
-  [spanish[7]]: ["city", "noun"],
+  [spanish[5]]: ["a1", "grammar", "irregular", "verb"],
+  [spanish[6]]: ["culture", "food", "noun", "untranslatable"],
+  [spanish[7]]: ["a1", "money", "phrase"],
+  [spanish[8]]: ["a2", "irregular", "phrase", "verb"],
+  [spanish[9]]: ["food", "money", "restaurant"],
+  [spanish[10]]: ["city", "noun"],
   [calculus2[0]]: ["exam", "integrals", "technique"],
   [calculus2[1]]: ["derivation", "exam", "series"],
-  [calculus2[2]]: ["convergence", "series", "tests"],
-  [calculus2[3]]: ["integrals", "trig"],
-  [calculus2[4]]: ["convergence", "series"],
+  [calculus2[2]]: ["integrals", "technique"],
+  [calculus2[3]]: ["convergence", "series", "tests"],
+  [calculus2[4]]: ["functions", "piecewise"],
+  [calculus2[5]]: ["integrals", "trig"],
+  [calculus2[6]]: ["jacobian", "multivariable"],
+  [calculus2[7]]: ["derivatives"],
+  [calculus2[8]]: ["convergence", "series"],
   [kanji[0]]: ["n4", "place"],
   [kanji[1]]: ["n4", "on-yomi"],
   [kanji[2]]: ["n4", "verb", "動詞"],
   [kanji[3]]: ["grammar", "n4"],
   [chemistry[0]]: ["mechanism", "substitution"],
   [chemistry[1]]: ["carbonyl", "mechanism", "named-reaction"],
-  [chemistry[2]]: ["carbonyl", "grignard", "named-reaction"],
+  [chemistry[2]]: ["carbonyl", "esters", "reaction"],
+  [chemistry[3]]: ["carbonyl", "grignard", "named-reaction"],
+  [chemistry[4]]: ["combustion", "thermochemistry"],
 };
 
 /**

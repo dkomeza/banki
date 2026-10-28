@@ -6,6 +6,7 @@ import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { ArrowUp, FileText, Folder, RotateCcw, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { CardLine } from "@/components/cards/card-text";
 import { monogram } from "@/components/decks/cover";
 import { KRAFT_BODY, KRAFT_TAB } from "@/components/folders/folder-tile";
 import { Page } from "@/components/page";
@@ -167,9 +168,13 @@ function Tile({
           <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
             {kindLabel(d.top.kind)} · {agoLabel(d.deletedAt, now)}
           </p>
-          <p className="line-clamp-2 leading-snug font-semibold tracking-tight [overflow-wrap:anywhere]">
-            {name}
-          </p>
+          {d.top.kind === "card" ? (
+            <CardLine text={d.top.name} className="leading-snug font-semibold tracking-tight" />
+          ) : (
+            <p className="line-clamp-2 leading-snug font-semibold tracking-tight [overflow-wrap:anywhere]">
+              {name}
+            </p>
+          )}
           <p className="truncate text-sm text-muted-foreground">
             {d.top.kind === "card" ? "In " : "From "}
             {whereLabel(d)}

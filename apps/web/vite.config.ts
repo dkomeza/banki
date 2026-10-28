@@ -6,6 +6,7 @@ import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
 import { type Plugin, defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
+import { isKatexCss, woff2Only } from "./katex-fonts.ts";
 import { readPalette, toHex } from "./palette.ts";
 
 // `bun run dev` serves on 5173 and proxies /api to the API on 3000. The `ui`
@@ -29,6 +30,13 @@ const themeColors = (): Plugin => ({
         .replaceAll("%BANKI_LIGHT_BACKGROUND%", paper)
         .replaceAll("%BANKI_DARK_BACKGROUND%", night),
   },
+});
+
+/** Bundles only the woff2 files of KaTeX's fonts (katex-fonts.ts). */
+const katexWoff2Only = (): Plugin => ({
+  name: "banki:katex-woff2-only",
+  enforce: "pre",
+  transform: (code, id) => (isKatexCss(id) ? woff2Only(code) : undefined),
 });
 
 /**
@@ -66,6 +74,7 @@ export default defineConfig({
     react(),
     tailwindcss(),
     themeColors(),
+    katexWoff2Only(),
     VitePWA({
       injectRegister: false,
       manifest: {
