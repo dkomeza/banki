@@ -1,12 +1,11 @@
-# e: Paper dock
+# h: Nothing moves
 
-Bet: the dock is made of the same paper as the Cards (their surface, hairline border and a soft shadow), so it reads as one more card floating over the list, quiet in both themes, and the accent Move… is the only colour in it.
+Bet: entering selection mode moves nothing on the page: "Select cards" stays where it is as **Done**, New card stays on the timeline, and each Card's Tags stay in place, faded and inert, so no Card changes height. Only the dock arrives.
 
-- Dock: the popover surface with a hairline border and a soft shadow, in both themes.
-- Builds on: a (the dock, the checks on the rail, the picker) and b (the "Select cards" button beside the Cards heading, hidden while selecting), as d does; only the dock's surface differs.
-- Enter: **Select cards** beside the Cards heading. Leave: ✕ in the dock, Esc, or any Move or Delete.
-- Dock contents as a's: "3 selected · 1 not shown", Select all (Select none once every shown Card is), Move… (accent), Delete.
-- Picker: as a's, the Move deck sheet with Folders as small-caps headings and each Deck with its mini cover; "Here now" on the current Deck.
+- Builds on: e (the paper dock, the checks on the rail, the picker), from the round-two verdict: "e, with a more noticeable shadow", and no jumpy layout shift on "Select cards" (option one: keep showing them).
+- Dock: e's paper pill with a deeper, warmer shadow in light, and in dark a stronger hairline with a near-black shadow, so it lifts clear of the Cards.
+- Enter: **Select cards** beside the Cards heading. Leave: **Done** in its place, ✕ in the dock, Esc, or any Move or Delete.
+- Card text keeps the same right padding in both modes, so it wraps the same.
 - The Move is faked in the browser (no API yet); Delete is real.
 
 States: selecting, selected, picker, picker-one, moved
