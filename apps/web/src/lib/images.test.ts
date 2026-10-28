@@ -2,7 +2,13 @@ import { imageReferencesIn } from "@banki/shared";
 import { describe, expect, test, vi } from "vitest";
 import { createApiClient } from "./api";
 import { CANT_REACH } from "./decks";
-import { imageFileProblem, insertOnOwnLine, uploadImage, withoutReference } from "./images";
+import {
+  imageFileProblem,
+  insertOnOwnLine,
+  isImageMissing,
+  uploadImage,
+  withoutReference,
+} from "./images";
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]);
 const pngFile = (size = PNG.byteLength) => {
@@ -38,6 +44,27 @@ describe("imageFileProblem", () => {
       "This image is 5.1 MB, and images can be up to 5 MB.",
     );
     expect(await imageFileProblem(svgAsPng)).toBe("Images can be PNG, JPEG, WebP or GIF.");
+  });
+});
+
+/** A fetch answering every request with an empty response of status `code`. */
+const status = (code: number) => vi.fn(async () => new Response(null, { status: code }));
+
+describe("isImageMissing", () => {
+  test("is true for a 404 only", async () => {
+    const missing = status(404);
+    expect(await isImageMissing("x.png", missing)).toBe(true);
+    expect(missing).toHaveBeenCalledWith("/api/images/x.png", { method: "HEAD" });
+    expect(await isImageMissing("x.png", status(500))).toBe(false);
+    expect(await isImageMissing("x.png", status(401))).toBe(false);
+    expect(
+      await isImageMissing(
+        "x.png",
+        vi.fn(async () => {
+          throw new TypeError("Failed to fetch");
+        }),
+      ),
+    ).toBe(false);
   });
 });
 

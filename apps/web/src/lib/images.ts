@@ -31,6 +31,22 @@ export async function imageFileProblem(file: Blob): Promise<string | undefined> 
   return imageFormatOf(head) === undefined ? IMAGE_FORMAT_MESSAGE : undefined;
 }
 
+/**
+ * Whether the Image `file` names is known not to exist, asked after its
+ * thumbnail failed to load: only a 404 says so. Another failure (offline, a
+ * 5xx, a sign-in being refreshed) isn't taken for a missing Image.
+ */
+export async function isImageMissing(
+  file: string,
+  fetch: typeof globalThis.fetch = (input, init) => globalThis.fetch(input, init),
+): Promise<boolean> {
+  try {
+    return (await fetch(imageUrl(file), { method: "HEAD" })).status === 404;
+  } catch {
+    return false;
+  }
+}
+
 export type UploadOutcome = { ok: true; reference: string } | { ok: false; message: string };
 
 /**

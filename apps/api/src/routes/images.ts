@@ -7,15 +7,14 @@ import { type ImageRefusal, type ImageRepository, tooLarge } from "../repositori
 const NOT_FOUND = apiError("not_found", "Image not found");
 
 /**
- * The types a browser may send across origins without asking first, as an
- * HTML form can: an upload in one of them is refused, so no other site can
- * make the User's browser upload something.
+ * Whether an upload's `Content-Type` is one a browser sends across origins
+ * only after asking first: `application/octet-stream` or an `image/` type.
+ * Any other, or none, is refused, as an HTML form or a plain cross-site fetch
+ * could send it, so no other site can make the User's browser upload something.
+ * The type says nothing of the format, which goes by the bytes.
  */
-const FORM_TYPES = new Set([
-  "application/x-www-form-urlencoded",
-  "multipart/form-data",
-  "text/plain",
-]);
+const isUploadType = (type: string) =>
+  type === "application/octet-stream" || type.startsWith("image/");
 
 /** An Image is never changed, only deleted, so the browser may keep it as long as it likes. */
 const CACHE_CONTROL = "private, max-age=31536000, immutable";
@@ -59,7 +58,7 @@ export function imageRoutes({ images }: { images: ImageRepository }) {
   return new Hono<SignedInEnv>()
     .post("/", async (c) => {
       const type = c.req.header("content-type")?.split(";")[0]?.trim().toLowerCase() ?? "";
-      if (FORM_TYPES.has(type)) {
+      if (!isUploadType(type)) {
         return c.json(apiError("invalid_request", "Send the image as the request's body"), 400);
       }
       const body = await readUpTo(c.req.raw, IMAGE_MAX_BYTES);

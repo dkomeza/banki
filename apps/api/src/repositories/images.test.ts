@@ -114,6 +114,16 @@ describe("store", () => {
     expect(hasImages(opened.db, USER)).toBe(false);
   });
 
+  test("replaces a file left behind at the same name, such as a fixed seed ID's after a rollback", () => {
+    writeFileSync(join(uploads, "abc.png"), "left behind");
+
+    expect(images.store(USER, PNG, { id: "abc", now: NOW })).toEqual({
+      reference: "images/abc.png",
+    });
+    expect(new Uint8Array(readFileSync(join(uploads, "abc.png")))).toEqual(PNG);
+    expect(readdirSync(uploads)).toEqual(["abc.png"]);
+  });
+
   test("takes exactly 5 MB", () => {
     const limit = new Uint8Array(5 * 1024 * 1024);
     limit.set(PNG);

@@ -137,7 +137,7 @@ describe("POST /api/images", () => {
     expect(pulled).toBeLessThanOrEqual(1);
   });
 
-  test("refuses a body sent as a form could send it, so no other site can upload", async () => {
+  test("refuses a body sent as a form or a plain fetch could send it, so no other site can upload", async () => {
     const { app, cookie } = await signedIn();
 
     for (const type of [
@@ -148,6 +148,12 @@ describe("POST /api/images", () => {
       const res = await upload(app, FILES.png, cookie, { "content-type": type });
       expect(res.status).toBe(400);
     }
+    const untyped = await app.request("/api/images", {
+      method: "POST",
+      headers: { origin: ORIGIN, cookie },
+      body: FILES.png,
+    });
+    expect(untyped.status).toBe(400);
     expect(readdirSync(uploads())).toEqual([]);
   });
 
@@ -206,6 +212,9 @@ describe("GET /api/images/:file", () => {
     ).toBe(404);
     expect((await get(app, path.replace(".png", ".jpg"), cookie)).status).toBe(404);
     expect((await get(app, path.replace(".png", ""), cookie)).status).toBe(404);
+    const head = (at: string) => app.request(at, { method: "HEAD", headers: { cookie } });
+    expect((await head("/api/images/nope.png")).status).toBe(404);
+    expect((await head(path)).status).toBe(200);
 
     const file = path.slice("/api/images/".length);
     rmSync(join(uploads(), file));

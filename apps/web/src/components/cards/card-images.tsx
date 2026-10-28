@@ -1,10 +1,10 @@
 import { type ImageReference, imageMarkdown, imageReferencesIn } from "@banki/shared";
 import { ImageOff, ImagePlus, LoaderCircle, X } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FormError } from "@/components/auth-card";
 import { OUTLINE_PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
-import { IMAGE_ACCEPT, imageUrl, uploadImage } from "@/lib/images";
+import { IMAGE_ACCEPT, imageUrl, isImageMissing, uploadImage } from "@/lib/images";
 import { cn } from "@/lib/utils";
 
 // Images on the writing page: "Add image" in the card's foot uploads the files
@@ -82,11 +82,20 @@ export function AddImageButton({
   );
 }
 
-/** Each upload that failed, with its file's name, under the form. */
+/**
+ * Each upload that failed, with its file's name, under the form, brought
+ * into view as each one comes: on a phone the form's foot is the bottom of
+ * the screen, and the message would otherwise sit out of sight below it.
+ */
 export function UploadFailures({ failures }: { failures: readonly UploadFailure[] }) {
+  const list = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (failures.length > 0) list.current?.scrollIntoView({ block: "nearest" });
+  }, [failures.length]);
   if (failures.length === 0) return null;
   return (
-    <div className="flex flex-col gap-1">
+    // Clear of the bottom tab bar below 1024 px when scrolled into view.
+    <div ref={list} className="flex scroll-mb-24 flex-col gap-1 lg:scroll-mb-0">
       {failures.map((failure, i) => (
         // oxlint-disable-next-line no-array-index-key -- the list only ever grows, then clears
         <FormError key={i}>
@@ -179,7 +188,8 @@ function Thumbnail({
             alt=""
             loading="lazy"
             className="size-full object-cover"
-            onError={() => setMissing(true)}
+            // A thumbnail that won't load is missing only when its Image is (a 404).
+            onError={() => void isImageMissing(file).then(setMissing)}
           />
         </a>
       )}

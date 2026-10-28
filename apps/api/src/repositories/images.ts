@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { renameSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   IMAGE_FORMAT_MESSAGE,
@@ -74,7 +74,16 @@ export function createImageRepository(db: Queryable, uploadsDir: string) {
       const format = imageFormatOf(bytes);
       if (format === undefined) return UNSUPPORTED;
       const name = fileName(id, format);
-      writeFileSync(join(uploadsDir, name), bytes, { flag: "wx", mode: 0o600 });
+      // Written beside it and renamed into place, so the file is never half
+      // written, and one left behind at the same name (a fixed seed ID after
+      // a rollback) is replaced rather than refused.
+      const temp = join(uploadsDir, `.${name}.${randomUUID()}.tmp`);
+      try {
+        writeFileSync(temp, bytes, { flag: "wx", mode: 0o600 });
+        renameSync(temp, join(uploadsDir, name));
+      } finally {
+        rmSync(temp, { force: true });
+      }
       db.insert(image)
         .values({ id, userId, format, size: bytes.byteLength, uploadedAt: now })
         .run();
