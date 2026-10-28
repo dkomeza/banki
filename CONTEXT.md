@@ -20,6 +20,10 @@ _Avoid_: directory, group, category
 One thing to remember, written as a Front and a Back in Markdown with LaTeX, in exactly one Deck. A Deck's delete deletes its Cards with it, together.
 _Avoid_: note, flashcard, item
 
+**Move**:
+Taking live Cards out of their Deck and putting them in another live one. A moved Card is the same Card: it keeps its Tags, when it was written, and its Reviews, which count for the Deck it is in now. A Move may make a Duplicate.
+_Avoid_: transfer, reassign
+
 **Front**:
 The side of a Card the User is shown and asked about.
 _Avoid_: question, prompt
@@ -45,7 +49,7 @@ A Card whose Front reads the same as another live Card's in the same Deck, ignor
 _Avoid_: copy, clone, repeat
 
 **Deletion**:
-One act of deleting, and everything it took with it: a Card on its own, a Deck with its Cards, or a Folder with everything inside it. It is restored or removed as a whole. Something deleted earlier on its own keeps its own Deletion.
+One act of deleting, and everything it took with it: a Card on its own, a Deck with its Cards, or a Folder with everything inside it. It is restored or removed as a whole. Something deleted earlier on its own keeps its own Deletion. Deleting several picked Cards at once makes one Deletion per Card, though the delete's Undo brings them all back.
 _Avoid_: trash item, deleted item
 
 **Recently deleted**:
