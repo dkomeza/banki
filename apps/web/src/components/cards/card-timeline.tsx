@@ -355,8 +355,9 @@ function NoMatch({ withTags, onClear }: { withTags: boolean; onClear: () => void
   );
 }
 /**
- * Variant a's dock: an ink pill that floats at the foot of the Cards while
- * selecting, over the tab bar on phones: the count, Select all, Move… and
+ * Variant g's dock: a pill in the selection's own tint, the accent wash a
+ * selected Card takes, edged in the accent, that floats at the foot of the
+ * Cards while selecting, over the tab bar on phones: the count, Select all, Move… and
  * Delete, and Done. On phones it takes two rows.
  */
 function SelectionDock({
@@ -377,12 +378,12 @@ function SelectionDock({
   onDone: () => void;
 }) {
   const ghost =
-    "inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full px-4 text-sm font-medium outline-none hover:bg-background/12 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid disabled:pointer-events-none disabled:opacity-45 lg:h-9 [&_svg]:size-4";
+    "inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full px-4 text-sm font-medium outline-none hover:bg-primary/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid disabled:pointer-events-none disabled:opacity-45 lg:h-9 [&_svg]:size-4";
   return (
     <div
       role="toolbar"
       aria-label="Selected cards"
-      className="sticky bottom-[calc(var(--toast-bottom)-0.5rem)] z-30 mx-auto mt-2 flex w-full max-w-3xl flex-wrap items-center gap-1 rounded-[1.4rem] bg-foreground p-1.5 text-background shadow-xl sm:w-fit sm:flex-nowrap sm:rounded-full"
+      className="sticky bottom-[calc(var(--toast-bottom)-0.5rem)] z-30 mx-auto mt-2 flex w-full max-w-3xl flex-wrap items-center gap-1 rounded-[1.4rem] p-1.5 border border-primary/45 bg-accent text-accent-foreground shadow-lg sm:w-fit sm:flex-nowrap sm:rounded-full"
     >
       <button
         type="button"
@@ -398,14 +399,14 @@ function SelectionDock({
       >
         {count} selected
         {hidden > 0 && (
-          <span className="font-normal text-background/70"> · {hidden} not shown</span>
+          <span className="font-normal text-muted-foreground"> · {hidden} not shown</span>
         )}
       </p>
       <button type="button" onClick={onSelectAll} className={ghost}>
         <CheckCheck aria-hidden />
         {allShown ? "Select none" : "Select all"}
       </button>
-      <span aria-hidden className="hidden h-5 w-px bg-background/25 sm:block" />
+      <span aria-hidden className="hidden h-5 w-px bg-primary/25 sm:block" />
       <div className="flex w-full gap-1 sm:w-auto">
         <button
           type="button"
