@@ -17,6 +17,15 @@ export {
   UpdateCardRequest,
 } from "./cards";
 export {
+  CARD_TAGS_MAX,
+  CardTags,
+  sortTags,
+  TAG_MAX_LENGTH,
+  TagListResponse,
+  TagName,
+  tagNameProblem,
+} from "./tags";
+export {
   CreateDeckRequest,
   DECK_DESCRIPTION_MAX_LENGTH,
   DECK_NAME_MAX_LENGTH,

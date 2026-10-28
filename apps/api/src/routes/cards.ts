@@ -33,7 +33,8 @@ export function deckCardRoutes({ cards }: { cards: CardRepository }) {
  * `deletionId`, which `POST /api/deletions/:id/restore` undoes. A deleted Card,
  * an unknown one, another User's and one whose Deck is deleted all answer 404
  * `not_found`. A blank Front or Back, or one over 20,000 characters, answers 400
- * `invalid_request`.
+ * `invalid_request`, as does a Tag that isn't one word of 1 to 50 characters,
+ * or more than 20 Tags. Tags given to `PATCH` replace the Card's.
  */
 export function cardRoutes({ cards }: { cards: CardRepository }) {
   return new Hono<SignedInEnv>()

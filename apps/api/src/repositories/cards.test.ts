@@ -5,9 +5,10 @@ import { join } from "node:path";
 import { eq, sql } from "drizzle-orm";
 import { type OpenedDatabase, openDatabase } from "../db/database";
 import { applyMigrations } from "../db/migrate";
-import { card, deck } from "../db/schema";
+import { card, card_tag, deck } from "../db/schema";
 import { type CardRepository, createCardRepository } from "./cards";
 import { type DeckRepository, createDeckRepository } from "./decks";
+import { createDeletionRepository } from "./deletions";
 import { type FolderRepository, createFolderRepository } from "./folders";
 import { createUserRepository } from "./user";
 
@@ -85,6 +86,7 @@ describe("create", () => {
       deckId,
       front: "  el desayuno \n",
       back: "breakfast\n\nTomo el desayuno.  ",
+      tags: [],
       createdAt: "2026-10-01T10:00:00.000Z",
       updatedAt: "2026-10-01T10:00:00.000Z",
     });
@@ -318,5 +320,134 @@ describe("any", () => {
 
     expect(cards.any(USER)).toBe(true);
     expect(cards.any(OTHER)).toBe(false);
+  });
+});
+
+describe("Tags", () => {
+  const tagged = (deckId: string, front: string, tags: string[], userId = USER, now?: Date) => {
+    const created = cards.create(
+      userId,
+      deckId,
+      { front, back: "b", tags },
+      now === undefined ? {} : { now },
+    );
+    if (typeof created === "string") throw new Error(`${front}: ${created}`);
+    return created;
+  };
+  const tagsIn = (deckId: string) => {
+    const listed = cards.list(USER, deckId);
+    return typeof listed === "string" ? listed : listed.map((c) => [c.front, c.tags]);
+  };
+
+  test("a create stores the Card's Tags and answers them A–Z", () => {
+    const deckId = deckNamed("Spanish");
+
+    const created = tagged(deckId, "el andén", ["travel", "noun", "b1"]);
+
+    expect(created.tags).toEqual(["b1", "noun", "travel"]);
+    expect(cards.find(USER, created.id)?.tags).toEqual(["b1", "noun", "travel"]);
+    expect(tagsIn(deckId)).toEqual([["el andén", ["b1", "noun", "travel"]]]);
+  });
+
+  test("a Card created without Tags carries none", () => {
+    const deckId = deckNamed("Spanish");
+    expect(write(deckId, "f").tags).toEqual([]);
+    expect(tagsIn(deckId)).toEqual([["f", []]]);
+  });
+
+  test("each Card in a list answers its own Tags", () => {
+    const deckId = deckNamed("Spanish");
+    tagged(deckId, "one", ["a"], USER, at("2026-10-01T10:00:00.000Z"));
+    write(deckId, "two", "b", at("2026-10-02T10:00:00.000Z"));
+    tagged(deckId, "three", ["c", "b"], USER, at("2026-10-03T10:00:00.000Z"));
+
+    expect(tagsIn(deckId)).toEqual([
+      ["three", ["b", "c"]],
+      ["two", []],
+      ["one", ["a"]],
+    ]);
+  });
+
+  test("an update given Tags replaces them all, and leaves the sides alone", () => {
+    const deckId = deckNamed("Spanish");
+    const created = tagged(deckId, "quedar", ["verb", "b1"]);
+
+    const updated = cards.update(USER, created.id, { tags: ["social", "verb"] });
+
+    expect(updated).toMatchObject({ front: "quedar", back: "b", tags: ["social", "verb"] });
+    expect(cards.update(USER, created.id, { tags: [] })).toMatchObject({ tags: [] });
+    expect(opened.db.select().from(card_tag).all()).toEqual([]);
+  });
+
+  test("an update without Tags keeps them", () => {
+    const deckId = deckNamed("Spanish");
+    const created = tagged(deckId, "quedar", ["verb"]);
+
+    expect(cards.update(USER, created.id, { front: "quedarse" })).toMatchObject({
+      front: "quedarse",
+      tags: ["verb"],
+    });
+  });
+
+  test("tags answers the User's Tags on live Cards in live Decks, once each, A–Z", () => {
+    const spanish = deckNamed("Spanish");
+    const calculus = deckNamed("Calculus");
+    tagged(spanish, "quedar", ["verb", "exam"]);
+    tagged(spanish, "la cuenta", ["noun", "food"]);
+    tagged(calculus, "Ratio test", ["series", "exam"]);
+    tagged(deckNamed("Theirs", null, OTHER), "x", ["theirs"], OTHER);
+
+    expect(cards.tags(USER)).toEqual(["exam", "food", "noun", "series", "verb"]);
+    expect(cards.tags(OTHER)).toEqual(["theirs"]);
+  });
+
+  test("a deleted Card keeps its Tags, hidden, and gets them back on Restore", () => {
+    const deckId = deckNamed("Spanish");
+    tagged(deckId, "quedar", ["verb", "exam"]);
+    const madrugada = tagged(deckId, "la madrugada", ["noun", "time"]);
+    const deletionId = cards.softDelete(USER, madrugada.id);
+    if (deletionId === undefined) throw new Error("not deleted");
+
+    expect(cards.tags(USER)).toEqual(["exam", "verb"]);
+    expect(
+      opened.db.select().from(card_tag).where(eq(card_tag.cardId, madrugada.id)).all(),
+    ).toHaveLength(2);
+
+    createDeletionRepository(opened.db).restore(USER, deletionId);
+
+    expect(cards.tags(USER)).toEqual(["exam", "noun", "time", "verb"]);
+    expect(cards.find(USER, madrugada.id)?.tags).toEqual(["noun", "time"]);
+  });
+
+  test("a deleted Deck's Cards' Tags are hidden until it is restored", () => {
+    const deckId = deckNamed("Spanish");
+    tagged(deckId, "quedar", ["verb"]);
+    const deletionId = decks.softDelete(USER, deckId);
+    if (deletionId === undefined) throw new Error("not deleted");
+
+    expect(cards.tags(USER)).toEqual([]);
+
+    createDeletionRepository(opened.db).restore(USER, deletionId);
+
+    expect(cards.tags(USER)).toEqual(["verb"]);
+  });
+
+  test("a Removal takes the Card's Tags with it", () => {
+    const deckId = deckNamed("Spanish");
+    const created = tagged(deckId, "quedar", ["verb"]);
+    const deletionId = cards.softDelete(USER, created.id);
+    if (deletionId === undefined) throw new Error("not deleted");
+
+    createDeletionRepository(opened.db).remove(USER, deletionId);
+
+    expect(opened.db.select().from(card_tag).all()).toEqual([]);
+  });
+
+  test("each Tag row is scoped by the User who owns its Card", () => {
+    const deckId = deckNamed("Spanish");
+    const created = tagged(deckId, "quedar", ["verb"]);
+    expect(opened.db.select().from(card_tag).all()).toEqual([
+      { cardId: created.id, userId: USER, name: "verb" },
+    ]);
   });
 });

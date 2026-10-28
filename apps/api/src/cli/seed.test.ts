@@ -10,6 +10,7 @@ import {
   FolderResponse,
   RestoreResponse,
   SettingsResponse,
+  TagListResponse,
 } from "@banki/shared";
 import { SEED_IDS } from "../seed/seed-ids";
 import { EMAIL, ORIGIN, PASSWORD, bootApps, cookiesFrom, get, signIn } from "../testing/app";
@@ -222,6 +223,29 @@ describe("banki seed's Cards", () => {
     expect(card.front).toContain("\n");
     expect(card.back.split("\n").length).toBeGreaterThan(3);
     expect(card.back).toContain("$$");
+  });
+
+  test("tags the Cards: one Tag in two Decks, one Card with many, a deleted Card's hidden", async () => {
+    await setup();
+    await seed();
+
+    const { app } = boot();
+    const cookie = cookiesFrom(await signIn(app));
+    const listOf = async (deckId: string) =>
+      CardListResponse.parse(await (await get(app, `/api/decks/${deckId}/cards`, cookie)).json());
+    const { decks: D } = SEED_IDS;
+    const spanish = await listOf(D.spanish);
+    const calculus = await listOf(D.calculus2);
+
+    expect(spanish.every((card) => card.tags.length > 0)).toBe(true);
+    expect(spanish.some((card) => card.tags.includes("exam"))).toBe(true);
+    expect(calculus.some((card) => card.tags.includes("exam"))).toBe(true);
+    expect(Math.max(...spanish.map((card) => card.tags.length))).toBeGreaterThanOrEqual(8);
+    const tags = TagListResponse.parse(await (await get(app, "/api/tags", cookie)).json());
+    expect(tags).toEqual(
+      expect.arrayContaining(["noun", "verb", "irregular", "integrals", "series"]),
+    );
+    expect(tags).not.toContain("time");
   });
 
   test("writes them relative to BANKI_SEED_NOW when it is set", async () => {

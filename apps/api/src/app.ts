@@ -28,6 +28,7 @@ import { healthRoutes } from "./routes/health";
 import { meRoutes } from "./routes/me";
 import { settingsRoutes } from "./routes/settings";
 import { setupRoutes } from "./routes/setup";
+import { tagRoutes } from "./routes/tags";
 
 /**
  * The `/api` requests anyone may make without being signed in. HEAD isn't
@@ -111,6 +112,7 @@ export function createApp(
     .route("/api/decks", deckRoutes({ decks }))
     .route("/api/decks", deckCardRoutes({ cards }))
     .route("/api/cards", cardRoutes({ cards }))
+    .route("/api/tags", tagRoutes({ cards }))
     .route("/api/folders", folderRoutes({ folders }))
     .route("/api/deletions", deletionRoutes({ deletions }));
   app.notFound(notFound);
