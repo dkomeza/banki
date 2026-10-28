@@ -553,7 +553,7 @@ class TableWidget extends WidgetType {
   }
 }
 
-type MenuItem = { label: string; run: (r: number, c: number) => void; disabled?: (r: number, c: number) => boolean } | "separator";
+import { type MenuGroup, type MenuItem, renderMenu } from "./table-menu";
 
 class TableGrid {
   readonly dom: HTMLElement;
@@ -837,7 +837,7 @@ class TableGrid {
 
   // ——— The ⋯ menu ———
 
-  private items(): MenuItem[] {
+  private items(): MenuGroup[] {
     const m = () => this.model;
     const rowsWith = (fn: (rows: string[][]) => void) => {
       const rows = m().rows.map((row) => [...row]);
@@ -851,147 +851,142 @@ class TableGrid {
     };
     return [
       {
-        label: "Add row above",
-        disabled: (r) => r === 0,
-        run: (r, c) => this.restructure({ rows: rowsWith((rows) => rows.splice(r, 0, this.emptyRow())), aligns: m().aligns }, { r, c }),
+        name: "Row",
+        items: [
+          {
+            label: "Add row above",
+            icon: "rowAbove",
+            disabled: (r) => r === 0,
+            run: (r, c) => this.restructure({ rows: rowsWith((rows) => rows.splice(r, 0, this.emptyRow())), aligns: m().aligns }, { r, c }),
+          },
+          {
+            label: "Add row below",
+            icon: "rowBelow",
+            run: (r, c) => this.restructure({ rows: rowsWith((rows) => rows.splice(r + 1, 0, this.emptyRow())), aligns: m().aligns }, { r: r + 1, c }),
+          },
+          {
+            label: "Move row up",
+            icon: "up",
+            disabled: (r) => r <= 1,
+            run: (r, c) => this.restructure({ rows: rowsWith((rows) => rows.splice(r - 1, 2, rows[r]!, rows[r - 1]!)), aligns: m().aligns }, { r: r - 1, c }),
+          },
+          {
+            label: "Move row down",
+            icon: "down",
+            disabled: (r) => r === 0 || r >= m().rows.length - 1,
+            run: (r, c) => this.restructure({ rows: rowsWith((rows) => rows.splice(r, 2, rows[r + 1]!, rows[r]!)), aligns: m().aligns }, { r: r + 1, c }),
+          },
+          {
+            label: "Delete row",
+            icon: "deleteRow",
+            disabled: (r) => r === 0,
+            run: (r, c) => this.restructure({ rows: rowsWith((rows) => rows.splice(r, 1)), aligns: m().aligns }, { r: Math.min(r, m().rows.length - 2), c }),
+          },
+        ],
       },
       {
-        label: "Add row below",
-        run: (r, c) => this.restructure({ rows: rowsWith((rows) => rows.splice(r + 1, 0, this.emptyRow())), aligns: m().aligns }, { r: r + 1, c }),
+        name: "Column",
+        items: [
+          {
+            label: "Add column left",
+            icon: "colLeft",
+            run: (r, c) =>
+              this.restructure(
+                { rows: rowsWith((rows) => rows.forEach((row) => row.splice(c, 0, ""))), aligns: [...m().aligns.slice(0, c), null, ...m().aligns.slice(c)] },
+                { r, c },
+              ),
+          },
+          {
+            label: "Add column right",
+            icon: "colRight",
+            run: (r, c) =>
+              this.restructure(
+                { rows: rowsWith((rows) => rows.forEach((row) => row.splice(c + 1, 0, ""))), aligns: [...m().aligns.slice(0, c + 1), null, ...m().aligns.slice(c + 1)] },
+                { r, c: c + 1 },
+              ),
+          },
+          {
+            label: "Move column left",
+            icon: "left",
+            disabled: (_r, c) => c === 0,
+            run: (r, c) => {
+              const aligns = [...m().aligns];
+              aligns.splice(c - 1, 2, aligns[c]!, aligns[c - 1]!);
+              this.restructure({ rows: rowsWith((rows) => rows.forEach((row) => row.splice(c - 1, 2, row[c]!, row[c - 1]!))), aligns }, { r, c: c - 1 });
+            },
+          },
+          {
+            label: "Move column right",
+            icon: "right",
+            disabled: (_r, c) => c >= m().aligns.length - 1,
+            run: (r, c) => {
+              const aligns = [...m().aligns];
+              aligns.splice(c, 2, aligns[c + 1]!, aligns[c]!);
+              this.restructure({ rows: rowsWith((rows) => rows.forEach((row) => row.splice(c, 2, row[c + 1]!, row[c]!))), aligns }, { r, c: c + 1 });
+            },
+          },
+          {
+            label: "Delete column",
+            icon: "deleteColumn",
+            disabled: () => m().aligns.length <= 1,
+            run: (r, c) =>
+              this.restructure(
+                { rows: rowsWith((rows) => rows.forEach((row) => row.splice(c, 1))), aligns: m().aligns.filter((_, i) => i !== c) },
+                { r, c: Math.max(0, c - 1) },
+              ),
+          },
+        ],
       },
       {
-        label: "Add column left",
-        run: (r, c) =>
-          this.restructure(
-            { rows: rowsWith((rows) => rows.forEach((row) => row.splice(c, 0, ""))), aligns: [...m().aligns.slice(0, c), null, ...m().aligns.slice(c)] },
-            { r, c },
-          ),
+        name: "Align",
+        items: [
+          { label: "Align column left", icon: "alignLeft", run: align("left") },
+          { label: "Align column center", icon: "alignCenter", run: align("center") },
+          { label: "Align column right", icon: "alignRight", run: align("right") },
+        ],
       },
       {
-        label: "Add column right",
-        run: (r, c) =>
-          this.restructure(
-            { rows: rowsWith((rows) => rows.forEach((row) => row.splice(c + 1, 0, ""))), aligns: [...m().aligns.slice(0, c + 1), null, ...m().aligns.slice(c + 1)] },
-            { r, c: c + 1 },
-          ),
-      },
-      "separator",
-      {
-        label: "Move row up",
-        disabled: (r) => r <= 1,
-        run: (r, c) => this.restructure({ rows: rowsWith((rows) => rows.splice(r - 1, 2, rows[r]!, rows[r - 1]!)), aligns: m().aligns }, { r: r - 1, c }),
-      },
-      {
-        label: "Move row down",
-        disabled: (r) => r === 0 || r >= m().rows.length - 1,
-        run: (r, c) => this.restructure({ rows: rowsWith((rows) => rows.splice(r, 2, rows[r + 1]!, rows[r]!)), aligns: m().aligns }, { r: r + 1, c }),
-      },
-      {
-        label: "Move column left",
-        disabled: (_r, c) => c === 0,
-        run: (r, c) => {
-          const aligns = [...m().aligns];
-          aligns.splice(c - 1, 2, aligns[c]!, aligns[c - 1]!);
-          this.restructure({ rows: rowsWith((rows) => rows.forEach((row) => row.splice(c - 1, 2, row[c]!, row[c - 1]!))), aligns }, { r, c: c - 1 });
-        },
-      },
-      {
-        label: "Move column right",
-        disabled: (_r, c) => c >= m().aligns.length - 1,
-        run: (r, c) => {
-          const aligns = [...m().aligns];
-          aligns.splice(c, 2, aligns[c + 1]!, aligns[c]!);
-          this.restructure({ rows: rowsWith((rows) => rows.forEach((row) => row.splice(c, 2, row[c + 1]!, row[c]!))), aligns }, { r, c: c + 1 });
-        },
-      },
-      "separator",
-      { label: "Align column left", run: align("left") },
-      { label: "Align column center", run: align("center") },
-      { label: "Align column right", run: align("right") },
-      "separator",
-      {
-        label: "Delete row",
-        disabled: (r) => r === 0,
-        run: (r, c) => this.restructure({ rows: rowsWith((rows) => rows.splice(r, 1)), aligns: m().aligns }, { r: Math.min(r, m().rows.length - 2), c }),
-      },
-      {
-        label: "Delete column",
-        disabled: () => m().aligns.length <= 1,
-        run: (r, c) =>
-          this.restructure(
-            { rows: rowsWith((rows) => rows.forEach((row) => row.splice(c, 1))), aligns: m().aligns.filter((_, i) => i !== c) },
-            { r, c: Math.max(0, c - 1) },
-          ),
-      },
-      {
-        label: "Delete table",
-        run: () => {
-          const range = this.locate();
-          this.closeMenu(false);
-          if (!range) return;
-          const doc = this.outer.state.doc;
-          const to = Math.min(range.to + 1, doc.length);
-          this.outer.focus();
-          this.outer.dispatch({ changes: { from: range.from, to }, selection: { anchor: range.from } });
-        },
+        name: "Table",
+        items: [
+          {
+            label: "Delete table",
+            icon: "deleteTable",
+            run: () => {
+              const range = this.locate();
+              this.closeMenu(false);
+              if (!range) return;
+              const doc = this.outer.state.doc;
+              const to = Math.min(range.to + 1, doc.length);
+              this.outer.focus();
+              this.outer.dispatch({ changes: { from: range.from, to }, selection: { anchor: range.from } });
+            },
+          },
+        ],
       },
     ];
   }
 
   openMenu(focusFirst = true) {
     this.closeMenu(false);
-    const menu = document.createElement("div");
-    menu.className = "cm-lp-table-menu";
-    menu.setAttribute("role", "menu");
-    menu.setAttribute("aria-label", "Table options");
     const { r, c } = this.current;
-    const buttons: HTMLButtonElement[] = [];
-    for (const item of this.items()) {
-      if (item === "separator") {
-        const sep = document.createElement("div");
-        sep.setAttribute("role", "separator");
-        sep.className = "cm-lp-table-menu-separator";
-        menu.append(sep);
-        continue;
-      }
-      const button = document.createElement("button");
-      button.type = "button";
-      button.setAttribute("role", "menuitem");
-      button.className = "cm-lp-table-menu-item";
-      if (item.label.startsWith("Delete")) button.classList.add("cm-lp-danger");
-      button.textContent = item.label;
-      const disabled = item.disabled?.(r, c) ?? false;
-      if (disabled) button.setAttribute("aria-disabled", "true");
-      button.tabIndex = -1;
-      button.addEventListener("mousedown", (e) => e.preventDefault());
-      button.addEventListener("click", () => {
-        if (disabled) return;
+    const { menu, buttons } = renderMenu(this.items(), { r, c }, {
+      run: (item: MenuItem) => {
         this.closeMenu(false);
         item.run(r, c);
-      });
-      buttons.push(button);
-      menu.append(button);
-    }
-    menu.addEventListener("keydown", (event) => {
-      const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
-      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-        event.preventDefault();
-        const next = (index + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length;
-        buttons[next]?.focus();
-      } else if (event.key === "Escape") {
-        event.preventDefault();
-        this.closeMenu();
-      } else if (event.key === "Tab") this.closeMenu(false);
+      },
+      close: (refocus: boolean) => this.closeMenu(refocus),
     });
     this.menu = menu;
     // On the page, not in the editor, whose scroller is a stacking context of its own.
     document.body.append(menu);
+    // In the toolbar's own place, centred on the side's top edge, which it hides while open.
     const place = () => {
-      const rect = this.menuButton.getBoundingClientRect();
+      const side = (this.outer.dom.closest(".side-field") ?? this.dom).getBoundingClientRect();
       const width = menu.offsetWidth;
-      const right = rect.left + rect.width / 2 > window.innerWidth / 2;
-      menu.style.top = `${rect.bottom + window.scrollY + 6}px`;
-      menu.style.left = `${Math.max(8, (right ? rect.right - width : rect.left) + window.scrollX)}px`;
+      const gap = window.innerWidth >= 1024 ? 42 : 58;
+      menu.style.top = `${side.top - gap + window.scrollY}px`;
+      const left = Math.min(side.left + side.width / 2 - width / 2, window.innerWidth - width - 8);
+      menu.style.left = `${Math.max(8, left) + window.scrollX}px`;
     };
     place();
     menu.dataset.side = this.menuButton.getBoundingClientRect().left > window.innerWidth / 2 ? "right" : "left";

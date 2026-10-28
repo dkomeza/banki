@@ -184,7 +184,7 @@ function Side({
               "repeating-linear-gradient(to bottom, transparent 0, transparent calc(2rem - 1px), var(--border) calc(2rem - 1px), var(--border) 2rem)",
           }}
           className={cn(
-            "side-field relative w-full rounded-md leading-[2rem] has-[>.live-editor>.cm-focused]:outline-2 has-[>.live-editor>.cm-focused]:outline-offset-4 has-[>.live-editor>.cm-focused]:outline-ring has-[>.live-editor>.cm-focused]:outline-solid data-invalid:outline-2 data-invalid:outline-offset-4 data-invalid:outline-destructive data-invalid:outline-solid",
+            "side-field relative w-full rounded-md leading-[2rem] data-invalid:outline-2 data-invalid:outline-offset-4 data-invalid:outline-destructive data-invalid:outline-solid",
             front
               ? "min-h-16 text-xl/[2rem] font-semibold tracking-tight"
               : "min-h-32 text-[1.05rem]/[2rem]",

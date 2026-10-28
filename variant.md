@@ -1,5 +1,5 @@
-# c: Floating
+# e: Icon bar
 
-The editor's parts float over the page as small cards, keeping the ruled lines clear: a toolbar pill on the focused side's top edge (an ink bar docked above the keyboard on a phone), the inline Formula's render on a larger Formula card with an orange top edge, a display Formula's render in a dashed outline under its source, and the table as a card of its own with banded rows, its ⋯ in the header's corner (a sheet from the bottom on a phone).
+c's Floating with the round-1 tweaks, betting on a ⋯ menu with no words at all: opening it turns the toolbar pill, centred on the side's top edge, into one bar of the table's icons (row, column, align and the table's delete, split by hairlines, each delete in red), with a tooltip naming each icon on desktop; on a phone it docks at the bottom as an ink bar, a group to a line. A side being written has no orange outline, its label in the margin turns to ink instead.
 
 States: inline-editing, display-editing, broken, table, table-menu, toolbar
