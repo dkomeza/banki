@@ -1,11 +1,32 @@
 /*
- * Variant c, "Floating": the editor's parts float over the page as small
- * cards, so the ruled lines stay clear: a toolbar pill on the side's top
- * edge, a Formula card under an inline Formula, an outlined render under a
- * display one, and the table as a card of its own.
+ * Variant d, "Icon grid", on c's "Floating": the editor's parts float over
+ * the page as small cards, so the ruled lines stay clear: a toolbar pill
+ * centred on the side's top edge, a Formula card under an inline Formula, an
+ * outlined render under a display one, and the table as a card of its own
+ * whose ⋯ menu is a grid of icons. A side being written has no outline: its
+ * label in the margin turns to ink, and its toolbar shows.
  */
 
-/* The toolbar: a pill on the focused side's top edge */
+/* The side being written: its label turns to ink, with no outline */
+.side > label {
+  transition: color 120ms ease;
+}
+.side:focus-within > label {
+  color: var(--foreground);
+}
+
+/* The toolbar: a pill centred on the focused side's top edge, in a gap kept
+   for it above each side, so it never covers the side before (its note) */
+@media (min-width: 640px) {
+  .side + .side {
+    margin-top: 0.75rem;
+  }
+}
+@media (min-width: 640px) and (max-width: 1023.98px) {
+  .side + .side {
+    margin-top: 1.75rem;
+  }
+}
 .side-toolbar {
   display: none;
 }
@@ -14,8 +35,9 @@
 }
 .side-toolbar {
   position: absolute;
-  right: -0.25rem;
-  top: -2.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  top: -2.625rem;
   z-index: 15;
   align-items: center;
   gap: 0.0625rem;
@@ -47,7 +69,7 @@
 }
 @media (min-width: 640px) and (max-width: 1023.98px) {
   .side-toolbar {
-    top: -3.75rem;
+    top: -3.625rem;
   }
   .side-toolbar-button {
     width: 2.75rem;
@@ -61,6 +83,7 @@
     top: auto;
     left: 0.5rem;
     right: 0.5rem;
+    transform: none;
     bottom: calc(max(var(--keyboard-inset, 0px), calc(3.9rem + env(safe-area-inset-bottom))) + 0.5rem);
     justify-content: space-between;
     overflow-x: auto;
@@ -186,5 +209,119 @@ tbody tr:nth-child(even) .cm-lp-cell {
     max-height: 70vh;
     overflow-y: auto;
     border-radius: 1rem;
+  }
+}
+
+/* The ⋯ menu: a grid of icons, one row per thing it acts on */
+.cm-lp-table-menu.cm-lp-icon-menu {
+  min-width: 0;
+  gap: 0.125rem;
+  padding: 0.375rem;
+}
+/* One column per position, so the trash of each row and the table's delete line up */
+.cm-lp-icon-menu-row {
+  display: grid;
+  grid-template-columns: auto repeat(5, 2rem);
+  align-items: center;
+  gap: 0.125rem;
+}
+.cm-lp-icon-menu-row .cm-lp-danger {
+  grid-column: -2;
+}
+.cm-lp-icon-menu-row-end {
+  margin-top: 0.25rem;
+  padding-top: 0.375rem;
+  border-top: 1px solid var(--border);
+}
+.cm-lp-icon-menu-name {
+  width: 3.75rem;
+  flex-shrink: 0;
+  padding-left: 0.25rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+.cm-lp-icon-menu-item {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  color: var(--foreground);
+  cursor: pointer;
+}
+.cm-lp-icon-menu-item:hover {
+  background: var(--accent);
+}
+.cm-lp-icon-menu-item:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+.cm-lp-icon-menu-item[aria-disabled="true"] {
+  color: var(--muted-foreground);
+  opacity: 0.45;
+  cursor: default;
+  background: none;
+}
+.cm-lp-icon-menu-item.cm-lp-danger:not([aria-disabled="true"]) {
+  color: var(--destructive);
+}
+.cm-lp-icon-menu-item.cm-lp-danger:not([aria-disabled="true"]):hover {
+  background: color-mix(in oklab, var(--destructive) 10%, transparent);
+}
+/* On desktop each icon names itself in a tooltip, on hover or focus */
+@media (min-width: 1024px) and (hover: hover) {
+  .cm-lp-icon-menu-item::after {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: calc(100% + 0.375rem);
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 0.2rem 0.5rem;
+    border-radius: 0.375rem;
+    background: var(--foreground);
+    color: var(--background);
+    font-size: 0.75rem;
+    line-height: 1rem;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 100ms ease 250ms;
+    z-index: 1;
+  }
+  .cm-lp-icon-menu-item:hover::after,
+  .cm-lp-icon-menu-item:focus-visible::after {
+    opacity: 1;
+  }
+}
+@media (max-width: 1023.98px) {
+  .cm-lp-icon-menu-item {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+  .cm-lp-icon-menu-name {
+    width: 4.25rem;
+  }
+  .cm-lp-icon-menu-row {
+    grid-template-columns: auto repeat(5, 2.75rem);
+  }
+}
+@media (max-width: 639.98px) {
+  .cm-lp-table-menu.cm-lp-icon-menu {
+    padding: 0.5rem 0.75rem;
+  }
+  .cm-lp-icon-menu-row {
+    grid-template-columns: auto repeat(5, 2.75rem);
+    justify-content: space-between;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cm-lp-icon-menu-item::after,
+  .side > label {
+    transition: none;
   }
 }

@@ -2,9 +2,9 @@ import type { EditorView } from "@codemirror/view";
 import { Fragment, type RefObject } from "react";
 import { MOD, runTool, TOOLS } from "./toolbar";
 
-// Variant c, "Floating": the toolbar floats as a small pill on the top edge
-// of the side being written, at its right, out of the text's way. On a phone
-// it docks above the keyboard as one ink bar.
+// The toolbar floats as a small pill centred on the top edge of the side
+// being written, out of the text's way. On a phone it docks above the
+// keyboard as one ink bar.
 
 export function SideToolbar({
   view,
