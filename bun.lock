@@ -21,7 +21,7 @@
     },
     "apps/api": {
       "name": "@banki/api",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@banki/shared": "workspace:*",
         "@clack/prompts": "1.8.1",
@@ -41,7 +41,7 @@
     },
     "apps/web": {
       "name": "@banki/web",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@banki/api": "workspace:*",
         "@banki/shared": "workspace:*",
@@ -78,7 +78,7 @@
     },
     "packages/shared": {
       "name": "@banki/shared",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@lezer/common": "1.5.4",
         "@lezer/markdown": "1.8.1",
