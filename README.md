@@ -367,7 +367,7 @@ Every push to `main` builds both images for `linux/amd64` and `linux/arm64`, eac
 | `main`      | The newest build Edge deployed. It moves once the `edge` deployment is created, so never backwards |
 | `sha-<sha>` | The build of `main`'s commit `<sha>` (the full SHA). Only main builds have `sha-…` tags            |
 
-Once both manifests exist, the workflow creates an `edge` GitHub deployment of the commit, `queued` (`waiting for the agent`), whose payload holds the commit and the index digests of both images, `{ "sha", "api", "web" }`. The pull agent deploys [Edge](CONTEXT.md) from those digests, and a Release promotes the very same ones (ADR-0017). Edge never goes backwards: when the newest `edge` deployment is of a descendant of the commit, the build finished out of order and creates none, and leaves `main` where it is. No run is ever cancelled, so every commit gets its images, and the workflow doesn't wait for CI on `main`, since every PR passed CI before it merged.
+Once both manifests exist, the workflow creates an `edge` GitHub deployment of the commit, `queued` (`waiting for the agent`), whose payload holds the commit and the index digests of both images, `{ "sha", "api", "web" }`. The pull agent deploys [Edge](CONTEXT.md) from those digests, and [a Release](#releases) promotes the very same ones (ADR-0017). Edge never goes backwards: when the newest `edge` deployment is of a descendant of the commit, the build finished out of order and creates none, and leaves `main` where it is. No run is ever cancelled, so every commit gets its images, and the workflow doesn't wait for CI on `main`, since every PR passed CI before it merged.
 
 To redeploy Edge, re-run a push's run of the workflow: it finds the images already pushed, skips the builds, and creates a fresh deployment with the same digests.
 
@@ -375,7 +375,7 @@ A sweep, once a day and on `gh workflow run main-images.yml`, keeps the ten newe
 
 Both packages start out private. Make each one public once, after its first push (on GitHub: the package's **Package settings**, then **Change visibility**), so the home server can pull them without credentials.
 
-`GET /api/health` reports the commit its image was built from as `commit`: the full SHA in a preview or main image, and `"dev"` in local dev and in images built locally, such as with `docker compose`.
+`GET /api/health` reports the build it runs: `version`, the api's `package.json` version, which each [Release](#releases) bumps; `commit`, the commit its image was built from, the full SHA in a preview or main image and `"dev"` in local dev and in images built locally, such as with `docker compose`; and `release`, `true` only when the api runs with `RELEASE=true`, as Production's does ([Long-lived installations](#long-lived-installations)). Settings shows them as its last line.
 
 ## Previews
 
@@ -526,7 +526,7 @@ docker compose -f deploy/preview/agent.compose.yaml logs agent
 
 The agent keeps its own clone of `main` in the `banki-preview-src` volume, fetched anonymously from `https://github.com/dkomeza/banki.git` ([ADR-0009](docs/adr/0009-the-pull-agent-updates-itself-through-a-helper-container.md)). Only `refs/heads/main` is ever fetched, checked out or built, so a pull request's branch never reaches the server, and the checkout you started it from is never touched.
 
-At the start of every loop, before it plans anything, the agent fetches `main` and compares `deploy/preview/` between the commit it runs and `main`. When anything there changed, it starts `banki-preview-updater`, a one-shot helper container from its own image with the same hardening, which runs `docker compose -f deploy/preview/agent.compose.yaml up -d --build` on the clone. That rebuilds the agent and replaces it; Newt is only recreated when its own settings change. A change outside `deploy/preview/` rebuilds nothing.
+At the start of every loop, before it plans anything, the agent fetches `main` and compares `deploy/preview/` between the commit it runs and `main`. When anything there changed, it starts `banki-preview-updater`, a one-shot helper container from its own image with the same hardening, on Docker's default `bridge` network (Buildx fetches the registry tokens for the build from the helper itself), which runs `docker compose -f deploy/preview/agent.compose.yaml up -d --build` on the clone. That rebuilds the agent and replaces it; Newt is only recreated when its own settings change. A change outside `deploy/preview/` rebuilds nothing.
 
 The helper's output goes to the agent's log, and so does a failure: the old agent logs the helper's exit code and keeps running, and doesn't try that same `main` commit again until it restarts or `main` moves on. A failed fetch is logged and tried again on the next loop, and the Previews are kept in line either way:
 
@@ -556,7 +556,7 @@ The cookie was `__Secure-better-auth.session_token` before. The API ignores that
 
 ## Long-lived installations
 
-Beside the Previews, two [Long-lived installations](CONTEXT.md) run on the home server ([ADR-0017](docs/adr/0017-edge-follows-main-and-releases-promote-its-images-to-production.md)): [Edge](CONTEXT.md) at `preview.banki.dkomeza.com`, which runs the newest commit of `main`, and [Production](CONTEXT.md) at `banki.dkomeza.com`, which runs the newest Release and holds the User's real data. Unlike a Preview, each keeps its data across deploys and migrates it in place.
+Beside the Previews, two [Long-lived installations](CONTEXT.md) run on the home server ([ADR-0017](docs/adr/0017-edge-follows-main-and-releases-promote-its-images-to-production.md)): [Edge](CONTEXT.md) at `preview.banki.dkomeza.com`, which runs the newest commit of `main`, and [Production](CONTEXT.md) at `banki.dkomeza.com`, which runs the newest [Release](#releases) and holds the User's real data. Unlike a Preview, each keeps its data across deploys and migrates it in place.
 
 They have a Pangolin site of their own, with its own Newt, on the `banki-long-lived` network (internal, `172.31.254.0/24`, Newt at `172.31.254.2`, and the rest handed out from `172.31.254.128/25`). Edge's and Production's `web` join it; the pull agent and every Preview never do, so no Preview can reach either of them.
 
@@ -594,9 +594,11 @@ The two Pangolin resources are made by hand, and the agent has no business with 
 
 ### How the agent deploys them
 
-The pull agent deploys both from a third pool of its own, beside the PR and Slug Preview pools ([ADR-0017](docs/adr/0017-edge-follows-main-and-releases-promote-its-images-to-production.md)): Edge from the `edge` deployments [main images](#main-images) creates, Production from the `production` deployments of a Release. Each deployment's payload is `{ "sha", "api", "web" }`, the commit and its two images' digests; any other payload is marked `failure`, `invalid payload`. Only each installation's newest deployment is ever deployed, and older ones still waiting are marked `inactive`. A Long-lived deploy goes before any Preview's, still one deploy a loop, and has no cap: it never evicts a Preview, and no Preview evicts it.
+The pull agent deploys both from a third pool of its own, beside the PR and Slug Preview pools ([ADR-0017](docs/adr/0017-edge-follows-main-and-releases-promote-its-images-to-production.md)): Edge from the `edge` deployments [main images](#main-images) creates, Production from the `production` deployments of [a Release](#releases). Each deployment's payload is `{ "sha", "api", "web" }`, the commit and its two images' digests; any other payload is marked `failure`, `invalid payload`. Only each installation's newest deployment is ever deployed, and older ones still waiting are marked `inactive`. A Long-lived deploy goes before any Preview's, still one deploy a loop, and has no cap: it never evicts a Preview, and no Preview evicts it.
 
 Each installation is the Compose project `banki-edge` or `banki-production`, running the images by digest with the Preview's hardening and fixed limits, the same for both (api 512m and 1 CPU, web 128m and half a CPU), so Edge runs exactly what Production will. Unlike a Preview it reaches the internet, and only its `web` joins `banki-long-lived`. Its data lives in the volume `banki-edge-data` or `banki-production-data`, outside the project, so no `docker compose down` can remove it. The api generates its `AUTH_SECRET` and encryption key there on its first start, and they persist with the volume.
+
+Production's api runs with `RELEASE=true`, and Edge's never does. The images are the same, so this is what tells a Release apart: `/api/health` reports `release: true`, and Settings shows the version as `0.3.0`, linking to its Release notes, where Edge shows `0.3.0+<short commit>`, linking to the commit. An api without a commit baked in (`bun run dev`, the `ui` stacks, a self-built `docker compose up`) shows `0.3.0+dev`, unless it is given `RELEASE=true` too.
 
 A deploy, which the deployment shows `in_progress`, `starting <sha>`:
 
@@ -626,6 +628,60 @@ Production's first deploy starts it empty, waiting for Setup. Take the Setup tok
 ```sh
 docker logs banki-production-api-1 2>&1 | grep -i setup
 ```
+
+## Releases
+
+A [Release](CONTEXT.md) is a numbered version of Banki, `v0.1.0` and up, whose images are the very images [Edge](CONTEXT.md) ran ([ADR-0017](docs/adr/0017-edge-follows-main-and-releases-promote-its-images-to-production.md)). The `release` workflow (`.github/workflows/release.yml`) cuts it with [release-please](https://github.com/googleapis/release-please) and ships it to [Production](CONTEXT.md). There are no release branches: a hotfix merges to `main` and ships with the next Release.
+
+| Path                            | What it is                                                                           |
+| ------------------------------- | ------------------------------------------------------------------------------------ |
+| `release-please-config.json`    | How release-please versions the repo and writes the notes                            |
+| `.release-please-manifest.json` | The version of the newest Release, which release-please keeps                        |
+| `CHANGELOG.md`                  | Every Release's notes, written by release-please (oxfmt leaves it alone)             |
+| `.github/workflows/release.yml` | The Release PR on every push to `main`, and the promotion once the Release PR merges |
+
+### Setting it up
+
+Once, in the repo's **Settings**, **Actions**, **General**: turn on **Allow GitHub Actions to create and approve pull requests**. release-please opens the Release PR with `GITHUB_TOKEN`, and can't without it.
+
+### The Release PR
+
+Every push to `main` runs release-please, which keeps one Release PR open, titled `chore(main): release X.Y.Z`. It holds the next version, in the root, `apps/api`, `apps/web` and `packages/shared` `package.json`, in `bun.lock` and in `.release-please-manifest.json`, and the Release's notes, at the top of `CHANGELOG.md` and in its body. One version covers the whole repo, tagged `vX.Y.Z`.
+
+- **The version** is SemVer from the squash-merged PR titles since the last Release: a `feat` bumps the minor version, a `fix` the patch. Before `1.0.0`, a breaking change bumps the minor version too, so `1.0.0` only ever comes from a deliberate `release-as`. The first Release is `0.1.0`, and its notes start at the walking skeleton (BAN-74), leaving out the prototype's commits.
+- **The notes** are for the User and self-hosters: a **Features** and a **Fixes** section, and every other commit type left out. So is a commit that touches only `deploy/`, `.github/`, `.claude/`, `docs/` or `scripts/`. A stretch of only such commits opens no Release PR.
+- **To edit the notes**, edit the Release PR just before you merge it: its body becomes the GitHub Release, and `CHANGELOG.md` on its branch the changelog. Each push to `main` rewrites the Release PR, edits included. release-please leaves out only whole directories, so an infrastructure `feat` or `fix` that also touched a root doc (`README.md`, `CONTEXT.md`, `AGENTS.md` or `CLAUDE.md`) still lands in the notes: rewrite its entry there as one generic line, such as "Improved release architecture".
+- **`bun.lock`** records each workspace's version, so whenever release-please opens or updates the Release PR, the workflow runs `bun install --lockfile-only` on its branch and pushes the new `bun.lock` there, as `github-actions[bot]`. The PR after a Release then carries no lockfile diff.
+
+The Release PR runs no workflows, since `GITHUB_TOKEN` can't trigger them, so its checks never appear. Merge it with the ruleset's admin bypass; CI runs on `main` right after.
+
+**Merge nothing else to `main` until Edge has deployed the Release commit.** Edge deploys only its newest `edge` deployment, so a merge in between supersedes the Release's before Edge runs it, and the Release isn't shipped.
+
+### The promotion
+
+Merging the Release PR makes release-please tag `vX.Y.Z` and create the GitHub Release, and the `promote` job runs in the same run, since a tag pushed with `GITHUB_TOKEN` triggers nothing either. It runs only when release-please created a Release, one at a time across runs, and is never cancelled while it runs. GitHub keeps only the newest promotion waiting behind it, though: a third Release merged meanwhile cancels the one waiting, whose Release is then never promoted, and the newer Release carries it. A wait that GitHub doesn't answer asks again until it runs out, so an API error is never taken for Edge or Production failing.
+
+1. **Wait for Edge.** It polls the `edge` deployments of the Release commit, which [main images](#main-images) creates once that commit's images exist. Edge has run the commit once any of them has a `success` status anywhere in its history. It fails on a `failure` or `error` status, on `inactive` without a `success` before it (a newer merge's deployment superseded it before the agent ran it), or after 60 minutes with neither.
+2. **Tag `vX.Y.Z`.** It takes the `api` and `web` digests from that successful deployment's payload, checks that each is the Release commit's `sha-<sha>` manifest, and tags each image by digest as `vX.Y.Z`: both architectures, no rebuild. It reads the tag back, and never moves a `vX.Y.Z` that is already on other images.
+3. **Deploy Production.** It creates a `production` deployment of the Release commit, `Production vX.Y.Z`, with those digests in its payload, `queued` (`waiting for the agent`), which the pull agent deploys ([How the agent deploys them](#how-the-agent-deploys-them)). It never creates one of a commit older than Production's newest deployment, so Production never goes back.
+4. **Wait for Production.** `success` goes on; `failure`, `error` or `inactive`, or 60 minutes without a result, fails.
+5. **Move `latest`.** It tags both images by digest as `latest`, and reads it back.
+
+| Tag      | What it marks                                                                      |
+| -------- | ---------------------------------------------------------------------------------- |
+| `vX.Y.Z` | The images of Release `vX.Y.Z`, the ones Edge ran. It never moves                  |
+| `latest` | The newest Release Production ran. It moves only once Production reports `success` |
+| `v0.0.1` | A placeholder pushed by hand, not a Release. It stays                              |
+
+Neither sweep touches `v…` or `latest`: the main-images sweep keeps every version with a tag other than `main` or `sha-…`, and PR cleanup any with a tag other than `pr-…` or `sha-…`.
+
+### An unshipped Release
+
+When Edge fails on the Release commit, or Production fails to deploy it, the Release is **not shipped**. The workflow puts a line at the top of the GitHub Release's notes, "**Not shipped:** Edge failed on this commit" or "Production failed to deploy it", "and the next Release carries the fix", and takes GitHub's **Latest** from it, back to the newest Release Production ran. `latest` doesn't move. The tag and the Release stay, and the run fails red.
+
+Fix it on `main` as usual: the next Release carries the fix, and everything else since.
+
+A promotion that failed on a transient error (GitHub or GHCR not answering, the agent down past the hour) is retried with **Re-run failed jobs** on the run: release-please already succeeded, so it creates no second Release. A re-run that ships the Release takes the "Not shipped" line off and makes it GitHub's Latest again. A re-run whose Production deployment already succeeded doesn't deploy Production again.
 
 ## Runner
 

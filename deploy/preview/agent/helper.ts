@@ -21,8 +21,10 @@ const TIMEOUT_MS = 20 * 60_000;
 
 /**
  * The `docker run` that starts the helper for `main`, with the agent's
- * hardening and no network: it only talks to the daemon, through the socket.
- * Compose reads the agent's env files on its side and has the daemon mount
+ * hardening, on Docker's default bridge network. It needs one: the build runs
+ * in the daemon, but Buildx, here, fetches the registry tokens for the
+ * Dockerfile's `# syntax` image and any base image the daemon lacks. Never the
+ * agent's network, which its `up` may recreate. Compose reads the agent's env files on its side and has the daemon mount
  * the secret files from their host paths, so the secrets directory is mounted
  * at its host path, read-only. Pure, so it is unit-tested.
  */
@@ -49,7 +51,7 @@ export function helperInvocation(main: string, secretsDir: string): string[] {
     "--cap-add",
     "DAC_READ_SEARCH",
     "--network",
-    "none",
+    "bridge",
     "--env",
     "HOME=/tmp",
     "--env",

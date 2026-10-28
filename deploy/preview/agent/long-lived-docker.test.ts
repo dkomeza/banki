@@ -96,9 +96,17 @@ describe("longLivedEnv", () => {
       LONG_LIVED_VOLUME: "banki-production-data",
       LONG_LIVED_SHA: SHA,
       LONG_LIVED_DEPLOYED_AT: AT,
+      LONG_LIVED_RELEASE: "true",
       API_DIGEST: API,
       WEB_DIGEST: WEB,
     });
+  });
+
+  test("makes only Production a Release", () => {
+    const target = { sha: SHA, deployedAt: new Date(AT), digests: { api: API, web: WEB } };
+
+    expect(longLivedEnv({ ...target, environment: "production" }).LONG_LIVED_RELEASE).toBe("true");
+    expect(longLivedEnv({ ...target, environment: "edge" }).LONG_LIVED_RELEASE).toBe("false");
   });
 });
 

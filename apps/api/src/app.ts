@@ -31,6 +31,7 @@ import { meRoutes } from "./routes/me";
 import { settingsRoutes } from "./routes/settings";
 import { setupRoutes } from "./routes/setup";
 import { tagRoutes } from "./routes/tags";
+import { readVersion } from "./version";
 
 /**
  * The `/api` requests anyone may make without being signed in. HEAD isn't
@@ -107,7 +108,13 @@ export function createApp(
     )
     // Also covers `/api` itself.
     .use("/api/*", requireSignedIn({ auth, publicRoutes: PUBLIC_ROUTES }))
-    .route("/api/health", healthRoutes({ health, commit: config.commit }))
+    .route(
+      "/api/health",
+      healthRoutes({
+        health,
+        build: { version: readVersion(), commit: config.commit, release: config.release },
+      }),
+    )
     .route("/api/setup", setupRoutes({ auth, users, setupToken, limiter: signInLimiter() }))
     .route("/api/auth", authRoutes({ auth, config }))
     .route("/api/me", meRoutes({ users, limiter: signInLimiter() }))
