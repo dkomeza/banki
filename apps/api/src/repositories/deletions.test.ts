@@ -327,6 +327,63 @@ describe("restore", () => {
   });
 });
 
+/** Deletes the Cards at once, each as a Deletion of its own, and answers their IDs. */
+const deleteAll = (ids: string[]) => {
+  const done = cards.softDeleteAll(USER, ids);
+  if (done === "not_found") throw new Error("Nothing was deleted");
+  return done.map((d) => d.deletionId);
+};
+
+describe("restoreAll", () => {
+  test("restores every Deletion together, answering each", () => {
+    const deckId = makeDeck("Spanish");
+    const one = write(deckId, "one");
+    const two = write(deckId, "two");
+    const ids = deleteAll([one, two]);
+
+    expect(deletions.restoreAll(USER, ids)).toEqual([
+      { kind: "card", id: one, name: "one", movedToRoot: false, renamed: false },
+      { kind: "card", id: two, name: "two", movedToRoot: false, renamed: false },
+    ]);
+    expect(cardRow(one)?.deletedAt).toBeNull();
+    expect(cardRow(two)?.deletedAt).toBeNull();
+    expect(deletions.list(USER)).toEqual([]);
+  });
+
+  test("restores none when one is gone already, answering not_found", () => {
+    const deckId = makeDeck("Spanish");
+    const one = write(deckId, "one");
+    const two = write(deckId, "two");
+    const [first, second] = deleteAll([one, two]);
+    if (first === undefined || second === undefined) throw new Error("Expected two Deletions");
+    deletions.remove(USER, second);
+
+    expect(deletions.restoreAll(USER, [first, second])).toBe("not_found");
+    expect(cardRow(one)?.deletedAt).not.toBeNull();
+    expect(deletions.restoreAll(USER, [first, "nope"])).toBe("not_found");
+    expect(cardRow(one)?.deletedAt).not.toBeNull();
+  });
+
+  test("restores none while the Cards' Deck is deleted, naming it", () => {
+    const deckId = makeDeck("Spanish");
+    const ids = deleteAll([write(deckId, "one"), write(deckId, "two")]);
+    decks.softDelete(USER, deckId);
+
+    expect(deletions.restoreAll(USER, ids)).toEqual({
+      placeDeleted: { id: deckId, name: "Spanish" },
+    });
+    expect(deletions.list(USER).filter((d) => d.top.kind === "card")).toHaveLength(2);
+  });
+
+  test("doesn't restore another User's Deletions", () => {
+    const theirs = write(makeDeck("Theirs", null, OTHER), "theirs", OTHER);
+    const id = deleted(cards.softDelete(OTHER, theirs));
+
+    expect(deletions.restoreAll(USER, [id])).toBe("not_found");
+    expect(cardRow(theirs)?.deletedAt).not.toBeNull();
+  });
+});
+
 describe("remove", () => {
   test("deletes the Deletion's rows for good, Cards first, and nothing else", () => {
     const maths = makeFolder("Maths");

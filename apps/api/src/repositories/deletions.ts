@@ -150,6 +150,79 @@ export function removeDeletion(db: Queryable, userId: string, id: string): boole
 }
 
 /**
+ * Restores the User's Deletion `id` where it was, inside a transaction:
+ * every row stamped with it comes back, keeping its `createdAt`. A Deck or
+ * Folder whose Folder is deleted comes back at the Root (`movedToRoot`), and
+ * one whose name a live one of its kind beside it now has, as the next free
+ * "Name (n)" (`renamed`). A Card's Deletion whose Deck is deleted is refused,
+ * naming the Deck.
+ */
+function restoreIn(
+  tx: Queryable,
+  userId: string,
+  id: string,
+  now: Date,
+): RestoreResponse | RestoreRefusal {
+  const top = topOf(tx, userId, id);
+  if (top === undefined) return "not_found";
+  const back = { deletedAt: null, deletionId: null, updatedAt: now };
+
+  if (top.kind === "card") {
+    const home = tx
+      .select({ id: deck.id, name: deck.name, deletedAt: deck.deletedAt })
+      .from(deck)
+      .where(and(eq(deck.userId, userId), eq(deck.id, top.parent ?? "")))
+      .get();
+    if (home === undefined) return "not_found";
+    if (home.deletedAt !== null) return { placeDeleted: { id: home.id, name: home.name } };
+    tx.update(card)
+      .set(back)
+      .where(stampedWith(card, userId, id))
+      .run();
+    return { kind: "card", id: top.id, name: top.name, movedToRoot: false, renamed: false };
+  }
+
+  const movedToRoot = !isLivePlace(tx, userId, top.parent);
+  const place = movedToRoot ? null : top.parent;
+  const named = top.kind === "deck" ? deckNamed : folderNamed;
+  const taken = (name: string) => named(tx, userId, place, name) !== undefined;
+  const renamed = taken(top.name);
+  const name = renamed ? nextFreeName(top.name, taken) : top.name;
+  const self = { ...back, name, nameKey: deckNameKey(name) };
+  if (top.kind === "deck") {
+    tx.update(deck)
+      .set({ ...self, folderId: place })
+      .where(and(eq(deck.userId, userId), eq(deck.id, top.id)))
+      .run();
+  } else {
+    tx.update(folder)
+      .set({ ...self, parentId: place })
+      .where(and(eq(folder.userId, userId), eq(folder.id, top.id)))
+      .run();
+    tx.update(folder)
+      .set(back)
+      .where(stampedWith(folder, userId, id))
+      .run();
+    tx.update(deck)
+      .set(back)
+      .where(stampedWith(deck, userId, id))
+      .run();
+  }
+  tx.update(card)
+    .set(back)
+    .where(stampedWith(card, userId, id))
+    .run();
+  return { kind: top.kind, id: top.id, name, movedToRoot, renamed };
+}
+
+/** Carries a refusal out of a transaction, rolling it back. */
+class Refused extends Error {
+  constructor(readonly refusal: RestoreRefusal) {
+    super("Restore refused");
+  }
+}
+
+/**
  * The User's Deletions: what Recently deleted lists, Restore and Removal.
  * Every query is scoped by the User (ADR-0001), so another User's Deletion is
  * as unknown as one that never existed, or one restored or removed already.
@@ -273,70 +346,37 @@ export function createDeletionRepository(db: Queryable) {
       );
     },
 
-    /**
-     * Restores the User's Deletion `id` where it was: every row stamped with it
-     * comes back, keeping its `createdAt`. A Deck or Folder whose Folder is
-     * deleted comes back at the Root (`movedToRoot`), and one whose name a live
-     * one of its kind beside it now has, as the next free "Name (n)"
-     * (`renamed`). A Card's Deletion whose Deck is deleted is refused, naming
-     * the Deck.
-     */
+    /** Restores the User's Deletion `id` by {@link restoreIn}'s rules. */
     restore(userId: string, id: string, now = new Date()): RestoreResponse | RestoreRefusal {
-      return db.transaction(
-        (tx) => {
-          const top = topOf(tx, userId, id);
-          if (top === undefined) return "not_found";
-          const back = { deletedAt: null, deletionId: null, updatedAt: now };
+      return db.transaction((tx) => restoreIn(tx, userId, id, now), { behavior: "immediate" });
+    },
 
-          if (top.kind === "card") {
-            const home = tx
-              .select({ id: deck.id, name: deck.name, deletedAt: deck.deletedAt })
-              .from(deck)
-              .where(and(eq(deck.userId, userId), eq(deck.id, top.parent ?? "")))
-              .get();
-            if (home === undefined) return "not_found";
-            if (home.deletedAt !== null) return { placeDeleted: { id: home.id, name: home.name } };
-            tx.update(card)
-              .set(back)
-              .where(stampedWith(card, userId, id))
-              .run();
-            return { kind: "card", id: top.id, name: top.name, movedToRoot: false, renamed: false };
-          }
-
-          const movedToRoot = !isLivePlace(tx, userId, top.parent);
-          const place = movedToRoot ? null : top.parent;
-          const named = top.kind === "deck" ? deckNamed : folderNamed;
-          const taken = (name: string) => named(tx, userId, place, name) !== undefined;
-          const renamed = taken(top.name);
-          const name = renamed ? nextFreeName(top.name, taken) : top.name;
-          const self = { ...back, name, nameKey: deckNameKey(name) };
-          if (top.kind === "deck") {
-            tx.update(deck)
-              .set({ ...self, folderId: place })
-              .where(and(eq(deck.userId, userId), eq(deck.id, top.id)))
-              .run();
-          } else {
-            tx.update(folder)
-              .set({ ...self, parentId: place })
-              .where(and(eq(folder.userId, userId), eq(folder.id, top.id)))
-              .run();
-            tx.update(folder)
-              .set(back)
-              .where(stampedWith(folder, userId, id))
-              .run();
-            tx.update(deck)
-              .set(back)
-              .where(stampedWith(deck, userId, id))
-              .run();
-          }
-          tx.update(card)
-            .set(back)
-            .where(stampedWith(card, userId, id))
-            .run();
-          return { kind: top.kind, id: top.id, name, movedToRoot, renamed };
-        },
-        { behavior: "immediate" },
-      );
+    /**
+     * Restores the User's Deletions `ids` together, all of them or none, each
+     * by {@link restoreIn}'s rules: the first refusal rolls back every one, and
+     * is answered. Such as a delete of several Cards' Undo.
+     */
+    restoreAll(
+      userId: string,
+      ids: readonly string[],
+      now = new Date(),
+    ): RestoreResponse[] | RestoreRefusal {
+      try {
+        return db.transaction(
+          (tx) =>
+            [...new Set(ids)].map((id) => {
+              const restored = restoreIn(tx, userId, id, now);
+              if (restored === "not_found" || "placeDeleted" in restored) {
+                throw new Refused(restored);
+              }
+              return restored;
+            }),
+          { behavior: "immediate" },
+        );
+      } catch (error) {
+        if (error instanceof Refused) return error.refusal;
+        throw error;
+      }
     },
 
     /** Removes the User's Deletion `id` at once (Delete permanently); false when there is none. */

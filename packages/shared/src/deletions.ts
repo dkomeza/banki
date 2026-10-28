@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CARD_BATCH_MAX } from "./cards";
 
 /** How long a Deletion waits in Recently deleted before its Removal: 30 × 24 h. */
 export const DELETION_KEPT_MS = 30 * 24 * 60 * 60 * 1000;
@@ -60,3 +61,23 @@ export type PlaceDeletedError = z.infer<typeof PlaceDeletedError>;
 /** The body of `DELETE /api/cards/:id`, `/api/decks/:id` and `/api/folders/:id`: the new Deletion. */
 export const DeleteResponse = z.object({ deletionId: z.string() });
 export type DeleteResponse = z.infer<typeof DeleteResponse>;
+
+/** The body `POST /api/cards/delete` answers: each Card's own Deletion. */
+export const DeleteCardsResponse = z.object({
+  deletions: z.array(z.object({ cardId: z.string(), deletionId: z.string() })),
+});
+export type DeleteCardsResponse = z.infer<typeof DeleteCardsResponse>;
+
+/**
+ * The body of `POST /api/deletions/restore`: the Deletions to restore together,
+ * 1 to 10,000, such as a delete of several Cards' Undo. Every one is restored,
+ * or none is.
+ */
+export const RestoreDeletionsRequest = z.strictObject({
+  deletionIds: z.array(z.string().min(1)).min(1).max(CARD_BATCH_MAX),
+});
+export type RestoreDeletionsRequest = z.input<typeof RestoreDeletionsRequest>;
+
+/** The body `POST /api/deletions/restore` answers: each Deletion's restored top item. */
+export const RestoreDeletionsResponse = z.object({ restored: z.array(RestoreResponse) });
+export type RestoreDeletionsResponse = z.infer<typeof RestoreDeletionsResponse>;

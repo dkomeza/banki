@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
+  DeleteCardsResponse,
   DeleteResponse,
+  DeletionListResponse,
+  MoveCardsResponse,
   CardListResponse,
   CardResponse,
   DeckListResponse,
@@ -253,6 +256,176 @@ describe("DELETE /api/cards/:id", () => {
     const card = await createCard(app, cookie, deckId);
 
     expect((await send(app, "DELETE", `/api/cards/${card.id}`, undefined)).status).toBe(401);
+  });
+});
+
+const move = (app: App, cookie: string | undefined, body: unknown) =>
+  send(app, "POST", "/api/cards/move", body, cookie);
+
+describe("POST /api/cards/move", () => {
+  test("moves every Card to the Deck, keeping its ID, Tags and createdAt", async () => {
+    const { app, cookie, deckId } = await signedIn();
+    const verbs = await createDeck(app, cookie, "Verbs");
+    const tagged = CardResponse.parse(
+      await (
+        await send(
+          app,
+          "POST",
+          `/api/decks/${deckId}/cards`,
+          { front: "comer", back: "to eat", tags: ["verb"] },
+          cookie,
+        )
+      ).json(),
+    );
+    const other = await createCard(app, cookie, deckId, "beber");
+    await createCard(app, cookie, deckId, "la mesa");
+
+    const res = await move(app, cookie, { cardIds: [tagged.id, other.id], deckId: verbs.id });
+
+    expect(res.status).toBe(200);
+    const { cards } = MoveCardsResponse.parse(await res.json());
+    expect(cards.map((card) => card.id).toSorted()).toEqual([tagged.id, other.id].toSorted());
+    expect(await frontsIn(app, cookie, deckId)).toEqual(["la mesa"]);
+    expect((await frontsIn(app, cookie, verbs.id)).toSorted()).toEqual(["beber", "comer"]);
+    const moved = CardResponse.parse(
+      await (await get(app, `/api/cards/${tagged.id}`, cookie)).json(),
+    );
+    expect(moved).toMatchObject({
+      id: tagged.id,
+      deckId: verbs.id,
+      tags: ["verb"],
+      createdAt: tagged.createdAt,
+    });
+  });
+
+  test("moves a Duplicate anyway", async () => {
+    const { app, cookie, deckId } = await signedIn();
+    const verbs = await createDeck(app, cookie, "Verbs");
+    await createCard(app, cookie, verbs.id, "comer");
+    const card = await createCard(app, cookie, deckId, "Comer");
+
+    expect((await move(app, cookie, { cardIds: [card.id], deckId: verbs.id })).status).toBe(200);
+    expect(await frontsIn(app, cookie, verbs.id)).toHaveLength(2);
+  });
+
+  test("answers 404 and moves nothing for a deleted or unknown Card, or Deck", async () => {
+    const { app, cookie, deckId } = await signedIn();
+    const verbs = await createDeck(app, cookie, "Verbs");
+    const live = await createCard(app, cookie, deckId, "live");
+    const gone = await createCard(app, cookie, deckId, "gone");
+    await send(app, "DELETE", `/api/cards/${gone.id}`, undefined, cookie);
+    const old = await createDeck(app, cookie, "Old");
+    await send(app, "DELETE", `/api/decks/${old.id}`, undefined, cookie);
+
+    for (const body of [
+      { cardIds: [live.id, gone.id], deckId: verbs.id },
+      { cardIds: [live.id, "nope"], deckId: verbs.id },
+      { cardIds: [live.id], deckId: old.id },
+      { cardIds: [live.id], deckId: "nope" },
+    ]) {
+      const res = await move(app, cookie, body);
+      expect(res.status).toBe(404);
+      expect(await codeOf(res)).toBe("not_found");
+    }
+    expect(await frontsIn(app, cookie, deckId)).toEqual(["live"]);
+  });
+
+  test("answers 400 for no Cards, more than 10,000, or a body that isn't one", async () => {
+    const { app, cookie, deckId } = await signedIn();
+    const verbs = await createDeck(app, cookie, "Verbs");
+    const card = await createCard(app, cookie, deckId);
+
+    for (const body of [
+      { cardIds: [], deckId: verbs.id },
+      { cardIds: Array.from({ length: 10_001 }, () => card.id), deckId: verbs.id },
+      { cardIds: [card.id] },
+      { cardIds: [card.id], deckId: verbs.id, extra: true },
+    ]) {
+      const res = await move(app, cookie, body);
+      expect(res.status).toBe(400);
+      expect(await codeOf(res)).toBe("invalid_request");
+    }
+    expect(await frontsIn(app, cookie, deckId)).toEqual(["f"]);
+  });
+
+  test("takes exactly 10,000 IDs", async () => {
+    const { app, cookie, deckId } = await signedIn();
+    const verbs = await createDeck(app, cookie, "Verbs");
+    const card = await createCard(app, cookie, deckId);
+
+    const res = await move(app, cookie, {
+      cardIds: Array.from({ length: 10_000 }, () => card.id),
+      deckId: verbs.id,
+    });
+
+    expect(res.status).toBe(200);
+  });
+
+  test("answers 401 when signed out", async () => {
+    const { app, cookie, deckId } = await signedIn();
+    const card = await createCard(app, cookie, deckId);
+
+    expect((await move(app, undefined, { cardIds: [card.id], deckId })).status).toBe(401);
+  });
+});
+
+const deleteAll = (app: App, cookie: string | undefined, body: unknown) =>
+  send(app, "POST", "/api/cards/delete", body, cookie);
+
+describe("POST /api/cards/delete", () => {
+  test("deletes every Card at once, one Deletion each, answering every deletionId", async () => {
+    const { app, cookie, deckId } = await signedIn();
+    const one = await createCard(app, cookie, deckId, "one");
+    const two = await createCard(app, cookie, deckId, "two");
+    await createCard(app, cookie, deckId, "stays");
+
+    const res = await deleteAll(app, cookie, { cardIds: [one.id, two.id] });
+
+    expect(res.status).toBe(200);
+    const { deletions } = DeleteCardsResponse.parse(await res.json());
+    expect(deletions.map((d) => d.cardId)).toEqual([one.id, two.id]);
+    expect(await frontsIn(app, cookie, deckId)).toEqual(["stays"]);
+    const listed = DeletionListResponse.parse(
+      await (await get(app, "/api/deletions", cookie)).json(),
+    );
+    expect(listed.map((d) => d.id).toSorted()).toEqual(
+      deletions.map((d) => d.deletionId).toSorted(),
+    );
+    expect(listed.every((d) => d.top.kind === "card")).toBe(true);
+  });
+
+  test("answers 404 and deletes nothing when one Card isn't live", async () => {
+    const { app, cookie, deckId } = await signedIn();
+    const live = await createCard(app, cookie, deckId, "live");
+    const gone = await createCard(app, cookie, deckId, "gone");
+    await send(app, "DELETE", `/api/cards/${gone.id}`, undefined, cookie);
+
+    for (const cardIds of [
+      [live.id, gone.id],
+      [live.id, "nope"],
+    ]) {
+      const res = await deleteAll(app, cookie, { cardIds });
+      expect(res.status).toBe(404);
+      expect(await codeOf(res)).toBe("not_found");
+    }
+    expect(await frontsIn(app, cookie, deckId)).toEqual(["live"]);
+  });
+
+  test("answers 400 for no Cards or more than 10,000", async () => {
+    const { app, cookie, deckId } = await signedIn();
+    const card = await createCard(app, cookie, deckId);
+
+    for (const cardIds of [[], Array.from({ length: 10_001 }, () => card.id)]) {
+      expect((await deleteAll(app, cookie, { cardIds })).status).toBe(400);
+    }
+    expect(await frontsIn(app, cookie, deckId)).toEqual(["f"]);
+  });
+
+  test("answers 401 when signed out", async () => {
+    const { app, cookie, deckId } = await signedIn();
+    const card = await createCard(app, cookie, deckId);
+
+    expect((await deleteAll(app, undefined, { cardIds: [card.id] })).status).toBe(401);
   });
 });
 

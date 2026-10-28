@@ -8,8 +8,10 @@ import {
   cardsQueryOptions,
   createCard,
   deleteCard,
+  deleteCards,
   duplicatesOf,
   hasUnsavedChanges,
+  moveCards,
   sideErrors,
   sideProblem,
   updateCard,
@@ -173,6 +175,106 @@ describe("deleteCard", () => {
 
   test("answers a message when it can't reach Banki", async () => {
     expect(await deleteCard(new QueryClient(), card("c1"), unreachable())).toEqual({
+      ok: false,
+      message: CANT_REACH,
+    });
+  });
+});
+
+describe("moveCards", () => {
+  test("sends every Card to the Deck in one request, and takes them out of their list", async () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(cardsQueryOptions("d1").queryKey, [
+      card("c3"),
+      card("c2"),
+      card("c1"),
+    ]);
+    const moved = [
+      { ...card("c3"), deckId: "d2" },
+      { ...card("c1"), deckId: "d2" },
+    ];
+    const { client, sent } = answering(() => Response.json({ cards: moved }));
+
+    expect(await moveCards(queryClient, ["c3", "c1"], "d1", "d2", client)).toEqual({
+      ok: true,
+      cards: moved,
+    });
+    expect(sent).toEqual([
+      {
+        url: expect.stringContaining("/api/cards/move"),
+        body: { cardIds: ["c3", "c1"], deckId: "d2" },
+      },
+    ]);
+    expect(queryClient.getQueryData(cardsQueryOptions("d1").queryKey)?.map((c) => c.id)).toEqual([
+      "c2",
+    ]);
+    expect(queryClient.getQueryData(cardQueryOptions("c1").queryKey)?.deckId).toBe("d2");
+  });
+
+  test("says not found, leaving the list, when a Card or the Deck is gone", async () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(cardsQueryOptions("d1").queryKey, [card("c1")]);
+    const { client } = answering(() =>
+      Response.json({ error: { code: "not_found", message: "…" } }, { status: 404 }),
+    );
+
+    expect(await moveCards(queryClient, ["c1"], "d1", "d2", client)).toEqual({
+      ok: false,
+      notFound: true,
+    });
+    expect(queryClient.getQueryData(cardsQueryOptions("d1").queryKey)).toHaveLength(1);
+  });
+
+  test("answers a message when it can't reach Banki", async () => {
+    expect(await moveCards(new QueryClient(), ["c1"], "d1", "d2", unreachable())).toEqual({
+      ok: false,
+      message: CANT_REACH,
+    });
+  });
+});
+
+describe("deleteCards", () => {
+  test("deletes every Card in one request, taking them out of the list, and answers each Deletion", async () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(cardsQueryOptions("d1").queryKey, [
+      card("c3"),
+      card("c2"),
+      card("c1"),
+    ]);
+    const { client, sent } = answering(() =>
+      Response.json({
+        deletions: [
+          { cardId: "c3", deletionId: "x3" },
+          { cardId: "c1", deletionId: "x1" },
+        ],
+      }),
+    );
+
+    expect(await deleteCards(queryClient, "d1", ["c3", "c1"], client)).toEqual({
+      ok: true,
+      deletionIds: ["x3", "x1"],
+    });
+    expect(sent).toEqual([
+      { url: expect.stringContaining("/api/cards/delete"), body: { cardIds: ["c3", "c1"] } },
+    ]);
+    expect(queryClient.getQueryData(cardsQueryOptions("d1").queryKey)?.map((c) => c.id)).toEqual([
+      "c2",
+    ]);
+  });
+
+  test("says nothing was deleted when one Card is gone already", async () => {
+    const { client } = answering(() =>
+      Response.json({ error: { code: "not_found", message: "…" } }, { status: 404 }),
+    );
+
+    expect(await deleteCards(new QueryClient(), "d1", ["c1", "c2"], client)).toEqual({
+      ok: false,
+      message: "Some of these cards are gone already, so nothing was deleted.",
+    });
+  });
+
+  test("answers a message when it can't reach Banki", async () => {
+    expect(await deleteCards(new QueryClient(), "d1", ["c1"], unreachable())).toEqual({
       ok: false,
       message: CANT_REACH,
     });

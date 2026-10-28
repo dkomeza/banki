@@ -19,15 +19,23 @@ import {
 } from "@/lib/folders";
 import { cn } from "@/lib/utils";
 
-const BACKDROP =
+export const BACKDROP =
   "fixed inset-0 z-40 bg-foreground/30 backdrop-blur-[2px] transition-opacity data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 motion-reduce:transition-none dark:bg-black/50";
 /** A sheet from the bottom on phones, a centred dialog from 640 px, as DeckDialog is. */
-const SHEET =
+export const SHEET =
   "fixed inset-x-0 bottom-0 z-50 flex max-h-[92svh] flex-col gap-5 overflow-y-auto rounded-t-[1.5rem] border bg-card p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] text-card-foreground shadow-xl transition-[opacity,translate] data-[ending-style]:translate-y-8 data-[ending-style]:opacity-0 data-[starting-style]:translate-y-8 data-[starting-style]:opacity-0 motion-reduce:transition-none sm:top-1/2 sm:bottom-auto sm:left-1/2 sm:w-[min(32rem,calc(100vw-3rem))] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-[1.25rem] sm:pb-6";
 const CENTRED =
   "fixed top-1/2 left-1/2 z-50 flex w-[min(32rem,calc(100vw-2.5rem))] -translate-x-1/2 -translate-y-1/2 flex-col gap-4 rounded-[1.25rem] border bg-card p-6 text-card-foreground shadow-xl transition-[opacity,scale] data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0 motion-reduce:transition-none";
 
-function Head({ title, busy, children }: { title: string; busy: boolean; children?: ReactNode }) {
+export function Head({
+  title,
+  busy,
+  children,
+}: {
+  title: string;
+  busy: boolean;
+  children?: ReactNode;
+}) {
   return (
     <div className="flex items-start justify-between gap-4">
       <div className="flex min-w-0 flex-col gap-1.5">

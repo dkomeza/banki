@@ -14,6 +14,7 @@ import {
   nameOf,
   removeDeletion,
   restoreDeletion,
+  restoreDeletions,
   restoredToast,
   whereLabel,
   withLabel,
@@ -178,6 +179,53 @@ describe("restoredToast", () => {
     ).toEqual({
       title: "Restored as Spanish vocabulary (2)",
       description: "Decks › Languages already has a deck called Spanish vocabulary.",
+    });
+  });
+});
+
+describe("restoreDeletions", () => {
+  test("restores them all in one request, and has the lists fetched again", async () => {
+    const restored = [
+      { kind: "card", id: "c1", name: "f", movedToRoot: false, renamed: false },
+      { kind: "card", id: "c2", name: "g", movedToRoot: false, renamed: false },
+    ];
+    const { client, sent } = answering(() => Response.json({ restored }));
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(deletionsQueryOptions().queryKey, [deletion()]);
+
+    expect(await restoreDeletions(queryClient, ["x1", "x2"], client)).toEqual({
+      ok: true,
+      restored,
+    });
+    expect(sent).toEqual([expect.stringContaining("/api/deletions/restore")]);
+    expect(queryClient.getQueryState(deletionsQueryOptions().queryKey)?.isInvalidated).toBe(true);
+  });
+
+  test("names the Deck to restore first on 409 place_deleted", async () => {
+    const { client } = answering(() =>
+      Response.json(
+        {
+          error: { code: "place_deleted", message: "Restore German verbs first" },
+          deck: { id: "d9", name: "German verbs" },
+        },
+        { status: 409 },
+      ),
+    );
+
+    expect(await restoreDeletions(new QueryClient(), ["x1"], client)).toEqual({
+      ok: false,
+      placeDeleted: { id: "d9", name: "German verbs" },
+    });
+  });
+
+  test("says so when one is gone", async () => {
+    const { client } = answering(() =>
+      Response.json({ error: { code: "not_found", message: "…" } }, { status: 404 }),
+    );
+
+    expect(await restoreDeletions(new QueryClient(), ["x1"], client)).toEqual({
+      ok: false,
+      message: "Some of them are no longer in Recently deleted.",
     });
   });
 });

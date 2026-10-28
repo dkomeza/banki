@@ -1,11 +1,21 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Plus, Search, Trash2, X } from "lucide-react";
-import { type MouseEvent, useRef, useState } from "react";
+import {
+  Check,
+  CheckCheck,
+  CornerDownRight,
+  ListChecks,
+  Plus,
+  Search,
+  Trash2,
+  X,
+} from "lucide-react";
+import { type MouseEvent, type ReactNode, useRef, useState } from "react";
 import { TileMenu } from "@/components/tile-menu";
 import { byDay, timeLabel } from "@/lib/card-days";
 import type { Card } from "@/lib/cards";
 import { type DeckSearch, matches, pickedTags, tagCounts, toDeckSearch, wordsOf } from "@/lib/tags";
+import { type Selection, allShownSelected, selectedOf } from "@/lib/selection";
 import { cn } from "@/lib/utils";
 import { CardText, FadingCardText } from "./card-text";
 import { deleteWithUndo } from "./card-toasts";
@@ -19,6 +29,13 @@ import { deleteWithUndo } from "./card-toasts";
 // scrolls: a search field, then every Tag of the Deck's as a chip with its
 // count. A filtered list keeps the days, marks the words found, and reads
 // "Cards 4 of 8"; each Card's #tags at its foot toggle the filter too.
+//
+// "Select cards", beside the heading, turns on selection mode, and turns into
+// Done in place, so the way out is where the way in was. While selecting, a
+// Card toggles instead of opening, its dot turns into a check, and New card
+// and each Card's Tags fold away rather than drop out, so nothing jumps. A
+// paper dock floats at the foot of the Cards with the count, Select all,
+// Move… and Delete.
 
 /** The timeline's geometry: the time column, then the rail with its dots. */
 export const TIME_COL = "w-12 shrink-0 sm:w-14";
@@ -52,9 +69,11 @@ function useSelectableLink() {
 }
 
 /**
- * One Card on the timeline, opening its edit page, with Delete in its ⋯ menu,
- * the words searched for marked, and its Tags at its foot, each toggling the
- * filter.
+ * One Card on the timeline, opening its edit page, with Move… and Delete in
+ * its ⋯ menu, the words searched for marked, and its Tags at its foot, each
+ * toggling the filter. In selection mode the whole Card toggles it instead,
+ * its dot turns into a check, its ⋯ menu steps aside, and its Tags fold away,
+ * easing shut rather than dropping out at once.
  */
 function Entry({
   card,
@@ -62,15 +81,39 @@ function Entry({
   words,
   picked,
   onTag,
+  selecting,
+  selected,
+  onSelect,
+  onMove,
 }: {
   card: Card;
   newest: boolean;
   words: readonly string[];
   picked: readonly string[];
   onTag: (tag: string) => void;
+  selecting: boolean;
+  selected: boolean;
+  onSelect: (range: boolean) => void;
+  onMove: () => void;
 }) {
   const queryClient = useQueryClient();
   const selectable = useSelectableLink();
+  const body = (
+    <>
+      <CardText
+        text={card.front}
+        words={words}
+        className="text-[1.1rem] leading-snug font-semibold tracking-tight text-foreground"
+      />
+      {/* The Back fades out after about 6 lines, rather than being cut by line-clamp. */}
+      <FadingCardText
+        text={card.back}
+        words={words}
+        lines={6}
+        className="leading-relaxed text-muted-foreground"
+      />
+    </>
+  );
   return (
     <li className="group/tile relative flex gap-3 sm:gap-4">
       <p
@@ -82,78 +125,134 @@ function Entry({
         {timeLabel(card.createdAt)}
       </p>
       <div className={cn(RAIL, "min-w-0 flex-1 pb-4")}>
-        <span
-          aria-hidden
-          className={cn(DOT, "top-[1.15rem]", newest ? "bg-primary" : "bg-input")}
-        />
-        {/* A short tick from the rail to the card, so the card hangs on the line. */}
+        {/* A short tick from the rail to the card, so the card hangs on the line.
+            It comes first, so the dot and the check sit above it. */}
         <span aria-hidden className="absolute top-[1.45rem] left-0 h-px w-6 bg-border sm:w-8" />
+        {selecting ? (
+          <span
+            aria-hidden
+            className={cn(
+              "absolute top-[0.9rem] -left-[0.625rem] flex size-5 items-center justify-center rounded-full border-2 ring-2 ring-background transition-colors motion-reduce:transition-none",
+              selected
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-input bg-background",
+            )}
+          >
+            {selected && <Check className="size-3" strokeWidth={3.5} />}
+          </span>
+        ) : (
+          <span
+            aria-hidden
+            className={cn(DOT, "top-[1.15rem]", newest ? "bg-primary" : "bg-input")}
+          />
+        )}
         <div
           className={cn(
             "rounded-xl border bg-card shadow-xs transition-colors has-[a:hover]:border-input",
-            newest && "border-primary/40 has-[a:hover]:border-primary/60",
+            newest && !selecting && "border-primary/40 has-[a:hover]:border-primary/60",
+            selecting && "hover:border-input",
+            selected && "border-primary bg-accent ring-1 ring-primary hover:border-primary",
           )}
         >
-          <Link
-            to="/cards/$cardId"
-            params={{ cardId: card.id }}
-            // Dragging across the card selects its text rather than dragging the link.
-            draggable={false}
-            {...selectable}
-            // overflow-hidden: nothing in a Card ever widens the page.
-            className="flex flex-col gap-1 overflow-hidden rounded-xl px-4 py-3 pr-14 no-underline outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid sm:px-5 sm:py-3.5"
-          >
-            <CardText
-              text={card.front}
-              words={words}
-              className="text-[1.1rem] leading-snug font-semibold tracking-tight text-foreground"
-            />
-            {/* The Back fades out after about 6 lines, rather than being cut by line-clamp. */}
-            <FadingCardText
-              text={card.back}
-              words={words}
-              lines={6}
-              className="leading-relaxed text-muted-foreground"
-            />
-          </Link>
+          {selecting ? (
+            <button
+              type="button"
+              aria-pressed={selected}
+              onClick={(event) => onSelect(event.shiftKey)}
+              // Shift-click selects a range: it never selects the text between.
+              // pr-14 as the link has, so the text wraps the same in both modes.
+              className="flex w-full cursor-pointer flex-col gap-1 overflow-hidden rounded-xl px-4 py-3 pr-14 text-left outline-none select-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid sm:px-5 sm:py-3.5"
+            >
+              {body}
+            </button>
+          ) : (
+            <Link
+              to="/cards/$cardId"
+              params={{ cardId: card.id }}
+              // Dragging across the card selects its text rather than dragging the link.
+              draggable={false}
+              {...selectable}
+              // overflow-hidden: nothing in a Card ever widens the page.
+              className="flex flex-col gap-1 overflow-hidden rounded-xl px-4 py-3 pr-14 no-underline outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid sm:px-5 sm:py-3.5"
+            >
+              {body}
+            </Link>
+          )}
           {card.tags.length > 0 && (
-            <ul aria-label="Tags" className="-mt-1 flex flex-wrap gap-1 px-3 pb-3 sm:px-4">
-              {card.tags.map((tag) => {
-                const on = picked.includes(tag);
-                return (
-                  <li key={tag} className="min-w-0">
-                    <button
-                      type="button"
-                      aria-pressed={on}
-                      title={on ? `Stop filtering by ${tag}` : `Show only cards tagged ${tag}`}
-                      onClick={() => onTag(tag)}
-                      className="inline-flex h-11 max-w-full items-center rounded-full px-2 text-[0.8rem] font-medium text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid aria-pressed:bg-primary/12 aria-pressed:text-primary lg:h-6"
-                    >
-                      <span aria-hidden className="text-muted-foreground/60">
-                        #
-                      </span>
-                      <span className="truncate">{tag}</span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
+            <Fold open={!selecting} className={selecting ? undefined : "-mt-1"}>
+              <ul aria-label="Tags" className="flex flex-wrap gap-1 px-3 pb-3 sm:px-4">
+                {card.tags.map((tag) => {
+                  const on = picked.includes(tag);
+                  return (
+                    <li key={tag} className="min-w-0">
+                      <button
+                        type="button"
+                        aria-pressed={on}
+                        title={on ? `Stop filtering by ${tag}` : `Show only cards tagged ${tag}`}
+                        onClick={() => onTag(tag)}
+                        className="inline-flex h-11 max-w-full items-center rounded-full px-2 text-[0.8rem] font-medium text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid aria-pressed:bg-primary/12 aria-pressed:text-primary lg:h-6"
+                      >
+                        <span aria-hidden className="text-muted-foreground/60">
+                          #
+                        </span>
+                        <span className="truncate">{tag}</span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </Fold>
           )}
         </div>
-        <TileMenu
-          label="Card actions"
-          className="absolute top-1.5 right-1.5 shadow-none sm:top-2 sm:right-2"
-          actions={[
-            {
-              label: "Delete",
-              icon: <Trash2 aria-hidden />,
-              danger: true,
-              onClick: () => void deleteWithUndo(queryClient, card),
-            },
-          ]}
-        />
+        {!selecting && (
+          <TileMenu
+            label="Card actions"
+            className="absolute top-1.5 right-1.5 shadow-none sm:top-2 sm:right-2"
+            actions={[
+              {
+                label: "Move…",
+                icon: <CornerDownRight aria-hidden />,
+                onClick: onMove,
+              },
+              {
+                label: "Delete",
+                icon: <Trash2 aria-hidden />,
+                danger: true,
+                onClick: () => void deleteWithUndo(queryClient, card),
+              },
+            ]}
+          />
+        )}
       </div>
     </li>
+  );
+}
+
+/**
+ * Folds what it holds away when `open` turns false, its height easing to
+ * nothing and its content fading, and back again, so what is under it slides
+ * rather than jumps. Folded, it is inert. Instant under reduced motion.
+ */
+function Fold({
+  open,
+  className,
+  children,
+}: {
+  open: boolean;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      inert={!open}
+      className={cn(
+        "grid transition-[grid-template-rows,opacity,margin] duration-300 ease-out motion-reduce:transition-none",
+        open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
+        className,
+      )}
+    >
+      <div className="min-h-0 overflow-hidden">{children}</div>
+    </div>
   );
 }
 
@@ -299,20 +398,108 @@ function NoMatch({ withTags, onClear }: { withTags: boolean; onClear: () => void
 }
 
 /**
+ * The dock: a paper pill, the Cards' own surface with their hairline border
+ * and a deep shadow that lifts it clear of them, floating at the foot of the
+ * Cards while selecting, over the tab bar on phones: Done, the count (with
+ * how many selected Cards the filter hides), Select all, Move… and Delete. On
+ * phones it takes two rows.
+ */
+function SelectionDock({
+  count,
+  hidden,
+  allShown,
+  onSelectAll,
+  onMove,
+  onDelete,
+  onDone,
+}: {
+  count: number;
+  hidden: number;
+  allShown: boolean;
+  onSelectAll: () => void;
+  onMove: () => void;
+  onDelete: () => void;
+  onDone: () => void;
+}) {
+  const ghost =
+    "inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full px-4 text-sm font-medium outline-none hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid disabled:pointer-events-none disabled:opacity-45 lg:h-9 [&_svg]:size-4";
+  return (
+    <div
+      role="toolbar"
+      aria-label="Selected cards"
+      className="animate-in fade-in slide-in-from-bottom-4 duration-300 motion-reduce:animate-none sticky bottom-[calc(var(--toast-bottom)-0.5rem)] z-30 mx-auto mt-2 flex w-full max-w-3xl flex-wrap items-center gap-1 rounded-[1.4rem] border bg-popover p-1.5 text-foreground shadow-[0_22px_48px_-14px_rgb(48_28_10/0.42),0_6px_16px_-4px_rgb(48_28_10/0.22)] sm:w-fit dark:border-input dark:shadow-[0_22px_52px_-10px_rgb(0_0_0/0.9),0_6px_18px_-2px_rgb(0_0_0/0.7)] sm:flex-nowrap sm:rounded-full"
+    >
+      <button
+        type="button"
+        aria-label="Done selecting"
+        onClick={onDone}
+        className={cn(ghost, "w-11 px-0 lg:w-9")}
+      >
+        <X aria-hidden />
+      </button>
+      <p
+        aria-live="polite"
+        className="min-w-0 flex-1 px-1 text-sm font-semibold tabular-nums sm:flex-none sm:pr-2"
+      >
+        {count} selected
+        {hidden > 0 && (
+          <span className="font-normal text-muted-foreground"> · {hidden} not shown</span>
+        )}
+      </p>
+      <button type="button" onClick={onSelectAll} className={ghost}>
+        <CheckCheck aria-hidden />
+        {allShown ? "Select none" : "Select all"}
+      </button>
+      <span aria-hidden className="hidden h-5 w-px bg-border sm:block" />
+      <div className="flex w-full gap-1 sm:w-auto">
+        <button
+          type="button"
+          disabled={count === 0}
+          onClick={onMove}
+          className={cn(
+            ghost,
+            "flex-1 bg-primary text-primary-foreground hover:bg-primary/90 sm:flex-none",
+          )}
+        >
+          <CornerDownRight aria-hidden />
+          Move…
+        </button>
+        <button
+          type="button"
+          disabled={count === 0}
+          onClick={onDelete}
+          className={cn(ghost, "flex-1 sm:flex-none")}
+        >
+          <Trash2 aria-hidden />
+          Delete
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
  * The deck page's Cards section: its live Cards on a timeline by day, newest
  * first, narrowed by `filter`, the search and the picked Tags the page's URL
- * holds. `onFilter` changes them, as they are typed or picked.
+ * holds. `onFilter` changes them, as they are typed or picked. In selection
+ * mode a Card toggles, and the dock acts on every selected Card, shown or not.
  */
 export function CardTimeline({
   deckId,
   cards,
   filter,
   onFilter,
+  selection,
+  onMove,
+  onDelete,
 }: {
   deckId: string;
   cards: readonly Card[];
   filter: DeckSearch;
   onFilter: (next: DeckSearch) => void;
+  selection: Selection;
+  onMove: (cards: readonly Card[]) => void;
+  onDelete: (cards: readonly Card[]) => void;
 }) {
   // The search as typed, so typing never waits on the URL; the URL follows it.
   // Only this section changes `?q=` while the page is open, and Back comes to
@@ -322,6 +509,9 @@ export function CardTimeline({
   const words = wordsOf(q);
   const active = words.length > 0 || picked.length > 0;
   const shown = active ? cards.filter((card) => matches(card, words, picked)) : cards;
+  const shownIds = shown.map((c) => c.id);
+  const chosen = selectedOf(selection.selected, cards);
+  const shownSet = new Set(shownIds);
   const search = (next: string) => {
     setQ(next);
     onFilter(toDeckSearch(next, picked));
@@ -337,19 +527,46 @@ export function CardTimeline({
 
   return (
     <section aria-labelledby="cards-title" className="flex flex-col gap-3 border-t pt-6 lg:pt-8">
-      <h2 id="cards-title" className="text-xl font-semibold tracking-tight">
-        Cards{" "}
+      <div className="flex max-w-3xl items-center justify-between gap-4">
+        <h2 id="cards-title" className="text-xl font-semibold tracking-tight">
+          Cards{" "}
+          {cards.length > 0 && (
+            <span className="font-normal text-muted-foreground tabular-nums">
+              {active ? `${shown.length} of ${cards.length}` : cards.length}
+            </span>
+          )}
+        </h2>
+        {/* Select cards stays put while selecting, as Done, so nothing under it moves. */}
         {cards.length > 0 && (
-          <span className="font-normal text-muted-foreground tabular-nums">
-            {active ? `${shown.length} of ${cards.length}` : cards.length}
-          </span>
+          <button
+            type="button"
+            onClick={selection.active ? selection.exit : selection.enter}
+            className={cn(
+              "inline-flex h-11 min-w-[8.5rem] items-center justify-center gap-2 rounded-full px-3 text-sm font-medium text-primary transition-colors hover:bg-primary/10 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid motion-reduce:transition-none lg:h-9",
+              selection.active && "bg-primary/10 hover:bg-primary/15",
+            )}
+          >
+            {selection.active ? (
+              <>
+                <Check aria-hidden className="size-4" />
+                Done
+              </>
+            ) : (
+              <>
+                <ListChecks aria-hidden className="size-4" />
+                Select cards
+              </>
+            )}
+          </button>
         )}
-      </h2>
+      </div>
       {cards.length > 0 && (
         <FilterBar cards={cards} q={q} picked={picked} onSearch={search} onToggle={toggle} />
       )}
       <div className="max-w-3xl pt-3">
-        <NewEntry deckId={deckId} empty={cards.length === 0} />
+        <Fold open={!selection.active}>
+          <NewEntry deckId={deckId} empty={cards.length === 0} />
+        </Fold>
         {cards.length > 0 && shown.length === 0 && (
           <NoMatch withTags={picked.length > 0} onClear={clear} />
         )}
@@ -375,12 +592,27 @@ export function CardTimeline({
                   words={words}
                   picked={picked}
                   onTag={toggle}
+                  selecting={selection.active}
+                  selected={selection.selected.has(card.id)}
+                  onSelect={(range) => selection.click(card.id, shownIds, range)}
+                  onMove={() => onMove([card])}
                 />
               ))}
             </ol>
           </section>
         ))}
       </div>
+      {selection.active && (
+        <SelectionDock
+          count={chosen.length}
+          hidden={chosen.filter((c) => !shownSet.has(c.id)).length}
+          allShown={allShownSelected(selection.selected, shownIds)}
+          onSelectAll={() => selection.selectAll(shownIds)}
+          onMove={() => onMove(chosen)}
+          onDelete={() => onDelete(chosen)}
+          onDone={selection.exit}
+        />
+      )}
     </section>
   );
 }
