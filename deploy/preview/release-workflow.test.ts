@@ -838,9 +838,12 @@ describe("release-please's config", () => {
     "packages/shared/package.json",
   ];
 
-  test("releases the whole repo as one version, tagged vX.Y.Z, from 0.0.0", () => {
-    expect(readJson(".release-please-manifest.json")).toEqual({ ".": "0.0.0" });
-    for (const path of packages) expect(readJson(path)).toMatchObject({ version: "0.0.0" });
+  // Each Release moves the version, so this checks only that it is one version.
+  test("releases the whole repo as one version, tagged vX.Y.Z", () => {
+    const released = readJson(".release-please-manifest.json");
+    expect(released).toEqual({ ".": expect.stringMatching(/^\d+\.\d+\.\d+$/) });
+    const version = isRecord(released) ? released["."] : undefined;
+    for (const path of packages) expect(readJson(path)).toMatchObject({ version });
     expect(readJson("release-please-config.json")).toMatchObject({
       "include-component-in-tag": false,
       "include-v-in-tag": true,

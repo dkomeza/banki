@@ -11,6 +11,7 @@
 #   LONG_LIVED_VOLUME    banki-edge-data, or banki-production-data
 #   LONG_LIVED_SHA       the commit it runs
 #   LONG_LIVED_DEPLOYED_AT  when this deploy started (ISO 8601)
+#   LONG_LIVED_RELEASE   `true` for Production, `false` for Edge
 #   API_DIGEST, WEB_DIGEST  the images' digests, from the Deployment's payload
 #
 # No AUTH_SECRET and no ENCRYPTION_KEY: the api generates both in the data
@@ -32,6 +33,9 @@ services:
     restart: unless-stopped
     environment:
       ORIGIN: https://${LONG_LIVED_HOST:?}
+      # Only Production runs a Release: Edge runs the very same images, so
+      # /api/health and Settings tell them apart by this, not by the build.
+      RELEASE: ${LONG_LIVED_RELEASE:?}
     labels: *labels
     # Only the project's own network: just `web` reaches the API.
     networks: [default]

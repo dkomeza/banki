@@ -85,7 +85,9 @@ describe("the server process", () => {
     expect(HealthResponse.parse(await res.json())).toEqual({
       status: "ok",
       database: "ok",
+      version: expect.any(String),
       commit: "dev",
+      release: false,
     });
 
     server.kill("SIGTERM");

@@ -375,7 +375,7 @@ A sweep, once a day and on `gh workflow run main-images.yml`, keeps the ten newe
 
 Both packages start out private. Make each one public once, after its first push (on GitHub: the package's **Package settings**, then **Change visibility**), so the home server can pull them without credentials.
 
-`GET /api/health` reports the commit its image was built from as `commit`: the full SHA in a preview or main image, and `"dev"` in local dev and in images built locally, such as with `docker compose`.
+`GET /api/health` reports the build it runs: `version`, the api's `package.json` version, which each [Release](#releases) bumps; `commit`, the commit its image was built from, the full SHA in a preview or main image and `"dev"` in local dev and in images built locally, such as with `docker compose`; and `release`, `true` only when the api runs with `RELEASE=true`, as Production's does ([Long-lived installations](#long-lived-installations)). Settings shows them as its last line.
 
 ## Previews
 
@@ -597,6 +597,8 @@ The two Pangolin resources are made by hand, and the agent has no business with 
 The pull agent deploys both from a third pool of its own, beside the PR and Slug Preview pools ([ADR-0017](docs/adr/0017-edge-follows-main-and-releases-promote-its-images-to-production.md)): Edge from the `edge` deployments [main images](#main-images) creates, Production from the `production` deployments of [a Release](#releases). Each deployment's payload is `{ "sha", "api", "web" }`, the commit and its two images' digests; any other payload is marked `failure`, `invalid payload`. Only each installation's newest deployment is ever deployed, and older ones still waiting are marked `inactive`. A Long-lived deploy goes before any Preview's, still one deploy a loop, and has no cap: it never evicts a Preview, and no Preview evicts it.
 
 Each installation is the Compose project `banki-edge` or `banki-production`, running the images by digest with the Preview's hardening and fixed limits, the same for both (api 512m and 1 CPU, web 128m and half a CPU), so Edge runs exactly what Production will. Unlike a Preview it reaches the internet, and only its `web` joins `banki-long-lived`. Its data lives in the volume `banki-edge-data` or `banki-production-data`, outside the project, so no `docker compose down` can remove it. The api generates its `AUTH_SECRET` and encryption key there on its first start, and they persist with the volume.
+
+Production's api runs with `RELEASE=true`, and Edge's never does. The images are the same, so this is what tells a Release apart: `/api/health` reports `release: true`, and Settings shows the version as `0.3.0`, linking to its Release notes, where Edge shows `0.3.0+<short commit>`, linking to the commit. An api without a commit baked in (`bun run dev`, the `ui` stacks, a self-built `docker compose up`) shows `0.3.0+dev`, unless it is given `RELEASE=true` too.
 
 A deploy, which the deployment shows `in_progress`, `starting <sha>`:
 

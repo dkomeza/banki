@@ -137,6 +137,7 @@ export function longLivedEnv(target: LongLivedTarget): Record<string, string> {
     LONG_LIVED_VOLUME: longLivedVolume(target.environment),
     LONG_LIVED_SHA: target.sha,
     LONG_LIVED_DEPLOYED_AT: target.deployedAt.toISOString(),
+    LONG_LIVED_RELEASE: String(target.environment === "production"),
     API_DIGEST: target.digests.api,
     WEB_DIGEST: target.digests.web,
   };
