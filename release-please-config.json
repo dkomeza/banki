@@ -21,6 +21,7 @@
   "packages": {
     ".": {
       "release-type": "node",
+      "release-as": "0.1.0",
       "package-name": "banki",
       "changelog-path": "CHANGELOG.md",
       "exclude-paths": ["deploy", ".github", ".claude", "docs", "scripts"],
