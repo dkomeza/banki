@@ -202,3 +202,25 @@
     scroll-behavior: auto !important;
   }
 }
+
+/*
+ * Formulas in a Card (card-text.tsx), over KaTeX's own stylesheet, which is
+ * unlayered and so beats any utility: at the text's size rather than a fifth
+ * larger, and a display Formula flush left with no margin of its own, in the
+ * box that scrolls it. An equation number follows its Formula, where KaTeX
+ * pins it to the right edge, over a Formula wider than the box.
+ */
+.card-text .katex {
+  font-size: 1em;
+}
+.card-text .katex-display {
+  margin: 0;
+}
+.card-text .katex-display > .katex > .katex-html > .katex-tag {
+  position: relative;
+  right: auto;
+  margin-left: 2em;
+}
+.card-text .katex-display.fleqn > .katex {
+  padding-left: 0;
+}

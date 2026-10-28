@@ -12,6 +12,9 @@ import { checkSignedIn } from "./lib/signed-in";
 import { createUnauthorizedHandler } from "./lib/unauthorized";
 import { routeTree } from "./routeTree.gen";
 import "./index.css";
+// Selecting across Formulas and copying puts their source on the clipboard, with delimiters.
+// oxlint-disable-next-line import/no-unassigned-import
+import "katex/contrib/copy-tex";
 
 const queryClient = createQueryClient();
 const router = createRouter({ routeTree, context: { queryClient } });

@@ -1,20 +1,13 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Plus, Search, Trash2, X } from "lucide-react";
-import { useState } from "react";
+import { type MouseEvent, useRef, useState } from "react";
 import { TileMenu } from "@/components/tile-menu";
 import { byDay, timeLabel } from "@/lib/card-days";
 import type { Card } from "@/lib/cards";
-import {
-  type DeckSearch,
-  highlight,
-  matches,
-  pickedTags,
-  tagCounts,
-  toDeckSearch,
-  wordsOf,
-} from "@/lib/tags";
+import { type DeckSearch, matches, pickedTags, tagCounts, toDeckSearch, wordsOf } from "@/lib/tags";
 import { cn } from "@/lib/utils";
+import { CardText, FadingCardText } from "./card-text";
 import { deleteWithUndo } from "./card-toasts";
 
 // The deck page's Cards, written over days, hang on a timeline: grouped under
@@ -33,11 +26,30 @@ export const RAIL = "relative border-l border-border pl-6 sm:pl-8";
 export const DOT =
   "absolute top-[0.55rem] -left-[0.3rem] size-2.5 rounded-full ring-4 ring-background";
 
-/** A side's first line, cut short, to name a Card by. */
-export const firstLine = (side: string) => {
-  const line = side.trim().split("\n")[0] ?? "";
-  return line.length > 80 ? `${line.slice(0, 80)}…` : line;
-};
+/** How far the pointer may move between press and release for it to be a click. */
+const CLICK_SLOP_PX = 4;
+
+/**
+ * Keeps a drag across a Card, which selects its text and Formulas to copy,
+ * from opening it when the button comes up: a mouse click opens it only when
+ * the pointer stayed put. A click from the keyboard (`detail` 0) always does.
+ */
+function useSelectableLink() {
+  const pressedAt = useRef<{ x: number; y: number } | null>(null);
+  return {
+    onMouseDown: (event: MouseEvent<HTMLAnchorElement>) => {
+      pressedAt.current = { x: event.clientX, y: event.clientY };
+    },
+    onClick: (event: MouseEvent<HTMLAnchorElement>) => {
+      const from = pressedAt.current;
+      pressedAt.current = null;
+      if (event.detail === 0 || from === null) return;
+      if (Math.hypot(event.clientX - from.x, event.clientY - from.y) > CLICK_SLOP_PX) {
+        event.preventDefault();
+      }
+    },
+  };
+}
 
 /**
  * One Card on the timeline, opening its edit page, with Delete in its ⋯ menu,
@@ -58,6 +70,7 @@ function Entry({
   onTag: (tag: string) => void;
 }) {
   const queryClient = useQueryClient();
+  const selectable = useSelectableLink();
   return (
     <li className="group/tile relative flex gap-3 sm:gap-4">
       <p
@@ -84,14 +97,24 @@ function Entry({
           <Link
             to="/cards/$cardId"
             params={{ cardId: card.id }}
-            className="flex flex-col gap-1 rounded-xl px-4 py-3 pr-14 no-underline outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid sm:px-5 sm:py-3.5"
+            // Dragging across the card selects its text rather than dragging the link.
+            draggable={false}
+            {...selectable}
+            // overflow-hidden: nothing in a Card ever widens the page.
+            className="flex flex-col gap-1 overflow-hidden rounded-xl px-4 py-3 pr-14 no-underline outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid sm:px-5 sm:py-3.5"
           >
-            <p className="text-[1.1rem] leading-snug font-semibold tracking-tight whitespace-pre-wrap text-foreground [overflow-wrap:anywhere]">
-              <Marked text={card.front} words={words} />
-            </p>
-            <p className="line-clamp-6 leading-relaxed whitespace-pre-wrap text-muted-foreground [overflow-wrap:anywhere]">
-              <Marked text={card.back} words={words} />
-            </p>
+            <CardText
+              text={card.front}
+              words={words}
+              className="text-[1.1rem] leading-snug font-semibold tracking-tight text-foreground"
+            />
+            {/* The Back fades out after about 6 lines, rather than being cut by line-clamp. */}
+            <FadingCardText
+              text={card.back}
+              words={words}
+              lines={6}
+              className="leading-relaxed text-muted-foreground"
+            />
           </Link>
           {card.tags.length > 0 && (
             <ul aria-label="Tags" className="-mt-1 flex flex-wrap gap-1 px-3 pb-3 sm:px-4">
@@ -163,19 +186,6 @@ function NewEntry({ deckId, empty }: { deckId: string; empty: boolean }) {
         )}
       </div>
     </div>
-  );
-}
-
-/** Text with the runs that match the search marked. */
-function Marked({ text, words }: { text: string; words: readonly string[] }) {
-  return highlight(text, words).map((run, i) =>
-    run.hit ? (
-      <mark key={i} className="rounded-[0.2em] bg-primary/18 text-inherit">
-        {run.text}
-      </mark>
-    ) : (
-      run.text
-    ),
   );
 }
 

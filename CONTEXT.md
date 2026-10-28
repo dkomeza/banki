@@ -36,8 +36,12 @@ _Avoid_: label, category, keyword
 A picture of up to 5 MB that the User uploads into Banki, kept in the installation's own storage. A Card shows an Image by referring to it from its Markdown, and any number of Cards may refer to the same one. An Image is kept while any Card that isn't Removed refers to it, deleted or not; once none does, it goes for good.
 _Avoid_: attachment, upload, asset, media, picture
 
+**Formula**:
+One piece of math in a Card, written in LaTeX: inline between `$…$`, or on its own as display math between `$$…$$`. A `\$` is a dollar sign, never the start of a Formula.
+_Avoid_: equation, expression, math block
+
 **Duplicate**:
-A Card whose Front reads the same as another live Card's in the same Deck, ignoring case, spacing and Markdown formatting, but not what is inside math. Banki warns about a Duplicate as it is written and still saves it; an import skips it.
+A Card whose Front reads the same as another live Card's in the same Deck, ignoring case, spacing and Markdown formatting, but not what is inside a Formula. Banki warns about a Duplicate as it is written and still saves it; an import skips it.
 _Avoid_: copy, clone, repeat
 
 **Deletion**:

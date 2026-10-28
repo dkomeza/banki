@@ -21,6 +21,16 @@ export const IMAGE_ACCEPT = Object.values(IMAGE_FORMATS)
 export const imageUrl = (file: string) => `/api/images/${file}`;
 
 /**
+ * The `src` an image in a Card's Markdown loads: an Image's reference,
+ * `images/<file>`, resolves to where the API serves it (ADR-0019), and any
+ * other URL stays as written.
+ */
+export function imageSrc(url: string): string {
+  const file = /^images\/([\w-]+\.[A-Za-z0-9]+)$/.exec(url)?.[1];
+  return file === undefined ? url : imageUrl(file);
+}
+
+/**
  * Why `file` can't be an Image, the same message the API would give, or
  * undefined when it may be uploaded: over 5 MB, or not a PNG, JPEG, WebP or
  * GIF by its first bytes, whatever its name or type says.

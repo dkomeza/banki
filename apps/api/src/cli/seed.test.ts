@@ -287,6 +287,33 @@ describe("banki seed's Cards", () => {
     expect(tags).not.toContain("time");
   });
 
+  test("has Cards for each kind of Markdown and Formula the display renders", async () => {
+    await setup();
+    await seed();
+
+    const { app } = boot();
+    const cookie = cookiesFrom(await signIn(app));
+    const sidesOf = async (deckId: string) =>
+      CardListResponse.parse(await (await get(app, `/api/decks/${deckId}/cards`, cookie)).json())
+        .map((card) => `${card.front}\n${card.back}`)
+        .join("\n");
+    const { decks: D } = SEED_IDS;
+
+    const spanish = await sidesOf(D.spanish);
+    for (const markdown of ["**ser**", "\n- `ser`", "| yo | soy | estoy |", "```\nSoy de"]) {
+      expect(spanish).toContain(markdown);
+    }
+    expect(spanish).toContain("\\$12");
+    expect(spanish).toContain("$5 and the cake $10");
+    const calculus = await sidesOf(D.calculus2);
+    for (const formula of ["\\begin{align}", "\\begin{cases}", "\\begin{pmatrix}", "\\fracc"]) {
+      expect(calculus).toContain(formula);
+    }
+    const chemistry = await sidesOf(D.chemistry);
+    expect(chemistry).toContain("\\ce{");
+    expect(chemistry).toContain("\\pu{");
+  });
+
   test("writes them relative to BANKI_SEED_NOW when it is set", async () => {
     await setup();
     await seed({ BANKI_SEED_NOW: "2026-10-26T12:00:00.000Z" });

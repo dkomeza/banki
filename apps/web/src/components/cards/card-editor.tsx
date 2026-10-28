@@ -20,8 +20,8 @@ import {
 import { Breadcrumb } from "@/components/folders/breadcrumb";
 import { useLibrary } from "@/components/folders/use-library";
 import { Page } from "@/components/page";
-import { firstLine } from "@/components/cards/card-timeline";
 import { TagField, type TagInput } from "@/components/cards/tag-field";
+import { CardLine } from "@/components/cards/card-text";
 import {
   type Card,
   type SideErrors,
@@ -340,9 +340,14 @@ function DuplicateNote({ duplicates }: { duplicates: readonly Card[] }) {
           to="/cards/$cardId"
           params={{ cardId: newest.id }}
           // At least 44 px tall below 1024 px, as every control is there.
-          className="inline-flex min-h-11 items-center font-medium underline lg:inline lg:min-h-0 underline-offset-2 hover:text-primary focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+          className="inline-flex max-w-full min-h-11 items-center font-medium lg:inline lg:min-h-0 hover:text-primary focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         >
-          {firstLine(newest.front)}
+          {/* A border, not an underline: an underline doesn't reach into an
+              inline-block, which the name and each Formula in it are. */}
+          <CardLine
+            text={newest.front}
+            className="inline-block max-w-full min-w-0 border-b border-current align-bottom leading-snug"
+          />
         </Link>
         {more > 0 && ` and ${more} more`}
       </span>

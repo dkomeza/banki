@@ -5,5 +5,12 @@
     "allowImportingTsExtensions": true,
     "outDir": "${configDir}/.tsbuild/node"
   },
-  "include": ["vite.config.ts", "palette.ts", "palette.test.ts", "pwa.test.ts"]
+  "include": [
+    "vite.config.ts",
+    "katex-fonts.ts",
+    "katex-fonts.test.ts",
+    "palette.ts",
+    "palette.test.ts",
+    "pwa.test.ts"
+  ]
 }

@@ -58,6 +58,7 @@ export {
   PlaceDeletedError,
   RestoreResponse,
 } from "./deletions";
+export { type CardNode, cardParser, Formula } from "./card-parser";
 export { ApiError } from "./error";
 export { frontKey } from "./front-key";
 export { HealthResponse } from "./health";
