@@ -185,3 +185,22 @@ describe.skipIf(!hasDocker)("the Long-lived template", () => {
     expect(networks.default?.labels).toEqual(labels);
   });
 });
+
+describe("the agent's image", () => {
+  test("has both templates in its build context, so the Dockerfile can bake them in", async () => {
+    const ignore = await Bun.file(join(import.meta.dir, ".dockerignore")).text();
+    const dockerfile = await Bun.file(join(import.meta.dir, "agent", "Dockerfile")).text();
+    const allowed = ignore
+      .split("\n")
+      .filter((line) => line.startsWith("!"))
+      .map((line) => line.slice(1).trim());
+
+    for (const template of ["compose.yaml", "long-lived.compose.yaml"]) {
+      expect(allowed).toContain(template);
+      expect(dockerfile).toMatch(
+        new RegExp(`^COPY .*\\b${template.replaceAll(".", "\\.")}\\b`, "m"),
+      );
+    }
+    expect(allowed).toContain("agent/*.ts");
+  });
+});

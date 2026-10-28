@@ -1,5 +1,7 @@
-# The agent's image takes only the Preview template and the agent's code.
+# The agent's image takes only the Preview and Long-lived templates and the
+# agent's code.
 *
 !compose.yaml
+!long-lived.compose.yaml
 !agent/*.ts
 agent/*.test.ts

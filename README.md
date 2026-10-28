@@ -590,6 +590,8 @@ It writes `long-lived-newt.env`, `edge-email` and `edge-password` to `$BANKI_PRE
 
 Run `bootstrap` again to change a value: each one it has is the default, so Enter keeps it, and it shows the Pangolin and DNS steps only when you ask. When Edge is running (`banki-edge-api-1`), a new Password is set in Edge first, with `banki reset-password --password-stdin`, and saved only once that worked, which signs out every Edge device; Edge's Email can't change, so reset Edge instead. Run it as a user who can use Docker: when Docker can't say whether Edge is running, it stops without saving anything. After changing Newt's settings, run `docker compose -f deploy/long-lived/compose.yaml up -d` again.
 
+The two Pangolin resources are made by hand, and the agent has no business with them. Its org API key reaches the whole org, so its code is the guard: it only ever touches a resource at a Preview's host, and `preview` is a reserved Slug while the bare `banki.dkomeza.com` is no Slug at all.
+
 ### How the agent deploys them
 
 The pull agent deploys both from a third pool of its own, beside the PR and Slug Preview pools ([ADR-0017](docs/adr/0017-edge-follows-main-and-releases-promote-its-images-to-production.md)): Edge from the `edge` deployments [main images](#main-images) creates, Production from the `production` deployments of a Release. Each deployment's payload is `{ "sha", "api", "web" }`, the commit and its two images' digests; any other payload is marked `failure`, `invalid payload`. Only each installation's newest deployment is ever deployed, and older ones still waiting are marked `inactive`. A Long-lived deploy goes before any Preview's, still one deploy a loop, and has no cap: it never evicts a Preview, and no Preview evicts it.
@@ -624,8 +626,6 @@ Production's first deploy starts it empty, waiting for Setup. Take the Setup tok
 ```sh
 docker logs banki-production-api-1 2>&1 | grep -i setup
 ```
-
-The two Pangolin resources are made by hand, and the agent has no business with them. Its org API key reaches the whole org, so its code is the guard: it only ever touches a resource at a Preview's host, and `preview` is a reserved Slug while the bare `banki.dkomeza.com` is no Slug at all.
 
 ## Runner
 
