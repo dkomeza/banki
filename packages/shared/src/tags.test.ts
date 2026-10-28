@@ -24,6 +24,17 @@ describe("TagName", () => {
     }
   });
 
+  test("refuses a combining mark on its own, or leading the word", () => {
+    expect(TagName.safeParse("\u0301").success).toBe(false);
+    expect(TagName.safeParse("\u0301a").success).toBe(false);
+  });
+
+  test("counts the 50 characters as stored, after lowercasing", () => {
+    // "İ" lowercases to "i" and a combining dot: two characters.
+    expect(TagName.safeParse("İ".repeat(25)).success).toBe(true);
+    expect(TagName.safeParse("İ".repeat(26)).success).toBe(false);
+  });
+
   test("takes up to 50 characters, counting each character once", () => {
     expect(TagName.safeParse("a".repeat(50)).success).toBe(true);
     expect(TagName.safeParse("a".repeat(51)).success).toBe(false);

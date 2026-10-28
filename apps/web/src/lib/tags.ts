@@ -1,4 +1,4 @@
-import { CARD_TAGS_MAX, TagListResponse, sortTags, tagNameProblem } from "@banki/shared";
+import { CARD_TAGS_MAX, TagListResponse, sortTags, tagNameProblem, tagOf } from "@banki/shared";
 import { queryOptions } from "@tanstack/react-query";
 import { type ApiClient, api } from "./api";
 import type { Card } from "./cards";
@@ -44,12 +44,13 @@ export function matches(card: Card, words: readonly string[], picked: readonly s
 
 /**
  * Text split into runs, the runs that match a word marked, ignoring case and
- * accents as search does. A text whose characters don't each fold to one
- * character, so positions can't line up, comes back unmarked.
+ * accents as search does, the text NFC-composed (which shows the same), so a
+ * decomposed accent marks with its letter. A text whose characters still don't
+ * each fold to one character, so positions can't line up, comes back unmarked.
  */
 export function highlight(text: string, words: readonly string[]) {
   if (words.length === 0) return [{ text, hit: false }];
-  const chars = Array.from(text);
+  const chars = Array.from(text.normalize("NFC"));
   const folded = chars.map(fold);
   if (folded.some((f) => Array.from(f).length !== 1)) return [{ text, hit: false }];
   const flat = folded.join("");
@@ -138,15 +139,14 @@ export const rememberedDeckSearch = (deckId: string): DeckSearch => lastFilter.g
 export function tagProblem(raw: string, current: readonly string[]): string | undefined {
   const problem = tagNameProblem(raw);
   if (problem !== undefined) return problem;
-  const tag = raw.normalize("NFC").toLowerCase();
+  const tag = tagOf(raw);
   if (current.length >= CARD_TAGS_MAX && !current.includes(tag)) {
     return `A card carries up to ${CARD_TAGS_MAX} tags.`;
   }
   return undefined;
 }
 
-/** A Tag as it is stored: NFC, lowercase. */
-export const tagOf = (raw: string) => raw.normalize("NFC").toLowerCase();
+export { tagOf };
 
 /**
  * The suggestions for what's typed in the Tags field: the User's Tags holding

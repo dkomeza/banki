@@ -24,6 +24,7 @@ export {
   TagListResponse,
   TagName,
   tagNameProblem,
+  tagOf,
 } from "./tags";
 export {
   CreateDeckRequest,

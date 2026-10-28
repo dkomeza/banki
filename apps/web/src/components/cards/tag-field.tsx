@@ -22,7 +22,9 @@ export function useTagInput(initial: readonly string[]) {
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string>();
   const [open, setOpen] = useState(false);
-  const [active, setActive] = useState(0);
+  // The suggestion arrows have moved to; none until they do, so Enter adds
+  // what's typed rather than a suggestion it happens to start.
+  const [active, setActive] = useState(-1);
   const all = useQuery(tagsQueryOptions()).data;
   const suggestions = suggestTags(all ?? [], draft, tags);
   const listed = open && suggestions.length > 0;
@@ -41,7 +43,7 @@ export function useTagInput(initial: readonly string[]) {
     setTags(next);
     setDraft("");
     setError(undefined);
-    setActive(0);
+    setActive(-1);
     return next;
   };
 
@@ -61,7 +63,7 @@ export function useTagInput(initial: readonly string[]) {
     change: (value: string) => {
       setError(undefined);
       setOpen(true);
-      setActive(0);
+      setActive(-1);
       // A typed or pasted space or comma ends each Tag before it.
       const parts = value.split(/[\s,]+/);
       const rest = parts.pop() ?? "";
@@ -94,7 +96,7 @@ export function useTagInput(initial: readonly string[]) {
         setActive((i) => Math.min(i + 1, suggestions.length - 1));
       } else if (event.key === "ArrowUp" && listed) {
         event.preventDefault();
-        setActive((i) => Math.max(i - 1, 0));
+        setActive((i) => Math.max(i - 1, -1));
       } else if (event.key === "Enter" && listed && suggestions[active] !== undefined) {
         event.preventDefault();
         add(suggestions[active]);
@@ -149,7 +151,7 @@ export function TagField({
           {input.tags.map((tag) => (
             <span
               key={tag}
-              className="inline-flex h-8 min-w-0 items-center gap-0.5 rounded-full bg-secondary pr-0.5 pl-3 text-sm font-medium text-secondary-foreground lg:h-7"
+              className="inline-flex h-11 min-w-0 items-center gap-0.5 rounded-full bg-secondary pl-3 text-sm font-medium text-secondary-foreground lg:h-7 lg:pr-0.5"
             >
               <span className="truncate">{tag}</span>
               <button
@@ -157,7 +159,7 @@ export function TagField({
                 aria-label={`Remove ${tag}`}
                 disabled={readOnly}
                 onClick={() => input.remove(tag)}
-                className="flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-background hover:text-foreground lg:size-6"
+                className="flex size-11 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-background hover:text-foreground lg:size-6"
               >
                 <X className="size-3.5" aria-hidden />
               </button>
@@ -169,7 +171,9 @@ export function TagField({
             role="combobox"
             aria-expanded={input.open}
             aria-controls={input.open ? `${id}-list` : undefined}
-            aria-activedescendant={input.open ? `${id}-${input.active}` : undefined}
+            aria-activedescendant={
+              input.open && input.active >= 0 ? `${id}-${input.active}` : undefined
+            }
             aria-autocomplete="list"
             aria-invalid={input.error === undefined ? undefined : true}
             aria-describedby={`${id}-help`}

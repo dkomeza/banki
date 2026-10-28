@@ -137,6 +137,10 @@ describe("highlight", () => {
     expect(highlight("abc", []).map((r) => r.text)).toEqual(["abc"]);
   });
 
+  test("marks a decomposed accent with its letter", () => {
+    expect(hits("cafe\u0301 au lait", "cafe")).toEqual(["café"]);
+  });
+
   test("keeps characters outside the BMP whole", () => {
     expect(hits("𝔸 then cat", "cat")).toEqual(["cat"]);
   });

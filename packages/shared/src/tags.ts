@@ -7,14 +7,20 @@ export const TAG_MAX_LENGTH = 50;
 export const CARD_TAGS_MAX = 20;
 
 /**
- * One word: Unicode letters (with their combining marks), digits, `-` and
- * `_`, such as `irregular-verb`, `ch3` or `動詞`.
+ * One word: Unicode letters (with their combining marks, never on their own),
+ * digits, `-` and `_`, such as `irregular-verb`, `ch3` or `動詞`.
  */
-const ONE_WORD = /^[\p{L}\p{M}\p{Nd}_-]+$/u;
+const ONE_WORD = /^[\p{L}\p{Nd}_-][\p{L}\p{M}\p{Nd}_-]*$/u;
+
+/**
+ * A Tag as it is stored: lowercased, then NFC-normalized. Lowercasing can make
+ * a word longer (`İ` is `i` and a dot), so the rules hold for this form.
+ */
+export const tagOf = (raw: string) => raw.toLowerCase().normalize("NFC");
 
 /** What's wrong with `raw` as a Tag, if anything, in a sentence for the Tags field. */
 export function tagNameProblem(raw: string): string | undefined {
-  const name = raw.normalize("NFC");
+  const name = tagOf(raw);
   if (name === "") return "Write a tag.";
   if (!ONE_WORD.test(name)) return "A tag is one word: letters, digits, - and _.";
   if (Array.from(name).length > TAG_MAX_LENGTH) {
@@ -34,7 +40,7 @@ export const TagName = z
     const problem = tagNameProblem(raw);
     if (problem !== undefined) ctx.addIssue({ code: "custom", message: problem });
   })
-  .transform((raw) => raw.normalize("NFC").toLowerCase());
+  .transform(tagOf);
 
 /** Tags A–Z, the order every Tag list is answered in. */
 export const sortTags = (tags: Iterable<string>): string[] =>
