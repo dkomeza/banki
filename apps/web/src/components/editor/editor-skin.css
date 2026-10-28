@@ -15,7 +15,7 @@
 .side-toolbar {
   position: absolute;
   right: -0.25rem;
-  top: -1.4rem;
+  top: -2.75rem;
   z-index: 15;
   align-items: center;
   gap: 0.0625rem;
@@ -47,7 +47,7 @@
 }
 @media (min-width: 640px) and (max-width: 1023.98px) {
   .side-toolbar {
-    top: -2.1rem;
+    top: -3.75rem;
   }
   .side-toolbar-button {
     width: 2.75rem;
