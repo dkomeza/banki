@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type LongLivedTarget, longLivedEnv } from "./agent/long-lived-docker";
@@ -10,6 +10,9 @@ import { isRecord } from "./agent/parse";
 // data volume. Skipped without a docker CLI; nothing is started.
 
 const hasDocker = Bun.which("docker") !== null;
+
+// A runner's first `docker compose` can take seconds to start, past bun's 5s default.
+setDefaultTimeout(30_000);
 
 const EDGE: LongLivedTarget = {
   environment: "edge",

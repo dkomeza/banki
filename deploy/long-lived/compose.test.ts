@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +9,9 @@ import { join } from "node:path";
 // port. Skipped without a docker CLI; nothing is started.
 
 const hasDocker = Bun.which("docker") !== null;
+
+// A runner's first `docker compose` can take seconds to start, past bun's 5s default.
+setDefaultTimeout(30_000);
 
 // A fake value, built at runtime so secret scanners don't flag it.
 const NEWT_SECRET = ["fake", "newt", "secret"].join("-");
