@@ -110,14 +110,29 @@ describe("deleteAllWithUndo", () => {
     );
     vi.stubGlobal("fetch", fetch);
 
-    await deleteAllWithUndo(new QueryClient(), "d1", [card("c1"), card("c2"), card("c3")]);
-
+    expect(
+      await deleteAllWithUndo(new QueryClient(), "d1", [card("c1"), card("c2"), card("c3")]),
+    ).toBe(true);
     expect(toasts.shown.at(-1)).toBe("3 cards deleted");
     toasts.options.at(-1)?.action?.onClick();
     await vi.waitFor(() =>
       expect(fetch.mock.calls.map(([input]) => urlOf(input))).toContainEqual(
         expect.stringContaining("/api/deletions/restore"),
       ),
+    );
+  });
+
+  test("answers false, with an error toast, when the delete fails, so the selection stays", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({ error: { code: "not_found", message: "…" } }, { status: 404 }),
+      ),
+    );
+
+    expect(await deleteAllWithUndo(new QueryClient(), "d1", [card("c1"), card("c2")])).toBe(false);
+    expect(toasts.errors.at(-1)).toBe(
+      "Some of these cards are gone already, so nothing was deleted.",
     );
   });
 

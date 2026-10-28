@@ -383,8 +383,7 @@ function NoMatch({ withTags, onClear }: { withTags: boolean; onClear: () => void
       <div className={cn(RAIL, "flex-1 border-dashed pb-8")}>
         <p className="text-lg font-medium">No cards match</p>
         <p className="max-w-sm pt-1 text-sm text-muted-foreground">
-          Nothing in this deck has every word
-          {withTags ? " and every picked tag" : ""}.
+          Nothing in this deck has every word{withTags ? " and every picked tag" : ""}.
         </p>
         <button
           type="button"

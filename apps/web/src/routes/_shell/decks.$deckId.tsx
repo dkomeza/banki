@@ -41,6 +41,9 @@ import { cn } from "@/lib/utils";
 // through the destination picker (DeckPicker); selected Cards can be deleted
 // together too.
 
+/** A dialog or menu that is open, which Esc closes before it leaves selection mode. */
+const OPEN_LAYER = '[role="dialog"], [role="alertdialog"], [role="menu"]';
+
 export const Route = createFileRoute("/_shell/decks/$deckId")({
   validateSearch: deckSearch,
   loader: ({ context: { queryClient }, params: { deckId } }) =>
@@ -105,12 +108,15 @@ function DeckBody({ deck }: { deck: Deck }) {
     selection.exit();
     showMovedToast(queryClient, ids, deck, to);
   };
-  // Esc leaves selection mode, unless the picker is open: Esc closes that first.
+  // Esc leaves selection mode, unless a dialog or menu is open, such as the
+  // picker or Edit: Esc closes that first, and the selection stays.
   const { active: selecting, exit } = selection;
   useEffect(() => {
     if (!selecting || moving !== undefined) return undefined;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") exit();
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (document.querySelector(OPEN_LAYER) !== null) return;
+      exit();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -183,8 +189,10 @@ function DeckBody({ deck }: { deck: Deck }) {
         selection={selection}
         onMove={pick}
         onDelete={(chosen) => {
-          selection.exit();
-          void deleteAllWithUndo(queryClient, deck.id, chosen);
+          // Selection mode ends once they are deleted; a failed delete keeps the selection.
+          void deleteAllWithUndo(queryClient, deck.id, chosen).then((deleted) => {
+            if (deleted) selection.exit();
+          });
         }}
       />
 

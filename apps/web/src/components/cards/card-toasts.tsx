@@ -12,16 +12,17 @@ import { restoreDeletion, restoreDeletions } from "@/lib/deletions";
  * it couldn't, such as its Deck being deleted meanwhile. `then` runs once the
  * Card is deleted, before the toast shows, such as leaving its edit page; a
  * delete that fails shows an error toast instead, and leaves nothing.
+ * Answers whether the Card was deleted.
  */
 export async function deleteWithUndo(
   queryClient: QueryClient,
   card: Card,
   then?: () => Promise<unknown>,
-) {
+): Promise<boolean> {
   const deleted = await deleteCard(queryClient, card);
   if (!deleted.ok) {
     toast.error(deleted.message);
-    return;
+    return false;
   }
   await then?.();
   forgetCard(queryClient, card.id);
@@ -47,6 +48,7 @@ export async function deleteWithUndo(
           },
         }),
   });
+  return true;
 }
 
 /** "Moved card to " or "Moved 3 cards to ", before the Deck's name. */
@@ -103,19 +105,17 @@ export function showMovedToast(
  * each as a Deletion of its own, and shows "3 cards deleted" with Undo for
  * about 8 seconds, which restores all of them, or says why it couldn't. One
  * Card alone is {@link deleteWithUndo}'s, with its "Card deleted". A delete
- * that fails shows an error toast instead, and leaves the Cards.
+ * that fails shows an error toast instead, and leaves the Cards. Answers
+ * whether they were deleted.
  */
 export async function deleteAllWithUndo(
   queryClient: QueryClient,
   deckId: string,
   cards: readonly Card[],
-) {
+): Promise<boolean> {
   const [one] = cards;
-  if (one === undefined) return;
-  if (cards.length === 1) {
-    await deleteWithUndo(queryClient, one);
-    return;
-  }
+  if (one === undefined) return false;
+  if (cards.length === 1) return deleteWithUndo(queryClient, one);
   const deleted = await deleteCards(
     queryClient,
     deckId,
@@ -123,7 +123,7 @@ export async function deleteAllWithUndo(
   );
   if (!deleted.ok) {
     toast.error(deleted.message);
-    return;
+    return false;
   }
   for (const card of cards) forgetCard(queryClient, card.id);
   const { deletionIds } = deleted;
@@ -144,4 +144,5 @@ export async function deleteAllWithUndo(
       },
     },
   });
+  return true;
 }
