@@ -1,0 +1,247 @@
+/*
+ * The live-preview editor's base look, shared by every Variant. A Variant's
+ * skin (editor-skin.css) places and dresses the editor's own parts: the
+ * popover, the live render, the table grid and its menu.
+ */
+
+.live-editor .cm-editor {
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+.live-editor .cm-editor.cm-focused {
+  outline: none;
+}
+.live-editor .cm-scroller {
+  font-family: inherit;
+  line-height: inherit;
+  overflow: visible;
+}
+.live-editor .cm-content {
+  padding: 0;
+  caret-color: var(--primary);
+}
+.live-editor .cm-line {
+  padding: 0 0.25rem;
+}
+.live-editor .cm-placeholder {
+  color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
+}
+.live-editor .cm-cursor {
+  border-left-color: var(--primary);
+}
+.live-editor .cm-selectionBackground,
+.live-editor .cm-content ::selection {
+  background: color-mix(in oklab, var(--primary) 22%, transparent) !important;
+}
+
+/* Marks */
+.cm-lp-strong {
+  font-weight: 650;
+}
+.cm-lp-em {
+  font-style: italic;
+}
+.cm-lp-strike {
+  text-decoration: line-through;
+}
+.cm-lp-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.88em;
+  background: var(--muted);
+  border-radius: 0.25rem;
+  padding: 0.1em 0.25em;
+}
+.cm-lp-link {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.cm-line.cm-lp-heading {
+  font-size: 1.15em;
+  font-weight: 650;
+}
+.cm-lp-bullet {
+  display: inline-block;
+  width: 0.6em;
+  color: var(--muted-foreground);
+}
+.cm-line.cm-lp-quote {
+  border-left: 2px solid var(--border);
+  padding-left: 0.85rem;
+  color: var(--muted-foreground);
+}
+.cm-line.cm-lp-codeblock {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.86em;
+  background: var(--muted);
+  padding: 0 0.75rem;
+}
+.cm-line.cm-lp-codeblock-first {
+  border-top-left-radius: 0.375rem;
+  border-top-right-radius: 0.375rem;
+}
+.cm-line.cm-lp-codeblock-last {
+  border-bottom-left-radius: 0.375rem;
+  border-bottom-right-radius: 0.375rem;
+}
+
+/* Formulas */
+.cm-lp-formula {
+  cursor: text;
+}
+.cm-lp-formula-display {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.cm-lp-formula-source {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.86em;
+}
+.cm-lp-broken {
+  color: var(--destructive);
+}
+.cm-lp-broken-source {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.86em;
+  overflow-wrap: anywhere;
+}
+.cm-lp-broken-message {
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+.cm-lp-live {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.cm-lp-live-error {
+  color: var(--destructive);
+  font-size: 0.8rem;
+}
+
+/* The popover */
+.cm-tooltip.cm-lp-tooltip,
+.live-editor .cm-tooltip {
+  border: none;
+  background: transparent;
+  z-index: 30;
+}
+.cm-lp-popover {
+  white-space: nowrap;
+  padding: 0.35rem 0.6rem;
+  line-height: 1.5;
+  font-size: 1.05rem;
+  font-weight: 400;
+  letter-spacing: normal;
+  background: var(--popover);
+  color: var(--popover-foreground);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  box-shadow: 0 8px 24px -10px color-mix(in oklab, var(--foreground) 35%, transparent);
+}
+.cm-tooltip-arrow {
+  display: none;
+}
+.cm-lp-popover-error {
+  color: var(--destructive);
+  font-size: 0.8rem;
+  white-space: normal;
+  max-width: 18rem;
+}
+.cm-lp-popover-empty {
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+}
+
+/* Tables */
+.cm-lp-table-wrap {
+  position: relative;
+  max-width: 100%;
+}
+.cm-lp-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.cm-lp-table {
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+.cm-lp-cell {
+  min-width: 4.5rem;
+  vertical-align: top;
+  text-align: left;
+}
+.cm-lp-cell .cm-editor {
+  background: transparent;
+}
+.cm-lp-cell .cm-editor.cm-focused {
+  outline: none;
+}
+.cm-lp-cell .cm-content {
+  padding: 0;
+  white-space: pre;
+}
+.cm-lp-cell .cm-line {
+  padding: 0;
+}
+.cm-lp-table-menu-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--muted-foreground);
+}
+.cm-lp-table-menu-button:hover {
+  color: var(--foreground);
+}
+.cm-lp-table-menu {
+  position: absolute;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  min-width: 12.5rem;
+  padding: 0.3rem;
+  background: var(--popover);
+  color: var(--popover-foreground);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  box-shadow: 0 12px 32px -12px color-mix(in oklab, var(--foreground) 35%, transparent);
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 400;
+}
+.cm-lp-table-menu-item {
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  border-radius: 0.45rem;
+  cursor: pointer;
+}
+.cm-lp-table-menu-item:hover,
+.cm-lp-table-menu-item:focus-visible {
+  background: var(--accent);
+  outline: none;
+}
+.cm-lp-table-menu-item[aria-disabled="true"] {
+  color: var(--muted-foreground);
+  opacity: 0.55;
+  cursor: default;
+}
+.cm-lp-table-menu-item.cm-lp-danger:not([aria-disabled="true"]) {
+  color: var(--destructive);
+}
+.cm-lp-table-menu-separator {
+  height: 1px;
+  margin: 0.25rem 0.4rem;
+  background: var(--border);
+}
+@media (max-width: 1023.98px) {
+  .cm-lp-table-menu-item {
+    min-height: 44px;
+  }
+  .cm-lp-table-menu-button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}

@@ -1,3 +1,4 @@
+import type { EditorView } from "@codemirror/view";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Copy } from "lucide-react";
@@ -11,6 +12,8 @@ import {
   useRef,
   useState,
 } from "react";
+import { LiveEditor } from "@/components/editor/live-editor";
+import { protoSides } from "@/components/editor/proto-state";
 import {
   AddImageButton,
   ImageStrip,
@@ -49,11 +52,15 @@ import { cn } from "@/lib/utils";
  * are kept apart from what has rendered, so uploads that finish together each
  * go after the one before.
  */
-export function useCardForm(saved0: Sides, { onChange }: { onChange?: () => void } = {}) {
+export function useCardForm(given: Sides, { onChange }: { onChange?: () => void } = {}) {
+  // Variant-only: a `?state=` link starts the form with its sample sides.
+  const [proto] = useState(protoSides);
+  const saved0 = proto?.sides ?? given;
   const [fields, setFields] = useState(saved0);
   const [saved, setSaved] = useState(saved0);
   const [errors, setErrors] = useState<SideErrors>({});
-  const frontRef = useRef<HTMLTextAreaElement>(null);
+  const frontRef = useRef<EditorView>(null);
+  const backRef = useRef<EditorView>(null);
   const latest = useRef(saved0);
   const focused = useRef<keyof Sides>(undefined);
   const cursors = useRef<Partial<Record<keyof Sides, number>>>({});
@@ -74,6 +81,9 @@ export function useCardForm(saved0: Sides, { onChange }: { onChange?: () => void
     fields,
     errors,
     frontRef,
+    backRef,
+    /** Variant-only: the side a `?state=` link focuses, and where its cursor goes. */
+    proto: proto && { side: proto.side, cursor: proto.cursor },
     unsaved: hasUnsavedChanges(fields, saved),
     /** Changes one side, clearing that side's error. */
     set,
@@ -119,9 +129,11 @@ function Side({
   images,
   inputRef,
   autoFocus,
+  initialCursor,
   readOnly,
+  toolbar,
   onChange,
-  onKeyDown,
+  onSubmit,
   onFocus,
   onSelect,
 }: {
@@ -134,10 +146,13 @@ function Side({
   note?: ReactNode;
   /** The thumbnails of the Images it refers to, under the field. */
   images: ReactNode;
-  inputRef?: RefObject<HTMLTextAreaElement | null>;
+  inputRef: RefObject<EditorView | null>;
   autoFocus?: boolean;
+  initialCursor?: number;
+  /** The side's formatting toolbar, where the Variant puts it. */
+  toolbar?: ReactNode;
   onChange: (value: string) => void;
-  onKeyDown: (event: KeyboardEvent) => void;
+  onSubmit: () => void;
   onFocus: () => void;
   /** Where the cursor is now, as the User moves it or types. */
   onSelect: (cursor: number) => void;
@@ -150,40 +165,46 @@ function Side({
   return (
     <div className="flex flex-col gap-1 sm:flex-row sm:gap-6">
       <label
-        htmlFor={id}
+        id={`${id}-label`}
+        onClick={() => inputRef.current?.focus()}
         className="pt-1 text-xs font-semibold tracking-[0.08em] text-muted-foreground uppercase sm:w-16 sm:shrink-0 sm:pt-2.5 sm:text-right"
       >
         {label}
       </label>
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-        <textarea
-          id={id}
-          ref={inputRef}
-          rows={front ? 2 : 5}
-          value={value}
-          autoFocus={autoFocus}
-          readOnly={readOnly}
-          spellCheck
-          aria-invalid={error === undefined ? undefined : true}
-          aria-describedby={describedBy === "" ? undefined : describedBy}
-          onChange={(event) => onChange(event.target.value)}
-          onKeyDown={onKeyDown}
-          onFocus={onFocus}
-          onSelect={(event) => onSelect(event.currentTarget.selectionEnd)}
-          placeholder={placeholder}
+        <div
+          data-side={label.toLowerCase()}
+          data-invalid={error === undefined ? undefined : true}
           // Ruled lines, one per line of text, so it writes like a page.
           style={{
             backgroundImage:
               "repeating-linear-gradient(to bottom, transparent 0, transparent calc(2rem - 1px), var(--border) calc(2rem - 1px), var(--border) 2rem)",
-            backgroundAttachment: "local",
           }}
           className={cn(
-            "field-sizing-content w-full resize-none rounded-md bg-transparent px-1 py-0 leading-[2rem] outline-none placeholder:text-muted-foreground/70 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring focus-visible:outline-solid aria-invalid:outline-2 aria-invalid:outline-offset-4 aria-invalid:outline-destructive aria-invalid:outline-solid",
+            "side-field relative w-full rounded-md leading-[2rem] has-[>.live-editor>.cm-focused]:outline-2 has-[>.live-editor>.cm-focused]:outline-offset-4 has-[>.live-editor>.cm-focused]:outline-ring has-[>.live-editor>.cm-focused]:outline-solid data-invalid:outline-2 data-invalid:outline-offset-4 data-invalid:outline-destructive data-invalid:outline-solid",
             front
               ? "min-h-16 text-xl/[2rem] font-semibold tracking-tight"
               : "min-h-32 text-[1.05rem]/[2rem]",
           )}
-        />
+        >
+          <LiveEditor
+            value={value}
+            viewRef={inputRef}
+            labelledBy={`${id}-label`}
+            describedBy={describedBy === "" ? undefined : describedBy}
+            invalid={error !== undefined}
+            readOnly={readOnly}
+            autoFocus={autoFocus}
+            initialCursor={initialCursor}
+            placeholder={placeholder}
+            onChange={onChange}
+            onSubmit={onSubmit}
+            onFocus={onFocus}
+            onCursor={onSelect}
+            className={front ? "min-h-16" : "min-h-32"}
+          />
+        </div>
+        {toolbar}
         {images}
         {error !== undefined && (
           <p id={`${id}-error`} className="text-sm font-medium text-destructive">
@@ -271,8 +292,11 @@ export function CardEditor({
         onRemove={(ref) => form.set(side, withoutReference(form.fields[side], ref))}
       />
     ),
+    inputRef: side === "front" ? form.frontRef : form.backRef,
+    autoFocus: form.proto ? form.proto.side === side : side === "front" && autoFocus,
+    initialCursor: form.proto?.side === side ? form.proto.cursor : undefined,
     onChange: (value: string) => form.set(side, value),
-    onKeyDown,
+    onSubmit: save,
     onFocus: () => form.focus(side),
     onSelect: (cursor: number) => form.moveCursor(side, cursor),
   });
@@ -304,8 +328,6 @@ export function CardEditor({
             label="Front"
             placeholder="What to be asked"
             note={duplicates.length > 0 ? <DuplicateNote duplicates={duplicates} /> : null}
-            inputRef={form.frontRef}
-            autoFocus={autoFocus}
             {...sideProps("front")}
           />
           <Side label="Back" placeholder="What to recall" {...sideProps("back")} />
