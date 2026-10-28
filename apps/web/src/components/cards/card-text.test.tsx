@@ -208,10 +208,10 @@ describe("CardLine", () => {
     expect(line("> quoted\n> more")).toBe('<span class="card-text block truncate">quoted</span>');
   });
 
-  test("shows a broken Formula's source and message on the line", () => {
-    const out = line("$\\fracc{1}{2}$ is broken");
-    expect(out).toContain("$\\fracc{1}{2}$");
-    expect(out).toContain("Undefined control sequence: \\fracc");
+  test("shows a broken Formula's red source as text the ellipsis may cut, its message on hover", () => {
+    expect(line("The derivative of $\\fracc{1}{x}$")).toBe(
+      '<span class="card-text block truncate">The derivative of <span title="Undefined control sequence: \\fracc" class="font-mono text-[0.9em] text-destructive">$\\fracc{1}{x}$</span></span>',
+    );
   });
 
   test("shows an image as its alt text", () => {

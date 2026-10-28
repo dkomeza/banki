@@ -137,6 +137,18 @@ describe("dollar signs that aren't Formulas", () => {
     expect(nodes("`$x$`", "InlineCode")).toEqual(["`$x$`"]);
   });
 
+  test("a $ in inline code never closes a Formula opened before it", () => {
+    expect(formulas("Price $x and `$y` end")).toEqual([]);
+    expect(nodes("Price $x and `$y` end", "InlineCode")).toEqual(["`$y`"]);
+    expect(nodes("$a `b$` c$", "InlineFormula")).toEqual(["$a `b$` c$"]);
+    expect(formulas("so $$a `$$` b")).toEqual([]);
+    expect(nodes("so $$a `$$` b", "InlineCode")).toEqual(["`$$`"]);
+  });
+
+  test("an unmatched backtick doesn't hide the closing $", () => {
+    expect(nodes("$a ` b$", "InlineFormula")).toEqual(["$a ` b$"]);
+  });
+
   test("$ in a code block is code", () => {
     expect(formulas("```\n$x$\n$$\ny\n$$\n```")).toEqual([]);
     expect(formulas("    $x$")).toEqual([]);

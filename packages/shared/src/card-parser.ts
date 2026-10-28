@@ -26,7 +26,8 @@ import {
 // Each holds a `FormulaMark` for each delimiter, and its source between them.
 //
 // `\$` is Markdown's escape, so it is a dollar sign and never opens a
-// Formula, and a `$` inside code is code. Raw HTML stays text: there is no
+// Formula, and a `$` inside code is code, even one that would close a Formula
+// opened before the code span. Raw HTML stays text: there is no
 // HTML block, and an inline tag (`HTMLTag`) is for the display to show as
 // typed. Entities (`&amp;`) aren't read either, so they show as typed too.
 
@@ -34,22 +35,74 @@ const DOLLAR = 36;
 const BACKSLASH = 92;
 const WHITESPACE = /\s/;
 const DIGIT = /[0-9]/;
+const BACKTICK = 96;
 
-/** Where the `$$` closing a display Formula whose source starts at `from` in `text` is, or -1. */
-function displayClose(text: string, from: number): number {
-  for (let i = from; i < text.length - 1; i++) {
-    const char = text.charCodeAt(i);
-    if (char === BACKSLASH) i++;
-    else if (char === DOLLAR && text.charCodeAt(i + 1) === DOLLAR) return i;
+/**
+ * Where the inline code span whose opening backticks start at `at` in `text`
+ * ends, or -1 when no run of as many backticks closes it.
+ */
+function codeSpanEnd(text: string, at: number): number {
+  let open = at;
+  while (text.charCodeAt(open) === BACKTICK) open++;
+  const length = open - at;
+  for (let i = open; i < text.length; i++) {
+    if (text.charCodeAt(i) !== BACKTICK) continue;
+    let run = i;
+    while (text.charCodeAt(run) === BACKTICK) run++;
+    if (run - i === length) return run;
+    i = run;
   }
   return -1;
 }
 
 /**
- * The document the block context reads. @lezer/markdown keeps it internal;
- * the version is pinned, and the Formula tests fail if it ever moves.
+ * Where the next character to look at is after `i` in `text`: past an escaped
+ * character, and in a paragraph (`inCode`) past a whole code span, whose `$`s
+ * are code.
  */
-const inputOf = (cx: BlockContext): Input => Reflect.get(cx, "input");
+function skip(text: string, i: number, inCode: boolean): number {
+  const char = text.charCodeAt(i);
+  if (char === BACKSLASH) return i + 2;
+  if (inCode && char === BACKTICK) {
+    const end = codeSpanEnd(text, i);
+    if (end !== -1) return end;
+    let run = i;
+    while (text.charCodeAt(run) === BACKTICK) run++;
+    return run;
+  }
+  return i + 1;
+}
+
+/**
+ * Where the `$$` closing a display Formula whose source starts at `from` in
+ * `text` is, or -1. In a paragraph (`inCode`), a `$$` in a code span doesn't close it.
+ */
+function displayClose(text: string, from: number, inCode: boolean): number {
+  for (let i = from; i < text.length - 1; i = skip(text, i, inCode)) {
+    if (text.charCodeAt(i) === DOLLAR && text.charCodeAt(i + 1) === DOLLAR) return i;
+  }
+  return -1;
+}
+
+/**
+ * The document the block context reads, or null. @lezer/markdown keeps it
+ * internal: the version is pinned, and the Formula tests fail if it ever
+ * moves, while a Card still parses, with no display Formula blocks.
+ */
+function inputOf(cx: BlockContext): Input | null {
+  const input: unknown = Reflect.get(cx, "input");
+  return isInput(input) ? input : null;
+}
+
+/** Whether `value` reads like a parser's Input. */
+function isInput(value: unknown): value is Input {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof Reflect.get(value, "read") === "function" &&
+    typeof Reflect.get(value, "length") === "number"
+  );
+}
 
 /**
  * Where the `$$` closing a display Formula block that starts on `line` is, or
@@ -62,8 +115,9 @@ function blockClose(cx: BlockContext, line: Line): number {
   if (line.indent - line.baseIndent >= 4) return -1;
   const from = cx.lineStart + line.pos + 2;
   const input = inputOf(cx);
+  if (input === null) return -1;
   const rest = input.read(from, input.length);
-  const close = displayClose(rest, 0);
+  const close = displayClose(rest, 0, false);
   if (close <= 0) return -1;
   const lineEnd = rest.indexOf("\n", close);
   if (rest.slice(close + 2, lineEnd === -1 ? rest.length : lineEnd).trim() !== "") return -1;
@@ -72,20 +126,12 @@ function blockClose(cx: BlockContext, line: Line): number {
 
 /** Where the `$` closing the inline Formula opening at `start` is, or -1 (Pandoc's rules). */
 function inlineClose(cx: InlineContext, start: number): number {
-  const first = cx.char(start + 1);
-  if (first === -1 || first === DOLLAR || WHITESPACE.test(String.fromCharCode(first))) return -1;
-  for (let i = start + 1; i < cx.end; i++) {
-    const char = cx.char(i);
-    if (char === BACKSLASH) {
-      i++;
-      continue;
-    }
-    if (char !== DOLLAR) continue;
-    const before = String.fromCharCode(cx.char(i - 1));
-    const after = cx.char(i + 1);
-    if (!WHITESPACE.test(before) && (after === -1 || !DIGIT.test(String.fromCharCode(after)))) {
-      return i;
-    }
+  const text = cx.slice(start, cx.end);
+  const first = text.charAt(1);
+  if (first === "" || first === "$" || WHITESPACE.test(first)) return -1;
+  for (let i = 1; i < text.length; i = skip(text, i, true)) {
+    if (text.charCodeAt(i) !== DOLLAR) continue;
+    if (!WHITESPACE.test(text.charAt(i - 1)) && !DIGIT.test(text.charAt(i + 1))) return start + i;
   }
   return -1;
 }
@@ -126,7 +172,7 @@ export const Formula: MarkdownConfig = {
         if (next !== DOLLAR) return -1;
         if (cx.char(pos + 1) === DOLLAR) {
           // On no closing `$$`, the second `$` may still open an inline Formula.
-          const close = displayClose(cx.slice(pos, cx.end), 2);
+          const close = displayClose(cx.slice(pos, cx.end), 2, true);
           if (close <= 2) return -1;
           const end = pos + close;
           return cx.addElement(

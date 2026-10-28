@@ -102,10 +102,19 @@ function Formula({
 }) {
   const result = typeset(source, display);
   if ("error" in result) {
+    // On a one-line name there is no room for the message: the red source
+    // shows, cut by the ellipsis like text, with the message on hover.
+    if (atomic) {
+      return (
+        <span title={result.error} className="font-mono text-[0.9em] text-destructive">
+          {delimiter}
+          {source}
+          {delimiter}
+        </span>
+      );
+    }
     return (
-      <span
-        className={cn("text-destructive", display && !atomic && "block", atomic && "inline-block")}
-      >
+      <span className={cn("text-destructive", display && "block")}>
         <span className="font-mono text-[0.9em] [overflow-wrap:anywhere]">
           {delimiter}
           {source}
