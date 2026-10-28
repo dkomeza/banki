@@ -45,7 +45,7 @@ export const REPO = "dkomeza/banki";
 
 /** What the fake prints and exits with, or else the JSON it answers. */
 export type Raw = { stdout?: string; stderr?: string; exit?: number };
-/** JSON answers, one per call in turn; the last repeats. */
+/** Answers, one per call in turn, each JSON or a `Raw`; the last repeats. */
 export type Sequence = { sequence: unknown[] };
 /**
  * Keyed `METHOD PATH` for `gh api`, and `docker <args joined by spaces>` for
@@ -53,8 +53,10 @@ export type Sequence = { sequence: unknown[] };
  */
 export type Answer = Raw | Sequence | unknown[] | Record<string, unknown>;
 
-const isRaw = (answer: Answer): answer is Raw =>
-  !Array.isArray(answer) && ("stdout" in answer || "stderr" in answer || "exit" in answer);
+const isRaw = (answer: unknown): answer is Raw =>
+  isRecord(answer) &&
+  !Array.isArray(answer) &&
+  ("stdout" in answer || "stderr" in answer || "exit" in answer);
 const isSequence = (answer: Answer): answer is Sequence =>
   !Array.isArray(answer) && "sequence" in answer;
 
@@ -73,7 +75,11 @@ const ANSWER = `answer() {
   [ -n "$dir" ] || return 1
   echo >>"$dir/calls"
   n="$(wc -l <"$dir/calls" | tr -d ' ')"
-  if [ -f "$dir/stdout.$n" ]; then cat "$dir/stdout.$n"; exit 0; fi
+  if [ -f "$dir/stdout.$n" ]; then
+    cat "$dir/stdout.$n"
+    if [ -f "$dir/stderr.$n" ]; then cat "$dir/stderr.$n" >&2; fi
+    exit "$(cat "$dir/exit.$n" 2>/dev/null || echo 0)"
+  fi
   if [ -f "$dir/stdout" ]; then cat "$dir/stdout"; fi
   if [ -f "$dir/stderr" ]; then cat "$dir/stderr" >&2; fi
   exit "$(cat "$dir/exit" 2>/dev/null || echo 0)"
@@ -190,8 +196,14 @@ export function workflowHarness(fileName: string) {
       mkdirSync(answerDir);
       writeFileSync(join(answerDir, "key"), key);
       if (isSequence(answer)) {
-        answer.sequence.forEach((json, index) => {
-          writeFileSync(join(answerDir, `stdout.${index + 1}`), JSON.stringify(json));
+        answer.sequence.forEach((each, index) => {
+          const raw = isRaw(each) ? each : { stdout: JSON.stringify(each) };
+          const call = index + 1;
+          writeFileSync(join(answerDir, `stdout.${call}`), raw.stdout ?? "");
+          if (raw.stderr !== undefined)
+            writeFileSync(join(answerDir, `stderr.${call}`), raw.stderr);
+          if (raw.exit !== undefined)
+            writeFileSync(join(answerDir, `exit.${call}`), String(raw.exit));
         });
         writeFileSync(join(answerDir, "stdout"), JSON.stringify(answer.sequence.at(-1)));
         continue;

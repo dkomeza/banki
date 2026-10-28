@@ -44,6 +44,8 @@ const history = (...states: string[]) =>
     .map((state, index) => ({ id: index + 1, state, created_at: `2026-10-28T10:0${index}:00Z` }))
     .toReversed();
 
+const unanswered = { stderr: "gh: Bad Gateway (HTTP 502)", exit: 1 };
+
 const waitForEdge = (fixtures: Record<string, Answer>, extra: Record<string, string> = {}) =>
   runStep("promote", "edge", { ...env, ...extra }, fixtures);
 
@@ -116,6 +118,41 @@ describe("waiting for Edge", () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.out).toContain("was superseded before Edge ran it");
+  });
+
+  test("waits for a newer Deployment of the commit past an older one that failed", async () => {
+    const result = await waitForEdge({
+      [edgeDeployments]: [
+        deployment(7, "2026-10-28T10:00:00Z", { sha: SHA, api: OTHER, web: OTHER }),
+        deployment(8, "2026-10-28T11:00:00Z"),
+      ],
+      [statuses(7)]: history("queued", "failure"),
+      [statuses(8)]: { sequence: [history("queued"), history("queued", "success")] },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.out).toContain(`Waiting for Edge to run ${SHA}`);
+    expect(result.output).toBe(`api=${API}\nweb=${WEB}\n`);
+  });
+
+  test("asks again when GitHub doesn't answer, rather than failing", async () => {
+    const result = await waitForEdge({
+      [edgeDeployments]: { sequence: [unanswered, [deployment(7, "2026-10-28T10:00:00Z")]] },
+      [statuses(7)]: { sequence: [unanswered, history("queued", "success")] },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.out).toContain("GitHub didn't list the Deployments, asking again");
+    expect(result.out).toContain("GitHub didn't list Deployment 7's statuses, asking again");
+    expect(result.output).toBe(`api=${API}\nweb=${WEB}\n`);
+  });
+
+  test("runs out as a wait, never as Edge failing, while GitHub doesn't answer", async () => {
+    const result = await waitForEdge({ [edgeDeployments]: unanswered }, { WAIT_SECONDS: "0" });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.out).toContain(`Edge hasn't run ${SHA} after 0 minutes`);
+    expect(result.out).not.toContain("Edge failed");
   });
 
   test("fails once the wait runs out", async () => {
@@ -381,6 +418,15 @@ describe("waiting for Production", () => {
     expect(result.out).toContain("Waiting for Production");
   });
 
+  test("asks again when GitHub doesn't answer, rather than failing", async () => {
+    const result = await waitForProduction({
+      [statuses(42)]: { sequence: [unanswered, history("queued", "success")] },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.out).toContain("GitHub didn't list Deployment 42's statuses, asking again");
+  });
+
   test("fails when Production failed or the Deployment went inactive", async () => {
     for (const ended of ["failure", "error", "inactive"]) {
       const result = await waitForProduction({
@@ -629,7 +675,7 @@ function releaseBranch(dir: string, version: string): string {
   writeWorkspace(dir, version);
   writeFileSync(join(dir, "CHANGELOG.md"), `## ${version}\n`);
   git(dir, "add", "package.json", "packages", "CHANGELOG.md");
-  git(dir, "commit", "--quiet", "--message", `chore(main): release banki ${version}`);
+  git(dir, "commit", "--quiet", "--message", `chore(main): release ${version}`);
   git(dir, "push", "--quiet", "origin", `HEAD:refs/heads/${RELEASE_BRANCH}`);
   return origin;
 }
@@ -672,7 +718,7 @@ describe("updating bun.lock on the Release PR", () => {
     expect(result.exitCode).toBe(0);
     expect(result.out).toContain("bun.lock is up to date");
     expect(result.onOrigin("log", "-1", "--format=%s", RELEASE_BRANCH)).toBe(
-      "chore(main): release banki 0.0.0",
+      "chore(main): release 0.0.0",
     );
   });
 });

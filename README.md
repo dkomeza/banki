@@ -644,7 +644,7 @@ Once, in the repo's **Settings**, **Actions**, **General**: turn on **Allow GitH
 
 ### The Release PR
 
-Every push to `main` runs release-please, which keeps one Release PR open, titled `chore(main): release banki X.Y.Z`. It holds the next version, in the root, `apps/api`, `apps/web` and `packages/shared` `package.json`, in `bun.lock` and in `.release-please-manifest.json`, and the Release's notes, at the top of `CHANGELOG.md` and in its body. One version covers the whole repo, tagged `vX.Y.Z`.
+Every push to `main` runs release-please, which keeps one Release PR open, titled `chore(main): release X.Y.Z`. It holds the next version, in the root, `apps/api`, `apps/web` and `packages/shared` `package.json`, in `bun.lock` and in `.release-please-manifest.json`, and the Release's notes, at the top of `CHANGELOG.md` and in its body. One version covers the whole repo, tagged `vX.Y.Z`.
 
 - **The version** is SemVer from the squash-merged PR titles since the last Release: a `feat` bumps the minor version, a `fix` the patch. Before `1.0.0`, a breaking change bumps the minor version too, so `1.0.0` only ever comes from a deliberate `release-as`. The first Release is `0.1.0`, and its notes start at the walking skeleton (BAN-74), leaving out the prototype's commits.
 - **The notes** are for the User and self-hosters: a **Features** and a **Fixes** section, and every other commit type left out. So is a commit that touches only `deploy/`, `.github/`, `.claude/`, `docs/` or `scripts/`. A stretch of only such commits opens no Release PR.
@@ -657,7 +657,7 @@ The Release PR runs no workflows, since `GITHUB_TOKEN` can't trigger them, so it
 
 ### The promotion
 
-Merging the Release PR makes release-please tag `vX.Y.Z` and create the GitHub Release, and the `promote` job runs in the same run, since a tag pushed with `GITHUB_TOKEN` triggers nothing either. It runs only when release-please created a Release, one at a time across runs, and is never cancelled:
+Merging the Release PR makes release-please tag `vX.Y.Z` and create the GitHub Release, and the `promote` job runs in the same run, since a tag pushed with `GITHUB_TOKEN` triggers nothing either. It runs only when release-please created a Release, one at a time across runs, and is never cancelled while it runs. GitHub keeps only the newest promotion waiting behind it, though: a third Release merged meanwhile cancels the one waiting, whose Release is then never promoted, and the newer Release carries it. A wait that GitHub doesn't answer asks again until it runs out, so an API error is never taken for Edge or Production failing.
 
 1. **Wait for Edge.** It polls the `edge` deployments of the Release commit, which [main images](#main-images) creates once that commit's images exist. Edge has run the commit once any of them has a `success` status anywhere in its history. It fails on a `failure` or `error` status, on `inactive` without a `success` before it (a newer merge's deployment superseded it before the agent ran it), or after 60 minutes with neither.
 2. **Tag `vX.Y.Z`.** It takes the `api` and `web` digests from that successful deployment's payload, checks that each is the Release commit's `sha-<sha>` manifest, and tags each image by digest as `vX.Y.Z`: both architectures, no rebuild. It reads the tag back, and never moves a `vX.Y.Z` that is already on other images.

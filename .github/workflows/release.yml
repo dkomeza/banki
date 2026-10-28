@@ -124,9 +124,11 @@ jobs:
       # success status anywhere in its history: the agent may have marked it
       # inactive since, when a newer one succeeded. Main images creates them
       # once the commit's images exist, so there may be none yet. Without a
-      # success, a failure or error status fails the wait, and so does an
-      # inactive one, which a newer merge's Deployment superseded before the
-      # agent ran it.
+      # success, the newest one decides, since a re-run of main images may be
+      # redeploying the commit: a failure or error status fails the wait, and
+      # so does an inactive one, which a newer merge's Deployment superseded
+      # before the agent ran it. A poll GitHub doesn't answer is asked again,
+      # so an API error never counts as Edge failing.
       - name: Wait for Edge
         id: edge
         run: |
@@ -138,24 +140,41 @@ jobs:
           if ! [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             fail "release-please gave no commit or tag"
           fi
-          deadline=$((SECONDS + WAIT_SECONDS))
-          while true; do
-            deployments="$(gh api --paginate "repos/$GITHUB_REPOSITORY/deployments?environment=edge&sha=$SHA&per_page=100" | jq -cs 'add // []')"
+          # Sets ran to the newest Deployment that succeeded, or failed to why
+          # the newest one never will; neither when GitHub didn't answer.
+          poll() {
+            local id states newest=""
             ran="" failed=""
+            if ! deployments="$(gh api --paginate "repos/$GITHUB_REPOSITORY/deployments?environment=edge&sha=$SHA&per_page=100" | jq -cs 'add // []')"; then
+              echo "::warning::GitHub didn't list the Deployments, asking again"
+              return 0
+            fi
             # The newest first, so the payload is the newest successful one's.
             for id in $(jq -r 'sort_by([.created_at, .id]) | reverse | .[].id' <<<"$deployments"); do
-              states="$(gh api --paginate "repos/$GITHUB_REPOSITORY/deployments/$id/statuses?per_page=100" \
-                | jq -cs 'add // [] | sort_by([.created_at, .id]) | map(.state)')"
+              if ! states="$(gh api --paginate "repos/$GITHUB_REPOSITORY/deployments/$id/statuses?per_page=100" \
+                | jq -cs 'add // [] | sort_by([.created_at, .id]) | map(.state)')"; then
+                echo "::warning::GitHub didn't list Deployment $id's statuses, asking again"
+                failed=""
+                return 0
+              fi
               if jq -e 'index("success") != null' <<<"$states" >/dev/null; then
                 ran="$id"
-                break
+                return 0
               fi
+              if [ -n "$newest" ]; then
+                continue
+              fi
+              newest="$id"
               if jq -e 'index("failure") != null or index("error") != null' <<<"$states" >/dev/null; then
                 failed="Edge failed to deploy $SHA (Deployment $id)"
               elif [ "$(jq -r '.[-1] // empty' <<<"$states")" = inactive ]; then
                 failed="Edge's Deployment $id of $SHA was superseded before Edge ran it"
               fi
             done
+          }
+          deadline=$((SECONDS + WAIT_SECONDS))
+          while true; do
+            poll
             if [ -n "$ran" ]; then
               break
             fi
@@ -299,8 +318,12 @@ jobs:
           fi
           deadline=$((SECONDS + WAIT_SECONDS))
           while true; do
-            state="$(gh api --paginate "repos/$GITHUB_REPOSITORY/deployments/$ID/statuses?per_page=100" \
-              | jq -rs 'add // [] | max_by([.created_at, .id]) // {} | .state // empty')"
+            # A poll GitHub doesn't answer is asked again, never a failure.
+            if ! state="$(gh api --paginate "repos/$GITHUB_REPOSITORY/deployments/$ID/statuses?per_page=100" \
+              | jq -rs 'add // [] | max_by([.created_at, .id]) // {} | .state // empty')"; then
+              echo "::warning::GitHub didn't list Deployment $ID's statuses, asking again"
+              state=""
+            fi
             case "$state" in
               success)
                 echo "Production runs $TAG"
