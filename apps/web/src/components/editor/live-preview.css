@@ -131,10 +131,12 @@
 }
 
 /* The popover */
-.cm-tooltip:has(> .cm-lp-popover) {
-  border: none !important;
-  background: transparent !important;
+/* CodeMirror makes the popover its tooltip, so its colours beat CodeMirror's theme. */
+.cm-tooltip.cm-lp-popover {
   z-index: 30;
+  background: var(--lp-popover-bg, var(--popover)) !important;
+  color: var(--lp-popover-fg, var(--popover-foreground));
+  border: 1px solid var(--lp-popover-border, var(--border)) !important;
 }
 .cm-lp-popover {
   white-space: nowrap;
@@ -143,9 +145,6 @@
   font-size: 1.05rem;
   font-weight: 400;
   letter-spacing: normal;
-  background: var(--popover);
-  color: var(--popover-foreground);
-  border: 1px solid var(--border);
   border-radius: 0.5rem;
   box-shadow: 0 8px 24px -10px color-mix(in oklab, var(--foreground) 35%, transparent);
 }
