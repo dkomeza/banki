@@ -146,7 +146,7 @@ function EditCard({ deck, card }: { deck: Deck; card: Card }) {
               >
                 Cancel
               </Button>
-              <Button type="submit" className={cn(PILL, "h-11 lg:h-10")}>
+              <Button type="submit" className={cn(PILL, "h-11 lg:h-10")} disabled={form.uploading}>
                 Save
               </Button>
             </div>

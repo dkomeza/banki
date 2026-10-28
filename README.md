@@ -205,7 +205,7 @@ The data directory holds everything Banki stores:
 ├── banki.db        SQLite database (with banki.db-wal and banki.db-shm beside it while running)
 ├── auth-secret     the secret sign-in cookies are signed with, unless AUTH_SECRET is set (mode 0600)
 ├── encryption-key  the key the API key is encrypted with, unless ENCRYPTION_KEY is set (mode 0600)
-└── uploads/        uploaded files (nothing uses it yet)
+└── uploads/        the Images, byte for byte as uploaded, one file each (<id>.<ext>)
 ```
 
 On startup the API creates whatever is missing, then applies any migrations the database doesn't have yet before it accepts requests. An `auth-secret` that is empty, shorter than 32 characters or unreadable fails startup; delete it to generate a new one, which signs out every device. An `encryption-key` that isn't 32 bytes as base64url, or is unreadable, fails startup too; delete it to generate a new one, after which the stored API key reads as "Can't be read" in Settings and has to be entered again. Nothing else is lost (ADR-0014).

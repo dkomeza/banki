@@ -53,7 +53,8 @@ const BLANK = { front: "", back: "" };
 
 function NewCard({ deck }: { deck: Deck }) {
   const queryClient = useQueryClient();
-  const form = useCardForm(BLANK);
+  const [added, setAdded] = useState(false);
+  const form = useCardForm(BLANK, { onChange: () => setAdded(false) });
   const tags = useTagInput([]);
   // The Tags kept from the last Save don't count as unsaved.
   const [savedTags, setSavedTags] = useState<readonly string[]>([]);
@@ -61,7 +62,6 @@ function NewCard({ deck }: { deck: Deck }) {
     form.unsaved || tagsChanged(tags.tags, savedTags) || tags.draft.trim() !== "",
   );
   const [written, setWritten] = useState<Card[]>([]);
-  const [added, setAdded] = useState(false);
   const [formError, setFormError] = useState<string>();
   const saving = useRef(false);
   const [busy, setBusy] = useState(false);
@@ -96,13 +96,7 @@ function NewCard({ deck }: { deck: Deck }) {
         deck={deck}
         title="New card"
         dateline={longDateLabel()}
-        form={{
-          ...form,
-          set: (side, value) => {
-            setAdded(false);
-            form.set(side, value);
-          },
-        }}
+        form={form}
         tags={tags}
         onSave={() => void save()}
         saving={busy}
@@ -133,7 +127,7 @@ function NewCard({ deck }: { deck: Deck }) {
               >
                 Done
               </Link>
-              <Button type="submit" className={cn(PILL, "h-11 lg:h-10")}>
+              <Button type="submit" className={cn(PILL, "h-11 lg:h-10")} disabled={form.uploading}>
                 Save card
               </Button>
             </div>

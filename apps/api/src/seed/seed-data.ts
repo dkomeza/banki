@@ -1,7 +1,9 @@
+import { readFileSync } from "node:fs";
 import type { Queryable } from "../db/database";
 import { createCardRepository } from "../repositories/cards";
 import { createDeckRepository } from "../repositories/decks";
 import { createFolderRepository } from "../repositories/folders";
+import { createImageRepository, hasImages } from "../repositories/images";
 import { setInitialTimezone } from "../repositories/settings";
 
 import { SEED_IDS, SEED_TIMEZONE } from "./seed-ids";
@@ -88,11 +90,22 @@ const DECKS = [
 const { spanish, calculus2, kanji, chemistry } = SEED_IDS.cards;
 
 /**
+ * The one Image, a plot of ln(1 + x), stored at its fixed ID through the
+ * same code path as an upload, and the reference to it the edit-card page's
+ * Card (`SEED_IDS.card`) has.
+ */
+const IMAGE = {
+  id: SEED_IDS.image,
+  file: new URL("./seed-image.png", import.meta.url),
+  reference: `images/${SEED_IDS.image}.png`,
+} as const;
+
+/**
  * The Cards, each written this many hours before the seed time (after its
  * Deck), so the deck page's newest-first order and its days show: short word
  * Cards in Spanish vocabulary, some Backs with an example sentence on a
  * second line; LaTeX source in Calculus 2, one a derivation over several
- * lines (`SEED_IDS.card`); a few in Japanese kanji and Organic chemistry, one
+ * lines, and one whose Back refers to the Image (`SEED_IDS.card`); a few in Japanese kanji and Organic chemistry, one
  * of them very long. Calculus 10 stays empty, for the empty state.
  */
 const CARDS: readonly {
@@ -200,6 +213,18 @@ const CARDS: readonly {
     hoursAgo: 30,
     front: "When does $\\sum \\frac{1}{n^p}$ converge?",
     back: "For $p > 1$ (the $p$-series test).",
+  },
+  {
+    id: calculus2[5],
+    deckId: SEED_IDS.decks.calculus2,
+    hoursAgo: 10,
+    front: "Sketch $y = \\ln(1+x)$ near $x = 0$.\n\nWhere is it defined?",
+    back: [
+      `![](${IMAGE.reference})`,
+      "It passes through the origin with slope $1$, since $\\frac{d}{dx}\\ln(1+x) = \\frac{1}{1+x}$.",
+      "It is concave everywhere, and goes through $(1, \\ln 2)$.",
+      "It is defined for $x > -1$, with a vertical asymptote at $x = -1$.",
+    ].join("\n"),
   },
   {
     id: kanji[0],
@@ -401,15 +426,20 @@ function deletedSeed(db: Queryable, userId: string, now: Date) {
   };
 }
 
-/** Writes the Seed data for `userId` through the repositories, timed relative to `now`. */
+/**
+ * Writes the Seed data for `userId` through the repositories, timed relative
+ * to `now`, its Image stored in `uploadsDir`.
+ */
 export function writeSeedData({
   db,
   userId,
   now,
+  uploadsDir,
 }: {
   db: Queryable;
   userId: string;
   now: Date;
+  uploadsDir: string;
 }): void {
   // Only while no Timezone is stored, as the first fill does: a signed-in load
   // before seeding may already have stored the browser's zone, or the User may
@@ -440,6 +470,14 @@ export function writeSeedData({
     if (typeof created === "string") throw new Error(`The seed Deck ${name} is ${created}`);
   }
 
+  const stored = createImageRepository(db, uploadsDir).store(userId, readFileSync(IMAGE.file), {
+    id: IMAGE.id,
+    now: new Date(now.getTime() - 11 * HOUR_MS),
+  });
+  if (!("reference" in stored) || stored.reference !== IMAGE.reference) {
+    throw new Error(`The seed Image is ${"refused" in stored ? stored.refused : stored.reference}`);
+  }
+
   const cards = createCardRepository(db);
   for (const { id, deckId, hoursAgo, front, back } of CARDS) {
     const created = cards.create(
@@ -455,7 +493,7 @@ export function writeSeedData({
 }
 
 /**
- * Whether the User owns any content (folders, decks, cards, reviews), in which
+ * Whether the User owns any content (folders, decks, cards, images, reviews), in which
  * case `banki seed` refuses. Deleted Folders, Decks and Cards count too: they
  * are still the User's until they are purged. Settings aren't content: seeding leaves a
  * stored choice alone instead.
@@ -464,6 +502,7 @@ export function userHasContent(db: Queryable, userId: string): boolean {
   return (
     createDeckRepository(db).any(userId) ||
     createFolderRepository(db).any(userId) ||
-    createCardRepository(db).any(userId)
+    createCardRepository(db).any(userId) ||
+    hasImages(db, userId)
   );
 }

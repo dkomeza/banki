@@ -11,6 +11,12 @@ import {
   useRef,
   useState,
 } from "react";
+import {
+  AddImageButton,
+  ImageStrip,
+  UploadFailures,
+  useImageUploads,
+} from "@/components/cards/card-images";
 import { Breadcrumb } from "@/components/folders/breadcrumb";
 import { useLibrary } from "@/components/folders/use-library";
 import { Page } from "@/components/page";
@@ -25,35 +31,74 @@ import {
   hasUnsavedChanges,
 } from "@/lib/cards";
 import type { Deck } from "@/lib/decks";
+import { insertOnOwnLine, withoutReference } from "@/lib/images";
 import { cn } from "@/lib/utils";
 
 // New card and Edit card are one writing page: a dated page with the two
 // sides written on ruled lines inside a bordered card, their labels in the
 // margin from 640 px, the Tags field under them, and the actions along the
-// card's foot under a hairline.
+// card's foot under a hairline, "Add image" first.
 
-/** The form's state: the sides as typed, what counts as saved, and each side's error. */
-export function useCardForm(saved0: Sides) {
+/**
+ * The form's state: the sides as typed, what counts as saved, each side's
+ * error, and the Images on their way up. `onChange` hears of every change to
+ * a side, typed or an Image put in.
+ *
+ * Each Image uploaded goes on a line of its own at the cursor of the side
+ * focused last, the Back when neither has been yet. The sides as last written
+ * are kept apart from what has rendered, so uploads that finish together each
+ * go after the one before.
+ */
+export function useCardForm(saved0: Sides, { onChange }: { onChange?: () => void } = {}) {
   const [fields, setFields] = useState(saved0);
   const [saved, setSaved] = useState(saved0);
   const [errors, setErrors] = useState<SideErrors>({});
   const frontRef = useRef<HTMLTextAreaElement>(null);
+  const latest = useRef(saved0);
+  const focused = useRef<keyof Sides>(undefined);
+  const cursors = useRef<Partial<Record<keyof Sides, number>>>({});
+  const set = (side: keyof Sides, value: string) => {
+    latest.current = { ...latest.current, [side]: value };
+    setFields(latest.current);
+    setErrors((current) => ({ ...current, [side]: undefined }));
+    onChange?.();
+  };
+  const uploads = useImageUploads((markdown) => {
+    const side = focused.current ?? "back";
+    const text = latest.current[side];
+    const placed = insertOnOwnLine(text, cursors.current[side] ?? text.length, markdown);
+    cursors.current[side] = placed.cursor;
+    set(side, placed.text);
+  });
   return {
     fields,
     errors,
     frontRef,
     unsaved: hasUnsavedChanges(fields, saved),
     /** Changes one side, clearing that side's error. */
-    set: (side: keyof Sides, value: string) => {
-      setFields((current) => ({ ...current, [side]: value }));
-      setErrors((current) => ({ ...current, [side]: undefined }));
-    },
+    set,
     setErrors,
     /** Marks `next` as saved and shows it, so leaving doesn't ask. */
     markSaved: (next: Sides) => {
+      latest.current = next;
+      cursors.current = {};
       setSaved(next);
       setFields(next);
       setErrors({});
+    },
+    /** Whether an Image is on its way up, which holds Save. */
+    uploading: uploads.uploading,
+    /** The uploads that failed or were refused, of the files picked last. */
+    uploadFailures: uploads.failures,
+    /** Uploads the files picked, putting each one's reference in as it is done. */
+    addImages: (files: readonly File[]) => void uploads.pick(files),
+    /** Notes that `side` has the focus now. */
+    focus: (side: keyof Sides) => {
+      focused.current = side;
+    },
+    /** Notes where the cursor is in `side` now, as the User moves it or types. */
+    moveCursor: (side: keyof Sides, cursor: number) => {
+      cursors.current[side] = cursor;
     },
   };
 }
@@ -71,11 +116,14 @@ function Side({
   value,
   error,
   note,
+  images,
   inputRef,
   autoFocus,
   readOnly,
   onChange,
   onKeyDown,
+  onFocus,
+  onSelect,
 }: {
   label: "Front" | "Back";
   readOnly: boolean;
@@ -84,10 +132,15 @@ function Side({
   error: string | undefined;
   /** A note under the field, announced politely: the Duplicate warning. */
   note?: ReactNode;
+  /** The thumbnails of the Images it refers to, under the field. */
+  images: ReactNode;
   inputRef?: RefObject<HTMLTextAreaElement | null>;
   autoFocus?: boolean;
   onChange: (value: string) => void;
   onKeyDown: (event: KeyboardEvent) => void;
+  onFocus: () => void;
+  /** Where the cursor is now, as the User moves it or types. */
+  onSelect: (cursor: number) => void;
 }) {
   const id = useId();
   const front = label === "Front";
@@ -115,6 +168,8 @@ function Side({
           aria-describedby={describedBy === "" ? undefined : describedBy}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={onKeyDown}
+          onFocus={onFocus}
+          onSelect={(event) => onSelect(event.currentTarget.selectionEnd)}
           placeholder={placeholder}
           // Ruled lines, one per line of text, so it writes like a page.
           style={{
@@ -129,6 +184,7 @@ function Side({
               : "min-h-32 text-[1.05rem]/[2rem]",
           )}
         />
+        {images}
         {error !== undefined && (
           <p id={`${id}-error`} className="text-sm font-medium text-destructive">
             {error}
@@ -152,6 +208,10 @@ function Side({
  * Tags, saves. Under the Front, a note warns
  * while it makes the Card a Duplicate of another live Card in the Deck; the
  * Card `selfId` names, the one being edited, never counts.
+ *
+ * "Add image" puts each Image it uploads on a line of its own at the cursor
+ * of the side focused last, the Back when neither has been yet, and Save is
+ * held while an upload is on its way (`form.uploading`).
  */
 export function CardEditor({
   deck,
@@ -191,12 +251,31 @@ export function CardEditor({
     () => duplicatesOf(form.fields.front, cards ?? [], selfId),
     [form.fields.front, cards, selfId],
   );
+  const save = () => {
+    if (!form.uploading) onSave();
+  };
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
       event.preventDefault();
-      onSave();
+      save();
     }
   };
+  const sideProps = (side: keyof Sides) => ({
+    value: form.fields[side],
+    error: form.errors[side],
+    readOnly: saving,
+    images: (
+      <ImageStrip
+        markdown={form.fields[side]}
+        readOnly={saving}
+        onRemove={(ref) => form.set(side, withoutReference(form.fields[side], ref))}
+      />
+    ),
+    onChange: (value: string) => form.set(side, value),
+    onKeyDown,
+    onFocus: () => form.focus(side),
+    onSelect: (cursor: number) => form.moveCursor(side, cursor),
+  });
   return (
     <Page width="reading">
       <div className="flex flex-col gap-6 lg:gap-8">
@@ -217,36 +296,26 @@ export function CardEditor({
           noValidate
           onSubmit={(event: FormEvent) => {
             event.preventDefault();
-            onSave();
+            save();
           }}
           className="flex flex-col gap-7 rounded-2xl border bg-card px-4 py-6 shadow-xs sm:px-6 sm:py-7"
         >
           <Side
             label="Front"
             placeholder="What to be asked"
-            value={form.fields.front}
-            error={form.errors.front}
             note={duplicates.length > 0 ? <DuplicateNote duplicates={duplicates} /> : null}
             inputRef={form.frontRef}
             autoFocus={autoFocus}
-            readOnly={saving}
-            onChange={(value) => form.set("front", value)}
-            onKeyDown={onKeyDown}
+            {...sideProps("front")}
           />
-          <Side
-            label="Back"
-            placeholder="What to recall"
-            value={form.fields.back}
-            error={form.errors.back}
-            readOnly={saving}
-            onChange={(value) => form.set("back", value)}
-            onKeyDown={onKeyDown}
-          />
-          <TagField input={tags} readOnly={saving} onSave={onSave} />
+          <Side label="Back" placeholder="What to recall" {...sideProps("back")} />
+          <TagField input={tags} readOnly={saving} onSave={save} />
           <div className="flex flex-col gap-3 border-t pt-5 sm:flex-row sm:items-center sm:pl-22">
+            <AddImageButton uploading={form.uploading} disabled={saving} onPick={form.addImages} />
             {foot}
           </div>
         </form>
+        <UploadFailures failures={form.uploadFailures} />
         {after}
       </div>
     </Page>

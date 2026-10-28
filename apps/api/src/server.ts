@@ -41,7 +41,10 @@ function start() {
     const server = Bun.serve({ port: config.port, fetch: booted.app.fetch });
     logger.info("Listening {port}", { port: server.port });
     const app = booted;
-    const stopSweep = startRemovalSweep(() => app.removeExpiredDeletions());
+    const stopSweep = startRemovalSweep({
+      removeExpired: () => app.removeExpiredDeletions(),
+      sweepImages: () => app.sweepImages(),
+    });
     return {
       server,
       close: () => {

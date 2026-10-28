@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import {
   CardListResponse,
   CardResponse,
@@ -222,7 +223,45 @@ describe("banki seed's Cards", () => {
     expect(card.deckId).toBe(D.calculus2);
     expect(card.front).toContain("\n");
     expect(card.back.split("\n").length).toBeGreaterThan(3);
-    expect(card.back).toContain("$$");
+    expect(card.back).toContain("$");
+  });
+
+  test("stores the one Image under uploads/, and the edit-card page's Card refers to it", async () => {
+    await setup();
+    await seed();
+
+    const { app } = boot();
+    const cookie = cookiesFrom(await signIn(app));
+    const card = CardResponse.parse(
+      await (await get(app, `/api/cards/${SEED_IDS.card}`, cookie)).json(),
+    );
+    const reference = `images/${SEED_IDS.image}.png`;
+
+    expect(card.back.split("\n")).toContain(`![](${reference})`);
+    expect(readdirSync(join(dataDir(), "uploads"))).toEqual([`${SEED_IDS.image}.png`]);
+    const res = await get(app, `/api/${reference}`, cookie);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/png");
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(
+      new Uint8Array(readFileSync(new URL("../seed/seed-image.png", import.meta.url))),
+    );
+  });
+
+  test("refuses to seed a User who has an Image, even one no Card refers to", async () => {
+    await setup();
+    const { app, close } = boot();
+    const cookie = cookiesFrom(await signIn(app));
+    await app.request("/api/images", {
+      method: "POST",
+      headers: { "content-type": "application/octet-stream", origin: ORIGIN, cookie },
+      body: readFileSync(new URL("../seed/seed-image.png", import.meta.url)),
+    });
+    close();
+
+    const result = await seed();
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("The User already has content, so nothing was seeded.");
   });
 
   test("tags the Cards: one Tag in two Decks, one Card with many, a deleted Card's hidden", async () => {

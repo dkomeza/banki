@@ -74,30 +74,22 @@
       "indexes": {
         "card_user_id": {
           "name": "card_user_id",
-          "columns": [
-            "user_id"
-          ],
+          "columns": ["user_id"],
           "isUnique": false
         },
         "card_deck_id": {
           "name": "card_deck_id",
-          "columns": [
-            "deck_id"
-          ],
+          "columns": ["deck_id"],
           "isUnique": false
         },
         "card_deletion_id": {
           "name": "card_deletion_id",
-          "columns": [
-            "deletion_id"
-          ],
+          "columns": ["deletion_id"],
           "isUnique": false
         },
         "card_deleted_at": {
           "name": "card_deleted_at",
-          "columns": [
-            "deleted_at"
-          ],
+          "columns": ["deleted_at"],
           "isUnique": false
         }
       },
@@ -106,12 +98,8 @@
           "name": "card_user_id_user_id_fk",
           "tableFrom": "card",
           "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -119,12 +107,8 @@
           "name": "card_deck_id_deck_id_fk",
           "tableFrom": "card",
           "tableTo": "deck",
-          "columnsFrom": [
-            "deck_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["deck_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -210,40 +194,28 @@
       "indexes": {
         "deck_user_folder_name_key": {
           "name": "deck_user_folder_name_key",
-          "columns": [
-            "user_id",
-            "coalesce(\"folder_id\", '')",
-            "name_key"
-          ],
+          "columns": ["user_id", "coalesce(\"folder_id\", '')", "name_key"],
           "isUnique": true,
           "where": "\"deck\".\"deleted_at\" IS NULL"
         },
         "deck_user_id": {
           "name": "deck_user_id",
-          "columns": [
-            "user_id"
-          ],
+          "columns": ["user_id"],
           "isUnique": false
         },
         "deck_folder_id": {
           "name": "deck_folder_id",
-          "columns": [
-            "folder_id"
-          ],
+          "columns": ["folder_id"],
           "isUnique": false
         },
         "deck_deletion_id": {
           "name": "deck_deletion_id",
-          "columns": [
-            "deletion_id"
-          ],
+          "columns": ["deletion_id"],
           "isUnique": false
         },
         "deck_deleted_at": {
           "name": "deck_deleted_at",
-          "columns": [
-            "deleted_at"
-          ],
+          "columns": ["deleted_at"],
           "isUnique": false
         }
       },
@@ -252,12 +224,8 @@
           "name": "deck_user_id_user_id_fk",
           "tableFrom": "deck",
           "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -265,12 +233,8 @@
           "name": "deck_folder_id_folder_id_fk",
           "tableFrom": "deck",
           "tableTo": "folder",
-          "columnsFrom": [
-            "folder_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["folder_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -349,40 +313,28 @@
       "indexes": {
         "folder_user_parent_name_key": {
           "name": "folder_user_parent_name_key",
-          "columns": [
-            "user_id",
-            "coalesce(\"parent_id\", '')",
-            "name_key"
-          ],
+          "columns": ["user_id", "coalesce(\"parent_id\", '')", "name_key"],
           "isUnique": true,
           "where": "\"folder\".\"deleted_at\" IS NULL"
         },
         "folder_user_id": {
           "name": "folder_user_id",
-          "columns": [
-            "user_id"
-          ],
+          "columns": ["user_id"],
           "isUnique": false
         },
         "folder_parent_id": {
           "name": "folder_parent_id",
-          "columns": [
-            "parent_id"
-          ],
+          "columns": ["parent_id"],
           "isUnique": false
         },
         "folder_deletion_id": {
           "name": "folder_deletion_id",
-          "columns": [
-            "deletion_id"
-          ],
+          "columns": ["deletion_id"],
           "isUnique": false
         },
         "folder_deleted_at": {
           "name": "folder_deleted_at",
-          "columns": [
-            "deleted_at"
-          ],
+          "columns": ["deleted_at"],
           "isUnique": false
         }
       },
@@ -391,12 +343,8 @@
           "name": "folder_user_id_user_id_fk",
           "tableFrom": "folder",
           "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -404,12 +352,8 @@
           "name": "folder_parent_id_folder_id_fk",
           "tableFrom": "folder",
           "tableTo": "folder",
-          "columnsFrom": [
-            "parent_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["parent_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -471,12 +415,8 @@
           "name": "user_settings_user_id_user_id_fk",
           "tableFrom": "user_settings",
           "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -588,9 +528,7 @@
       "indexes": {
         "auth_account_userId_idx": {
           "name": "auth_account_userId_idx",
-          "columns": [
-            "user_id"
-          ],
+          "columns": ["user_id"],
           "isUnique": false
         }
       },
@@ -599,12 +537,8 @@
           "name": "auth_account_user_id_user_id_fk",
           "tableFrom": "auth_account",
           "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -676,16 +610,12 @@
       "indexes": {
         "auth_session_token_unique": {
           "name": "auth_session_token_unique",
-          "columns": [
-            "token"
-          ],
+          "columns": ["token"],
           "isUnique": true
         },
         "auth_session_userId_idx": {
           "name": "auth_session_userId_idx",
-          "columns": [
-            "user_id"
-          ],
+          "columns": ["user_id"],
           "isUnique": false
         }
       },
@@ -694,12 +624,8 @@
           "name": "auth_session_user_id_user_id_fk",
           "tableFrom": "auth_session",
           "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -757,9 +683,7 @@
       "indexes": {
         "auth_verification_identifier_idx": {
           "name": "auth_verification_identifier_idx",
-          "columns": [
-            "identifier"
-          ],
+          "columns": ["identifier"],
           "isUnique": false
         }
       },
@@ -825,9 +749,7 @@
       "indexes": {
         "user_email_unique": {
           "name": "user_email_unique",
-          "columns": [
-            "email"
-          ],
+          "columns": ["email"],
           "isUnique": true
         }
       },
