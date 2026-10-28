@@ -41,6 +41,14 @@ describe("VersionLine", () => {
     expect(out).toContain("lucide-external-link");
   });
 
+  test("keeps the link muted, not in the accent every other link gets", () => {
+    const out = renderToStaticMarkup(
+      <VersionLine health={health({ commit: SHA, release: false })} />,
+    );
+
+    expect(out).toMatch(/<a [^>]*class="[^"]*\btext-muted-foreground\b/);
+  });
+
   test("shows a build with no commit as +dev, in plain text", () => {
     const out = renderToStaticMarkup(
       <VersionLine health={health({ commit: "dev", release: false })} />,

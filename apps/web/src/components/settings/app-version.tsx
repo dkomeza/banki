@@ -21,11 +21,12 @@ export function VersionLine({ health }: { health: HealthResponse }) {
       {href === undefined ? (
         <span className="tabular-nums">{text}</span>
       ) : (
+        // Muted like the line: the global link style would give it the accent.
         <a
           href={href}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex min-h-11 items-center gap-1 rounded-sm tabular-nums underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring lg:min-h-0"
+          className="inline-flex min-h-11 items-center gap-1 rounded-sm text-muted-foreground tabular-nums underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring lg:min-h-0"
         >
           {text}
           <ExternalLink aria-hidden className="size-3" />
