@@ -38,6 +38,11 @@ export type ActiveRecord = {
   since?: string;
   /** The tip of origin's branch when the Stage first started, which says whether it pushed. */
   headBefore?: string;
+  /**
+   * How the Stage ended, kept from its end until its closing comment is
+   * posted, so a supervisor that dies in Linear leaves it for the next tick.
+   */
+  unposted?: Unposted;
 };
 
 export type Outcome =
@@ -77,6 +82,34 @@ export type Ending =
   | { type: "closing"; result: StageResult; json: Record<string, unknown> }
   | { type: "paused"; resetsAt: string }
   | { type: "crash"; outcome: "timed-out" | "no-result"; why: string };
+
+/** An ending whose closing comment is still to be posted: a crash's with its log's tail, redacted. */
+export type Unposted =
+  | Extract<Ending, { type: "closing" }>
+  | (Extract<Ending, { type: "crash" }> & { tail: string[] });
+
+/** The ending an active record keeps, as read back from the volume, or undefined when it holds none it can use. */
+export function unpostedOf(record: Pick<ActiveRecord, "unposted">): Unposted | undefined {
+  const kept: unknown = record.unposted;
+  if (!isRecord(kept)) return undefined;
+  if (kept.type === "closing") {
+    try {
+      return { type: "closing", result: parseResult(kept.json), json: asObject(kept.json, "json") };
+    } catch {
+      return undefined;
+    }
+  }
+  if (
+    kept.type === "crash" &&
+    (kept.outcome === "timed-out" || kept.outcome === "no-result") &&
+    typeof kept.why === "string" &&
+    Array.isArray(kept.tail)
+  ) {
+    const tail = kept.tail.filter((line): line is string => typeof line === "string");
+    return { type: "crash", outcome: kept.outcome, why: kept.why, tail };
+  }
+  return undefined;
+}
 
 /** How a run ended: with the Stage's result, paused by the five-hour limit, or as a crash. */
 export function ending(input: {
@@ -155,6 +188,7 @@ export function crashStop(input: {
     headSha: null,
     pushed: false,
     roundsEnded: null,
+    conflicted: null,
     routes: [],
     variants: [],
     wait: null,
@@ -168,6 +202,8 @@ export type Reconcile =
   | { type: "crashed" }
   /** Its supervisor posted the closing comment and died before setting the status. */
   | { type: "closed"; closing: Closing }
+  /** Its supervisor kept how the Stage ended and died before posting it. */
+  | { type: "unposted"; unposted: Unposted }
   /** Its supervisor is gone, and the issue has left In Progress: nothing to restore. */
   | { type: "gone"; why: string }
   | { type: "paused"; due: boolean }
@@ -182,7 +218,8 @@ export const START_GRACE_MS = 2 * 60_000;
  * What the tick makes of an active record: still running, starting, crashed,
  * closed but not moved on, gone, paused (and whether it is due), held, or
  * left behind. A supervisor that is gone is a crash only while the issue is
- * In Progress, and not when its own closing comment is there.
+ * In Progress, and not when its own closing comment is there, or the ending
+ * it kept to post.
  */
 export function reconcile(
   record: ActiveRecord,
@@ -225,6 +262,8 @@ export function reconcile(
     ) {
       return { type: "closed", closing };
     }
+    const unposted = unpostedOf(record);
+    if (unposted !== undefined) return { type: "unposted", unposted };
     return { type: "crashed" };
   }
   if (issue === undefined || issue.status !== STATUS.inProgress) {

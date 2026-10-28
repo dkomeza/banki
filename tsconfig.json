@@ -8,6 +8,7 @@
     { "path": "./scripts" },
     { "path": "./scripts/ui" },
     { "path": "./deploy/preview" },
+    { "path": "./deploy/long-lived" },
     { "path": "./deploy/runner" }
   ]
 }

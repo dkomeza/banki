@@ -70,7 +70,13 @@ const idOf = (value: unknown, at: string) => (isRecord(value) ? asString(value.i
 
 export function linear(
   token: string,
-  options: { fetch?: Fetch; signal?: AbortSignal; sleep?: (ms: number) => Promise<unknown> } = {},
+  options: {
+    fetch?: Fetch;
+    signal?: AbortSignal;
+    sleep?: (ms: number) => Promise<unknown>;
+    /** Told when Linear refuses the token: it was revoked, or never worked. */
+    onRefused?: () => void;
+  } = {},
 ) {
   const fetchFn: Fetch = options.fetch ?? fetch;
   const sleep = options.sleep ?? Bun.sleep;
@@ -94,6 +100,7 @@ export function linear(
         ]),
       });
       const body = await res.text();
+      if (res.status === 401 || body.includes("AUTHENTICATION_ERROR")) options.onRefused?.();
       // A fresh token's blindness comes as a 400 at times, and a 200 at others.
       if (!res.ok && !(res.status === 400 && body.includes("Entity not found"))) {
         throw new Error(`Linear: HTTP ${res.status}`);

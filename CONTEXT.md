@@ -32,6 +32,26 @@ _Avoid_: answer, solution
 A one-word label on Cards, such as `irregular-verb`, for finding them again: it has no effect on study or scheduling. A Card carries any number of Tags, and the same Tag on Cards in different Decks is one Tag. A Tag exists only while some Card carries it; it has no name or life of its own to rename or delete.
 _Avoid_: label, category, keyword
 
+**Duplicate**:
+A Card whose Front reads the same as another live Card's in the same Deck, ignoring case, spacing and Markdown formatting, but not what is inside math. Banki warns about a Duplicate as it is written and still saves it; an import skips it.
+_Avoid_: copy, clone, repeat
+
+**Deletion**:
+One act of deleting, and everything it took with it: a Card on its own, a Deck with its Cards, or a Folder with everything inside it. It is restored or removed as a whole. Something deleted earlier on its own keeps its own Deletion.
+_Avoid_: trash item, deleted item
+
+**Recently deleted**:
+Where each Deletion waits for 30 days after it, until it is restored or removed.
+_Avoid_: trash, bin, archive
+
+**Restore**:
+Bringing a Deletion back where it was. A Deck or Folder whose place is gone comes back at the Root, and one whose name is taken beside it comes back as the next free "Name (2)". A Card whose Deck is deleted can't come back until its Deck does.
+_Avoid_: undelete, recover
+
+**Removal**:
+The permanent end of a Deletion: 30 days after it, or sooner when the User deletes it permanently. What it took is gone for good, but the Reviews of its Cards still count.
+_Avoid_: purge, hard delete
+
 **Root**:
 The top of the folder tree, where Home lists what isn't in any Folder. It is not a Folder itself: it has no name of its own and can't be moved, renamed or deleted.
 _Avoid_: top level, home folder
@@ -109,6 +129,10 @@ _Avoid_: staging, main preview, nightly
 **Production**:
 The installation at `banki.dkomeza.com` that holds the User's real data and runs the newest Release, once Edge has run that Release's commit.
 _Avoid_: prod, live
+
+**Long-lived installation**:
+Edge or Production: an installation that keeps its data across deploys, unlike a Preview, and that no Preview can reach.
+_Avoid_: installation (alone, which a Preview is too), permanent deployment
 
 **Release**:
 A numbered version of Banki, `v0.1.0` and up, cut when the Maintainer merges the Release PR. Its images are the very images Edge ran, and its notes say what changed for the User.

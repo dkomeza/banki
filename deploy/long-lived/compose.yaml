@@ -1,0 +1,57 @@
+# The Long-lived installations' Newt and the `banki-long-lived` network
+# (ADR-0017), on the home server. Start or update it, once, from a clone of
+# `main`:
+#
+#   docker compose -f deploy/long-lived/compose.yaml up -d
+#
+# It is apart from the pull agent's agent.compose.yaml, so nothing here can
+# break the agent's self-update (ADR-0009), and nothing updates it by itself.
+#
+# Its settings come from `deploy/long-lived/bootstrap`, which writes them to
+# $BANKI_PREVIEW_SECRETS (default ~/.config/banki-preview), outside the clone.
+# See "Long-lived installations" in the README. No service publishes a host
+# port.
+
+name: banki-long-lived
+
+services:
+  newt:
+    # The Long-lived installations' own site's Newt: the same image as the
+    # Previews' Newt, and never the Previews' site or the homelab one.
+    image: fosrl/newt:1.18.1@sha256:7fed6605e0a104a337e1cb903bbb1225f80c7f6e5e56ff1eb1d70c57740d8e0f
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    # PANGOLIN_ENDPOINT, NEWT_ID and NEWT_SECRET.
+    env_file: ${BANKI_PREVIEW_SECRETS:-${HOME}/.config/banki-preview}/long-lived-newt.env
+    environment:
+      CONFIG_FILE: /tmp/newt.json
+      DISABLE_SSH: "true"
+      DISABLE_CLIENTS: "true"
+    # No Docker socket and no blueprint file: the two resources are made by
+    # hand in Pangolin.
+    cap_drop: [ALL]
+    networks:
+      # The one trusted proxy Edge's and Production's `web` see.
+      banki-long-lived:
+        ipv4_address: 172.31.254.2
+      # Its tunnel to the VPS.
+      tunnel: {}
+
+networks:
+  tunnel: {}
+  # Edge's and Production's `web` and this Newt, and nothing that leaves the
+  # host. Edge and Production join it by name; the agent and every Preview
+  # never do.
+  banki-long-lived:
+    name: banki-long-lived
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.31.254.0/24
+          # Docker hands out addresses from the upper half only, so neither
+          # `web` can take Newt's 172.31.254.2 when it starts before Newt
+          # after a reboot, as on banki-previews.
+          ip_range: 172.31.254.128/25

@@ -2,10 +2,17 @@ import { readFileSync } from "node:fs";
 import type { Broker } from "../cli/broker-client";
 import { issueBranchOf } from "../cli/plan";
 import { errorText } from "../lib/config";
-import { closingComment, closingsOf, MAINTAINER } from "./closing";
+import { type Closing, closingComment, closingsOf, MAINTAINER } from "./closing";
 import { type GitHub, newestFor, type SlugDeployment } from "./github";
-import { crashStop, type ActiveRecord, statusBefore } from "./lifecycle";
+import {
+  crashStop,
+  type ActiveRecord,
+  type Outcome,
+  statusBefore,
+  type Unposted,
+} from "./lifecycle";
 import { type Linear, type LinearIssue, moveTo } from "./linear";
+import type { StageResult } from "./result";
 import {
   decide,
   type Decision,
@@ -48,6 +55,65 @@ export async function openSession(deps: SessionDeps) {
       branches ??= github.branches();
       return issueBranchOf(issue.branch, await branches);
     };
+
+    /** The tip of the issue's branch on origin, or undefined when GitHub can't say. */
+    async function tipOf(
+      issue: LinearIssue,
+      say: (line: string) => void,
+    ): Promise<string | undefined> {
+      try {
+        return await github.branchHead(await branchOf(issue));
+      } catch (error) {
+        say(
+          `Couldn't read the tip of ${issue.identifier}'s branch from GitHub: ${errorText(error)}`,
+        );
+        return undefined;
+      }
+    }
+
+    /** The stop a crash makes: the status from before In Progress comes back, while the issue is still In Progress. */
+    async function crashStopOf(issue: LinearIssue, record: ActiveRecord, why: string) {
+      let status = issue.status;
+      if (issue.status === STATUS.inProgress) {
+        const before = statusBefore((await linear.history(issue.id)).statuses);
+        if (before !== undefined) status = before;
+        else
+          deps.log(
+            `${record.issue} has no status before In Progress in its history, so it stays In Progress`,
+          );
+      }
+      return crashStop({ kind: record.kind, issue: record.issue, status, why });
+    }
+
+    /** The closing comment the record's last run posted already, if it did. */
+    async function closingOfRun(
+      issue: LinearIssue,
+      record: ActiveRecord,
+    ): Promise<Closing | undefined> {
+      const runStart = record.runs.at(-1)?.startedAt;
+      if (runStart === undefined) return undefined;
+      return closingsOf(await linear.comments(issue.id), {
+        runner: runnerId,
+        issue: issue.identifier,
+      })
+        .filter((closing) => closing.result.stage === record.kind && closing.at >= runStart)
+        .at(-1);
+    }
+
+    /**
+     * Unassigns the issue (in Linear, and in `issue`) when it is the Runner
+     * app's: Linear assigns a linked PR's author, and only a person's
+     * assignment holds an issue. Says whether it did.
+     */
+    async function release(issue: LinearIssue): Promise<boolean> {
+      if (issue.assigneeId !== runnerId) return false;
+      await linear.update(issue.id, { assigneeId: null });
+      issue.assigneeId = null;
+      deps.log(
+        `Unassigned ${issue.identifier} from the Runner app (Linear assigns a linked PR's author)`,
+      );
+      return true;
+    }
 
     /** Posts a stop's closing comment and assigns the Maintainer, with the status the stop names, if it changed. */
     async function stop(
@@ -120,20 +186,9 @@ export async function openSession(deps: SessionDeps) {
 
       stop,
 
-      /**
-       * Unassigns the issue (in Linear, and in `issue`) when it is the Runner
-       * app's: Linear assigns a linked PR's author, and only a person's
-       * assignment holds an issue. Says whether it did.
-       */
-      async release(issue: LinearIssue): Promise<boolean> {
-        if (issue.assigneeId !== runnerId) return false;
-        await linear.update(issue.id, { assigneeId: null });
-        issue.assigneeId = null;
-        deps.log(
-          `Unassigned ${issue.identifier} from the Runner app (Linear assigns a linked PR's author)`,
-        );
-        return true;
-      },
+      release,
+
+      tipOf,
 
       /**
        * After a crash or a timeout: the status from before In Progress comes
@@ -150,30 +205,81 @@ export async function openSession(deps: SessionDeps) {
           deps.log(`${record.issue} isn't in Linear any more, so its crash goes unreported`);
           return;
         }
-        let status = issue.status;
-        if (issue.status === STATUS.inProgress) {
-          const before = statusBefore((await linear.history(issue.id)).statuses);
-          if (before !== undefined) status = before;
-          else
-            deps.log(
-              `${record.issue} has no status before In Progress in its history, so it stays In Progress`,
-            );
+        await stop(issue, await crashStopOf(issue, record, why), tailOf(record, redact));
+      },
+
+      /**
+       * Posts how the Stage ended and moves its issue on: its closing comment,
+       * with the branch's real tip, and the status its result names, or a
+       * crash's stop. A closing comment its last run posted already isn't
+       * posted again, so a close that failed half way can be tried again, by
+       * its supervisor or by the next tick.
+       */
+      async close(
+        record: ActiveRecord,
+        unposted: Unposted,
+        say: (line: string) => void,
+      ): Promise<Outcome> {
+        const found = await linear.issue(record.issue);
+        if (found === undefined) throw new Error(`Linear has no issue ${record.issue}`);
+        const posted = await closingOfRun(found, record);
+        let result: StageResult;
+        if (posted !== undefined) {
+          result = posted.result;
+        } else if (unposted.type === "closing") {
+          // The branch's real tip, and whether it moved, over what the Stage wrote.
+          const headAfter = await tipOf(found, say);
+          const pushed =
+            record.headBefore !== undefined && headAfter !== undefined
+              ? record.headBefore !== headAfter
+              : unposted.result.pushed;
+          const headSha = headAfter ?? unposted.result.headSha;
+          result = { ...unposted.result, headSha, pushed };
+          await linear.comment(
+            found.id,
+            closingComment(result, { ...unposted.json, headSha, pushed }),
+          );
+        } else {
+          result = await crashStopOf(found, record, unposted.why);
+          await linear.comment(found.id, closingComment(result, { ...result }, unposted.tail));
         }
-        const log = record.runs.at(-1)?.log;
-        let lines: string[] = [];
-        if (log !== undefined) {
+        const assignee = result.outcome === "stopped" ? MAINTAINER.linearId : undefined;
+        if (found.status === STATUS.inProgress && result.nextStatus !== found.status) {
+          await moveTo(linear, found, result.nextStatus, assignee);
+        } else if (assignee !== undefined) {
+          await linear.update(found.id, { assigneeId: assignee });
+        }
+        if (assignee === undefined) {
+          // A PR the Stage opened got the issue assigned to the Runner app; one
+          // linked after this read, or a release that fails, is the next tick's.
           try {
-            lines = readFileSync(log, "utf8").split("\n");
-          } catch {
-            lines = [];
+            const fresh = await linear.issue(record.issue);
+            if (fresh !== undefined) await release(fresh);
+          } catch (error) {
+            say(
+              `Couldn't undo the Runner app's assignment of ${record.issue}: ${errorText(error)}`,
+            );
           }
         }
-        const tail = logTail(lines).map(redact);
-        await stop(issue, crashStop({ kind: record.kind, issue: record.issue, status, why }), tail);
+        return unposted.type === "crash" ? unposted.outcome : result.outcome;
       },
     };
   } catch (error) {
     await deps.broker.endLinearToken(minted.id).catch(() => undefined);
     throw error;
   }
+}
+
+/** The last 30 events of the record's last run's log, redacted. */
+export function tailOf(record: ActiveRecord, redact: (text: string) => string): string[] {
+  const log = record.runs.at(-1)?.log;
+  let lines: string[] = [];
+  if (log !== undefined) {
+    try {
+      lines = readFileSync(log, "utf8").split("\n");
+    } catch {
+      lines = [];
+    }
+  }
+  return logTail(lines).map(redact);
 }

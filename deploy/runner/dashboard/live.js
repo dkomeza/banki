@@ -2,11 +2,19 @@
 // page renders in full without it, and it only adds the streaming. On the Now
 // page it swaps in the live view the server sends every 30 seconds, already
 // escaped; on a running Stage's log it appends each new line as plain text,
-// and reloads the page once the run ends, for the Stage's result.
+// and reloads the page once the run ends, for the Stage's result. A stream
+// that fails says so and stops, never reloading: it might fail again.
 
 const target = document.querySelector("[data-stream]");
 if (target instanceof HTMLElement && typeof EventSource === "function" && target.dataset.stream) {
   const source = new EventSource(target.dataset.stream);
+  source.addEventListener("failed", () => {
+    source.close();
+    const note = document.createElement("p");
+    note.className = "error";
+    note.textContent = "Live updates stopped: reload the page to go on.";
+    target.before(note);
+  });
   if (target.dataset.mode === "replace") {
     source.addEventListener("view", (event) => {
       target.innerHTML = event.data;

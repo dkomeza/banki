@@ -119,6 +119,7 @@ describe("migrations", () => {
       "0004_decks",
       "0005_folders",
       "0006_cards",
+      "0007_deletions",
     ]);
     first.close();
 

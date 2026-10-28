@@ -1,4 +1,5 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, spyOn, test } from "bun:test";
+import * as fs from "node:fs";
 import { appendFileSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,7 +8,7 @@ import { parseResult } from "../dispatch/result";
 import { store } from "../dispatch/store";
 import { fakeLinear, RUNNER_ID } from "../dispatch/test-fakes";
 import { dashboard } from "./app";
-import { readChunk } from "./files";
+import { PAGE_BYTES, PAGE_LINES, readChunk } from "./files";
 import { ACTIVE, github, issues, NOW, writeVolume } from "./fixtures/ban-11";
 import { CSP, handler, type ServerDeps } from "./server";
 
@@ -460,8 +461,48 @@ describe("the Dashboard's server", () => {
       renameSync(`${path}.away`, path);
     }
 
-    expect(seen).toContain("event: end\ndata: the stream failed");
+    expect(seen).toContain("event: failed\ndata: the stream failed");
+    expect(seen).not.toContain("event: end");
     expect((await get("/ticks")).status).toBe(200);
+  });
+
+  test("tells a stream's client it failed apart from its run ending, so the page doesn't reload", async () => {
+    const { get } = await setup({
+      pollMs: 10,
+      pingMs: 1_000,
+      readChunk: () => {
+        throw new Error("the disk is gone");
+      },
+    });
+    const text = await (
+      await get("/issues/BAN-12/logs/2026-10-24T07-20-00Z-implement.jsonl/events?from=0")
+    ).text();
+
+    expect(text).toContain("event: failed\ndata: the stream failed");
+    expect(text).not.toContain("event: end");
+  });
+
+  test("shows a log far larger than its page reading only its tail, and says how much it leaves out", async () => {
+    const { get } = await setup();
+    const file = "huge.log";
+    const path = join(work, "logs", "BAN-11", file);
+    // 32 MiB of 128-byte lines: four times the page's bytes.
+    writeFileSync(path, `${"x".repeat(127)}\n`.repeat(1 << 18));
+    const read = spyOn(fs, "readSync");
+    try {
+      const page = await (await get(`/issues/BAN-11/logs/${file}`)).text();
+      const bytes = read.mock.results.reduce((sum, call) => sum + Number(call.value), 0);
+
+      // The page's tail, and the issue's own run logs' heads and tails: never the rest.
+      expect(bytes).toBeLessThan(PAGE_BYTES + (4 << 20));
+      expect(page.match(/<li>x+<\/li>/g)).toHaveLength(PAGE_LINES);
+      expect(page).toContain(
+        "The log's earlier part is left out: 33.3 MB before these lines, the last 2000 at most.",
+      );
+    } finally {
+      read.mockRestore();
+      rmSync(path);
+    }
   });
 
   test("gives each line of a log's stream the byte just past it as its id, to resume from", async () => {

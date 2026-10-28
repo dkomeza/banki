@@ -29,10 +29,10 @@ export function deckCardRoutes({ cards }: { cards: CardRepository }) {
 
 /**
  * The signed-in User's Cards, under `/api/cards`: `GET`, `PATCH` and `DELETE
- * /:id` read, change and softly delete one, and `POST /:id/restore` undoes a
- * delete. A deleted Card, an unknown one, another User's and one whose Deck is
- * deleted all answer 404 `not_found`; so does restoring a Card whose Deck is
- * deleted. A blank Front or Back, or one over 20,000 characters, answers 400
+ * /:id` read, change and softly delete one, a delete answering its
+ * `deletionId`, which `POST /api/deletions/:id/restore` undoes. A deleted Card,
+ * an unknown one, another User's and one whose Deck is deleted all answer 404
+ * `not_found`. A blank Front or Back, or one over 20,000 characters, answers 400
  * `invalid_request`.
  */
 export function cardRoutes({ cards }: { cards: CardRepository }) {
@@ -48,12 +48,8 @@ export function cardRoutes({ cards }: { cards: CardRepository }) {
       return c.json(updated, 200);
     })
     .delete("/:id", (c) => {
-      if (!cards.softDelete(c.var.user.id, c.req.param("id"))) return c.json(NOT_FOUND, 404);
-      return c.body(null, 204);
-    })
-    .post("/:id/restore", (c) => {
-      const restored = cards.restore(c.var.user.id, c.req.param("id"));
-      if (restored === "not_found") return c.json(NOT_FOUND, 404);
-      return c.json(restored, 200);
+      const deletionId = cards.softDelete(c.var.user.id, c.req.param("id"));
+      if (deletionId === undefined) return c.json(NOT_FOUND, 404);
+      return c.json({ deletionId }, 200);
     });
 }

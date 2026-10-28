@@ -4,9 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { StageOptions, StageRun } from "../cli/stage";
 import { MAINTAINER, resultIn } from "./closing";
+import type { Linear } from "./linear";
 import { STAGE_LIMIT_MS } from "./lifecycle";
 import { store } from "./store";
-import { supervise, type SupervisorDeps } from "./supervisor";
+import { CLOSE_RETRIES_MS, supervise, type SupervisorDeps } from "./supervisor";
 import {
   fakeGitHub,
   fakeIssue,
@@ -58,6 +59,7 @@ function setup(
   const dir = mkdtempSync(join(tmpdir(), "banki-supervisor-"));
   const linear = fakeLinear([issue]);
   const given: StageOptions[] = [];
+  const waits: number[] = [];
   const records = store(join(dir, "dispatcher"));
   // As the tick writes it, just before it starts the supervisor.
   records.saveActive({ issue: "BAN-1", kind: "implement", state: "running", pid: null, runs: [] });
@@ -87,9 +89,12 @@ function setup(
     },
     redact: (text) => text,
     now: () => NOW,
+    sleep: async (ms) => {
+      waits.push(ms);
+    },
     pid: 4242,
   };
-  return { deps, linear, given, records, log };
+  return { deps, linear, given, records, log, waits };
 }
 
 const done = {
@@ -100,6 +105,26 @@ const done = {
   summary: "Opened PR #3.",
   pr: 3,
 };
+
+const refuse = async (): Promise<never> => {
+  throw new Error("Linear: HTTP 401");
+};
+
+/**
+ * Linear for the supervisor's sessions, each on a token of its own, where
+ * the session numbers in `dead` find their token revoked when they post.
+ */
+function revokedUnder(deps: SupervisorDeps, client: Linear, dead: number[]) {
+  let minted = 0;
+  deps.broker.linearToken = async () => {
+    minted += 1;
+    return { id: `sup-token-${minted}`, token: `lin-${minted}` };
+  };
+  deps.linear = (token) => {
+    const revoked = dead.includes(Number(token.split("-")[1]));
+    return revoked ? { ...client, comment: refuse, update: refuse } : client;
+  };
+}
 
 /** Supervises a Stage whose issue changed since the tick looked, and checks it started nothing. */
 const abandoned = async (
@@ -194,6 +219,60 @@ describe("a supervised Stage", () => {
     ]);
     expect(issue.comments[0]?.body).toContain("**Question:** Which?");
     expect(issue.assigneeId).toBe(MAINTAINER.linearId);
+  });
+
+  // Linear may revoke a token the Broker just minted, when another mint came at the same moment.
+  test("posts how the Stage ended on a fresh token when Linear revoked the first under it", async () => {
+    const issue = fakeIssue("BAN-1");
+    const stopped = { ...done, outcome: "stopped", nextStatus: "Todo", question: "Which?" };
+    const { deps, linear, records, log, waits } = setup(issue, () => ({ result: stopped }));
+    // The first session readies the issue before the Stage; the second posts, and is refused.
+    revokedUnder(deps, linear.client, [2]);
+
+    expect(await supervise("implement", "BAN-1", { log, resume: false }, deps)).toBe(0);
+
+    expect(waits).toEqual(CLOSE_RETRIES_MS.slice(0, 1));
+    expect(issue.comments).toHaveLength(1);
+    expect(issue.comments[0]?.body).toContain("**Question:** Which?");
+    expect(issue.assigneeId).toBe(MAINTAINER.linearId);
+    expect(records.activeRecords()).toEqual([]);
+    expect(records.stageRecords()[0]?.outcome).toBe("stopped");
+  });
+
+  test("posts its closing comment once, when only setting the status failed the first time", async () => {
+    const issue = fakeIssue("BAN-1");
+    const { deps, linear, log } = setup(issue, () => ({ result: done }));
+    let moves = 0;
+    const client = linear.client;
+    deps.linear = () => ({
+      ...client,
+      update: async (id, input) => {
+        if (input.stateId === "state-In Review" && moves++ === 0)
+          throw new Error("Linear: HTTP 500");
+        return client.update(id, input);
+      },
+    });
+
+    await supervise("implement", "BAN-1", { log, resume: false }, deps);
+
+    expect(linear.calls).toEqual(["BAN-1 → In Progress", "BAN-1 comment", "BAN-1 → In Review"]);
+  });
+
+  test("keeps how the Stage ended on its record for the next tick, when Linear refuses every try", async () => {
+    const issue = fakeIssue("BAN-1");
+    const stopped = { ...done, outcome: "stopped", nextStatus: "Todo", question: "Which?" };
+    const { deps, linear, records, log, waits } = setup(issue, () => ({ result: stopped }));
+    revokedUnder(deps, linear.client, [2, 3, 4, 5]);
+
+    expect(await supervise("implement", "BAN-1", { log, resume: false }, deps)).toBe(1);
+
+    expect(waits).toEqual(CLOSE_RETRIES_MS);
+    expect(issue.comments).toEqual([]);
+    expect(records.stageRecords()).toEqual([]);
+    expect(records.activeRecord("BAN-1")?.unposted).toMatchObject({
+      type: "closing",
+      result: { outcome: "stopped", question: "Which?" },
+    });
   });
 
   test("pauses at the five-hour limit, In Progress and unassigned, with its session and reset time", async () => {

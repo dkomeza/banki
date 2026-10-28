@@ -199,8 +199,8 @@ describe("softDelete", () => {
     const one = write(deckId, "one");
     const two = write(deckId, "two");
 
-    expect(cards.softDelete(USER, one.id, at("2026-10-05T00:00:00.000Z"))).toBe(true);
-    expect(cards.softDelete(USER, two.id)).toBe(true);
+    expect(cards.softDelete(USER, one.id, at("2026-10-05T00:00:00.000Z"))).toBeString();
+    expect(cards.softDelete(USER, two.id)).toBeString();
 
     const row = rowOf(one.id);
     expect(row?.deletedAt).toEqual(at("2026-10-05T00:00:00.000Z"));
@@ -209,53 +209,15 @@ describe("softDelete", () => {
     expect(deckRowOf(deckId)?.deletedAt).toBeNull();
   });
 
-  test("answers false for a Card already deleted, another User's or an unknown one", () => {
+  test("answers undefined for a Card already deleted, another User's or an unknown one", () => {
     const deleted = write(deckNamed("Spanish"), "deleted");
     cards.softDelete(USER, deleted.id);
     const theirs = write(deckNamed("Theirs", null, OTHER), "theirs", "b", undefined, OTHER);
 
-    expect(cards.softDelete(USER, deleted.id)).toBe(false);
-    expect(cards.softDelete(USER, theirs.id)).toBe(false);
-    expect(cards.softDelete(USER, "nope")).toBe(false);
+    expect(cards.softDelete(USER, deleted.id)).toBeUndefined();
+    expect(cards.softDelete(USER, theirs.id)).toBeUndefined();
+    expect(cards.softDelete(USER, "nope")).toBeUndefined();
     expect(rowOf(theirs.id)?.deletedAt).toBeNull();
-  });
-});
-
-describe("restore", () => {
-  test("brings a Card deleted on its own back, in its place by creation time", () => {
-    const deckId = deckNamed("Spanish");
-    write(deckId, "older", "b", at("2026-09-01T00:00:00.000Z"));
-    const middle = write(deckId, "middle", "b", at("2026-09-15T00:00:00.000Z"));
-    write(deckId, "newer", "b", at("2026-10-01T00:00:00.000Z"));
-    cards.softDelete(USER, middle.id);
-
-    expect(cards.restore(USER, middle.id)).toMatchObject({ id: middle.id, front: "middle" });
-    expect(rowOf(middle.id)).toMatchObject({ deletedAt: null, deletionId: null });
-    expect(frontsIn(deckId)).toEqual(["newer", "middle", "older"]);
-  });
-
-  test("answers a live Card as it is", () => {
-    const created = write(deckNamed("Spanish"), "live");
-
-    expect(cards.restore(USER, created.id)).toEqual(created);
-  });
-
-  test("refuses a Card whose Deck is deleted, another User's and an unknown one", () => {
-    const deckId = deckNamed("Spanish");
-    const own = write(deckId, "deleted first");
-    cards.softDelete(USER, own.id);
-    const withDeck = write(deckId, "went with the deck");
-    decks.softDelete(USER, deckId);
-    const theirs = write(deckNamed("Theirs", null, OTHER), "theirs", "b", undefined, OTHER);
-    cards.softDelete(OTHER, theirs.id);
-
-    expect(cards.restore(USER, own.id)).toBe("not_found");
-    expect(cards.restore(USER, withDeck.id)).toBe("not_found");
-    expect(cards.restore(USER, theirs.id)).toBe("not_found");
-    expect(cards.restore(USER, "nope")).toBe("not_found");
-    expect(rowOf(own.id)?.deletedAt).not.toBeNull();
-    expect(rowOf(withDeck.id)?.deletedAt).not.toBeNull();
-    expect(rowOf(theirs.id)?.deletedAt).not.toBeNull();
   });
 });
 

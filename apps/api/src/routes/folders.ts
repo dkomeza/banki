@@ -11,7 +11,8 @@ const NAME_TAKEN = apiError("folder_name_taken", "There's already a folder with 
 /**
  * The signed-in User's Folders. `GET /` lists those that aren't deleted, `POST
  * /` creates one, and `GET`, `PATCH` and `DELETE /:id` read, rename or move,
- * and softly delete one with everything inside it. A deleted Folder, an
+ * and softly delete one with everything inside it, a delete answering its
+ * `deletionId`. A deleted Folder, an
  * unknown one and another User's all answer 404 `not_found`, as the Folder or
  * as the destination. A name another Folder beside it has, ignoring case,
  * answers 409 `folder_name_taken` on a create or a rename, and 409
@@ -43,7 +44,8 @@ export function folderRoutes({ folders }: { folders: FolderRepository }) {
       return c.json(updated, 200);
     })
     .delete("/:id", (c) => {
-      if (!folders.softDelete(c.var.user.id, c.req.param("id"))) return c.json(NOT_FOUND, 404);
-      return c.body(null, 204);
+      const deletionId = folders.softDelete(c.var.user.id, c.req.param("id"));
+      if (deletionId === undefined) return c.json(NOT_FOUND, 404);
+      return c.json({ deletionId }, 200);
     });
 }

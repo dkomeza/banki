@@ -461,6 +461,75 @@ describe("a tick", () => {
     expect(deps.records.stageRecords()[0]?.outcome).toBe("done");
   });
 
+  test("posts the ending a supervisor kept and died before posting, its question and all", async () => {
+    const json = {
+      stage: "implement",
+      issue: "BAN-1",
+      outcome: "stopped",
+      nextStatus: "Todo",
+      summary: "Built it; one spec question.",
+      question: "Which way?",
+      options: ["This", "That"],
+    };
+    const issue = fakeIssue("BAN-1", {
+      status: "In Progress",
+      history: [{ at: "2026-10-21T10:00:00.000Z", from: "Todo", to: "In Progress" }],
+    });
+    const { deps, linear } = dispatcher([issue], { alive: false, now: WEDNESDAY });
+    deps.records.saveActive({
+      issue: "BAN-1",
+      kind: "implement",
+      state: "running",
+      pid: 99,
+      runs: [{ startedAt: "2026-10-21T10:00:00.000Z", log: "/x.jsonl", before: reading() }],
+      unposted: { type: "closing", result: parseResult(json), json },
+    });
+
+    await tick(deps);
+
+    expect(linear.calls).toEqual([
+      "BAN-1 comment",
+      "BAN-1 → Todo",
+      "BAN-1 assigned the Maintainer",
+    ]);
+    expect(issue.comments[0]?.body).toContain("**Question:** Which way?");
+    expect(issue.comments[0]?.body).not.toContain("it crashed, or the Runner restarted");
+    expect(deps.records.activeRecords()).toEqual([]);
+    expect(deps.records.stageRecords()[0]?.outcome).toBe("stopped");
+  });
+
+  test("posts a kept crash with the why and the tail its supervisor kept", async () => {
+    const issue = fakeIssue("BAN-1", {
+      status: "In Progress",
+      history: [{ at: "2026-10-21T10:00:00.000Z", from: "In Review", to: "In Progress" }],
+    });
+    const { deps, linear } = dispatcher([issue], { alive: false, now: WEDNESDAY });
+    deps.records.saveActive({
+      issue: "BAN-1",
+      kind: "review-round",
+      state: "running",
+      pid: 99,
+      runs: [{ startedAt: "2026-10-21T10:00:00.000Z", log: "/x.jsonl", before: reading() }],
+      unposted: {
+        type: "crash",
+        outcome: "timed-out",
+        why: "The review-round Stage ran for 3 hours, its limit.",
+        tail: ["say: Fixing the query"],
+      },
+    });
+
+    await tick(deps);
+
+    expect(linear.calls).toEqual([
+      "BAN-1 comment",
+      "BAN-1 → In Review",
+      "BAN-1 assigned the Maintainer",
+    ]);
+    expect(issue.comments[0]?.body).toContain("ran for 3 hours");
+    expect(issue.comments[0]?.body).toContain("say: Fixing the query");
+    expect(deps.records.stageRecords()[0]?.outcome).toBe("timed-out");
+  });
+
   test("gives a record its supervisor hasn't claimed yet 2 minutes before calling it a crash", async () => {
     const issue = fakeIssue("BAN-1", { status: "In Progress" });
     const { deps, linear } = dispatcher([issue], { alive: false, now: WEDNESDAY });

@@ -53,7 +53,13 @@ const findIn = (db: Queryable, userId: string, id: string): Folder | undefined =
 };
 
 /** The live Folder in `place` named `name`, ignoring case, other than `except`. */
-const folderNamed = (db: Queryable, userId: string, place: Place, name: string, except?: string) =>
+export const folderNamed = (
+  db: Queryable,
+  userId: string,
+  place: Place,
+  name: string,
+  except?: string,
+) =>
   db
     .select({ id: folder.id, name: folder.name })
     .from(folder)
@@ -71,14 +77,20 @@ const folderNamed = (db: Queryable, userId: string, place: Place, name: string, 
 /**
  * Deletes the Folder `id` softly, with every Folder, Deck and Card inside it
  * that isn't deleted yet, as one Deletion: the same `deletedAt` and deletion ID on
- * all of them (ADR-0016). Expects to run inside a transaction. False when
- * there is no such Folder.
+ * all of them (ADR-0016). Expects to run inside a transaction. Answers the
+ * deletion ID, or undefined when there is no such Folder.
  */
-export function deleteFolderTree(db: Queryable, userId: string, id: string, now: Date): boolean {
+export function deleteFolderTree(
+  db: Queryable,
+  userId: string,
+  id: string,
+  now: Date,
+  deletionId: string = randomUUID(),
+): string | undefined {
   const tree = liveFolderTree(db, userId);
-  if (!tree.has(id)) return false;
+  if (!tree.has(id)) return undefined;
   const folders = [id, ...foldersInside(tree, id)];
-  const stamp = { deletedAt: now, deletionId: randomUUID(), updatedAt: now };
+  const stamp = { deletedAt: now, deletionId, updatedAt: now };
   db.update(folder)
     .set(stamp)
     .where(and(eq(folder.userId, userId), inArray(folder.id, folders), isNull(folder.deletedAt)))
@@ -90,7 +102,7 @@ export function deleteFolderTree(db: Queryable, userId: string, id: string, now:
   );
   stampCards(db, userId, db.select({ id: deck.id }).from(deck).where(decksInside), stamp);
   db.update(deck).set(stamp).where(decksInside).run();
-  return true;
+  return deletionId;
 }
 
 /**
@@ -204,10 +216,16 @@ export function createFolderRepository(db: Queryable) {
 
     /**
      * Deletes a Folder softly with everything inside it, as one Deletion
-     * (ADR-0016); false when there is no such Folder.
+     * (ADR-0016), and answers its deletion ID; undefined when there is no such
+     * Folder. `deletionId` is for the Seed data and tests.
      */
-    softDelete(userId: string, id: string, now = new Date()): boolean {
-      return db.transaction((tx) => deleteFolderTree(tx, userId, id, now), {
+    softDelete(
+      userId: string,
+      id: string,
+      now = new Date(),
+      deletionId: string = randomUUID(),
+    ): string | undefined {
+      return db.transaction((tx) => deleteFolderTree(tx, userId, id, now, deletionId), {
         behavior: "immediate",
       });
     },

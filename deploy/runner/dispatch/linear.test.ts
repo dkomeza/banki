@@ -123,4 +123,39 @@ describe("the Dispatcher's Linear adapter", () => {
     ]);
     expect(queries[0]).toContain("actor { id }");
   });
+
+  test("says when Linear refuses its token, by status or by GraphQL's error", async () => {
+    const refusals = [
+      { status: 401, body: { errors: [{ message: "Authentication required" }] } },
+      {
+        status: 400,
+        body: {
+          errors: [
+            {
+              message: "Authentication required, not authenticated",
+              extensions: { code: "AUTHENTICATION_ERROR" },
+            },
+          ],
+        },
+      },
+    ];
+    for (const refusal of refusals) {
+      let refused = 0;
+      const client = linear("lin", {
+        fetch: async () => Response.json(refusal.body, { status: refusal.status }),
+        sleep: async () => undefined,
+        onRefused: () => {
+          refused += 1;
+        },
+      });
+
+      const failed = await client.viewer().then(
+        () => "answered",
+        (error: unknown) => String(error),
+      );
+
+      expect(failed).toContain(`HTTP ${refusal.status}`);
+      expect(refused).toBe(1);
+    }
+  });
 });

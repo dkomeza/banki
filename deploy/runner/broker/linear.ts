@@ -88,11 +88,12 @@ export function linearApp(options: { clientId: string; clientSecret: string; fet
 
     /**
      * Revokes a token, or throws, leaving it for the sweep to try again. It
-     * is done on a 2xx, or on a 400 after which the token no longer
-     * authenticates: Linear answers 400 for a token it has revoked already,
-     * but also for a request it can't read, which revokes nothing. The token
-     * goes first as its own Bearer authorization, then, if a 400 leaves it
-     * working, in the form as RFC 7009 has it.
+     * is done on a 2xx, or on a 400 or 401 after which the token no longer
+     * authenticates: Linear answers either for a token it has revoked
+     * already (it revokes some under their holder, seemingly when two mints
+     * come at the same moment), but a 400 also for a request it can't read,
+     * which revokes nothing. The token goes first as its own Bearer authorization, then, if
+     * a refusal leaves it working, in the form as RFC 7009 has it.
      */
     async revoke(token: string): Promise<void> {
       const attempts = [
@@ -105,7 +106,7 @@ export function linearApp(options: { clientId: string; clientSecret: string; fet
         const text = await res.text();
         if (res.ok) return;
         refused = `Linear POST /oauth/revoke: HTTP ${res.status}${reason(text)}`;
-        if (res.status !== 400) throw new Error(refused);
+        if (res.status !== 400 && res.status !== 401) throw new Error(refused);
         const works = await stillWorks(token);
         if (works === false) return;
         if (works === undefined) {

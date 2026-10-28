@@ -39,7 +39,17 @@ export {
   FolderResponse,
   UpdateFolderRequest,
 } from "./folders";
+export {
+  DeleteResponse,
+  DELETION_KEPT_MS,
+  DeletionKind,
+  DeletionListResponse,
+  DeletionResponse,
+  PlaceDeletedError,
+  RestoreResponse,
+} from "./deletions";
 export { ApiError } from "./error";
+export { frontKey } from "./front-key";
 export { HealthResponse } from "./health";
 export {
   DEFAULT_MODEL_ID,

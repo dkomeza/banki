@@ -20,6 +20,15 @@ const { boot, dataDir } = bootApps();
 const records = captureLogs();
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const HTTPS_ORIGIN = "https://banki.example.com";
+
+/** A browser only keeps a `__Host-` cookie that is Secure, has `Path=/` and has no `Domain`. */
+const expectHostCookie = (cookie: string | undefined) => {
+  expect(cookie).toStartWith("__Host-better-auth.session_token=");
+  expect(cookie).toContain("; Secure");
+  expect(cookie).toContain("; Path=/");
+  expect(cookie?.toLowerCase()).not.toContain("domain=");
+};
 
 const warnings = () =>
   records
@@ -133,28 +142,51 @@ describe("signing in", () => {
     expect((await signIn(app, { headers: { origin: ORIGIN } })).status).toBe(200);
   });
 
-  test.each([
-    ["http://localhost:5173", false],
-    ["https://banki.example.com", true],
-  ])("with ORIGIN %s sets a Secure cookie: %p", async (origin, secure) => {
-    const app = await setUpApp({ origin });
+  test("with an https ORIGIN sets one __Host- cookie: Secure, Path=/ and no Domain", async () => {
+    const app = await setUpApp({ origin: HTTPS_ORIGIN });
 
-    const [cookie, ...others] = (await signIn(app, { headers: { origin } })).headers.getSetCookie();
+    const res = await signIn(app, { headers: { origin: HTTPS_ORIGIN } });
+    const [cookie, ...others] = res.headers.getSetCookie();
 
     expect(others).toEqual([]);
-    expect(cookie?.includes("; Secure")).toBe(secure);
-    expect(cookie?.startsWith("__Secure-")).toBe(secure);
+    expectHostCookie(cookie);
+    expect((await get(app, "/api/me", cookiesFrom(res))).status).toBe(200);
   });
 
-  test("keeps the browser signed in for 30 days", async () => {
-    const app = await setUpApp();
+  test("with an http ORIGIN sets a cookie with no prefix and no Secure", async () => {
+    const app = await setUpApp({ origin: ORIGIN });
 
-    const [cookie] = (await signIn(app)).headers.getSetCookie();
+    const res = await signIn(app);
+    const [cookie, ...others] = res.headers.getSetCookie();
 
-    expect(cookie).toContain("Max-Age=2592000");
-    expect(cookie).toContain("HttpOnly");
-    expect(cookie).toContain("SameSite=Lax");
+    expect(others).toEqual([]);
+    expect(cookie).toStartWith("better-auth.session_token=");
+    expect(cookie).not.toContain("; Secure");
+    expect((await get(app, "/api/me", cookiesFrom(res))).status).toBe(200);
   });
+
+  test("with an https ORIGIN ignores a valid token under the old __Secure- name", async () => {
+    const app = await setUpApp({ origin: HTTPS_ORIGIN });
+    const cookie = cookiesFrom(await signIn(app, { headers: { origin: HTTPS_ORIGIN } }));
+
+    const old = cookie.replace(/^__Host-/, "__Secure-");
+
+    expect(old).toStartWith("__Secure-better-auth.session_token=");
+    expect((await get(app, "/api/me", old)).status).toBe(401);
+  });
+
+  test.each([ORIGIN, HTTPS_ORIGIN])(
+    "with ORIGIN %s keeps the browser signed in for 30 days",
+    async (origin) => {
+      const app = await setUpApp({ origin });
+
+      const [cookie] = (await signIn(app, { headers: { origin } })).headers.getSetCookie();
+
+      expect(cookie).toContain("Max-Age=2592000");
+      expect(cookie).toContain("HttpOnly");
+      expect(cookie).toContain("SameSite=Lax");
+    },
+  );
 });
 
 /** Moves every auth session's last refresh `ageMs` into the past. */
@@ -186,6 +218,28 @@ describe("staying signed in", () => {
     expect(res.status).toBe(200);
     expect(expiry()).toBeGreaterThan(Date.now() + 30 * DAY_MS - 60_000);
     expect(res.headers.getSetCookie()).toContainEqual(expect.stringContaining("Max-Age=2592000"));
+  });
+
+  test("with an https ORIGIN, Setup's cookie and the slid-forward one are __Host- too", async () => {
+    const booted = boot({ origin: HTTPS_ORIGIN });
+    const setupRes = await post(booted.app, "/api/setup", {
+      token: booted.setupToken?.value,
+      email: EMAIL,
+      password: PASSWORD,
+    });
+    const [setupCookie, ...others] = setupRes.headers.getSetCookie();
+    expect(others).toEqual([]);
+    expectHostCookie(setupCookie);
+    ageAuthSessions(2 * DAY_MS);
+
+    const res = await get(booted.app, "/api/me", cookiesFrom(setupRes));
+
+    expect(res.status).toBe(200);
+    const [slid, ...more] = res.headers.getSetCookie();
+    expect(more).toEqual([]);
+    expectHostCookie(slid);
+    expect(slid).toContain("Max-Age=2592000");
+    expect((await get(booted.app, "/api/me", cookiesFrom(res))).status).toBe(200);
   });
 
   test("using Banki within a day of the last refresh leaves the expiry alone", async () => {

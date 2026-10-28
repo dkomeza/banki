@@ -42,6 +42,7 @@ describe("leafRoutes", () => {
       "/cards/$cardId",
       "/decks/$deckId",
       "/decks/$deckId/cards/new",
+      "/deleted",
       "/folders/$folderId",
       "/login",
       "/settings",

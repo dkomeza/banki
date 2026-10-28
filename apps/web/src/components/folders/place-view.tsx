@@ -9,6 +9,7 @@ import { CornerDownRight, FolderPlus, Pencil, Plus, Trash2 } from "lucide-react"
 import { type ReactNode, useState } from "react";
 import { DeckDialog } from "@/components/decks/deck-dialog";
 import { DeckTile } from "@/components/decks/deck-tile";
+import { RecentlyDeletedLink } from "@/components/deleted/recently-deleted-link";
 import { Page } from "@/components/page";
 import { OUTLINE_PILL, PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
@@ -165,6 +166,7 @@ export function PlaceView({ folder }: { folder: Folder | null }) {
             )}
           </>
         )}
+        {folder === null && <RecentlyDeletedLink />}
       </div>
 
       <NameDialog

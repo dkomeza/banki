@@ -132,6 +132,7 @@ export function fakeGitHub(review: Partial<ReviewFacts> = {}): GitHub {
       summary: null,
       openThreads: 0,
       preview: null,
+      mergeable: true,
       ...review,
     }),
     slugDeployments: async () => [],

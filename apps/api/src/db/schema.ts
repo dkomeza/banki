@@ -75,6 +75,8 @@ export const folder = sqliteTable(
       .where(sql`${table.deletedAt} IS NULL`),
     index("folder_user_id").on(table.userId),
     index("folder_parent_id").on(table.parentId),
+    index("folder_deletion_id").on(table.deletionId),
+    index("folder_deleted_at").on(table.deletedAt),
   ],
 );
 
@@ -110,6 +112,8 @@ export const deck = sqliteTable(
       .where(sql`${table.deletedAt} IS NULL`),
     index("deck_user_id").on(table.userId),
     index("deck_folder_id").on(table.folderId),
+    index("deck_deletion_id").on(table.deletionId),
+    index("deck_deleted_at").on(table.deletedAt),
   ],
 );
 
@@ -137,5 +141,10 @@ export const card = sqliteTable(
     /** The Deletion it went with (ADR-0016); null while live. */
     deletionId: text("deletion_id"),
   },
-  (table) => [index("card_user_id").on(table.userId), index("card_deck_id").on(table.deckId)],
+  (table) => [
+    index("card_user_id").on(table.userId),
+    index("card_deck_id").on(table.deckId),
+    index("card_deletion_id").on(table.deletionId),
+    index("card_deleted_at").on(table.deletedAt),
+  ],
 );

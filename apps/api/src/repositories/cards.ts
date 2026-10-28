@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { CardResponse, CreateCardRequest, UpdateCardRequest } from "@banki/shared";
-import { type SQLWrapper, and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { type SQLWrapper, and, desc, eq, inArray, isNull } from "drizzle-orm";
 import type { z } from "zod";
 import type { Queryable } from "../db/database";
 import { card, deck } from "../db/schema";
@@ -49,8 +49,8 @@ const liveDeck = (userId: string, id: string) =>
 const isLiveDeck = (db: Queryable, userId: string, id: string) =>
   db.select({ id: deck.id }).from(deck).where(liveDeck(userId, id)).get() !== undefined;
 
-/** The User's Card `id` in a live Deck, live itself or, with `deleted`, deleted. */
-const findIn = (db: Queryable, userId: string, id: string, deleted = false): Card | undefined => {
+/** The User's live Card `id` in a live Deck. */
+const findIn = (db: Queryable, userId: string, id: string): Card | undefined => {
   const row = db
     .select(COLUMNS)
     .from(card)
@@ -59,7 +59,7 @@ const findIn = (db: Queryable, userId: string, id: string, deleted = false): Car
       and(
         eq(card.userId, userId),
         eq(card.id, id),
-        deleted ? isNotNull(card.deletedAt) : isNull(card.deletedAt),
+        isNull(card.deletedAt),
         eq(deck.userId, userId),
         isNull(deck.deletedAt),
       ),
@@ -155,39 +155,23 @@ export function createCardRepository(db: Queryable) {
 
     /**
      * Deletes a Card softly, as a Deletion of its own: `deletedAt` and a
-     * deletion ID of its own (ADR-0016). False when there is no such Card.
+     * deletion ID of its own (ADR-0016), answered. Undefined when there is no
+     * such Card. `deletionId` is for the Seed data and tests.
      */
-    softDelete(userId: string, id: string, now = new Date()): boolean {
+    softDelete(
+      userId: string,
+      id: string,
+      now = new Date(),
+      deletionId: string = randomUUID(),
+    ): string | undefined {
       return db.transaction(
         (tx) => {
-          if (findIn(tx, userId, id) === undefined) return false;
+          if (findIn(tx, userId, id) === undefined) return undefined;
           tx.update(card)
-            .set({ deletedAt: now, deletionId: randomUUID(), updatedAt: now })
+            .set({ deletedAt: now, deletionId, updatedAt: now })
             .where(and(eq(card.userId, userId), eq(card.id, id)))
             .run();
-          return true;
-        },
-        { behavior: "immediate" },
-      );
-    },
-
-    /**
-     * Undoes a Card's delete, while its Deck is live, and answers the Card; a
-     * live Card is answered as it is. "not_found" for no such Card, or one
-     * whose Deck is deleted, which also covers a Card that went with its Deck
-     * or Folder: that comes back only with them.
-     */
-    restore(userId: string, id: string, now = new Date()): Card | "not_found" {
-      return db.transaction(
-        (tx) => {
-          const live = findIn(tx, userId, id);
-          if (live !== undefined) return live;
-          if (findIn(tx, userId, id, true) === undefined) return "not_found";
-          tx.update(card)
-            .set({ deletedAt: null, deletionId: null, updatedAt: now })
-            .where(and(eq(card.userId, userId), eq(card.id, id)))
-            .run();
-          return findIn(tx, userId, id) ?? "not_found";
+          return deletionId;
         },
         { behavior: "immediate" },
       );

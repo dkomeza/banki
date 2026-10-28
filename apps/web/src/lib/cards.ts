@@ -1,7 +1,8 @@
-import { CARD_SIDE_MAX_LENGTH, CardListResponse, CardResponse } from "@banki/shared";
+import { CARD_SIDE_MAX_LENGTH, CardListResponse, CardResponse, frontKey } from "@banki/shared";
 import { type QueryClient, queryOptions } from "@tanstack/react-query";
 import { type ApiClient, api } from "./api";
 import { CANT_REACH, deckQueryOptions, decksQueryOptions } from "./decks";
+import { deletionIdOf, deletionsQueryOptions } from "./deletions";
 import { ApiRequestError } from "./query";
 
 export type Card = CardResponse;
@@ -38,6 +39,30 @@ export type Sides = { front: string; back: string };
 
 /** What each side's field says is wrong with it. */
 export type SideErrors = { front?: string; back?: string };
+
+/** Each Card's Front key, worked out once per Card the cache holds. */
+const frontKeys = new WeakMap<Card, string>();
+const keyOf = (card: Card) => {
+  let key = frontKeys.get(card);
+  if (key === undefined) {
+    key = frontKey(card.front);
+    frontKeys.set(card, key);
+  }
+  return key;
+};
+
+/**
+ * The Cards of `cards`, a Deck's live Cards, that a Card with `front` would be
+ * a Duplicate of, newest first. The Card `selfId` names, the one being edited,
+ * never matches itself, and a Front with an empty key matches nothing.
+ */
+export function duplicatesOf(front: string, cards: readonly Card[], selfId?: string): Card[] {
+  const key = frontKey(front);
+  if (key === "") return [];
+  return cards
+    .filter((card) => card.id !== selfId && keyOf(card) === key)
+    .toSorted((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0));
+}
 
 /** What's wrong with a side, if anything, before it is sent; `name` is "Front" or "Back". */
 export function sideProblem(side: string, name: "Front" | "Back"): string | undefined {
@@ -136,7 +161,8 @@ export async function updateCard(
 
 /**
  * Deletes a Card with `DELETE /api/cards/:id`, taking it out of its Deck's
- * list at once. A Card that is gone already counts as deleted. Answers a
+ * list at once, and answers its Deletion's ID for Undo. A Card that is gone
+ * already counts as deleted, with no Deletion to undo. Answers a
  * message when it couldn't be deleted, putting it back in the list. The Card's
  * own cache entry stays until {@link forgetCard}, so its edit page doesn't turn
  * into "Card not found" before it is left.
@@ -145,7 +171,7 @@ export async function deleteCard(
   queryClient: QueryClient,
   card: Card,
   client: ApiClient = api,
-): Promise<{ ok: true } | { ok: false; message: string }> {
+): Promise<{ ok: true; deletionId?: string } | { ok: false; message: string }> {
   const listKey = cardsQueryOptions(card.deckId).queryKey;
   queryClient.setQueryData(listKey, (cards) => cards?.filter((c) => c.id !== card.id));
   let res: Response | undefined;
@@ -161,41 +187,17 @@ export async function deleteCard(
       message: res === undefined ? CANT_REACH : "Banki couldn't delete the card. Try again.",
     };
   }
-  await refreshDeck(queryClient, card.deckId);
-  return { ok: true };
+  const deletionId = await deletionIdOf(res);
+  await Promise.all([
+    refreshDeck(queryClient, card.deckId),
+    queryClient.invalidateQueries({ queryKey: deletionsQueryOptions().queryKey }),
+  ]);
+  return { ok: true, deletionId };
 }
 
 /** Drops a deleted Card's own cache entry. */
 export function forgetCard(queryClient: QueryClient, id: string) {
   queryClient.removeQueries({ queryKey: cardQueryOptions(id).queryKey, exact: true });
-}
-
-/**
- * Undoes a Card's delete with `POST /api/cards/:id/restore`, putting it back
- * in its Deck's list. Answers a message when it couldn't, such as when its
- * Deck was deleted meanwhile.
- */
-export async function restoreCard(
-  queryClient: QueryClient,
-  card: Card,
-  client: ApiClient = api,
-): Promise<{ ok: true } | { ok: false; message: string }> {
-  let res: Response;
-  try {
-    res = await client.api.cards[":id"].restore.$post({ param: { id: card.id } });
-  } catch {
-    return { ok: false, message: CANT_REACH };
-  }
-  if (res.status === 404) {
-    return { ok: false, message: "Couldn't undo: the card's deck was deleted." };
-  }
-  if (!res.ok) return { ok: false, message: "Banki couldn't bring the card back. Try again." };
-  queryClient.setQueryData(
-    cardQueryOptions(card.id).queryKey,
-    CardResponse.parse(await res.json()),
-  );
-  await refreshDeck(queryClient, card.deckId);
-  return { ok: true };
 }
 
 /** "12 cards", "1 card", "No cards". */

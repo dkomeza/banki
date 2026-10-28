@@ -103,8 +103,8 @@ export const STREAM_BUFFER_BYTES = 64 << 10;
  * waits until the client has read enough, so a big log or a slow client
  * never piles up in memory, and a ping goes out only when nothing waits to
  * be read. A producer that fails, such as on a log deleted under it, is
- * logged, its client told the stream has ended, and the stream closed:
- * never the process's end.
+ * logged, its client told the stream failed (`failed`, never the run's
+ * `end`), and the stream closed: never the process's end.
  */
 function sse(
   request: Request,
@@ -163,7 +163,9 @@ function sse(
             await produce(send, open);
           } catch (error) {
             options.log(`${new URL(request.url).pathname} failed: ${errorText(error)}`);
-            enqueue(sseMessage("end", "the stream failed"));
+            // Its own event, not the run's end: a page reloads on `end`, so
+            // a stream that fails again and again would reload it in a loop.
+            enqueue(sseMessage("failed", "the stream failed"));
           } finally {
             stop();
           }
@@ -244,7 +246,7 @@ export function handler(deps: ServerDeps): (request: Request) => Promise<Respons
           issue,
           file,
           lines: shownLines(file, tail.lines),
-          skipped: tail.skipped,
+          leftOutBytes: tail.leftOutBytes,
           offset: tail.end,
           running: isRunning,
           attempt: attemptOf(timeline(data), issue, file),

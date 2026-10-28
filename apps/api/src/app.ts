@@ -14,6 +14,7 @@ import { type PublicRoutes, requireSignedIn } from "./http/require-signed-in";
 import type { OpenRouterFetch } from "./openrouter/check-api-key";
 import { createCardRepository } from "./repositories/cards";
 import { createDeckRepository } from "./repositories/decks";
+import { createDeletionRepository } from "./repositories/deletions";
 import { createHealthRepository } from "./repositories/health";
 import { createFolderRepository } from "./repositories/folders";
 import { createSettingsRepository } from "./repositories/settings";
@@ -21,6 +22,7 @@ import { createUserRepository } from "./repositories/user";
 import { authRoutes } from "./routes/auth";
 import { cardRoutes, deckCardRoutes } from "./routes/cards";
 import { deckRoutes } from "./routes/decks";
+import { deletionRoutes } from "./routes/deletions";
 import { folderRoutes } from "./routes/folders";
 import { healthRoutes } from "./routes/health";
 import { meRoutes } from "./routes/me";
@@ -84,6 +86,7 @@ export function createApp(
   const decks = createDeckRepository(database.db);
   const folders = createFolderRepository(database.db);
   const cards = createCardRepository(database.db);
+  const deletions = createDeletionRepository(database.db);
   const auth = createAuth({ db: database.db, config, secret });
   const setupToken: SetupToken | undefined = users.exists() ? undefined : createSetupToken();
 
@@ -108,11 +111,19 @@ export function createApp(
     .route("/api/decks", deckRoutes({ decks }))
     .route("/api/decks", deckCardRoutes({ cards }))
     .route("/api/cards", cardRoutes({ cards }))
-    .route("/api/folders", folderRoutes({ folders }));
+    .route("/api/folders", folderRoutes({ folders }))
+    .route("/api/deletions", deletionRoutes({ deletions }));
   app.notFound(notFound);
   app.onError(internalError);
 
-  return { app, appliedMigrations, setupToken, close: database.close };
+  return {
+    app,
+    appliedMigrations,
+    setupToken,
+    /** Removes every Deletion 30 days old or older; the server runs it at start and hourly. */
+    removeExpiredDeletions: (now?: Date) => deletions.removeExpired(now),
+    close: database.close,
+  };
 }
 
 /** The API's routes, for the web app's typed `hc` client. */

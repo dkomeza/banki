@@ -1014,6 +1014,25 @@ describe("Pangolin resources", () => {
     expect(ownedResources(resources, SITE).map((owned) => owned.resourceId)).toEqual([2]);
     expect(ownedSlugResources(resources, SITE).map((owned) => owned.resourceId)).toEqual([1]);
   });
+
+  test("neither pool ever owns Edge's or Production's resource, on any site or none", () => {
+    // `preview` is a reserved Slug, and the bare domain is no Slug: the
+    // Long-lived installations' resources are made by hand (ADR-0017), and the
+    // org API key could reach them, so only this code keeps the agent off them.
+    const hosts = ["preview.banki.dkomeza.com", "banki.dkomeza.com"];
+    const names = ["Banki Edge", "Banki Production", "banki-slug-preview", "banki-slug-banki"];
+    const resources = hosts
+      .flatMap((fullDomain) =>
+        [[SITE], [OTHER_SITE], [OTHER_SITE, SITE], []].flatMap((siteIds) =>
+          names.map((name) => resource(0, fullDomain, siteIds, { name })),
+        ),
+      )
+      .map((each, index) => ({ ...each, resourceId: index + 1 }));
+
+    expect(ownedResources(resources, SITE)).toEqual([]);
+    expect(ownedSlugResources(resources, SITE)).toEqual([]);
+    expect(planSlugs(input({ resources }))).toEqual([]);
+  });
 });
 
 describe("the images to look up", () => {

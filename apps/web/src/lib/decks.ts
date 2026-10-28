@@ -8,6 +8,7 @@ import {
 } from "@banki/shared";
 import { type QueryClient, queryOptions } from "@tanstack/react-query";
 import { type ApiClient, api } from "./api";
+import { deletionIdOf, deletionsQueryOptions } from "./deletions";
 import { ApiRequestError } from "./query";
 
 export type Deck = DeckResponse;
@@ -122,8 +123,9 @@ export async function updateDeck(
 }
 
 /**
- * Deletes a Deck with `DELETE /api/decks/:id`. A Deck that is gone already
- * counts as deleted. Answers a message when it couldn't be deleted. The Deck's own
+ * Deletes a Deck with `DELETE /api/decks/:id`, answering its Deletion's ID for
+ * Undo. A Deck that is gone already counts as deleted, with no Deletion to
+ * undo. Answers a message when it couldn't be deleted. The Deck's own
  * cache entry stays until {@link forgetDeck}, so its page doesn't turn into
  * "Deck not found" before it is left.
  */
@@ -131,7 +133,7 @@ export async function deleteDeck(
   queryClient: QueryClient,
   id: string,
   client: ApiClient = api,
-): Promise<{ ok: true } | { ok: false; message: string }> {
+): Promise<{ ok: true; deletionId?: string } | { ok: false; message: string }> {
   let res: Response;
   try {
     res = await client.api.decks[":id"].$delete({ param: { id } });
@@ -141,11 +143,15 @@ export async function deleteDeck(
   if (!res.ok && res.status !== 404) {
     return { ok: false, message: "Banki couldn't delete the deck. Try again." };
   }
+  const deletionId = await deletionIdOf(res);
   queryClient.setQueryData(decksQueryOptions().queryKey, (decks) =>
     decks?.filter((deck) => deck.id !== id),
   );
-  await queryClient.invalidateQueries({ queryKey: decksQueryOptions().queryKey, exact: true });
-  return { ok: true };
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: decksQueryOptions().queryKey, exact: true }),
+    queryClient.invalidateQueries({ queryKey: deletionsQueryOptions().queryKey }),
+  ]);
+  return { ok: true, deletionId };
 }
 
 /** How Home and every Folder's page sort their Folders and their Decks. */

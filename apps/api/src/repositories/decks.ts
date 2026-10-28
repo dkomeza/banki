@@ -57,7 +57,13 @@ const findIn = (db: Queryable, userId: string, id: string): Deck | undefined => 
 };
 
 /** The live Deck in `place` named `name`, ignoring case, other than `except`. */
-const deckNamed = (db: Queryable, userId: string, place: Place, name: string, except?: string) =>
+export const deckNamed = (
+  db: Queryable,
+  userId: string,
+  place: Place,
+  name: string,
+  except?: string,
+) =>
   db
     .select({ id: deck.id, name: deck.name })
     .from(deck)
@@ -74,15 +80,22 @@ const deckNamed = (db: Queryable, userId: string, place: Place, name: string, ex
 
 /**
  * Deletes the Deck `id` softly with its live Cards, as a Deletion of its own
- * (ADR-0016). Expects to run inside a transaction. False when there is no
- * such Deck.
+ * (ADR-0016). Expects to run inside a transaction. Answers the deletion ID,
+ * or undefined when there is no such Deck.
  */
-const deleteDeck = (db: Queryable, userId: string, id: string, now: Date) => {
-  const stamp = { deletedAt: now, deletionId: randomUUID(), updatedAt: now };
+const deleteDeck = (
+  db: Queryable,
+  userId: string,
+  id: string,
+  now: Date,
+  deletionId: string = randomUUID(),
+): string | undefined => {
+  const stamp = { deletedAt: now, deletionId, updatedAt: now };
   const deleted =
     db.update(deck).set(stamp).where(live(userId, id)).returning({ id: deck.id }).all().length > 0;
-  if (deleted) stampCards(db, userId, [id], stamp);
-  return deleted;
+  if (!deleted) return undefined;
+  stampCards(db, userId, [id], stamp);
+  return deletionId;
 };
 
 /**
@@ -193,11 +206,19 @@ export function createDeckRepository(db: Queryable) {
 
     /**
      * Deletes a Deck softly with its live Cards, setting `deletedAt` and a
-     * deletion ID of its own on all of them (ADR-0016); false when there is no
-     * such Deck.
+     * deletion ID of its own on all of them (ADR-0016), and answers it;
+     * undefined when there is no such Deck. `deletionId` is for the Seed data
+     * and tests.
      */
-    softDelete(userId: string, id: string, now = new Date()): boolean {
-      return db.transaction((tx) => deleteDeck(tx, userId, id, now), { behavior: "immediate" });
+    softDelete(
+      userId: string,
+      id: string,
+      now = new Date(),
+      deletionId: string = randomUUID(),
+    ): string | undefined {
+      return db.transaction((tx) => deleteDeck(tx, userId, id, now, deletionId), {
+        behavior: "immediate",
+      });
     },
 
     /** Whether the User has any Deck at all, deleted ones too. */

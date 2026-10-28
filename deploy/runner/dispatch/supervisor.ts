@@ -3,20 +3,12 @@ import type { StageKind } from "../cli/args";
 import type { Broker } from "../cli/broker-client";
 import type { StageOptions, StageRun } from "../cli/stage";
 import { errorText } from "../lib/config";
-import { closingComment, MAINTAINER } from "./closing";
 import type { Reading } from "./gate";
-import {
-  type ActiveRecord,
-  type Ending,
-  ending,
-  type Outcome,
-  type RunRecord,
-  timeLeft,
-} from "./lifecycle";
+import { type ActiveRecord, type Ending, ending, type RunRecord, timeLeft } from "./lifecycle";
 import { type Linear, type LinearIssue, moveTo } from "./linear";
 import { RUNS_IN, STATUS } from "./select";
 import { redactTokens } from "./secrets";
-import { logFacts } from "./stage-log";
+import { logFacts, logTail } from "./stage-log";
 import { openSession, type SessionDeps } from "./session";
 import type { Store } from "./store";
 
@@ -29,8 +21,10 @@ import type { Store } from "./store";
 // the reading after, records the run, and then either pauses the Stage (the
 // five-hour limit cut it short), or posts its closing comment and sets the
 // next status from its result, or stops on the Maintainer after a timeout or
-// a Stage that left no result. Headless, the Stage itself leaves Linear's
-// statuses, assignees and comments to this.
+// a Stage that left no result. How it ended is kept on its record first, and
+// posted on a fresh Linear token each try, so a token Linear revoked under it
+// never loses it. Headless, the Stage itself leaves Linear's statuses,
+// assignees and comments to this.
 
 export type SupervisorDeps = SessionDeps & {
   records: Store;
@@ -39,8 +33,12 @@ export type SupervisorDeps = SessionDeps & {
   executeStage: (kind: StageKind, issue: string, options: StageOptions) => Promise<StageRun>;
   redact: (text: string) => string;
   now: () => Date;
+  sleep: (ms: number) => Promise<unknown>;
   pid: number;
 };
+
+/** How long to wait before each retry of posting how a Stage ended, each on a token of its own. */
+export const CLOSE_RETRIES_MS = [5_000, 30_000, 120_000];
 
 export type SuperviseOptions = { log: string; resume: boolean };
 
@@ -85,7 +83,7 @@ export async function supervise(
       if (why !== undefined) return why;
       if (!options.resume) await moveTo(linear, found, STATUS.inProgress);
       // The branch's tip as the Stage first starts, from GitHub, not the Stage.
-      record.headBefore ??= await tipOf(session, found, say);
+      record.headBefore ??= await session.tipOf(found, say);
       return undefined;
     });
     if (unfit !== undefined) {
@@ -179,56 +177,56 @@ export async function supervise(
     }
   }
 
-  // A crash's tail never shows the Linear token the Stage was given.
+  // Kept before anything is posted: a supervisor that dies in Linear leaves
+  // it for the next tick to post. A crash's tail never shows the Linear token
+  // the Stage was given.
   const redact = (text: string) => redactTokens(deps.redact(text), run.tokens ?? []);
-  const outcome = await withLinear(deps, async (linear, session): Promise<Outcome> => {
-    const found = await linear.issue(issue);
-    if (found === undefined) throw new Error(`Linear has no issue ${issue}`);
-    if (end.type === "closing") {
-      // The branch's real tip, and whether it moved, over what the Stage wrote.
-      const headAfter = await tipOf(session, found, say);
-      const pushed =
-        record.headBefore !== undefined && headAfter !== undefined
-          ? record.headBefore !== headAfter
-          : end.result.pushed;
-      const headSha = headAfter ?? end.result.headSha;
-      const result = { ...end.result, headSha, pushed };
-      await linear.comment(found.id, closingComment(result, { ...end.json, headSha, pushed }));
-      const assignee = result.outcome === "stopped" ? MAINTAINER.linearId : undefined;
-      if (found.status === STATUS.inProgress && result.nextStatus !== found.status) {
-        await moveTo(linear, found, result.nextStatus, assignee);
-      } else if (assignee !== undefined) {
-        await linear.update(found.id, { assigneeId: assignee });
+  record.unposted =
+    end.type === "closing"
+      ? end
+      : {
+          type: "crash",
+          outcome: end.type === "paused" ? "no-result" : end.outcome,
+          why:
+            end.type === "paused"
+              ? "The five-hour limit cut the Stage short, and its log has no session to resume."
+              : end.why,
+          tail: logTail(lines).map(redact),
+        };
+  deps.records.saveActive(record);
+
+  const unposted = record.unposted;
+  for (const wait of [...CLOSE_RETRIES_MS, undefined]) {
+    try {
+      // A session of its own each time: a token Linear revoked under it is never tried twice.
+      const outcome = await withLinear(deps, (_linear, session) =>
+        session.close(record, unposted, say),
+      );
+      say(
+        unposted.type === "closing"
+          ? `The Stage ended ${outcome}; ${issue} is ${unposted.result.nextStatus}`
+          : `The Stage stopped on the Maintainer: ${unposted.why}`,
+      );
+      deps.records.finish({
+        issue,
+        kind,
+        outcome,
+        endedAt: deps.now().toISOString(),
+        runs: record.runs,
+      });
+      return 0;
+    } catch (error) {
+      if (wait === undefined) {
+        say(`Couldn't post how the Stage ended, so the next tick posts it: ${errorText(error)}`);
+        return 1;
       }
-      if (assignee === undefined) {
-        // A PR the Stage opened got the issue assigned to the Runner app; one
-        // linked after this read, or a release that fails, is the next tick's.
-        try {
-          const fresh = await linear.issue(issue);
-          if (fresh !== undefined) await session.release(fresh);
-        } catch (error) {
-          say(`Couldn't undo the Runner app's assignment of ${issue}: ${errorText(error)}`);
-        }
-      }
-      say(`The Stage ended ${result.outcome}; ${issue} is ${result.nextStatus}`);
-      return result.outcome;
+      say(
+        `Couldn't post how the Stage ended, trying again in ${wait / 1_000} seconds: ${errorText(error)}`,
+      );
+      await deps.sleep(wait);
     }
-    const why =
-      end.type === "paused"
-        ? "The five-hour limit cut the Stage short, and its log has no session to resume."
-        : end.why;
-    await session.crashed(record, why, redact);
-    say(`The Stage stopped on the Maintainer: ${why}`);
-    return end.type === "paused" ? "no-result" : end.outcome;
-  });
-  deps.records.finish({
-    issue,
-    kind,
-    outcome,
-    endedAt: deps.now().toISOString(),
-    runs: record.runs,
-  });
-  return 0;
+  }
+  return 1;
 }
 
 /**
@@ -245,20 +243,6 @@ function unfitToStart(
   const from = resume ? STATUS.inProgress : RUNS_IN[kind];
   if (found.status !== from) return `the issue is ${found.status} now, not ${from}`;
   return undefined;
-}
-
-/** The tip of the issue's branch on origin, or undefined when GitHub can't say. */
-async function tipOf(
-  session: Awaited<ReturnType<typeof openSession>>,
-  issue: LinearIssue,
-  say: (line: string) => void,
-): Promise<string | undefined> {
-  try {
-    return await session.github.branchHead(await session.branchOf(issue));
-  } catch (error) {
-    say(`Couldn't read the tip of ${issue.identifier}'s branch from GitHub: ${errorText(error)}`);
-    return undefined;
-  }
 }
 
 /** The active record the tick wrote just before starting this supervisor. */
