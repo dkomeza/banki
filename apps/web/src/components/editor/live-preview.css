@@ -132,8 +132,8 @@
 
 /* The popover */
 .cm-tooltip:has(> .cm-lp-popover) {
-  border: none;
-  background: transparent;
+  border: none !important;
+  background: transparent !important;
   z-index: 30;
 }
 .cm-lp-popover {
