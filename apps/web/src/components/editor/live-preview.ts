@@ -658,7 +658,7 @@ class TableGrid {
           focusTracker,
           decorationField(false),
           popoverField,
-          tooltips({ position: "absolute" }),
+          tooltips({ position: "absolute", parent: document.body }),
           EditorView.contentAttributes.of({
             spellcheck: "true",
             "aria-label": r === 0 ? `Header ${c + 1}` : `Row ${r}, column ${c + 1}`,
@@ -1054,7 +1054,7 @@ export function livePreview({
     focusTracker,
     decorationField(true),
     popoverField,
-    tooltips({ position: "absolute" }),
+    tooltips({ position: "absolute", parent: document.body }),
     formulaClicks,
     closeBrackets(),
     indentUnit.of("    "),

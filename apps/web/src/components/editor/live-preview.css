@@ -12,12 +12,21 @@
 .live-editor .cm-editor.cm-focused {
   outline: none;
 }
+.live-editor,
+.live-editor .cm-editor {
+  min-width: 0;
+  max-width: 100%;
+}
 .live-editor .cm-scroller {
+  min-width: 0;
   font-family: inherit;
   line-height: inherit;
   overflow: visible;
 }
 .live-editor .cm-content {
+  min-width: 0;
+  flex-shrink: 1;
+  width: 100%;
   padding: 0;
   caret-color: var(--primary);
 }
@@ -122,8 +131,7 @@
 }
 
 /* The popover */
-.cm-tooltip.cm-lp-tooltip,
-.live-editor .cm-tooltip {
+.cm-tooltip:has(> .cm-lp-popover) {
   border: none;
   background: transparent;
   z-index: 30;
@@ -161,6 +169,7 @@
   max-width: 100%;
 }
 .cm-lp-table-scroll {
+  width: 100%;
   max-width: 100%;
   overflow-x: auto;
 }

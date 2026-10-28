@@ -74,8 +74,8 @@ export const protoFocus: {
   table?: { r: number; c: number; offset?: number; menu?: boolean; claimed?: boolean };
 } = {};
 
-if (protoState === "table") protoFocus.table = { r: 3, c: 1, offset: 6 };
-if (protoState === "table-menu") protoFocus.table = { r: 2, c: 1, menu: true };
+if (protoState === "table") protoFocus.table = { r: 2, c: 1, offset: 6 };
+if (protoState === "table-menu") protoFocus.table = { r: 1, c: 1, menu: true };
 
 /** The sides the state starts with, and which side has the cursor where. */
 export function protoSides():
