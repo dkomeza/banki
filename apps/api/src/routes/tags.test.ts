@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { CardResponse, DeckResponse, TagListResponse } from "@banki/shared";
+import { CardResponse, DeckResponse, DeleteResponse, TagListResponse } from "@banki/shared";
 import { type App, bootApps, codeOf, get, send, setUp } from "../testing/app";
 
 const { boot } = bootApps();
@@ -145,7 +145,7 @@ describe("GET /api/tags", () => {
     const deleted = await createCard(app, cookie, deckId, ["noun", "verb"]);
 
     const res = await send(app, "DELETE", `/api/cards/${deleted.id}`, undefined, cookie);
-    const { deletionId } = (await res.json()) as { deletionId: string };
+    const { deletionId } = DeleteResponse.parse(await res.json());
     expect(await tagsOf(app, cookie)).toEqual(["verb"]);
 
     await send(app, "POST", `/api/deletions/${deletionId}/restore`, undefined, cookie);

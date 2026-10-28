@@ -6,6 +6,7 @@ import { FormError } from "@/components/auth-card";
 import { CardEditor, SaveHint, useCardForm } from "@/components/cards/card-editor";
 import { DOT, RAIL, TIME_COL, firstLine } from "@/components/cards/card-timeline";
 import { useDiscardGuard } from "@/components/cards/discard-guard";
+import { useTagInput } from "@/components/cards/tag-field";
 import { DeckNotFound } from "@/components/not-found";
 import { Page } from "@/components/page";
 import { OUTLINE_PILL, PILL } from "@/components/settings/parts";
@@ -14,21 +15,25 @@ import { longDateLabel, timeLabel } from "@/lib/card-days";
 import { type Card, cardsQueryOptions, createCard } from "@/lib/cards";
 import { type Deck, deckQueryOptions } from "@/lib/decks";
 import { ensureLibrary } from "@/lib/folders";
+import { rememberedDeckSearch, tagsChanged, tagsQueryOptions } from "@/lib/tags";
 import { cn } from "@/lib/utils";
 
 // The new-card page: a dated writing page for one Card after another. Save
 // creates the Card and stays, the sides cleared and the Front focused for the
-// next one, with "Card added"; the Cards written this visit gather under the
+// next one, with "Card added", and the Tags kept for it; the Cards written this visit gather under the
 // form. Done goes back to the Deck. An unknown or deleted Deck shows "Deck
 // not found".
 
 export const Route = createFileRoute("/_shell/decks/$deckId_/cards/new")({
-  loader: ({ context: { queryClient }, params: { deckId } }) =>
-    Promise.all([
+  loader: ({ context: { queryClient }, params: { deckId } }) => {
+    // Only for suggestions: the page doesn't wait for them, or fail without them.
+    void queryClient.prefetchQuery(tagsQueryOptions());
+    return Promise.all([
       queryClient.ensureQueryData(deckQueryOptions(deckId)),
       queryClient.ensureQueryData(cardsQueryOptions(deckId)),
       ensureLibrary(queryClient),
-    ]),
+    ]);
+  },
   component: NewCardPage,
 });
 
@@ -49,7 +54,12 @@ const BLANK = { front: "", back: "" };
 function NewCard({ deck }: { deck: Deck }) {
   const queryClient = useQueryClient();
   const form = useCardForm(BLANK);
-  const guard = useDiscardGuard(form.unsaved);
+  const tags = useTagInput([]);
+  // The Tags kept from the last Save don't count as unsaved.
+  const [savedTags, setSavedTags] = useState<readonly string[]>([]);
+  const guard = useDiscardGuard(
+    form.unsaved || tagsChanged(tags.tags, savedTags) || tags.draft.trim() !== "",
+  );
   const [written, setWritten] = useState<Card[]>([]);
   const [added, setAdded] = useState(false);
   const [formError, setFormError] = useState<string>();
@@ -58,13 +68,16 @@ function NewCard({ deck }: { deck: Deck }) {
 
   const save = async () => {
     if (saving.current) return;
+    const nextTags = tags.commit();
+    if (nextTags === false) return;
     saving.current = true;
     setBusy(true);
     setFormError(undefined);
-    const outcome = await createCard(queryClient, deck.id, form.fields);
+    const outcome = await createCard(queryClient, deck.id, form.fields, nextTags);
     saving.current = false;
     setBusy(false);
     if (outcome.ok) {
+      setSavedTags(nextTags);
       setWritten((cards) => [outcome.card, ...cards]);
       form.markSaved(BLANK);
       setAdded(true);
@@ -90,6 +103,7 @@ function NewCard({ deck }: { deck: Deck }) {
             form.set(side, value);
           },
         }}
+        tags={tags}
         onSave={() => void save()}
         saving={busy}
         autoFocus
@@ -111,6 +125,7 @@ function NewCard({ deck }: { deck: Deck }) {
               <Link
                 to="/decks/$deckId"
                 params={{ deckId: deck.id }}
+                search={rememberedDeckSearch(deck.id)}
                 className={cn(
                   OUTLINE_PILL,
                   "inline-flex h-11 items-center justify-center border text-sm font-medium text-foreground no-underline hover:bg-muted lg:h-10",

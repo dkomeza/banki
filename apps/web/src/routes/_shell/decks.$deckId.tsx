@@ -1,7 +1,7 @@
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { CornerDownRight, Pencil, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CardTimeline } from "@/components/cards/card-timeline";
 import { ConfirmDelete } from "@/components/decks/confirm-delete";
 import { Cover, Stack } from "@/components/decks/cover";
@@ -24,15 +24,19 @@ import {
   updateDeck,
 } from "@/lib/decks";
 import { ensureLibrary, placePath } from "@/lib/folders";
+import { deckSearch, rememberDeckSearch } from "@/lib/tags";
 import { cn } from "@/lib/utils";
 
 // The deck page opens with the breadcrumb from "Decks" down to the Deck, then
 // the Deck's stack, its cover on top, beside the name and the whole
 // description, with Edit, Move… and Delete under them. Edit opens the same
 // dialog as create; Delete asks in a dialog, naming how many Cards go with
-// it. The Cards follow below, on a timeline (CardTimeline).
+// it. The Cards follow below, on a timeline (CardTimeline), searched and
+// filtered by Tag through the URL (`?q=…&tags=verb,irregular`), so Back from a
+// Card's edit page comes back to the same list.
 
 export const Route = createFileRoute("/_shell/decks/$deckId")({
+  validateSearch: deckSearch,
   loader: ({ context: { queryClient }, params: { deckId } }) =>
     Promise.all([
       queryClient.ensureQueryData(deckQueryOptions(deckId)),
@@ -64,6 +68,10 @@ function DeckBody({ deck }: { deck: Deck }) {
   const actions = usePlaceActions(library);
   // Null only when the Deck was deleted meanwhile, as its page is about to say.
   const cards = useSuspenseQuery(cardsQueryOptions(deck.id)).data ?? [];
+  const filter = Route.useSearch();
+  useEffect(() => {
+    rememberDeckSearch(deck.id, filter);
+  }, [deck.id, filter]);
 
   return (
     <>
@@ -124,7 +132,12 @@ function DeckBody({ deck }: { deck: Deck }) {
         </div>
       </header>
 
-      <CardTimeline deckId={deck.id} cards={cards} />
+      <CardTimeline
+        deckId={deck.id}
+        cards={cards}
+        filter={filter}
+        onFilter={(search) => void navigate({ to: ".", search, replace: true })}
+      />
 
       <DeckDialog
         open={editing}

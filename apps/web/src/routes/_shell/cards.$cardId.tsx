@@ -6,6 +6,7 @@ import { FormError } from "@/components/auth-card";
 import { CardEditor, useCardForm } from "@/components/cards/card-editor";
 import { deleteWithUndo } from "@/components/cards/card-toasts";
 import { useDiscardGuard } from "@/components/cards/discard-guard";
+import { useTagInput } from "@/components/cards/tag-field";
 import { CardNotFound } from "@/components/not-found";
 import { Page } from "@/components/page";
 import { OUTLINE_PILL, PILL } from "@/components/settings/parts";
@@ -14,16 +15,19 @@ import { dayLabel, timeLabel } from "@/lib/card-days";
 import { type Card, cardQueryOptions, cardsQueryOptions, updateCard } from "@/lib/cards";
 import { type Deck, deckQueryOptions } from "@/lib/decks";
 import { ensureLibrary } from "@/lib/folders";
+import { rememberedDeckSearch, tagsChanged, tagsQueryOptions } from "@/lib/tags";
 import { cn } from "@/lib/utils";
 
 // The edit-card page, at a URL that doesn't name the Deck, so it outlasts a
-// move. Save writes both sides and goes back to the Deck; Cancel goes back
-// without writing; Delete deletes at once and goes back, with the Undo toast
+// move. Save writes both sides and the Tags and goes back to the Deck, to the
+// list as it was last filtered there; Cancel goes back without writing; Delete deletes at once and goes back, with the Undo toast
 // there. An unknown or deleted Card, or one whose Deck is deleted, shows
 // "Card not found".
 
 export const Route = createFileRoute("/_shell/cards/$cardId")({
   loader: async ({ context: { queryClient }, params: { cardId } }) => {
+    // Only for suggestions: the page doesn't wait for them, or fail without them.
+    void queryClient.prefetchQuery(tagsQueryOptions());
     const [card] = await Promise.all([
       queryClient.ensureQueryData(cardQueryOptions(cardId)),
       ensureLibrary(queryClient),
@@ -71,16 +75,26 @@ function EditCard({ deck, card }: { deck: Deck; card: Card }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const form = useCardForm({ front: card.front, back: card.back });
-  const guard = useDiscardGuard(form.unsaved);
+  const tags = useTagInput(card.tags);
+  const guard = useDiscardGuard(
+    form.unsaved || tagsChanged(tags.tags, card.tags) || tags.draft.trim() !== "",
+  );
   const [formError, setFormError] = useState<string>();
   const saving = useRef(false);
-  const toDeck = () => navigate({ to: "/decks/$deckId", params: { deckId: deck.id } });
+  const toDeck = () =>
+    navigate({
+      to: "/decks/$deckId",
+      params: { deckId: deck.id },
+      search: rememberedDeckSearch(deck.id),
+    });
 
   const save = async () => {
     if (saving.current) return;
+    const nextTags = tags.commit();
+    if (nextTags === false) return;
     saving.current = true;
     setFormError(undefined);
-    const outcome = await updateCard(queryClient, card.id, form.fields);
+    const outcome = await updateCard(queryClient, card.id, form.fields, nextTags);
     saving.current = false;
     if (outcome.ok) {
       guard.release();
@@ -107,6 +121,7 @@ function EditCard({ deck, card }: { deck: Deck; card: Card }) {
         title="Edit card"
         dateline={writtenLabel(card.createdAt)}
         form={form}
+        tags={tags}
         onSave={() => void save()}
         foot={
           <>

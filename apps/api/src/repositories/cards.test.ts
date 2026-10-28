@@ -323,22 +323,22 @@ describe("any", () => {
   });
 });
 
-describe("Tags", () => {
-  const tagged = (deckId: string, front: string, tags: string[], userId = USER, now?: Date) => {
-    const created = cards.create(
-      userId,
-      deckId,
-      { front, back: "b", tags },
-      now === undefined ? {} : { now },
-    );
-    if (typeof created === "string") throw new Error(`${front}: ${created}`);
-    return created;
-  };
-  const tagsIn = (deckId: string) => {
-    const listed = cards.list(USER, deckId);
-    return typeof listed === "string" ? listed : listed.map((c) => [c.front, c.tags]);
-  };
+const tagged = (deckId: string, front: string, tags: string[], userId = USER, now?: Date) => {
+  const created = cards.create(
+    userId,
+    deckId,
+    { front, back: "b", tags },
+    now === undefined ? {} : { now },
+  );
+  if (typeof created === "string") throw new Error(`${front}: ${created}`);
+  return created;
+};
+const tagsIn = (deckId: string) => {
+  const listed = cards.list(USER, deckId);
+  return typeof listed === "string" ? listed : listed.map((c) => [c.front, c.tags]);
+};
 
+describe("Tags", () => {
   test("a create stores the Card's Tags and answers them A–Z", () => {
     const deckId = deckNamed("Spanish");
 

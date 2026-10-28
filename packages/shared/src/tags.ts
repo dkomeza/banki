@@ -17,7 +17,7 @@ export function tagNameProblem(raw: string): string | undefined {
   const name = raw.normalize("NFC");
   if (name === "") return "Write a tag.";
   if (!ONE_WORD.test(name)) return "A tag is one word: letters, digits, - and _.";
-  if ([...name].length > TAG_MAX_LENGTH) {
+  if (Array.from(name).length > TAG_MAX_LENGTH) {
     return `Keep a tag to ${TAG_MAX_LENGTH} characters.`;
   }
   return undefined;
