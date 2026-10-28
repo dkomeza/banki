@@ -3,6 +3,13 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { CornerDownRight, Pencil, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { CardTimeline } from "@/components/cards/card-timeline";
+import { DeckPicker } from "@/components/cards/deck-picker";
+import {
+  deleteAllWithUndo,
+  moveWithUndo,
+  useProtoStates,
+  useSelection,
+} from "@/components/cards/proto-move";
 import { ConfirmDelete } from "@/components/decks/confirm-delete";
 import { Cover, Stack } from "@/components/decks/cover";
 import { DeckDialog } from "@/components/decks/deck-dialog";
@@ -14,7 +21,7 @@ import { useLibrary } from "@/components/folders/use-library";
 import { Page } from "@/components/page";
 import { OUTLINE_PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
-import { cardCountLabel, cardsQueryOptions } from "@/lib/cards";
+import { type Card, cardCountLabel, cardsQueryOptions } from "@/lib/cards";
 import {
   type Deck,
   createdLabel,
@@ -72,6 +79,18 @@ function DeckBody({ deck }: { deck: Deck }) {
   useEffect(() => {
     rememberDeckSearch(deck.id, filter);
   }, [deck.id, filter]);
+  const selection = useSelection();
+  const [moving, setMoving] = useState<readonly Card[]>();
+  useProtoStates({
+    queryClient,
+    deck,
+    cards,
+    library,
+    selection,
+    picking: moving !== undefined,
+    pick: setMoving,
+    filterBy: (tag) => void navigate({ to: ".", search: { tags: tag }, replace: true }),
+  });
 
   return (
     <>
@@ -137,6 +156,12 @@ function DeckBody({ deck }: { deck: Deck }) {
         cards={cards}
         filter={filter}
         onFilter={(search) => void navigate({ to: ".", search, replace: true })}
+        selection={selection}
+        onMove={setMoving}
+        onDelete={(chosen) => {
+          selection.exit();
+          void deleteAllWithUndo(queryClient, chosen);
+        }}
       />
 
       <DeckDialog
@@ -177,6 +202,18 @@ function DeckBody({ deck }: { deck: Deck }) {
             where: placePath(library.folders, deck.folderId),
           });
           return undefined;
+        }}
+      />
+      <DeckPicker
+        library={library}
+        from={deck}
+        cards={moving}
+        error={undefined}
+        onClose={() => setMoving(undefined)}
+        onMove={(to) => {
+          if (moving !== undefined) moveWithUndo(queryClient, moving, deck, to);
+          setMoving(undefined);
+          selection.exit();
         }}
       />
       {actions.dialogs}
