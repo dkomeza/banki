@@ -183,3 +183,17 @@ th.cm-lp-cell .cm-lp-strong {
 .cm-lp-table-menu {
   border-radius: 0.875rem;
 }
+
+/* On a phone only the side being written shows its strip, which scrolls sideways under a fade. */
+@media (max-width: 639.98px) {
+  .side:not(:focus-within) .side-toolbar {
+    display: none;
+  }
+  .side-toolbar {
+    gap: 0.25rem;
+    mask-image: linear-gradient(to right, black calc(100% - 2rem), transparent);
+  }
+  .side-toolbar-group {
+    padding: 0;
+  }
+}
