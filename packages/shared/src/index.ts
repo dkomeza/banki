@@ -9,11 +9,16 @@ export {
   SetupStatus,
 } from "./auth";
 export {
+  CARD_BATCH_MAX,
   CARD_SIDE_MAX_LENGTH,
+  CardIds,
   CardListResponse,
   CardResponse,
   CardSide,
   CreateCardRequest,
+  DeleteCardsRequest,
+  MoveCardsRequest,
+  MoveCardsResponse,
   UpdateCardRequest,
 } from "./cards";
 export {
@@ -50,12 +55,15 @@ export {
   UpdateFolderRequest,
 } from "./folders";
 export {
+  DeleteCardsResponse,
   DeleteResponse,
   DELETION_KEPT_MS,
   DeletionKind,
   DeletionListResponse,
   DeletionResponse,
   PlaceDeletedError,
+  RestoreDeletionsRequest,
+  RestoreDeletionsResponse,
   RestoreResponse,
 } from "./deletions";
 export { type CardNode, cardParser, Formula } from "./card-parser";

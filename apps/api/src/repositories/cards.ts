@@ -5,7 +5,7 @@ import {
   type UpdateCardRequest,
   sortTags,
 } from "@banki/shared";
-import { type SQLWrapper, and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { type SQLWrapper, and, count, desc, eq, inArray, isNull } from "drizzle-orm";
 import type { z } from "zod";
 import type { Queryable } from "../db/database";
 import { card, card_tag, deck } from "../db/schema";
@@ -106,6 +106,23 @@ const findIn = (db: Queryable, userId: string, id: string): Card | undefined => 
     .get();
   return row === undefined ? undefined : toCard(row, tagsOf(db, userId, [id]).get(id) ?? NO_TAGS);
 };
+
+/** How many of the Cards `ids` (no repeats) are the User's, live and in a live Deck. */
+const liveCount = (db: Queryable, userId: string, ids: readonly string[]) =>
+  db
+    .select({ count: count() })
+    .from(card)
+    .innerJoin(deck, eq(deck.id, card.deckId))
+    .where(
+      and(
+        eq(card.userId, userId),
+        inArray(card.id, [...ids]),
+        isNull(card.deletedAt),
+        eq(deck.userId, userId),
+        isNull(deck.deletedAt),
+      ),
+    )
+    .get()?.count ?? 0;
 
 /**
  * Stamps every live Card of the User's in the Decks `deckIds` picks with a
@@ -245,6 +262,72 @@ export function createCardRepository(db: Queryable) {
             .where(and(eq(card.userId, userId), eq(card.id, id)))
             .run();
           return deletionId;
+        },
+        { behavior: "immediate" },
+      );
+    },
+
+    /**
+     * Moves the User's Cards `ids` into their Deck `deckId`, all of them or
+     * none: "not_found" when one isn't a live Card in a live Deck of the
+     * User's, or `deckId` isn't a live Deck of theirs. A moved Card is the same
+     * Card: it keeps its ID, Front, Back, Tags and `createdAt`. A Move may make
+     * a Duplicate. Answers the moved Cards, newest first.
+     */
+    move(
+      userId: string,
+      ids: readonly string[],
+      deckId: string,
+      now = new Date(),
+    ): Card[] | "not_found" {
+      const unique = [...new Set(ids)];
+      return db.transaction(
+        (tx) => {
+          if (!isLiveDeck(tx, userId, deckId)) return "not_found";
+          if (liveCount(tx, userId, unique) !== unique.length) return "not_found";
+          tx.update(card)
+            .set({ deckId, updatedAt: now })
+            .where(and(eq(card.userId, userId), inArray(card.id, unique)))
+            .run();
+          // M4: a Move rewrites the Deck of the moved Cards' Reviews to `deckId`
+          // here, in this transaction, so their history goes with them (ADR-0021).
+          const rows = tx
+            .select(COLUMNS)
+            .from(card)
+            .where(and(eq(card.userId, userId), inArray(card.id, unique)))
+            .orderBy(desc(card.createdAt), desc(card.id))
+            .all();
+          const tags = tagsOf(tx, userId, unique);
+          return rows.map((row) => toCard(row, tags.get(row.id) ?? NO_TAGS));
+        },
+        { behavior: "immediate" },
+      );
+    },
+
+    /**
+     * Deletes the User's Cards `ids` softly at once, all of them or none, each
+     * as a Deletion of its own (ADR-0016): "not_found" when one isn't a live
+     * Card in a live Deck of the User's. Answers each Card's deletion ID.
+     * `deletionIdFor` is for tests.
+     */
+    softDeleteAll(
+      userId: string,
+      ids: readonly string[],
+      now = new Date(),
+      deletionIdFor: (cardId: string) => string = () => randomUUID(),
+    ): { cardId: string; deletionId: string }[] | "not_found" {
+      const unique = [...new Set(ids)];
+      return db.transaction(
+        (tx) => {
+          if (liveCount(tx, userId, unique) !== unique.length) return "not_found";
+          return unique.map((cardId) => {
+            const deletionId = deletionIdFor(cardId);
+            tx.update(card)
+              .set({ deletedAt: now, deletionId, updatedAt: now })
+              .where(and(eq(card.userId, userId), eq(card.id, cardId)))
+              .run();
+            return { cardId, deletionId };
+          });
         },
         { behavior: "immediate" },
       );

@@ -223,6 +223,149 @@ describe("softDelete", () => {
   });
 });
 
+describe("move", () => {
+  test("moves every Card to the Deck, keeping its ID, sides, Tags and createdAt", () => {
+    const from = deckNamed("Spanish");
+    const to = deckNamed("Verbs");
+    const one = cards.create(
+      USER,
+      from,
+      { front: "comer", back: "to eat", tags: ["verb", "food"] },
+      { now: at("2026-09-01T10:00:00.000Z") },
+    );
+    if (typeof one === "string") throw new Error(one);
+    const two = write(from, "beber", "to drink", at("2026-09-02T10:00:00.000Z"));
+    const stays = write(from, "la mesa");
+
+    const moved = cards.move(USER, [one.id, two.id], to, at("2026-10-05T00:00:00.000Z"));
+
+    expect(moved).toEqual([
+      { ...two, deckId: to, updatedAt: "2026-10-05T00:00:00.000Z" },
+      { ...one, deckId: to, updatedAt: "2026-10-05T00:00:00.000Z" },
+    ]);
+    expect(frontsIn(from)).toEqual([stays.front]);
+    expect(frontsIn(to)).toEqual(["beber", "comer"]);
+    expect(cards.find(USER, one.id)).toMatchObject({
+      id: one.id,
+      deckId: to,
+      tags: ["food", "verb"],
+      createdAt: "2026-09-01T10:00:00.000Z",
+    });
+    expect(cards.tags(USER)).toEqual(["food", "verb"]);
+  });
+
+  test("takes a Card listed twice once, and moves a Duplicate anyway", () => {
+    const from = deckNamed("Spanish");
+    const to = deckNamed("Verbs");
+    const comer = write(from, "comer");
+    write(to, "Comer");
+
+    const moved = cards.move(USER, [comer.id, comer.id], to);
+
+    expect(moved).toHaveLength(1);
+    expect(frontsIn(to)).toEqual(expect.arrayContaining(["comer", "Comer"]));
+  });
+
+  test("moves nothing when one Card is deleted, unknown or another User's", () => {
+    const from = deckNamed("Spanish");
+    const to = deckNamed("Verbs");
+    const live = write(from, "live");
+    const gone = write(from, "gone");
+    cards.softDelete(USER, gone.id);
+    const theirs = write(deckNamed("Theirs", null, OTHER), "theirs", "b", undefined, OTHER);
+
+    for (const other of [gone.id, "nope", theirs.id]) {
+      expect(cards.move(USER, [live.id, other], to)).toBe("not_found");
+    }
+    expect(rowOf(live.id)?.deckId).toBe(from);
+    expect(rowOf(theirs.id)?.deckId).not.toBe(to);
+  });
+
+  test("moves nothing out of a deleted Deck", () => {
+    const from = deckNamed("Spanish");
+    const comer = write(from, "comer");
+    decks.softDelete(USER, from);
+
+    expect(cards.move(USER, [comer.id], deckNamed("Verbs"))).toBe("not_found");
+    expect(rowOf(comer.id)?.deckId).toBe(from);
+  });
+
+  test("moves nothing into a deleted Deck, an unknown one or another User's", () => {
+    const from = deckNamed("Spanish");
+    const comer = write(from, "comer");
+    const deleted = deckNamed("Old");
+    decks.softDelete(USER, deleted);
+    const theirs = deckNamed("Theirs", null, OTHER);
+
+    for (const to of [deleted, "nope", theirs]) {
+      expect(cards.move(USER, [comer.id], to)).toBe("not_found");
+    }
+    expect(rowOf(comer.id)?.deckId).toBe(from);
+  });
+
+  test("moves 10,000 Cards in one go", () => {
+    const from = deckNamed("Spanish");
+    const to = deckNamed("Verbs");
+    const ids = Array.from({ length: 10_000 }, (_, i) => `card-${i}`);
+    const now = new Date();
+    opened.db
+      .insert(card)
+      .values(
+        ids.map((id) => ({
+          id,
+          userId: USER,
+          deckId: from,
+          front: id,
+          back: "b",
+          createdAt: now,
+          updatedAt: now,
+        })),
+      )
+      .run();
+
+    const moved = cards.move(USER, ids, to);
+
+    expect(moved).toHaveLength(10_000);
+    expect(frontsIn(from)).toEqual([]);
+  });
+});
+
+describe("softDeleteAll", () => {
+  test("deletes every Card at once, each as a Deletion of its own", () => {
+    const deckId = deckNamed("Spanish");
+    const one = write(deckId, "one");
+    const two = write(deckId, "two");
+    const stays = write(deckId, "stays");
+
+    const deleted = cards.softDeleteAll(USER, [one.id, two.id], at("2026-10-05T00:00:00.000Z"));
+
+    if (deleted === "not_found") throw new Error("Nothing was deleted");
+    expect(deleted.map((d) => d.cardId)).toEqual([one.id, two.id]);
+    expect(deleted.map((d) => rowOf(d.cardId)?.deletionId)).toEqual(
+      deleted.map((d) => d.deletionId),
+    );
+    expect(new Set(deleted.map((d) => d.deletionId)).size).toBe(2);
+    expect(rowOf(one.id)?.deletedAt).toEqual(at("2026-10-05T00:00:00.000Z"));
+    expect(frontsIn(deckId)).toEqual([stays.front]);
+    const listed = createDeletionRepository(opened.db).list(USER);
+    expect(listed.map((d) => d.top.name).toSorted()).toEqual(["one", "two"]);
+  });
+
+  test("deletes nothing when one Card is deleted already, unknown or another User's", () => {
+    const deckId = deckNamed("Spanish");
+    const live = write(deckId, "live");
+    const gone = write(deckId, "gone");
+    cards.softDelete(USER, gone.id);
+    const theirs = write(deckNamed("Theirs", null, OTHER), "theirs", "b", undefined, OTHER);
+
+    for (const other of [gone.id, "nope", theirs.id]) {
+      expect(cards.softDeleteAll(USER, [live.id, other])).toBe("not_found");
+    }
+    expect(rowOf(live.id)?.deletedAt).toBeNull();
+    expect(rowOf(theirs.id)?.deletedAt).toBeNull();
+  });
+});
+
 describe("a Deck's or a Folder's delete", () => {
   test("a Deck's delete stamps its live Cards with the Deck's Deletion", () => {
     const deckId = deckNamed("Spanish");

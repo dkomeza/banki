@@ -1,4 +1,11 @@
-import { CreateCardRequest, UpdateCardRequest } from "@banki/shared";
+import {
+  CreateCardRequest,
+  type DeleteCardsResponse,
+  DeleteCardsRequest,
+  MoveCardsRequest,
+  type MoveCardsResponse,
+  UpdateCardRequest,
+} from "@banki/shared";
 import { Hono } from "hono";
 import { apiError } from "../http/errors";
 import type { SignedInEnv } from "../http/require-signed-in";
@@ -7,6 +14,7 @@ import { json } from "./json";
 
 const NOT_FOUND = apiError("not_found", "Card not found");
 const DECK_NOT_FOUND = apiError("not_found", "Deck not found");
+const CARDS_NOT_FOUND = apiError("not_found", "A card or the deck is gone");
 
 /**
  * A Deck's Cards, under `/api/decks`: `GET /:deckId/cards` lists its live
@@ -35,9 +43,27 @@ export function deckCardRoutes({ cards }: { cards: CardRepository }) {
  * `not_found`. A blank Front or Back, or one over 20,000 characters, answers 400
  * `invalid_request`, as does a Tag that isn't one word of 1 to 50 characters,
  * or more than 20 Tags. Tags given to `PATCH` replace the Card's.
+ *
+ * `POST /move` Moves Cards to another Deck, and `POST /delete` deletes Cards
+ * at once, each as a Deletion of its own, answering every `deletionId`. Each
+ * takes 1 to 10,000 Card IDs and acts on all of them or none: one Card that
+ * isn't live, or a Move's Deck that isn't, answers 404 `not_found`.
  */
 export function cardRoutes({ cards }: { cards: CardRepository }) {
   return new Hono<SignedInEnv>()
+    .post("/move", json(MoveCardsRequest, "Invalid move"), (c) => {
+      const { cardIds, deckId } = c.req.valid("json");
+      const moved = cards.move(c.var.user.id, cardIds, deckId);
+      if (moved === "not_found") return c.json(CARDS_NOT_FOUND, 404);
+      const body: MoveCardsResponse = { cards: moved };
+      return c.json(body, 200);
+    })
+    .post("/delete", json(DeleteCardsRequest, "Invalid delete"), (c) => {
+      const deletions = cards.softDeleteAll(c.var.user.id, c.req.valid("json").cardIds);
+      if (deletions === "not_found") return c.json(NOT_FOUND, 404);
+      const body: DeleteCardsResponse = { deletions };
+      return c.json(body, 200);
+    })
     .get("/:id", (c) => {
       const found = cards.find(c.var.user.id, c.req.param("id"));
       if (found === undefined) return c.json(NOT_FOUND, 404);
