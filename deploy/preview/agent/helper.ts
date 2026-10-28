@@ -11,7 +11,7 @@ import { run } from "./run";
 
 export const HELPER = "banki-preview-updater";
 /** The agent's own image, as agent.compose.yaml names it. */
-const IMAGE = "banki-preview-agent";
+export const AGENT_IMAGE = "banki-preview-agent";
 /** The clone's volume, as agent.compose.yaml names it. */
 const CLONE_VOLUME = "banki-preview-src";
 const COMPOSE_FILE = `${CLONE_DIR}/deploy/preview/agent.compose.yaml`;
@@ -62,7 +62,7 @@ export function helperInvocation(main: string, secretsDir: string): string[] {
     `type=volume,source=${CLONE_VOLUME},target=${CLONE_DIR},readonly`,
     "--mount",
     `type=bind,source=${secretsDir},target=${secretsDir},readonly`,
-    IMAGE,
+    AGENT_IMAGE,
     "docker",
     "compose",
     "--file",

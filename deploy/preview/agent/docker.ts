@@ -138,10 +138,10 @@ function projectsBy<K extends PreviewKey>(
 }
 
 /** Docker's `{{.State}}` as the planner sees it: any state but these three is stopped. */
-const serviceState = (state: string): ServiceState =>
+export const serviceState = (state: string): ServiceState =>
   state === "running" || state === "restarting" || state === "paused" ? state : "stopped";
 
-const lines = (text: string) => text.split("\n").filter((line) => line.trim() !== "");
+export const lines = (text: string) => text.split("\n").filter((line) => line.trim() !== "");
 
 /**
  * What the template needs to render: the Preview's key, its commit, the

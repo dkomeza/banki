@@ -39,16 +39,17 @@ export type Services = {
 };
 
 /** A step failed; `reason` is the short, fixed text the Deployment's failure shows. */
-class DeployFailure extends Error {
+export class DeployFailure extends Error {
   override name = "DeployFailure";
   constructor(readonly reason: string) {
     super(reason);
   }
 }
 
-const AGENT_ERROR = "agent error, see the agent's log";
+export const AGENT_ERROR = "agent error, see the agent's log";
 
-const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
+export const errorText = (error: unknown) =>
+  error instanceof Error ? error.message : String(error);
 
 export async function deploy(action: DeployAction, services: Services): Promise<void> {
   const key = keyOf(action);
@@ -205,14 +206,32 @@ async function takenDown(action: DeployAction | ConfirmAction, services: Service
 export const HEALTH_ATTEMPTS = 15;
 
 /** `/api/health` through `web` must answer, and report the head's commit. */
-async function checkHealth(target: docker.ComposeTarget, services: Services): Promise<void> {
-  let health = await services.docker.health(target);
+const checkHealth = (target: docker.ComposeTarget, services: Services) =>
+  checkHealthOf(
+    projectName(target.key),
+    target.sha,
+    () => services.docker.health(target),
+    services.sleep,
+  );
+
+/**
+ * `/api/health`, as `health` asks it, must answer within
+ * {@link HEALTH_ATTEMPTS} tries, a second apart, and report `sha`; or a
+ * {@link DeployFailure} says why not.
+ */
+export async function checkHealthOf(
+  name: string,
+  sha: string,
+  ask: () => Promise<RunResult>,
+  sleep: (ms: number) => Promise<void>,
+): Promise<void> {
+  let health = await ask();
   for (let attempt = 1; attempt < HEALTH_ATTEMPTS && health.exitCode !== 0; attempt++) {
-    await services.sleep(1000);
-    health = await services.docker.health(target);
+    await sleep(1000);
+    health = await ask();
   }
   if (health.exitCode !== 0) {
-    console.log(`${projectName(target.key)}: health check ${docker.failure(health)}`);
+    console.log(`${name}: health check ${docker.failure(health)}`);
     throw new DeployFailure(
       health.timedOut
         ? "health check timed out"
@@ -220,7 +239,7 @@ async function checkHealth(target: docker.ComposeTarget, services: Services): Pr
     );
   }
   const commit = commitOf(health.stdout);
-  if (commit !== target.sha) {
+  if (commit !== sha) {
     throw new DeployFailure(
       `health reports wrong commit ${commit === undefined ? "(none)" : shortSha(commit)}`,
     );
@@ -250,21 +269,24 @@ async function route(services: Services, key: PreviewKey): Promise<void> {
  * Ends the deploy when `result` failed, with `reason`, or else `<step> exited
  * <code>` or `<step> timed out`.
  */
-function check(result: RunResult, step: string, reason?: string): void {
+export function check(result: RunResult, step: string, reason?: string): void {
   if (result.exitCode === 0) return;
   if (result.timedOut) throw new DeployFailure(`${step} timed out`);
   throw new DeployFailure(reason ?? `${step} exited ${result.exitCode}`);
 }
 
 /** Why `up --wait` failed, from the first service that isn't up. */
-async function notUp(
-  target: docker.ComposeTarget,
+const notUp = (target: docker.ComposeTarget, up: RunResult, services: Services) =>
+  notUpOf(up, () => services.docker.serviceStates(target));
+
+/** Why `up --wait` failed, from the first service `readStates` says isn't up. */
+export async function notUpOf(
   up: RunResult,
-  services: Services,
+  readStates: () => Promise<{ service: string; state: string; health: string }[]>,
 ): Promise<string> {
   const seconds = `after ${docker.UP_WAIT_SECONDS} s`;
   if (up.timedOut) return `not up ${seconds}`;
-  const states = await services.docker.serviceStates(target).catch(() => []);
+  const states = await readStates().catch(() => []);
   for (const service of ["api", "web"]) {
     const found = states.find((state) => state.service === service);
     if (found === undefined || found.state !== "running") {

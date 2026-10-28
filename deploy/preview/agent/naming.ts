@@ -137,3 +137,40 @@ export const imageTag = (key: PreviewKey, sha: string) =>
 export const webContainerName = (key: PreviewKey) => `${projectName(key)}-web-1`;
 
 export const shortSha = (sha: string) => sha.slice(0, 7);
+
+// The Long-lived installations (ADR-0017): Edge and Production, each a
+// Compose project of its own with a data volume it keeps across deploys.
+// Neither name is ever a PR Preview's or a Slug Preview's project, host or
+// volume, so the Preview pools never see them.
+
+/** The two Long-lived installations, by their GitHub Deployments environment. */
+export const LONG_LIVED_ENVIRONMENTS = ["edge", "production"] as const;
+
+export type LongLivedEnvironment = (typeof LONG_LIVED_ENVIRONMENTS)[number];
+
+/** The labels the Long-lived template puts on every object of its project. */
+export const LONG_LIVED_LABELS = {
+  environment: "banki.long-lived.environment",
+  sha: "banki.long-lived.sha",
+  deployedAt: "banki.long-lived.deployed-at",
+  apiDigest: "banki.long-lived.api-digest",
+  webDigest: "banki.long-lived.web-digest",
+  /** On the data volume only: the Deployment whose first boot created it. */
+  deployment: "banki.long-lived.deployment",
+} as const;
+
+/** `banki-edge` or `banki-production`. */
+export const longLivedProject = (environment: LongLivedEnvironment) => `banki-${environment}`;
+
+/** The installation's data volume, external to its project, so no `down` can remove it. */
+export const longLivedVolume = (environment: LongLivedEnvironment) => `banki-${environment}-data`;
+
+export const longLivedHost = (environment: LongLivedEnvironment) =>
+  environment === "edge" ? `preview.${PREVIEW_DOMAIN}` : PREVIEW_DOMAIN;
+
+export const longLivedUrl = (environment: LongLivedEnvironment) =>
+  `https://${longLivedHost(environment)}`;
+
+/** An image by digest, as the templates pin it: `ghcr.io/dkomeza/banki-api@sha256:…`. */
+export const imageRef = (service: keyof typeof IMAGES, digest: string) =>
+  `ghcr.io/${IMAGES[service]}@${digest}`;

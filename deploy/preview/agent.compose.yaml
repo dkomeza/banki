@@ -45,8 +45,10 @@ services:
     # limits on Slug Previews.
     env_file: ${BANKI_PREVIEW_SECRETS:-${HOME}/.config/banki-preview}/agent.env
     # Files under /run/secrets, so none of them is in its environment in
-    # `docker inspect`.
-    secrets: [github-token, pangolin-api-key, preview-email, preview-password]
+    # `docker inspect`. edge-email and edge-password come from
+    # deploy/long-lived/bootstrap, which must have run before this starts.
+    secrets:
+      [github-token, pangolin-api-key, preview-email, preview-password, edge-email, edge-password]
     volumes:
       # It runs `docker compose` for every Preview against the host's daemon.
       - /var/run/docker.sock:/var/run/docker.sock
@@ -57,7 +59,8 @@ services:
     # volume is root's own, so git needs nothing more.
     cap_drop: [ALL]
     cap_add: [DAC_READ_SEARCH]
-    # Its own network, for GitHub, GHCR and Pangolin. Never banki-previews.
+    # Its own network, for GitHub, GHCR and Pangolin. Never banki-previews,
+    # and never banki-long-lived.
     networks: [default]
 
   newt:
@@ -111,3 +114,7 @@ secrets:
     file: ${BANKI_PREVIEW_SECRETS:-${HOME}/.config/banki-preview}/preview-email
   preview-password:
     file: ${BANKI_PREVIEW_SECRETS:-${HOME}/.config/banki-preview}/preview-password
+  edge-email:
+    file: ${BANKI_PREVIEW_SECRETS:-${HOME}/.config/banki-preview}/edge-email
+  edge-password:
+    file: ${BANKI_PREVIEW_SECRETS:-${HOME}/.config/banki-preview}/edge-password

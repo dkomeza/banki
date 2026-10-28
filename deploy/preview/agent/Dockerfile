@@ -21,10 +21,11 @@ COPY --from=docker /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=docker /usr/local/libexec/docker/cli-plugins/docker-compose /usr/local/libexec/docker/cli-plugins/docker-compose
 COPY --from=docker /usr/local/libexec/docker/cli-plugins/docker-buildx /usr/local/libexec/docker/cli-plugins/docker-buildx
 
-# The template sits beside the code, where the agent looks for it: the Preview
-# template of the `main` this image is built from.
+# The templates sit beside the code, where the agent looks for them: the
+# Preview and Long-lived templates of the `main` this image is built from.
+# The Snapshot script (agent/snapshot.ts) runs from this image too.
 WORKDIR /preview
-COPY compose.yaml ./compose.yaml
+COPY compose.yaml long-lived.compose.yaml ./
 COPY agent/*.ts ./agent/
 
 # No npm dependencies, so there is nothing to install: Bun runs the source.
