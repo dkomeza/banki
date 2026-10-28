@@ -658,7 +658,7 @@ class TableGrid {
           focusTracker,
           decorationField(false),
           popoverField,
-          tooltips({ position: "absolute" }),
+          tooltips({ position: "absolute", parent: document.body }),
           EditorView.contentAttributes.of({
             spellcheck: "true",
             "aria-label": r === 0 ? `Header ${c + 1}` : `Row ${r}, column ${c + 1}`,
@@ -718,7 +718,8 @@ class TableGrid {
     next.rows.forEach((row, r) =>
       row.forEach((text, c) => {
         const view = this.cells[r]?.[c];
-        if (view && view.state.doc.toString() !== text) {
+        // The cell being typed in is where the change came from.
+        if (view && !view.hasFocus && view.state.doc.toString() !== text) {
           view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } });
         }
       }),
@@ -743,11 +744,18 @@ class TableGrid {
     rows[r]![c] = stored;
     this.write({ rows, aligns: [...this.model.aligns] });
     if (stored !== text) {
-      const view = this.cells[r]![c]!;
-      const head = view.state.selection.main.head + (stored.length - text.length);
-      this.syncing = true;
-      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: stored }, selection: { anchor: head } });
-      this.syncing = false;
+      // After the update the cell is in, which it can't be given another during.
+      queueMicrotask(() => {
+        const view = this.cells[r]?.[c];
+        if (!view) return;
+        const head = view.state.selection.main.head + (stored.length - text.length);
+        this.syncing = true;
+        try {
+          view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: stored }, selection: { anchor: head } });
+        } finally {
+          this.syncing = false;
+        }
+      });
     }
   }
 
@@ -756,6 +764,7 @@ class TableGrid {
     if (!view) return;
     this.current = { r, c };
     view.focus();
+    view.dom.parentElement?.scrollIntoView({ block: "nearest", inline: "nearest" });
     const at = offset ?? view.state.doc.length;
     view.dispatch({ selection: { anchor: Math.min(at, view.state.doc.length) } });
   }
@@ -1054,7 +1063,7 @@ export function livePreview({
     focusTracker,
     decorationField(true),
     popoverField,
-    tooltips({ position: "absolute" }),
+    tooltips({ position: "absolute", parent: document.body }),
     formulaClicks,
     closeBrackets(),
     indentUnit.of("    "),

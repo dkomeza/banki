@@ -76,6 +76,8 @@ export function LiveEditor({
       }),
     });
     view.current = created;
+    // Variant-only: lets a script read the side's source.
+    Reflect.set(host.current, "lpView", created);
     if (viewRef) viewRef.current = created;
     if (autoFocus) requestAnimationFrame(() => created.focus());
     return () => {
