@@ -121,18 +121,22 @@ describe.skipIf(!hasDocker)("the Long-lived template", () => {
     }
   });
 
-  test("sets each installation's origin, trusts only the Long-lived Newt, and sets no secret", async () => {
+  test("sets each installation's origin, a Release on Production only, trusts only the Long-lived Newt, and sets no secret", async () => {
     const edge = await config(longLivedEnv(EDGE));
     const production = await config(longLivedEnv(PRODUCTION), "banki-production");
 
     expect(edge.services.api?.environment).toEqual({
       ORIGIN: "https://preview.banki.dkomeza.com",
+      RELEASE: "false",
     });
     expect(edge.services.web?.environment).toEqual({
       BANKI_ORIGIN: "https://preview.banki.dkomeza.com",
       BANKI_TRUSTED_PROXIES: "172.31.254.2",
     });
-    expect(production.services.api?.environment).toEqual({ ORIGIN: "https://banki.dkomeza.com" });
+    expect(production.services.api?.environment).toEqual({
+      ORIGIN: "https://banki.dkomeza.com",
+      RELEASE: "true",
+    });
     expect(production.services.web?.environment).toEqual({
       BANKI_ORIGIN: "https://banki.dkomeza.com",
       BANKI_TRUSTED_PROXIES: "172.31.254.2",

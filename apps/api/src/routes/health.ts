@@ -6,8 +6,11 @@ import type { HealthRepository } from "../repositories/health";
 
 const logger = getLogger(["banki", "health"]);
 
-/** `GET /`: whether the API is up and its database reachable, and the commit it was built from. */
-export function healthRoutes({ health, commit }: { health: HealthRepository; commit: string }) {
+/** What `/api/health` says about the build it runs: its version, its commit, and whether it is a Release. */
+export type BuildInfo = Pick<HealthResponse, "version" | "commit" | "release">;
+
+/** `GET /`: whether the API is up and its database reachable, and the build it runs. */
+export function healthRoutes({ health, build }: { health: HealthRepository; build: BuildInfo }) {
   return new Hono().get("/", (c) => {
     try {
       health.ping();
@@ -15,6 +18,6 @@ export function healthRoutes({ health, commit }: { health: HealthRepository; com
       logger.error("Database is unreachable", { error });
       return c.json(apiError("database_unreachable", "Database is unreachable"), 503);
     }
-    return c.json({ status: "ok", database: "ok", commit } satisfies HealthResponse, 200);
+    return c.json({ status: "ok", database: "ok", ...build } satisfies HealthResponse, 200);
   });
 }

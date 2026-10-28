@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ApiError, HealthResponse } from "@banki/shared";
+import { z } from "zod";
 import { createApp } from "./app";
 import type { Config } from "./config";
 import { captureLogs } from "./testing/logs";
@@ -28,6 +29,7 @@ const configFor = (dataDir: string): Config => ({
   authSecret: undefined,
   encryptionKey: undefined,
   commit: "dev",
+  release: false,
 });
 
 /** Boots the app the way the server does, against a data directory inside this test's temp dir. */
@@ -129,6 +131,11 @@ describe("migrations", () => {
   });
 });
 
+/** The api's own `package.json` version, which `/api/health` reports. */
+const PACKAGE_VERSION = z
+  .object({ version: z.string() })
+  .parse(JSON.parse(readFileSync(join(import.meta.dir, "..", "package.json"), "utf8"))).version;
+
 describe("GET /api/health", () => {
   test("answers 200 with a body matching HealthResponse", async () => {
     const { app } = boot();
@@ -139,8 +146,19 @@ describe("GET /api/health", () => {
     expect(HealthResponse.parse(await res.json())).toEqual({
       status: "ok",
       database: "ok",
+      version: PACKAGE_VERSION,
       commit: "dev",
+      release: false,
     });
+  });
+
+  test("reports the version from the api's package.json", async () => {
+    const { app } = boot();
+
+    const res = await app.request("/api/health");
+
+    expect(PACKAGE_VERSION).toMatch(/^\d+\.\d+\.\d+/);
+    expect(HealthResponse.parse(await res.json()).version).toBe(PACKAGE_VERSION);
   });
 
   test("reports the commit the API was built from", async () => {
@@ -150,6 +168,18 @@ describe("GET /api/health", () => {
     const res = await app.request("/api/health");
 
     expect(HealthResponse.parse(await res.json()).commit).toBe(commit);
+  });
+
+  test("reports a Release only when the config says so", async () => {
+    const release = boot(join(tempDir, "release"), { release: true }).app;
+    const edge = boot(join(tempDir, "edge"), { release: false }).app;
+
+    expect(HealthResponse.parse(await (await release.request("/api/health")).json()).release).toBe(
+      true,
+    );
+    expect(HealthResponse.parse(await (await edge.request("/api/health")).json()).release).toBe(
+      false,
+    );
   });
 
   test("answers 503 database_unreachable once the database is closed", async () => {
@@ -165,18 +195,26 @@ describe("GET /api/health", () => {
 });
 
 describe("HealthResponse", () => {
-  const healthy = { status: "ok", database: "ok" } as const;
+  const healthy = { status: "ok", database: "ok", version: "0.3.0", release: false } as const;
 
   test.each(["dev", "0123456789abcdef0123456789abcdef01234567"])("accepts commit %p", (commit) => {
     expect(HealthResponse.parse({ ...healthy, commit })).toEqual({ ...healthy, commit });
   });
 
-  test("rejects a body without a commit", () => {
-    expect(HealthResponse.safeParse(healthy).success).toBe(false);
+  test.each(["version", "commit", "release"])("rejects a body without a %s", (key) => {
+    const body: Record<string, unknown> = { ...healthy, commit: "dev" };
+    delete body[key];
+    expect(HealthResponse.safeParse(body).success).toBe(false);
   });
 
-  test("rejects an empty commit", () => {
-    expect(HealthResponse.safeParse({ ...healthy, commit: "" }).success).toBe(false);
+  test.each(["version", "commit"])("rejects an empty %s", (key) => {
+    expect(HealthResponse.safeParse({ ...healthy, commit: "dev", [key]: "" }).success).toBe(false);
+  });
+
+  test("rejects a release that isn't a boolean", () => {
+    expect(HealthResponse.safeParse({ ...healthy, commit: "dev", release: "true" }).success).toBe(
+      false,
+    );
   });
 });
 

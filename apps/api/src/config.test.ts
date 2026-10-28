@@ -16,6 +16,7 @@ describe("parseConfig", () => {
       authSecret: undefined,
       encryptionKey: undefined,
       commit: "dev",
+      release: false,
     });
   });
 
@@ -30,6 +31,7 @@ describe("parseConfig", () => {
         AUTH_SECRET: "a".repeat(32),
         ENCRYPTION_KEY: KEY,
         COMMIT: "0123456789abcdef0123456789abcdef01234567",
+        RELEASE: "true",
       }),
     ).toEqual({
       dataDir: "/srv/banki",
@@ -40,6 +42,7 @@ describe("parseConfig", () => {
       authSecret: "a".repeat(32),
       encryptionKey: KEY,
       commit: "0123456789abcdef0123456789abcdef01234567",
+      release: true,
     });
   });
 
@@ -58,6 +61,7 @@ describe("parseConfig", () => {
         AUTH_SECRET: "",
         ENCRYPTION_KEY: "",
         COMMIT: "",
+        RELEASE: "",
       }),
     ).toEqual(parseConfig({}));
   });
@@ -147,5 +151,18 @@ describe("parseConfig", () => {
       const sha = "0123456789abcdef0123456789abcdef01234567";
       expect(parseConfig({ COMMIT: sha }).commit).toBe(sha);
     });
+  });
+
+  describe("RELEASE", () => {
+    test("is a Release only when RELEASE is true", () => {
+      expect(parseConfig({ RELEASE: "true" }).release).toBe(true);
+    });
+
+    test.each([undefined, "", "false", "TRUE", "1", "yes", " true"])(
+      "is not a Release when RELEASE is %p",
+      (value) => {
+        expect(parseConfig({ RELEASE: value }).release).toBe(false);
+      },
+    );
   });
 });

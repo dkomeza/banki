@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Page } from "@/components/page";
 import { AccountCard } from "@/components/settings/account-card";
+import { AppVersion } from "@/components/settings/app-version";
 import { GradingCard } from "@/components/settings/grading-card";
 import { type Section, SectionIndex } from "@/components/settings/section-index";
 import { StudyDayCard } from "@/components/settings/study-day-card";
@@ -45,6 +46,8 @@ function SettingsPage() {
             <AccountCard />
             <ThisDeviceCard />
           </div>
+          {/* Not a section, so not in the index; fetched on its own, so never waited on. */}
+          <AppVersion />
         </div>
       </div>
     </Page>
