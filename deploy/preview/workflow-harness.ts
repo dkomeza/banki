@@ -23,6 +23,7 @@ export type Job = {
   if?: string;
   needs?: string | string[];
   "runs-on"?: string;
+  concurrency?: { group: string; "cancel-in-progress": boolean };
   permissions?: Record<string, string>;
   env?: Record<string, string>;
   outputs?: Record<string, string>;

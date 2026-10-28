@@ -1,4 +1,4 @@
 {
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
-  "ignorePatterns": ["bun.lock", "**/routeTree.gen.ts", "apps/api/drizzle/**"]
+  "ignorePatterns": ["bun.lock", "**/routeTree.gen.ts", "apps/api/drizzle/**", "CHANGELOG.md"]
 }
