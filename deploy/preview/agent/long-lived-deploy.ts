@@ -3,7 +3,7 @@ import { AGENT_ERROR, check, checkHealthOf, DeployFailure, errorText, notUpOf } 
 import type { GitHub } from "./github";
 import type * as longLivedDocker from "./long-lived-docker";
 import type { LongLivedTarget } from "./long-lived-docker";
-import { type LongLivedAction, RESETTING } from "./long-lived-planner";
+import type { LongLivedAction } from "./long-lived-planner";
 import { longLivedProject, longLivedUrl, shortSha } from "./naming";
 
 // One deploy of Edge or Production (ADR-0017), start to finish. Unlike a
@@ -11,9 +11,10 @@ import { longLivedProject, longLivedUrl, shortSha } from "./naming";
 // Snapshot taken, and the new images migrate the data on their start. A
 // failure restores the Snapshot and the previous images, or, when even that
 // fails, leaves both services stopped. A Reset of Edge clears the data after
-// its Snapshot, and sets it up and seeds it again, as a first boot does. It blocks the loop like a Preview's,
-// with a timeout on each step, and its Deployment's description is one of a
-// few fixed, short reasons, the detail going to the agent's log.
+// its Snapshot, and sets it up and seeds it again, as a first boot does. It
+// blocks the loop like a Preview's, with a timeout on each step, and its
+// Deployment's description is one of a few fixed, short reasons, the detail
+// going to the agent's log.
 
 export type LongLivedDeployAction = Extract<LongLivedAction, { kind: "deploy" }>;
 
@@ -48,6 +49,8 @@ type Progress = {
   ownsVolume: boolean;
   /** Its Snapshot exists: taken now, or by the try a restart cut short. */
   snapshot: boolean;
+  /** It resets Edge: asked to, or finishing a Reset a restart cut short. */
+  reset: boolean;
 };
 
 export async function deployLongLived(
@@ -66,10 +69,14 @@ export async function deployLongLived(
   await services.github.setStatus(
     deploymentId,
     "in_progress",
-    `${action.reset ? RESETTING : "starting "}${shortSha(sha)}`,
+    `${action.reset ? "resetting to" : "starting"} ${shortSha(sha)}`,
   );
 
-  const progress: Progress = { ownsVolume: action.volume === "own", snapshot: false };
+  const progress: Progress = {
+    ownsVolume: action.volume === "own",
+    snapshot: false,
+    reset: action.reset,
+  };
   let reason: string | undefined;
   try {
     await (firstBoot
@@ -85,7 +92,7 @@ export async function deployLongLived(
   }
 
   if (reason === undefined) {
-    const done = action.reset ? "reset to" : "deployed";
+    const done = progress.reset ? "reset to" : "deployed";
     console.log(`${name}: ${done} ${shortSha(sha)} at ${longLivedUrl(environment)}`);
     await services.github.setStatus(
       deploymentId,
@@ -173,8 +180,9 @@ async function setUpAndSeed(target: LongLivedTarget, services: LongLivedServices
  * Any later deploy: the running api stopped, so the Snapshot holds every
  * write the old version made, then the new images, which migrate on start.
  * A Reset clears the database after the Snapshot, then sets it up and seeds
- * it on the new images. A retry keeps the Snapshot its first try took, and
- * clears, sets up and seeds again.
+ * it on the new images. One a restart cut short is finished by the next
+ * deploy, a retry or a newer push, which the Snapshot's take tells: it keeps
+ * the Snapshot from before the Reset, and clears, sets up and seeds again.
  */
 async function upgradeSteps(
   action: LongLivedDeployAction,
@@ -185,19 +193,19 @@ async function upgradeSteps(
   const run = services.docker;
   check(await run.pull(target), "pull", "couldn't pull the images");
   check(await run.stop(target), "stop", "couldn't stop the running version");
-  check(
-    await run.snapshot(target.environment, ["take", action.deploymentId]),
-    "snapshot",
-    "couldn't take the Snapshot",
-  );
+  const taken = await run.snapshot(target.environment, ["take", action.deploymentId]);
+  check(taken, "snapshot", "couldn't take the Snapshot");
   progress.snapshot = true;
-  if (action.reset) {
+  // A Reset a restart cut short, under this Deployment or an older one.
+  if (/^resetting /m.test(taken.stdout)) progress.reset = true;
+  if (progress.reset) {
     check(
-      await run.snapshot(target.environment, ["clear"]),
+      await run.snapshot(target.environment, ["clear", action.deploymentId]),
       "clear",
       "couldn't clear the database",
     );
     await setUpAndSeed(target, services);
+    check(await run.snapshot(target.environment, ["seeded"]), "seeded", "couldn't end the Reset");
   }
   await start(target, services);
 }

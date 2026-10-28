@@ -118,9 +118,6 @@ export function longLivedPayload(
   return { api, web };
 }
 
-/** How a Reset's `in_progress` status starts (long-lived-deploy.ts), which a retry reads back. */
-export const RESETTING = "resetting to ";
-
 /** Whether a Deployment carries the reset mark: `reset: true` in its payload, and nothing else. */
 const hasResetMark = (deployment: Pick<LongLivedDeployment, "payload">): boolean =>
   isRecord(deployment.payload) && deployment.payload.reset === true;
@@ -128,10 +125,10 @@ const hasResetMark = (deployment: Pick<LongLivedDeployment, "payload">): boolean
 /**
  * Whether the newest `edge` Deployment deploys as a Reset: it carries the
  * mark, or an older one still waiting with a good payload does, which it
- * supersedes. So a Reset is never lost to a newer push. And one the agent
- * started as a Reset and a restart cut short is retried as one, even once
- * the older one it carried is superseded, so a half-cleared database never
- * goes to an ordinary upgrade. Production is never reset.
+ * supersedes. So a Reset is never lost to a newer push. One a restart cut
+ * short once it cleared the database is finished by whichever deploy comes
+ * next, from the Reset mark in the volume (snapshot.ts). Production is never
+ * reset.
  */
 function isReset(
   environment: LongLivedEnvironment,
@@ -140,7 +137,6 @@ function isReset(
   if (environment !== "edge" || newest === undefined) return false;
   return (
     hasResetMark(newest) ||
-    (newest.status === "in_progress" && newest.description?.startsWith(RESETTING) === true) ||
     older.some(
       (deployment) =>
         hasResetMark(deployment) &&

@@ -151,8 +151,9 @@ describe("snapshotInvocation", () => {
   });
 
   test("clears a Reset's database in the same one-off container", () => {
-    const argv = snapshotInvocation("edge", ["clear"]);
+    const argv = snapshotInvocation("edge", ["clear", 41]);
 
-    expect(argv).toEqual([...snapshotInvocation("edge", ["prune"]).slice(0, -1), "clear"]);
+    expect(argv).toEqual([...snapshotInvocation("edge", ["prune"]).slice(0, -1), "clear", "41"]);
+    expect(snapshotInvocation("edge", ["seeded"]).at(-1)).toBe("seeded");
   });
 });

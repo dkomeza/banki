@@ -9,7 +9,8 @@
 # beside the pull agent's files, which it never changes: the directory is 0700
 # and every file 0600. compose.yaml hands long-lived-newt.env to Newt as its
 # environment; the agent sets Edge up from edge-email and edge-password on its
-# first Edge deploy, and again on each Reset (`gh workflow run reset-edge.yml`). No AUTH_SECRET: the api makes its own on first start, in
+# first Edge deploy, and again on each Reset (`gh workflow run
+# reset-edge.yml`). No AUTH_SECRET: the api makes its own on first start, in
 # a data volume a Long-lived installation keeps.
 #
 # Usage: deploy/long-lived/bootstrap

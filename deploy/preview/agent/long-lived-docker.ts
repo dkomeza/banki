@@ -269,7 +269,7 @@ export const removeVolume = (environment: LongLivedEnvironment) =>
   });
 
 /** The Snapshot script's commands (snapshot.ts). */
-export type SnapshotCommand = ["take" | "restore", number] | ["prune"] | ["clear"];
+export type SnapshotCommand = ["take" | "restore" | "clear", number] | ["prune"] | ["seeded"];
 
 /**
  * The `docker run` of the Snapshot script: the agent's own image, with only

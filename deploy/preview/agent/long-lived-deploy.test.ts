@@ -44,6 +44,7 @@ type Step =
   | "snapshot restore"
   | "snapshot prune"
   | "snapshot clear"
+  | "snapshot seeded"
   | "image rm";
 
 const short = (target: LongLivedTarget) => `${target.environment} ${target.sha.slice(0, 7)}`;
@@ -442,9 +443,10 @@ describe("a Reset of Edge", () => {
       "docker pull edge aaaaaaa",
       "docker stop edge",
       "docker snapshot take edge 9",
-      "docker snapshot clear edge",
+      "docker snapshot clear edge 9",
       "docker setup edge aaaaaaa",
       "docker seed edge aaaaaaa",
+      "docker snapshot seeded edge",
       "docker up edge aaaaaaa",
       "docker health edge aaaaaaa",
       `status 9 success reset to aaaaaaa ${EDGE_URL}`,
@@ -459,20 +461,64 @@ describe("a Reset of Edge", () => {
   });
 
   test("an interrupted one is retried from its start, keeping its existing Snapshot", async () => {
-    const { log, services } = fakes({ "snapshot take": [ok("kept snapshots/9.db")] });
+    const { log, services } = fakes({ "snapshot take": [ok("resetting snapshots/9.db")] });
 
     await deployLongLived(reset(), services);
 
-    expect(log.slice(0, 7)).toEqual([
+    expect(log.slice(0, 8)).toEqual([
       "status 9 in_progress resetting to aaaaaaa",
       "docker pull edge aaaaaaa",
       "docker stop edge",
       "docker snapshot take edge 9",
-      "docker snapshot clear edge",
+      "docker snapshot clear edge 9",
       "docker setup edge aaaaaaa",
       "docker seed edge aaaaaaa",
+      "docker snapshot seeded edge",
     ]);
     expect(log).toContain(`status 9 success reset to aaaaaaa ${EDGE_URL}`);
+  });
+
+  test("one a restart cut short is finished by the next deploy, a newer push's included, from the volume's Reset mark", async () => {
+    const { log, setups, services } = fakes({
+      "snapshot take": [ok("resetting snapshots/9.db")],
+    });
+
+    await deployLongLived(deployAction({ reset: false }), services);
+
+    expect(log).toEqual([
+      "status 9 in_progress starting aaaaaaa",
+      "docker pull edge aaaaaaa",
+      "docker stop edge",
+      "docker snapshot take edge 9",
+      "docker snapshot clear edge 9",
+      "docker setup edge aaaaaaa",
+      "docker seed edge aaaaaaa",
+      "docker snapshot seeded edge",
+      "docker up edge aaaaaaa",
+      "docker health edge aaaaaaa",
+      `status 9 success reset to aaaaaaa ${EDGE_URL}`,
+      "docker snapshot prune edge",
+      `docker image rm ${STALE}`,
+    ]);
+    expect(setups).toEqual([{ email: EMAIL, password: PASSWORD }]);
+  });
+
+  test("an ordinary deploy whose take says nothing of a Reset never clears", async () => {
+    const { log, services } = fakes({ "snapshot take": [ok("taken snapshots/9.db")] });
+
+    await deployLongLived(deployAction(), services);
+
+    expect(log.filter((line) => /clear|seeded|setup|seed /.test(line))).toEqual([]);
+  });
+
+  test("a failed end of the Reset is rolled back", async () => {
+    const { log, services } = fakes({ "snapshot seeded": [exited(1)] });
+
+    await deployLongLived(reset(), services);
+
+    expect(log).not.toContain("docker up edge aaaaaaa");
+    expect(log).toContain("docker snapshot restore edge 9");
+    expect(log.at(-1)).toBe("status 9 failure couldn't end the Reset, rolled back to bbbbbbb");
   });
 
   test("a failed one restores the Snapshot over the cleared database and the previous images", async () => {
@@ -554,6 +600,6 @@ describe("a Reset of Edge", () => {
       "docker volume rm edge",
       "docker volume create edge 9",
     ]);
-    expect(log).not.toContain("docker snapshot clear edge");
+    expect(log.filter((line) => /clear|seeded/.test(line))).toEqual([]);
   });
 });

@@ -327,18 +327,9 @@ describe("a Reset", () => {
     expect(resets(planLongLived(input([older, head])))).toEqual([`edge ${head.id} false`]);
   });
 
-  test("one the agent started and a restart cut short is retried as a Reset, its carrier superseded", () => {
-    const older = deployment("inactive", {
-      sha: OLD_SHA,
-      digests: OLD,
-      payload: { sha: OLD_SHA, ...OLD, reset: true },
-      description: "superseded",
-    });
-    const head = deployment("in_progress", { description: "resetting to aaaaaaa" });
+  test("an ordinary deploy cut short stays ordinary: the volume's Reset mark, not GitHub, finishes a Reset", () => {
+    const plain = deployment("in_progress", { description: "resetting to aaaaaaa" });
 
-    expect(resets(planLongLived(input([older, head])))).toEqual([`edge ${head.id} true`]);
-    // An ordinary deploy cut short stays ordinary.
-    const plain = deployment("in_progress", { description: "starting aaaaaaa" });
     expect(resets(planLongLived(input([plain])))).toEqual([`edge ${plain.id} false`]);
   });
 
