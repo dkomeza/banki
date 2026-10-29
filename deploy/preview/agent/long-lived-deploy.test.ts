@@ -43,6 +43,8 @@ type Step =
   | "snapshot take"
   | "snapshot restore"
   | "snapshot prune"
+  | "snapshot clear"
+  | "snapshot seeded"
   | "image rm";
 
 const short = (target: LongLivedTarget) => `${target.environment} ${target.sha.slice(0, 7)}`;
@@ -121,6 +123,7 @@ const deployAction = (overrides: Partial<LongLivedDeployAction> = {}): LongLived
   deploymentId: 9,
   digests: NEW,
   volume: "kept",
+  reset: false,
   rollbackTo: { deploymentId: 8, sha: OLD_SHA, digests: OLD },
   staleImages: [STALE],
   deployedAt: NOW,
@@ -423,5 +426,180 @@ describe("a first boot", () => {
       "docker volume rm edge",
       "status 9 failure no Edge Email or Password, run deploy/long-lived/bootstrap",
     ]);
+  });
+});
+
+const reset = (overrides: Partial<LongLivedDeployAction> = {}) =>
+  deployAction({ reset: true, ...overrides });
+
+describe("a Reset of Edge", () => {
+  test("on a kept volume, stops, takes the Snapshot, clears, sets up with the Password on stdin only, seeds, and starts", async () => {
+    const { log, setups, services } = fakes();
+
+    await deployLongLived(reset(), services);
+
+    expect(log).toEqual([
+      "status 9 in_progress resetting to aaaaaaa",
+      "docker pull edge aaaaaaa",
+      "docker stop edge",
+      "docker snapshot take edge 9",
+      "docker snapshot clear edge 9",
+      "docker setup edge aaaaaaa",
+      "docker seed edge aaaaaaa",
+      "docker snapshot seeded edge",
+      "docker up edge aaaaaaa",
+      "docker health edge aaaaaaa",
+      `status 9 success reset to aaaaaaa ${EDGE_URL}`,
+      "docker snapshot prune edge",
+      `docker image rm ${STALE}`,
+    ]);
+    expect(setups).toEqual([{ email: EMAIL, password: PASSWORD }]);
+    // The real invocation: the Password goes in on stdin, never in argv.
+    const invocation = setupInvocation(EMAIL, PASSWORD);
+    expect(invocation.args).not.toContain(PASSWORD);
+    expect(invocation.stdin).toBe(`${PASSWORD}\n`);
+  });
+
+  test("an interrupted one is retried from its start, keeping its existing Snapshot", async () => {
+    const { log, services } = fakes({ "snapshot take": [ok("resetting snapshots/9.db")] });
+
+    await deployLongLived(reset(), services);
+
+    expect(log.slice(0, 8)).toEqual([
+      "status 9 in_progress resetting to aaaaaaa",
+      "docker pull edge aaaaaaa",
+      "docker stop edge",
+      "docker snapshot take edge 9",
+      "docker snapshot clear edge 9",
+      "docker setup edge aaaaaaa",
+      "docker seed edge aaaaaaa",
+      "docker snapshot seeded edge",
+    ]);
+    expect(log).toContain(`status 9 success reset to aaaaaaa ${EDGE_URL}`);
+  });
+
+  test("one a restart cut short is finished by the next deploy, a newer push's included, from the volume's Reset mark", async () => {
+    const { log, setups, services } = fakes({
+      "snapshot take": [ok("resetting snapshots/9.db")],
+    });
+
+    await deployLongLived(deployAction({ reset: false }), services);
+
+    expect(log).toEqual([
+      "status 9 in_progress starting aaaaaaa",
+      "docker pull edge aaaaaaa",
+      "docker stop edge",
+      "docker snapshot take edge 9",
+      "docker snapshot clear edge 9",
+      "docker setup edge aaaaaaa",
+      "docker seed edge aaaaaaa",
+      "docker snapshot seeded edge",
+      "docker up edge aaaaaaa",
+      "docker health edge aaaaaaa",
+      `status 9 success reset to aaaaaaa ${EDGE_URL}`,
+      "docker snapshot prune edge",
+      `docker image rm ${STALE}`,
+    ]);
+    expect(setups).toEqual([{ email: EMAIL, password: PASSWORD }]);
+  });
+
+  test("an ordinary deploy whose take says nothing of a Reset never clears", async () => {
+    const { log, services } = fakes({ "snapshot take": [ok("taken snapshots/9.db")] });
+
+    await deployLongLived(deployAction(), services);
+
+    expect(log.filter((line) => /clear|seeded|setup|seed /.test(line))).toEqual([]);
+  });
+
+  test("a failed end of the Reset is rolled back", async () => {
+    const { log, services } = fakes({ "snapshot seeded": [exited(1)] });
+
+    await deployLongLived(reset(), services);
+
+    expect(log).not.toContain("docker up edge aaaaaaa");
+    expect(log).toContain("docker snapshot restore edge 9");
+    expect(log.at(-1)).toBe("status 9 failure couldn't end the Reset, rolled back to bbbbbbb");
+  });
+
+  test("a failed one restores the Snapshot over the cleared database and the previous images", async () => {
+    const { log, services } = fakes({ seed: [exited(3)] });
+
+    await deployLongLived(reset(), services);
+
+    expect(log.slice(6)).toEqual([
+      "docker seed edge aaaaaaa",
+      "docker stop edge",
+      "docker snapshot restore edge 9",
+      "docker up edge bbbbbbb",
+      "docker health edge bbbbbbb",
+      "status 9 failure seed exited 3, rolled back to bbbbbbb",
+    ]);
+    expect(log.filter((line) => /prune|image rm|volume/.test(line))).toEqual([]);
+  });
+
+  test("a failed clear is rolled back too", async () => {
+    const { log, services } = fakes({ "snapshot clear": [exited(1)] });
+
+    await deployLongLived(reset(), services);
+
+    expect(log).not.toContain("docker setup edge aaaaaaa");
+    expect(log).toContain("docker snapshot restore edge 9");
+    expect(log.at(-1)).toBe("status 9 failure couldn't clear the database, rolled back to bbbbbbb");
+  });
+
+  test("without Edge's Email or Password, is rolled back with a fixed reason", async () => {
+    const { log, services, failSecrets } = fakes();
+    failSecrets(new ConfigError("Can't read the secret edge-password"));
+
+    await deployLongLived(reset(), services);
+
+    expect(log).toContain("docker snapshot restore edge 9");
+    expect(log.at(-1)).toBe(
+      "status 9 failure no Edge Email or Password, run deploy/long-lived/bootstrap, rolled back to bbbbbbb",
+    );
+  });
+
+  test("one whose rollback fails too is stopped, and says so", async () => {
+    const { log, services } = fakes({ up: [exited(1)], "snapshot restore": [exited(1)] });
+
+    await deployLongLived(reset(), services);
+
+    expect(log.slice(-4)).toEqual([
+      "docker stop edge",
+      "docker snapshot restore edge 9",
+      "docker stop edge",
+      "status 9 failure api not healthy after 60 s, rollback failed, stopped",
+    ]);
+  });
+
+  test("with no volume, is a first boot: no Snapshot to take, nothing to clear", async () => {
+    const { log, services } = fakes();
+
+    await deployLongLived(reset({ volume: "missing", rollbackTo: undefined }), services);
+
+    expect(log).toEqual([
+      "status 9 in_progress resetting to aaaaaaa",
+      "docker volume create edge 9",
+      "docker pull edge aaaaaaa",
+      "docker setup edge aaaaaaa",
+      "docker seed edge aaaaaaa",
+      "docker up edge aaaaaaa",
+      "docker health edge aaaaaaa",
+      `status 9 success reset to aaaaaaa ${EDGE_URL}`,
+      `docker image rm ${STALE}`,
+    ]);
+  });
+
+  test("with its own interrupted first boot's volume, starts that first boot over", async () => {
+    const { log, services } = fakes();
+
+    await deployLongLived(reset({ volume: "own", rollbackTo: undefined }), services);
+
+    expect(log.slice(1, 4)).toEqual([
+      "docker down edge aaaaaaa",
+      "docker volume rm edge",
+      "docker volume create edge 9",
+    ]);
+    expect(log.filter((line) => /clear|seeded/.test(line))).toEqual([]);
   });
 });

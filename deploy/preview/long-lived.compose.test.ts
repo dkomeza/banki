@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type LongLivedTarget, longLivedEnv } from "./agent/long-lived-docker";
@@ -10,6 +10,9 @@ import { isRecord } from "./agent/parse";
 // data volume. Skipped without a docker CLI; nothing is started.
 
 const hasDocker = Bun.which("docker") !== null;
+
+// A runner's first `docker compose` can take seconds to start, past bun's 5s default.
+setDefaultTimeout(30_000);
 
 const EDGE: LongLivedTarget = {
   environment: "edge",
@@ -121,18 +124,22 @@ describe.skipIf(!hasDocker)("the Long-lived template", () => {
     }
   });
 
-  test("sets each installation's origin, trusts only the Long-lived Newt, and sets no secret", async () => {
+  test("sets each installation's origin, a Release on Production only, trusts only the Long-lived Newt, and sets no secret", async () => {
     const edge = await config(longLivedEnv(EDGE));
     const production = await config(longLivedEnv(PRODUCTION), "banki-production");
 
     expect(edge.services.api?.environment).toEqual({
       ORIGIN: "https://preview.banki.dkomeza.com",
+      RELEASE: "false",
     });
     expect(edge.services.web?.environment).toEqual({
       BANKI_ORIGIN: "https://preview.banki.dkomeza.com",
       BANKI_TRUSTED_PROXIES: "172.31.254.2",
     });
-    expect(production.services.api?.environment).toEqual({ ORIGIN: "https://banki.dkomeza.com" });
+    expect(production.services.api?.environment).toEqual({
+      ORIGIN: "https://banki.dkomeza.com",
+      RELEASE: "true",
+    });
     expect(production.services.web?.environment).toEqual({
       BANKI_ORIGIN: "https://banki.dkomeza.com",
       BANKI_TRUSTED_PROXIES: "172.31.254.2",

@@ -338,16 +338,29 @@ describe("bootstrap", () => {
     expect(result.execArgv).toBeUndefined();
   });
 
-  test("refuses to change the Email of a running Edge, and asks again", async () => {
+  test("saves a changed Email with Edge running, saying Edge keeps its current one until it's reset, and how to reset it", async () => {
     const dir = secretsDir();
     await bootstrap(dir, FIRST_ANSWERS);
-    const answers = [...keepAll().slice(0, 4), "new@example.com", "", ""];
+    const answers = [...keepAll().slice(0, 4), "new@example.com", ""];
 
     const result = await bootstrap(dir, answers, { running: true });
 
     expect(result.exitCode).toBe(0);
-    expect(result.stderr).toContain("reset Edge instead");
-    expect(read(dir, "edge-email")).toBe(`${EMAIL}\n`);
+    expect(result.stderr).toContain("keeps its current Email until it's reset");
+    expect(result.stderr).toContain("gh workflow run reset-edge.yml");
+    expect(read(dir, "edge-email")).toBe("new@example.com\n");
+    // Banki has no command to change an Email: Edge is never reached for it.
+    expect(result.execArgv).toBeUndefined();
+  });
+
+  test("says nothing of a Reset when a running Edge's Email is kept", async () => {
+    const dir = secretsDir();
+    await bootstrap(dir, FIRST_ANSWERS);
+
+    const result = await bootstrap(dir, keepAll(), { running: true });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).not.toContain("reset-edge.yml");
   });
 
   test("changes the Email when no Edge is running", async () => {
@@ -359,6 +372,7 @@ describe("bootstrap", () => {
 
     expect(result.exitCode).toBe(0);
     expect(read(dir, "edge-email")).toBe("new@example.com\n");
+    expect(result.stderr).not.toContain("reset-edge.yml");
   });
 
   test("asks Docker for exactly Edge's running api container", async () => {

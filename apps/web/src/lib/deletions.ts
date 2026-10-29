@@ -4,6 +4,7 @@ import {
   type DeletionKind,
   type DeletionResponse,
   PlaceDeletedError,
+  RestoreDeletionsResponse,
   RestoreResponse,
 } from "@banki/shared";
 import { type QueryClient, queryOptions } from "@tanstack/react-query";
@@ -84,6 +85,39 @@ export async function restoreDeletion(
     return { ok: false, message: "It's no longer in Recently deleted." };
   }
   return { ok: false, message: "Banki couldn't restore it. Try again." };
+}
+
+/**
+ * Restores several Deletions together with `POST /api/deletions/restore`, all
+ * of them or none, such as a delete of several Cards' Undo, and says how it
+ * went: which Deck must be restored first, or that one is gone already.
+ */
+export async function restoreDeletions(
+  queryClient: QueryClient,
+  ids: readonly string[],
+  client: ApiClient = api,
+): Promise<{ ok: true; restored: Restored[] } | Exclude<RestoreOutcome, { ok: true }>> {
+  let res: Response;
+  try {
+    res = await client.api.deletions.restore.$post({ json: { deletionIds: [...ids] } });
+  } catch {
+    return { ok: false, message: CANT_REACH };
+  }
+  const status: number = res.status;
+  if (res.ok) {
+    const { restored } = RestoreDeletionsResponse.parse(await res.json());
+    await refreshAfterDeletion(queryClient);
+    return { ok: true, restored };
+  }
+  if (status === 409) {
+    const refused = PlaceDeletedError.safeParse(await res.json().catch(() => undefined));
+    if (refused.success) return { ok: false, placeDeleted: refused.data.deck };
+  }
+  if (status === 404) {
+    await refreshAfterDeletion(queryClient);
+    return { ok: false, message: "Some of them are no longer in Recently deleted." };
+  }
+  return { ok: false, message: "Banki couldn't restore them. Try again." };
 }
 
 /**

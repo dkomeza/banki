@@ -23,6 +23,7 @@ export type Job = {
   if?: string;
   needs?: string | string[];
   "runs-on"?: string;
+  concurrency?: { group: string; "cancel-in-progress": boolean };
   permissions?: Record<string, string>;
   env?: Record<string, string>;
   outputs?: Record<string, string>;
@@ -44,7 +45,7 @@ export const REPO = "dkomeza/banki";
 
 /** What the fake prints and exits with, or else the JSON it answers. */
 export type Raw = { stdout?: string; stderr?: string; exit?: number };
-/** JSON answers, one per call in turn; the last repeats. */
+/** Answers, one per call in turn, each JSON or a `Raw`; the last repeats. */
 export type Sequence = { sequence: unknown[] };
 /**
  * Keyed `METHOD PATH` for `gh api`, and `docker <args joined by spaces>` for
@@ -52,8 +53,10 @@ export type Sequence = { sequence: unknown[] };
  */
 export type Answer = Raw | Sequence | unknown[] | Record<string, unknown>;
 
-const isRaw = (answer: Answer): answer is Raw =>
-  !Array.isArray(answer) && ("stdout" in answer || "stderr" in answer || "exit" in answer);
+const isRaw = (answer: unknown): answer is Raw =>
+  isRecord(answer) &&
+  !Array.isArray(answer) &&
+  ("stdout" in answer || "stderr" in answer || "exit" in answer);
 const isSequence = (answer: Answer): answer is Sequence =>
   !Array.isArray(answer) && "sequence" in answer;
 
@@ -72,7 +75,11 @@ const ANSWER = `answer() {
   [ -n "$dir" ] || return 1
   echo >>"$dir/calls"
   n="$(wc -l <"$dir/calls" | tr -d ' ')"
-  if [ -f "$dir/stdout.$n" ]; then cat "$dir/stdout.$n"; exit 0; fi
+  if [ -f "$dir/stdout.$n" ]; then
+    cat "$dir/stdout.$n"
+    if [ -f "$dir/stderr.$n" ]; then cat "$dir/stderr.$n" >&2; fi
+    exit "$(cat "$dir/exit.$n" 2>/dev/null || echo 0)"
+  fi
   if [ -f "$dir/stdout" ]; then cat "$dir/stdout"; fi
   if [ -f "$dir/stderr" ]; then cat "$dir/stderr" >&2; fi
   exit "$(cat "$dir/exit" 2>/dev/null || echo 0)"
@@ -169,7 +176,8 @@ export function workflowHarness(fileName: string) {
   /**
    * Runs one step's script as Actions does (`bash -eo pipefail`), with `env`,
    * and `gh` and `docker` answering from `fixtures`. `files` are written under
-   * the run's directory, where the script runs.
+   * the run's directory, where the script runs, and then `prepare` gets that
+   * directory, for what plain files can't set up, such as a git repo.
    */
   async function runStep(
     jobName: string,
@@ -177,6 +185,7 @@ export function workflowHarness(fileName: string) {
     env: Record<string, string>,
     fixtures: Record<string, Answer> = {},
     files: Record<string, string> = {},
+    prepare?: (dir: string) => void,
   ) {
     const dir = join(scratch, `run-${runs++}`);
     mkdirSync(dir);
@@ -187,8 +196,14 @@ export function workflowHarness(fileName: string) {
       mkdirSync(answerDir);
       writeFileSync(join(answerDir, "key"), key);
       if (isSequence(answer)) {
-        answer.sequence.forEach((json, index) => {
-          writeFileSync(join(answerDir, `stdout.${index + 1}`), JSON.stringify(json));
+        answer.sequence.forEach((each, index) => {
+          const raw = isRaw(each) ? each : { stdout: JSON.stringify(each) };
+          const call = index + 1;
+          writeFileSync(join(answerDir, `stdout.${call}`), raw.stdout ?? "");
+          if (raw.stderr !== undefined)
+            writeFileSync(join(answerDir, `stderr.${call}`), raw.stderr);
+          if (raw.exit !== undefined)
+            writeFileSync(join(answerDir, `exit.${call}`), String(raw.exit));
         });
         writeFileSync(join(answerDir, "stdout"), JSON.stringify(answer.sequence.at(-1)));
         continue;
@@ -203,6 +218,7 @@ export function workflowHarness(fileName: string) {
       mkdirSync(join(file, ".."), { recursive: true });
       writeFileSync(file, content);
     }
+    prepare?.(dir);
     const file = join(dir, "step.sh");
     writeFileSync(file, script(jobName, stepId));
     const ghLog = join(dir, "gh.log");

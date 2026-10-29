@@ -31,14 +31,14 @@ describe("the helper's invocation", () => {
     ]);
   });
 
-  test("has the agent's hardening, and no network", () => {
+  test("has the agent's hardening, on Docker's default bridge network", () => {
     expect(argv).toContain("--read-only");
     expect(argv).toContain("--init");
     expect(valuesOf(argv, "--tmpfs")).toEqual(["/tmp"]);
     expect(valuesOf(argv, "--security-opt")).toEqual(["no-new-privileges:true"]);
     expect(valuesOf(argv, "--cap-drop")).toEqual(["ALL"]);
     expect(valuesOf(argv, "--cap-add")).toEqual(["DAC_READ_SEARCH"]);
-    expect(valuesOf(argv, "--network")).toEqual(["none"]);
+    expect(valuesOf(argv, "--network")).toEqual(["bridge"]);
   });
 
   test("mounts the socket, the clone read-only, and the secrets read-only at their host path", () => {

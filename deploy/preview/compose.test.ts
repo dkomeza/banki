@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,6 +12,9 @@ import { isRecord } from "./agent/parse";
 // docker CLI; nothing is started.
 
 const hasDocker = Bun.which("docker") !== null;
+
+// A runner's first `docker compose` can take seconds to start, past bun's 5s default.
+setDefaultTimeout(30_000);
 
 const PR_TARGET: ComposeTarget = {
   key: 5,

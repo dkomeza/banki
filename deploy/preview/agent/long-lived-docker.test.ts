@@ -96,9 +96,17 @@ describe("longLivedEnv", () => {
       LONG_LIVED_VOLUME: "banki-production-data",
       LONG_LIVED_SHA: SHA,
       LONG_LIVED_DEPLOYED_AT: AT,
+      LONG_LIVED_RELEASE: "true",
       API_DIGEST: API,
       WEB_DIGEST: WEB,
     });
+  });
+
+  test("makes only Production a Release", () => {
+    const target = { sha: SHA, deployedAt: new Date(AT), digests: { api: API, web: WEB } };
+
+    expect(longLivedEnv({ ...target, environment: "production" }).LONG_LIVED_RELEASE).toBe("true");
+    expect(longLivedEnv({ ...target, environment: "edge" }).LONG_LIVED_RELEASE).toBe("false");
   });
 });
 
@@ -140,5 +148,12 @@ describe("snapshotInvocation", () => {
     expect(argv).not.toContain("--mount");
     expect(argv).not.toContain("/var/run/docker.sock");
     expect(argv.slice(-3)).toEqual(["bun", "agent/snapshot.ts", "prune"]);
+  });
+
+  test("clears a Reset's database in the same one-off container", () => {
+    const argv = snapshotInvocation("edge", ["clear", 41]);
+
+    expect(argv).toEqual([...snapshotInvocation("edge", ["prune"]).slice(0, -1), "clear", "41"]);
+    expect(snapshotInvocation("edge", ["seeded"]).at(-1)).toBe("seeded");
   });
 });

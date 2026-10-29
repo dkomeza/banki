@@ -7,7 +7,9 @@ import {
   DeletionListResponse,
   FolderResponse,
   PlaceDeletedError,
+  RestoreDeletionsResponse,
   RestoreResponse,
+  DeleteCardsResponse,
 } from "@banki/shared";
 import { type App, bootApps, codeOf, get, send, setUp } from "../testing/app";
 
@@ -190,6 +192,84 @@ describe("POST /api/deletions/:id/restore", () => {
     const id = await remove(app, cookie, `/api/decks/${(await createDeck(app, cookie, "A")).id}`);
 
     expect((await restore(app, undefined, id)).status).toBe(401);
+  });
+});
+
+/** Deletes the Cards at once and answers their Deletions' IDs. */
+async function deleteAll(app: App, cookie: string, cardIds: string[]) {
+  const res = await send(app, "POST", "/api/cards/delete", { cardIds }, cookie);
+  if (res.status !== 200) throw new Error(`Delete answered ${res.status}`);
+  return DeleteCardsResponse.parse(await res.json()).deletions.map((d) => d.deletionId);
+}
+
+const restoreAll = (app: App, cookie: string | undefined, deletionIds: unknown) =>
+  send(app, "POST", "/api/deletions/restore", { deletionIds }, cookie);
+
+describe("POST /api/deletions/restore", () => {
+  test("restores every Deletion together, answering each", async () => {
+    const { app, cookie } = await signedIn();
+    const deck = await createDeck(app, cookie, "Spanish");
+    const one = await createCard(app, cookie, deck.id, "one");
+    const two = await createCard(app, cookie, deck.id, "two");
+    const ids = await deleteAll(app, cookie, [one.id, two.id]);
+
+    const res = await restoreAll(app, cookie, ids);
+
+    expect(res.status).toBe(200);
+    const { restored } = RestoreDeletionsResponse.parse(await res.json());
+    expect(restored.map((r) => r.id)).toEqual([one.id, two.id]);
+    expect(await listed(app, cookie)).toEqual([]);
+    expect((await get(app, `/api/cards/${one.id}`, cookie)).status).toBe(200);
+  });
+
+  test("answers 409 place_deleted, restoring none, while the Deck is deleted", async () => {
+    const { app, cookie } = await signedIn();
+    const deck = await createDeck(app, cookie, "Spanish");
+    const one = await createCard(app, cookie, deck.id, "one");
+    const ids = await deleteAll(app, cookie, [one.id]);
+    await remove(app, cookie, `/api/decks/${deck.id}`);
+
+    const res = await restoreAll(app, cookie, ids);
+
+    expect(res.status).toBe(409);
+    expect(PlaceDeletedError.parse(await res.json()).deck).toEqual({
+      id: deck.id,
+      name: "Spanish",
+    });
+  });
+
+  test("answers 404, restoring none, when one is gone", async () => {
+    const { app, cookie } = await signedIn();
+    const deck = await createDeck(app, cookie, "Spanish");
+    const one = await createCard(app, cookie, deck.id, "one");
+    const ids = await deleteAll(app, cookie, [one.id]);
+
+    const res = await restoreAll(app, cookie, [...ids, "nope"]);
+
+    expect(res.status).toBe(404);
+    expect(await codeOf(res)).toBe("not_found");
+    expect((await get(app, `/api/cards/${one.id}`, cookie)).status).toBe(404);
+  });
+
+  test("answers 400 for none, or more than 10,000", async () => {
+    const { app, cookie } = await signedIn();
+
+    expect((await restoreAll(app, cookie, [])).status).toBe(400);
+    expect(
+      (
+        await restoreAll(
+          app,
+          cookie,
+          Array.from({ length: 10_001 }, () => "x"),
+        )
+      ).status,
+    ).toBe(400);
+  });
+
+  test("answers 401 when signed out", async () => {
+    const { app } = await signedIn();
+
+    expect((await restoreAll(app, undefined, ["x"])).status).toBe(401);
   });
 });
 

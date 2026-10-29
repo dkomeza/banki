@@ -58,3 +58,27 @@ export const UpdateCardRequest = z
     "Expected a front, a back or tags",
   );
 export type UpdateCardRequest = z.input<typeof UpdateCardRequest>;
+
+/** The most Cards one Move or one delete of several may take. */
+export const CARD_BATCH_MAX = 10_000;
+
+/** The Cards a Move or a delete of several acts on: 1 to 10,000 IDs. */
+export const CardIds = z.array(z.string().min(1)).min(1).max(CARD_BATCH_MAX);
+
+/**
+ * The body of `POST /api/cards/move`: the Cards to Move, and the Deck they go
+ * to. Every one moves, or none does.
+ */
+export const MoveCardsRequest = z.strictObject({ cardIds: CardIds, deckId: z.string().min(1) });
+export type MoveCardsRequest = z.input<typeof MoveCardsRequest>;
+
+/** The body `POST /api/cards/move` answers: the moved Cards, now in their new Deck. */
+export const MoveCardsResponse = z.object({ cards: CardListResponse });
+export type MoveCardsResponse = z.infer<typeof MoveCardsResponse>;
+
+/**
+ * The body of `POST /api/cards/delete`: the Cards to delete at once, each as a
+ * Deletion of its own. Every one is deleted, or none is.
+ */
+export const DeleteCardsRequest = z.strictObject({ cardIds: CardIds });
+export type DeleteCardsRequest = z.input<typeof DeleteCardsRequest>;

@@ -9,7 +9,8 @@
 # beside the pull agent's files, which it never changes: the directory is 0700
 # and every file 0600. compose.yaml hands long-lived-newt.env to Newt as its
 # environment; the agent sets Edge up from edge-email and edge-password on its
-# first Edge deploy. No AUTH_SECRET: the api makes its own on first start, in
+# first Edge deploy, and again on each Reset (`gh workflow run
+# reset-edge.yml`). No AUTH_SECRET: the api makes its own on first start, in
 # a data volume a Long-lived installation keeps.
 #
 # Usage: deploy/long-lived/bootstrap
@@ -196,11 +197,13 @@ newt_secret="$(ask "Newt secret" "$(current_env long-lived-newt.env NEWT_SECRET)
 
 current_email="$(current_file edge-email)"
 edge_email="$(ask "Edge's Email (your own, say)" "$current_email")"
-# Edge keeps its User, and Banki has no command to change its Email.
-while [ -n "$running" ] && [ "$edge_email" != "$current_email" ]; do
-  printf "Edge is running, and its Email can't change. Enter keeps it; to use another, reset Edge instead.\n" >&2
-  edge_email="$(ask "Edge's Email (your own, say)" "$current_email")"
-done
+# Edge keeps its User, and Banki has no command to change its Email: a
+# running Edge takes a new one only when it's reset.
+email_waits=""
+if [ -n "$running" ] && [ "$edge_email" != "$current_email" ]; then
+  printf "Edge is running, so it keeps its current Email until it's reset.\n" >&2
+  email_waits=1
+fi
 
 current_password="$(current_file edge-password)"
 edge_password="$(ask_password "$current_password" "$(current_file preview-password)")"
@@ -228,5 +231,8 @@ if [ -n "$applied" ]; then
   printf "Edge has the new Password, and every Edge device is signed out.\n" >&2
 elif [ -z "$running" ]; then
   printf "No Edge is running: the agent's first Edge deploy sets it up with this Email and Password.\n" >&2
+fi
+if [ -n "$email_waits" ]; then
+  printf "Edge keeps its current Email until it's reset. Reset it, to Seed data, with:\n  gh workflow run reset-edge.yml\n" >&2
 fi
 printf '\nStart or update Newt with:\n  docker compose -f deploy/long-lived/compose.yaml up -d\n' >&2

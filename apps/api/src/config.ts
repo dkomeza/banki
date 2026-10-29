@@ -24,6 +24,8 @@ export type Config = {
   encryptionKey: string | undefined;
   /** The commit the API was built from, reported by `/api/health`; `"dev"` outside a CI-built image. */
   commit: string;
+  /** Whether this installation runs a Release, reported by `/api/health`: only with `RELEASE=true`, which Production's deploy sets. */
+  release: boolean;
 };
 
 /** Thrown by {@link parseConfig}; its message lists every invalid variable. */
@@ -99,6 +101,12 @@ const env = z.object({
   // Baked into the api image by the preview-images workflow; unset in local dev
   // and in a plain `docker compose build`.
   COMMIT: z.preprocess(unsetIfEmpty, z.string().default("dev")),
+  // Set by the deploy, never baked in: Production runs the very images Edge
+  // ran (ADR-0017). Anything but `true` is not a Release.
+  RELEASE: z
+    .string()
+    .optional()
+    .transform((value) => value === "true"),
 });
 
 /** Validates the API's environment, throwing a {@link ConfigError} when it is invalid. */
@@ -107,8 +115,17 @@ export function parseConfig(environment: Record<string, string | undefined>): Co
   if (!result.success) {
     throw new ConfigError(z.prettifyError(result.error));
   }
-  const { DATA_DIR, PORT, LOG_FORMAT, LOG_LEVEL, ORIGIN, AUTH_SECRET, ENCRYPTION_KEY, COMMIT } =
-    result.data;
+  const {
+    DATA_DIR,
+    PORT,
+    LOG_FORMAT,
+    LOG_LEVEL,
+    ORIGIN,
+    AUTH_SECRET,
+    ENCRYPTION_KEY,
+    COMMIT,
+    RELEASE,
+  } = result.data;
   return {
     dataDir: DATA_DIR,
     port: PORT,
@@ -118,5 +135,6 @@ export function parseConfig(environment: Record<string, string | undefined>): Co
     authSecret: AUTH_SECRET,
     encryptionKey: ENCRYPTION_KEY,
     commit: COMMIT,
+    release: RELEASE,
   };
 }

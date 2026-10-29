@@ -150,6 +150,43 @@ export function treeRows(folders: readonly Folder[]): TreeRow[] {
   return rows;
 }
 
+/** Folders or Decks A–Z by name, numbers counted ("Calculus 2" before "Calculus 10"). */
+const sortedByName = <T extends { id: string; name: string }>(items: readonly T[]) =>
+  items.toSorted((a, b) => byName.compare(a.name, b.name) || (a.id < b.id ? -1 : 1));
+
+/** One row of the destination picker of a Move of Cards: a Folder heading, or a Deck to pick. */
+export type DeckRow =
+  | { kind: "folder"; id: string; name: string; depth: number }
+  | { kind: "deck"; deck: Deck; depth: number };
+
+/**
+ * Every live Deck in its Folder tree, for the destination picker of a Move of
+ * Cards: the Root's Decks first, then each Folder as a heading with its
+ * Decks and then its Folders under it, each A–Z. A Folder with no Deck
+ * anywhere inside is left out, as there is nothing in it to pick.
+ */
+export function deckRows(library: Library): DeckRow[] {
+  const rows: DeckRow[] = [];
+  const hasDecks = (id: string, seen: Set<string>): boolean =>
+    library.decks.some((d) => d.folderId === id) ||
+    library.folders.some(
+      (f) => f.parentId === id && !seen.has(f.id) && hasDecks(f.id, new Set([...seen, f.id])),
+    );
+  const walk = (place: Place, depth: number, seen: Set<string>) => {
+    for (const deck of sortedByName(library.decks.filter((d) => d.folderId === place))) {
+      rows.push({ kind: "deck", deck, depth });
+    }
+    for (const f of sortedByName(library.folders.filter((x) => x.parentId === place))) {
+      const inside = new Set([...seen, f.id]);
+      if (seen.has(f.id) || !hasDecks(f.id, inside)) continue;
+      rows.push({ kind: "folder", id: f.id, name: f.name, depth });
+      walk(f.id, depth + 1, inside);
+    }
+  };
+  walk(null, 0, new Set());
+  return rows;
+}
+
 /** The name Keep both would give `name` moved into `place` beside another of its kind and name. */
 export function keepBothName(library: Library, kind: Item["kind"], place: Place, name: string) {
   const beside =

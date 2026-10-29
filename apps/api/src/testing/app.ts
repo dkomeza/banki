@@ -48,6 +48,7 @@ export function bootApps() {
           authSecret: undefined,
           encryptionKey: undefined,
           commit: "dev",
+          release: false,
           ...overrides,
         },
         { openRouterFetch },

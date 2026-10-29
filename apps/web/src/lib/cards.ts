@@ -1,4 +1,11 @@
-import { CARD_SIDE_MAX_LENGTH, CardListResponse, CardResponse, frontKey } from "@banki/shared";
+import {
+  CARD_SIDE_MAX_LENGTH,
+  CardListResponse,
+  CardResponse,
+  DeleteCardsResponse,
+  MoveCardsResponse,
+  frontKey,
+} from "@banki/shared";
 import { type QueryClient, queryOptions } from "@tanstack/react-query";
 import { type ApiClient, api } from "./api";
 import { CANT_REACH, deckQueryOptions, decksQueryOptions } from "./decks";
@@ -203,6 +210,87 @@ export async function deleteCard(
     queryClient.invalidateQueries({ queryKey: deletionsQueryOptions().queryKey }),
   ]);
   return { ok: true, deletionId };
+}
+
+export type MoveOutcome =
+  | { ok: true; cards: Card[] }
+  | { ok: false; notFound: true }
+  | { ok: false; message: string };
+
+/**
+ * Moves Cards to the Deck `to` with `POST /api/cards/move`, all of them or
+ * none, taking them out of their Deck's list, `from`, once moved. A Card or a
+ * Deck that is gone meanwhile (404) moves nothing and says so.
+ */
+export async function moveCards(
+  queryClient: QueryClient,
+  ids: readonly string[],
+  from: string,
+  to: string,
+  client: ApiClient = api,
+): Promise<MoveOutcome> {
+  let res: Response;
+  try {
+    res = await client.api.cards.move.$post({ json: { cardIds: [...ids], deckId: to } });
+  } catch {
+    return { ok: false, message: CANT_REACH };
+  }
+  const status: number = res.status;
+  if (status === 404) {
+    await Promise.all([refreshDeck(queryClient, from), refreshDeck(queryClient, to)]);
+    return { ok: false, notFound: true };
+  }
+  if (!res.ok) return { ok: false, message: "Banki couldn't move the cards. Try again." };
+  const { cards } = MoveCardsResponse.parse(await res.json());
+  const moved = new Set(cards.map((card) => card.id));
+  queryClient.setQueryData(cardsQueryOptions(from).queryKey, (list) =>
+    list?.filter((card) => !moved.has(card.id)),
+  );
+  for (const card of cards) queryClient.setQueryData(cardQueryOptions(card.id).queryKey, card);
+  await Promise.all([refreshDeck(queryClient, from), refreshDeck(queryClient, to)]);
+  return { ok: true, cards };
+}
+
+/**
+ * Deletes Cards at once with `POST /api/cards/delete`, each as a Deletion of
+ * its own, taking them out of their Deck's list at once, and answers their
+ * Deletions' IDs for Undo. All of them are deleted or none: when one is gone
+ * already, or the delete fails, they come back in the list with a message.
+ */
+export async function deleteCards(
+  queryClient: QueryClient,
+  deckId: string,
+  ids: readonly string[],
+  client: ApiClient = api,
+): Promise<{ ok: true; deletionIds: string[] } | { ok: false; message: string }> {
+  const gone = new Set(ids);
+  queryClient.setQueryData(cardsQueryOptions(deckId).queryKey, (cards) =>
+    cards?.filter((card) => !gone.has(card.id)),
+  );
+  let res: Response | undefined;
+  try {
+    res = await client.api.cards.delete.$post({ json: { cardIds: [...ids] } });
+  } catch {
+    res = undefined;
+  }
+  if (res === undefined || !res.ok) {
+    await refreshDeck(queryClient, deckId);
+    return {
+      ok: false,
+      message:
+        res === undefined
+          ? CANT_REACH
+          : res.status === 404
+            ? "Some of these cards are gone already, so nothing was deleted."
+            : "Banki couldn't delete the cards. Try again.",
+    };
+  }
+  const { deletions } = DeleteCardsResponse.parse(await res.json());
+  await Promise.all([
+    refreshDeck(queryClient, deckId),
+    queryClient.invalidateQueries({ queryKey: deletionsQueryOptions().queryKey }),
+  ]);
+  return { ok: true, deletionIds: deletions.map((d) => d.deletionId) };
 }
 
 /** Drops a deleted Card's own cache entry. */
