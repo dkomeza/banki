@@ -4,6 +4,7 @@ import {
   type InlineContext,
   type Line,
   type MarkdownConfig,
+  type MarkdownExtension,
   parser,
   Strikethrough,
   Table,
@@ -195,13 +196,20 @@ export const Formula: MarkdownConfig = {
   ],
 };
 
-/** The Card parser: CommonMark, GFM tables and strikethrough, and Formulas, with no raw HTML. */
-export const cardParser = parser.configure([
+/**
+ * What the Card parser adds to CommonMark: GFM tables and strikethrough, and
+ * Formulas, with no raw HTML. The live-preview editor configures CodeMirror's
+ * Markdown mode with the same list, so the two read a Card alike.
+ */
+export const CARD_EXTENSIONS: MarkdownExtension = [
   Table,
   Strikethrough,
   Formula,
   { remove: ["HTMLBlock", "Entity"] },
-]);
+];
+
+/** The Card parser: CommonMark with {@link CARD_EXTENSIONS}. */
+export const cardParser = parser.configure(CARD_EXTENSIONS);
 
 /** A node of a Card's tree. */
 export type { SyntaxNode as CardNode } from "@lezer/common";
