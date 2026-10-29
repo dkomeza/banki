@@ -22,12 +22,15 @@ const ShownCount = z
  * The query of `GET /api/decks/:deckId/study/next`: how many review and new
  * Cards the Session has shown (each counted the first time, by the `kind` it
  * was answered with; a learning Card coming back counts for neither), and the
- * ID of the Card just shown, if any.
+ * ID of the Card just shown, if any; an empty one is none.
  */
 export const StudyNextQuery = z.object({
   reviewsShown: ShownCount,
   newShown: ShownCount,
-  after: z.string().min(1).optional(),
+  after: z
+    .string()
+    .optional()
+    .transform((after) => (after === "" ? undefined : after)),
 });
 export type StudyNextQuery = z.input<typeof StudyNextQuery>;
 

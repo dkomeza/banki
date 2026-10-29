@@ -3,7 +3,7 @@ import { StudyNextQuery, StudyNextResponse } from "./study";
 
 describe("StudyNextQuery", () => {
   test("counts nothing shown when the counters are left out", () => {
-    expect(StudyNextQuery.parse({})).toEqual({ reviewsShown: 0, newShown: 0 });
+    expect(StudyNextQuery.parse({})).toEqual({ reviewsShown: 0, newShown: 0, after: undefined });
   });
 
   test("takes whole numbers from 0, and the Card just shown", () => {
@@ -14,6 +14,10 @@ describe("StudyNextQuery", () => {
     });
   });
 
+  test("takes an empty `after` as none", () => {
+    expect(StudyNextQuery.parse({ after: "" }).after).toBeUndefined();
+  });
+
   test.each([
     { reviewsShown: "-1" },
     { reviewsShown: "1.5" },
@@ -22,7 +26,6 @@ describe("StudyNextQuery", () => {
     { newShown: "1e3" },
     { newShown: " 1" },
     { newShown: "99999999999999999999" },
-    { after: "" },
   ])("refuses %j", (query) => {
     expect(StudyNextQuery.safeParse(query).success).toBe(false);
   });

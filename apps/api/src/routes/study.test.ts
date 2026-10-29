@@ -1,8 +1,30 @@
 import { describe, expect, test } from "bun:test";
 import { CardResponse, DeckResponse, StudyNextResponse } from "@banki/shared";
+import { sql } from "drizzle-orm";
+import { openDatabase } from "../db/database";
+import { createDeckRepository } from "../repositories/decks";
 import { type App, bootApps, codeOf, get, send, setUp } from "../testing/app";
 
-const { boot } = bootApps();
+const { boot, dataDir } = bootApps();
+
+/** Makes another User, straight in the database, with a Deck of their own; answers its ID. */
+function othersDeck() {
+  const opened = openDatabase(dataDir());
+  try {
+    opened.db.run(
+      sql`INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES ('other', 'n', 'o@x.y', 1, 0, 0)`,
+    );
+    const created = createDeckRepository(opened.db).create("other", {
+      name: "Theirs",
+      description: null,
+      folderId: null,
+    });
+    if (typeof created === "string") throw new Error(`Their deck: ${created}`);
+    return created.id;
+  } finally {
+    opened.close();
+  }
+}
 
 /** A fresh app that Setup is done on, the signed-in cookie, and one empty Deck. */
 async function signedIn() {
@@ -82,6 +104,13 @@ describe("GET /api/decks/:deckId/study/next", () => {
     expect(next?.schedule.state).toBe("learning");
   });
 
+  test("takes an empty `after` as none", async () => {
+    const { app, cookie, deckId } = await signedIn();
+    const card = await createCard(app, cookie, deckId);
+
+    expect((await nextOf(app, cookie, deckId, "?after="))?.card.id).toBe(card.id);
+  });
+
   test("never answers the Card just shown while another is left", async () => {
     const { app, cookie, deckId } = await signedIn();
     const first = await createCard(app, cookie, deckId, "first");
@@ -137,12 +166,13 @@ describe("GET /api/decks/:deckId/study/next", () => {
     expect(await nextOf(app, cookie, deckId)).toBeNull();
   });
 
-  test("answers 404 not_found for a deleted or missing Deck", async () => {
+  test("answers 404 not_found for a deleted, missing or other User's Deck", async () => {
     const { app, cookie, deckId } = await signedIn();
     await createCard(app, cookie, deckId);
     await send(app, "DELETE", `/api/decks/${deckId}`, undefined, cookie);
+    const theirs = othersDeck();
 
-    for (const id of [deckId, "missing"]) {
+    for (const id of [deckId, "missing", theirs]) {
       const res = await get(app, `/api/decks/${id}/study/next`, cookie);
       expect(res.status).toBe(404);
       expect(await codeOf(res)).toBe("not_found");
