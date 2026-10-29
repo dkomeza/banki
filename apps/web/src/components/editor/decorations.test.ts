@@ -3,6 +3,7 @@ import { EditorSelection, EditorState } from "@codemirror/state";
 import { type DecorationSet, WidgetType } from "@codemirror/view";
 import { describe, expect, test } from "vitest";
 import { blockAt, liveDecorations } from "./decorations";
+import { ImageWidget } from "./image-widget";
 import { focusedField, setFocused, treeOf, cardLanguage } from "./language";
 import { editedInlineFormula } from "./popover";
 import { FormulaWidget, LiveRenderWidget } from "./widgets";
@@ -50,7 +51,9 @@ function shown(state: EditorState, blocks = true): Shown[] {
     if (widget instanceof FormulaWidget) kind = `formula:${widget.source}`;
     else if (widget instanceof LiveRenderWidget) kind = `live:${widget.source}`;
     else if (widget instanceof FakeTable) kind = "table";
-    else if (widget !== undefined) kind = "widget";
+    else if (widget instanceof ImageWidget) {
+      kind = `${widget.block ? "picture" : "small picture"}:${widget.url}`;
+    } else if (widget !== undefined) kind = "widget";
     else if (typeof className === "string") kind = className;
     else kind = "hidden";
     out.push({ from, to, kind, text: state.sliceDoc(from, to) });
@@ -80,6 +83,62 @@ describe("the editor's tree", () => {
     expect(nodesOf(treeOf(EditorState.create({ doc, extensions: cardLanguage })))).toEqual(
       nodesOf(cardParser.parse(doc)),
     );
+  });
+});
+
+describe("the reveal rule for a picture", () => {
+  const doc = "Before\n![a cell](images/0b1c.png)\nAfter";
+
+  test("draws a reference alone on its line as a picture on lines of its own", () => {
+    expect(shown(side(doc, 0))).toEqual([
+      { from: 7, to: 33, kind: "picture:images/0b1c.png", text: "![a cell](images/0b1c.png)" },
+    ]);
+  });
+
+  test("draws it while the editor isn't focused, wherever its cursor is", () => {
+    const unfocused = EditorState.create({
+      doc,
+      selection: { anchor: 10 },
+      extensions: [cardLanguage, focusedField],
+    });
+    expect(kinds(unfocused)).toEqual(["picture:images/0b1c.png"]);
+  });
+
+  test("keeps its alt text, and any other URL as written", () => {
+    const state = side("![a cell](https://example.com/a.png)");
+    const widgets: ImageWidget[] = [];
+    liveDecorations(state, { blocks: true }).between(0, state.doc.length, (_f, _t, d) => {
+      if (d.spec.widget instanceof ImageWidget) widgets.push(d.spec.widget);
+    });
+    expect(widgets).toEqual([
+      expect.objectContaining({ url: "https://example.com/a.png", alt: "a cell" }),
+    ]);
+  });
+
+  test.each([
+    ["the cursor is in it", 15],
+    ["the cursor is just after it", 33],
+    ["the cursor is just before it", 7],
+    ["a selection crosses it", { from: 2, to: 9 }],
+  ])("shows its source while %s, its spellcheck off", (_, cursor) => {
+    expect(shown(side(doc, cursor))).toEqual([
+      { from: 7, to: 33, kind: "cm-lp-image-source", text: "![a cell](images/0b1c.png)" },
+    ]);
+  });
+
+  test("draws one that shares its line with text small, on its line", () => {
+    expect(shown(side("See ![](images/0b1c.png) here", 0))).toEqual([
+      { from: 4, to: 24, kind: "small picture:images/0b1c.png", text: "![](images/0b1c.png)" },
+    ]);
+  });
+
+  test("draws it small in a table's cell, which shows no blocks", () => {
+    expect(kinds(side("![](images/0b1c.png)"), false)).toEqual(["small picture:images/0b1c.png"]);
+  });
+
+  test("counts it as a block the arrow keys move into", () => {
+    const state = side(doc, 0);
+    expect(blockAt(liveDecorations(state, { blocks: true }), 8)).toEqual({ from: 7, to: 33 });
   });
 });
 
