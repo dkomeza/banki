@@ -9,7 +9,7 @@ import { studySearch } from "@/lib/study-proto";
 // PROTOTYPE (BAN-26): the study screen. `?state=<name>` opens one of the
 // Prototype section's states (see study-proto.ts).
 
-export const Route = createFileRoute("/_shell/decks/$deckId_/study")({
+export const Route = createFileRoute("/decks/$deckId_/study")({
   validateSearch: studySearch,
   loader: ({ context: { queryClient }, params: { deckId } }) =>
     queryClient.ensureQueryData(deckQueryOptions(deckId)),
