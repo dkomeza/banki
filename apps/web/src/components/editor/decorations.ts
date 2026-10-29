@@ -2,6 +2,7 @@ import type { CardNode } from "@banki/shared";
 import { type EditorState, type Range, StateField, type Transaction } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, type WidgetType } from "@codemirror/view";
 import { focusedField, formulaSource, setFocused, treeOf } from "./language";
+import { ImageWidget } from "./images";
 import { BulletWidget, FormulaWidget, LiveRenderWidget } from "./widgets";
 
 // The live preview's reveal rule: each Formula and each piece of formatting
@@ -42,6 +43,7 @@ const heading = lineClass("cm-lp-heading");
 const quote = lineClass("cm-lp-quote");
 const codeText = mark("cm-lp-codeblock-text", noSpellcheck);
 const formulaSourceLine = lineClass("cm-lp-formula-source-line");
+const imageSource = mark("cm-lp-image-source", noSpellcheck);
 
 const HEADINGS = /^ATXHeading[1-6]$/;
 const FENCE = /^\s*(?:`{3,}|~{3,})/;
@@ -123,6 +125,38 @@ export function liveDecorations(state: EditorState, options: LivePreviewOptions)
             for (const line of lines) out.push(formulaSourceLine.range(line.from));
             out.push(formulaSourceMark.range(node.from, node.to));
             liveRenderUnder(node.to, source);
+          }
+          return false;
+        }
+        case "Image": {
+          if (touches(node.from, node.to)) {
+            out.push(imageSource.range(node.from, node.to));
+            return false;
+          }
+          const url = node.getChild("URL");
+          if (url === null) return false;
+          const marks = node.getChildren("LinkMark");
+          const alt = doc.sliceString(marks[0]?.to ?? node.from, marks[1]?.from ?? node.from);
+          const src = doc.sliceString(url.from, url.to);
+          const line = doc.lineAt(node.from);
+          // On a line of its own, a picture on lines of its own; else small, on its line.
+          const alone =
+            options.blocks &&
+            doc.sliceString(line.from, line.to).trim() === doc.sliceString(node.from, node.to);
+          if (alone) {
+            out.push(
+              Decoration.replace({ widget: new ImageWidget(src, alt, true), block: true }).range(
+                line.from,
+                line.to,
+              ),
+            );
+          } else {
+            out.push(
+              Decoration.replace({ widget: new ImageWidget(src, alt, false) }).range(
+                node.from,
+                node.to,
+              ),
+            );
           }
           return false;
         }

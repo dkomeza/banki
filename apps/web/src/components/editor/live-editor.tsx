@@ -4,6 +4,7 @@ import { EditorView } from "@codemirror/view";
 import { type RefObject, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import type { Format } from "./formatting";
+import { imageUploads, type Upload, uploadFiles, uploadingCount } from "./images";
 import { applyFormat, livePreview } from "./live-preview";
 import { smallestChange } from "./table-model";
 import { EditorToolbar } from "./toolbar";
@@ -33,6 +34,8 @@ export function LiveEditor({
   onFocus,
   onCursor,
   onSubmit,
+  onUpload,
+  onUploading,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -56,6 +59,10 @@ export function LiveEditor({
   onCursor?: (cursor: number) => void;
   /** What Ctrl/Cmd+Enter does. */
   onSubmit: () => void;
+  /** Uploads a file as an Image. Without it, the editor takes no files. */
+  onUpload?: Upload;
+  /** Called with how many uploads are on their way, as that changes. */
+  onUploading?: (count: number) => void;
 }) {
   useKeyboardInset();
   const host = useRef<HTMLDivElement>(null);
@@ -64,8 +71,8 @@ export function LiveEditor({
   const attributes = useRef(new Compartment());
   /** The table cell written in last, while the focus is in the editor. */
   const cell = useRef<EditorView | null>(null);
-  const handlers = useRef({ onChange, onCursor, onSubmit });
-  handlers.current = { onChange, onCursor, onSubmit };
+  const handlers = useRef({ onChange, onCursor, onSubmit, onUploading });
+  handlers.current = { onChange, onCursor, onSubmit, onUploading };
 
   const aria = () =>
     EditorView.contentAttributes.of({
@@ -91,7 +98,11 @@ export function LiveEditor({
         extensions: [
           preview.extension,
           attributes.current.of(aria()),
+          imageUploads(onUpload ?? null),
           EditorView.updateListener.of((update) => {
+            const before = uploadingCount(update.startState);
+            const after = uploadingCount(update.state);
+            if (before !== after) handlers.current.onUploading?.(after);
             const typed = update.transactions.some((tr) => tr.annotation(fromValue) !== true);
             if (update.docChanged && typed) handlers.current.onChange(update.state.doc.toString());
             if ((update.selectionSet || update.docChanged) && typed) {
@@ -150,7 +161,21 @@ export function LiveEditor({
       }}
     >
       <div ref={host} className="live-editor-host" />
-      <EditorToolbar label={toolbarLabel} disabled={readOnly} onFormat={format} />
+      <EditorToolbar
+        label={toolbarLabel}
+        disabled={readOnly}
+        onFormat={format}
+        onImages={
+          onUpload === undefined
+            ? undefined
+            : (files) => {
+                const current = view.current;
+                if (current === null) return;
+                uploadFiles(current, files, current.state.selection.main.head);
+                current.focus();
+              }
+        }
+      />
     </div>
   );
 }

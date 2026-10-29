@@ -1,4 +1,4 @@
-import { DEFAULT_AUTO_CLOSE } from "@banki/shared";
+import { DEFAULT_AUTO_CLOSE, IMAGE_FORMAT_MESSAGE } from "@banki/shared";
 import type { EditorView } from "@codemirror/view";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -8,17 +8,13 @@ import {
   type ReactNode,
   type RefObject,
   useId,
+  useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
 import { LiveEditor } from "@/components/editor/live-editor";
-import {
-  AddImageButton,
-  ImageStrip,
-  UploadFailures,
-  useImageUploads,
-} from "@/components/cards/card-images";
+import { addPending, clearFailures, pendingId, setDropAt } from "@/components/editor/images";
 import { Breadcrumb } from "@/components/folders/breadcrumb";
 import { useLibrary } from "@/components/folders/use-library";
 import { Page } from "@/components/page";
@@ -33,7 +29,8 @@ import {
   hasUnsavedChanges,
 } from "@/lib/cards";
 import type { Deck } from "@/lib/decks";
-import { insertOnOwnLine, withoutReference } from "@/lib/images";
+import { uploadImage } from "@/lib/images";
+import { protoSides, protoState } from "@/lib/proto-state";
 import { settingsQueryOptions } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 
@@ -52,31 +49,26 @@ import { cn } from "@/lib/utils";
  * are kept apart from what has rendered, so uploads that finish together each
  * go after the one before.
  */
-export function useCardForm(saved0: Sides, { onChange }: { onChange?: () => void } = {}) {
+export function useCardForm(given: Sides, { onChange }: { onChange?: () => void } = {}) {
+  const saved0 = protoSides(given);
   const [fields, setFields] = useState(saved0);
   const [saved, setSaved] = useState(saved0);
   const [errors, setErrors] = useState<SideErrors>({});
   const frontRef = useRef<EditorView>(null);
+  const backRef = useRef<EditorView>(null);
   const latest = useRef(saved0);
-  const focused = useRef<keyof Sides>(undefined);
-  const cursors = useRef<Partial<Record<keyof Sides, number>>>({});
+  const [uploads, setUploads] = useState<Record<keyof Sides, number>>({ front: 0, back: 0 });
   const set = (side: keyof Sides, value: string) => {
     latest.current = { ...latest.current, [side]: value };
     setFields(latest.current);
     setErrors((current) => ({ ...current, [side]: undefined }));
     onChange?.();
   };
-  const uploads = useImageUploads((markdown) => {
-    const side = focused.current ?? "back";
-    const text = latest.current[side];
-    const placed = insertOnOwnLine(text, cursors.current[side] ?? text.length, markdown);
-    cursors.current[side] = placed.cursor;
-    set(side, placed.text);
-  });
   return {
     fields,
     errors,
     frontRef,
+    backRef,
     unsaved: hasUnsavedChanges(fields, saved),
     /** Changes one side, clearing that side's error. */
     set,
@@ -84,25 +76,18 @@ export function useCardForm(saved0: Sides, { onChange }: { onChange?: () => void
     /** Marks `next` as saved and shows it, so leaving doesn't ask. */
     markSaved: (next: Sides) => {
       latest.current = next;
-      cursors.current = {};
+      for (const view of [frontRef.current, backRef.current]) {
+        view?.dispatch({ effects: clearFailures.of(null) });
+      }
       setSaved(next);
       setFields(next);
       setErrors({});
     },
     /** Whether an Image is on its way up, which holds Save. */
-    uploading: uploads.uploading,
-    /** The uploads that failed or were refused, of the files picked last. */
-    uploadFailures: uploads.failures,
-    /** Uploads the files picked, putting each one's reference in as it is done. */
-    addImages: (files: readonly File[]) => void uploads.pick(files),
-    /** Notes that `side` has the focus now. */
-    focus: (side: keyof Sides) => {
-      focused.current = side;
-    },
-    /** Notes where the cursor is in `side` now, as the User moves it or types. */
-    moveCursor: (side: keyof Sides, cursor: number) => {
-      cursors.current[side] = cursor;
-    },
+    uploading: uploads.front + uploads.back > 0,
+    /** Notes how many uploads are on their way into `side`. */
+    setUploading: (side: keyof Sides, count: number) =>
+      setUploads((current) => ({ ...current, [side]: count })),
   };
 }
 
@@ -119,14 +104,12 @@ function Side({
   value,
   error,
   note,
-  images,
   inputRef,
   autoFocus,
   readOnly,
   onChange,
   onSubmit,
-  onFocus,
-  onSelect,
+  onUploading,
   className,
 }: {
   label: "Front" | "Back";
@@ -136,16 +119,12 @@ function Side({
   error: string | undefined;
   /** A note under the field, announced politely: the Duplicate warning. */
   note?: ReactNode;
-  /** The thumbnails of the Images it refers to, under the field. */
-  images: ReactNode;
   inputRef?: RefObject<EditorView | null>;
   autoFocus?: boolean;
   onChange: (value: string) => void;
   /** Ctrl/Cmd+Enter. */
   onSubmit: () => void;
-  onFocus: () => void;
-  /** Where the cursor is now, as the User moves it or types. */
-  onSelect: (cursor: number) => void;
+  onUploading: (count: number) => void;
   className?: string;
 }) {
   const id = useId();
@@ -177,9 +156,9 @@ function Side({
           autoClose={autoClose}
           toolbarLabel={`${label} formatting`}
           viewRef={inputRef}
-          onFocus={onFocus}
-          onCursor={onSelect}
           onSubmit={onSubmit}
+          onUpload={uploadImage}
+          onUploading={onUploading}
           className={cn(
             // Ruled lines, one per line of text, so it writes like a page.
             "w-full rounded-md bg-[repeating-linear-gradient(to_bottom,transparent_0,transparent_calc(2rem-1px),var(--border)_calc(2rem-1px),var(--border)_2rem)] leading-[2rem]",
@@ -189,7 +168,6 @@ function Side({
               : "min-h-32 text-[1.05rem]/[2rem]",
           )}
         />
-        {images}
         {error !== undefined && (
           <p id={`${id}-error`} className="text-sm font-medium text-destructive">
             {error}
@@ -263,18 +241,23 @@ export function CardEditor({
     value: form.fields[side],
     error: form.errors[side],
     readOnly: saving,
-    images: (
-      <ImageStrip
-        markdown={form.fields[side]}
-        readOnly={saving}
-        onRemove={(ref) => form.set(side, withoutReference(form.fields[side], ref))}
-      />
-    ),
     onChange: (value: string) => form.set(side, value),
     onSubmit: save,
-    onFocus: () => form.focus(side),
-    onSelect: (cursor: number) => form.moveCursor(side, cursor),
+    onUploading: (count: number) => form.setUploading(side, count),
   });
+  useProtoState(form);
+  // A file dropped anywhere else on the page is never opened, so nothing typed is lost.
+  useEffect(() => {
+    const keep = (event: DragEvent) => {
+      if (event.dataTransfer?.types.includes("Files")) event.preventDefault();
+    };
+    window.addEventListener("dragover", keep);
+    window.addEventListener("drop", keep);
+    return () => {
+      window.removeEventListener("dragover", keep);
+      window.removeEventListener("drop", keep);
+    };
+  }, []);
   return (
     <Page width="reading">
       <div className="flex flex-col gap-6 lg:gap-8">
@@ -312,15 +295,14 @@ export function CardEditor({
             placeholder="What to recall"
             // Room above it for the Front's note and its own toolbar.
             className="sm:mt-7 lg:mt-3"
+            inputRef={form.backRef}
             {...sideProps("back")}
           />
           <TagField input={tags} readOnly={saving} onSave={save} />
           <div className="flex flex-col gap-3 border-t pt-5 sm:flex-row sm:items-center sm:pl-22">
-            <AddImageButton uploading={form.uploading} disabled={saving} onPick={form.addImages} />
             {foot}
           </div>
         </form>
-        <UploadFailures failures={form.uploadFailures} />
         {after}
       </div>
     </Page>
@@ -358,6 +340,55 @@ function DuplicateNote({ duplicates }: { duplicates: readonly Card[] }) {
       </span>
     </p>
   );
+}
+
+/** Prototype only: puts the Back in the `?state=` the page was opened with. */
+function useProtoState(form: CardForm) {
+  useEffect(() => {
+    const back = form.backRef.current;
+    if (back === null || protoState === null) return;
+    const doc = back.state.doc;
+    const lineEnd = (n: number) => doc.line(Math.min(n, doc.lines)).to;
+    switch (protoState) {
+      case "source": {
+        const at = doc.toString().indexOf("![](");
+        back.focus();
+        back.dispatch({ selection: { anchor: at + 12 } });
+        break;
+      }
+      case "toolbar":
+        back.focus();
+        back.dispatch({ selection: { anchor: doc.length } });
+        break;
+      case "uploading":
+        back.dispatch({
+          effects: [
+            addPending.of({ id: pendingId(), pos: lineEnd(1), name: "cell-diagram.png" }),
+            addPending.of({
+              id: pendingId(),
+              pos: doc.length,
+              name: "membrane-under-microscope.jpg",
+            }),
+          ],
+        });
+        break;
+      case "failed":
+        back.dispatch({
+          effects: addPending.of({
+            id: pendingId(),
+            pos: lineEnd(1),
+            name: "lecture-notes.pdf",
+            failed: IMAGE_FORMAT_MESSAGE,
+          }),
+        });
+        break;
+      case "dragging":
+        back.dispatch({ effects: setDropAt.of(lineEnd(1)) });
+        break;
+      default:
+    }
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 }
 
 /** Nothing is dragged on a Card's page, so nothing is ever dropped on its crumbs. */

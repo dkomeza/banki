@@ -1,5 +1,6 @@
 import {
   Bold,
+  ImagePlus,
   Code,
   Italic,
   List,
@@ -11,6 +12,7 @@ import {
   Table2,
 } from "lucide-react";
 import { Fragment, type KeyboardEvent, useRef } from "react";
+import { IMAGE_ACCEPT } from "@/lib/images";
 import type { Format } from "./formatting";
 
 // The formatting toolbar: a pill on the top edge of the editor being written
@@ -42,13 +44,17 @@ export function EditorToolbar({
   label,
   disabled,
   onFormat,
+  onImages,
 }: {
   /** Names the toolbar, such as "Front formatting". */
   label: string;
   disabled: boolean;
   onFormat: (format: Format) => void;
+  /** Takes the files the Image button picked; without it, there is no Image button. */
+  onImages?: (files: File[]) => void;
 }) {
   const bar = useRef<HTMLDivElement>(null);
+  const picker = useRef<HTMLInputElement>(null);
   const buttons = () => [...(bar.current?.querySelectorAll("button") ?? [])];
   const onKeyDown = (event: KeyboardEvent) => {
     const all = buttons();
@@ -97,6 +103,36 @@ export function EditorToolbar({
           </Fragment>
         );
       })}
+      {onImages !== undefined && (
+        <>
+          <span aria-hidden className="editor-toolbar-separator" />
+          <input
+            ref={picker}
+            type="file"
+            accept={IMAGE_ACCEPT}
+            multiple
+            hidden
+            onChange={(event) => {
+              const files = [...(event.target.files ?? [])];
+              // Cleared, so picking the same file again is a change too.
+              event.target.value = "";
+              onImages(files);
+            }}
+          />
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-label="Image"
+            title="Image"
+            disabled={disabled}
+            className="editor-toolbar-button editor-toolbar-image"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => picker.current?.click()}
+          >
+            <ImagePlus aria-hidden className="size-4" strokeWidth={2.1} />
+          </button>
+        </>
+      )}
     </div>
   );
 }
