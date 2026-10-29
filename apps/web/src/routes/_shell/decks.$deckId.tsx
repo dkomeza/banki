@@ -8,6 +8,7 @@ import { DeckPicker } from "@/components/cards/deck-picker";
 import { ConfirmDelete } from "@/components/decks/confirm-delete";
 import { Cover, Stack } from "@/components/decks/cover";
 import { DeckDialog } from "@/components/decks/deck-dialog";
+import { DeckSettingsCard } from "@/components/decks/deck-settings-card";
 import { showDeletedToast } from "@/components/deleted/toasts";
 import { DeckNotFound } from "@/components/not-found";
 import { Breadcrumb } from "@/components/folders/breadcrumb";
@@ -180,6 +181,8 @@ function DeckBody({ deck }: { deck: Deck }) {
           </div>
         </div>
       </header>
+
+      <DeckSettingsCard deckId={deck.id} />
 
       <CardTimeline
         deckId={deck.id}

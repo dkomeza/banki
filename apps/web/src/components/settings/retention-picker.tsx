@@ -76,10 +76,12 @@ export function DeckRetentionPicker({
   const search = useCallback(
     (query: string) => {
       const wanted = query.trim().toLowerCase();
-      const follow = options.slice(0, 1).filter(
-        (option) =>
-          wanted === "" || "follow settings".includes(wanted) || "global".includes(wanted),
-      );
+      const follow = options
+        .slice(0, 1)
+        .filter(
+          (option) =>
+            wanted === "" || "follow settings".includes(wanted) || "global".includes(wanted),
+        );
       return [...follow, ...matchPercents(options.slice(1), query)];
     },
     [options],
