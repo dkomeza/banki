@@ -165,11 +165,6 @@ function CardView({ session, state }: { session: StudySession; state: StudyState
           "[&_[data-formula]]:cursor-pointer [&_[data-formula]]:rounded-md [&_[data-formula]]:outline-offset-2 [&_[data-formula]:hover]:outline-1 [&_[data-formula]:hover]:outline-primary/60 [&_[data-formula]:hover]:outline-dashed",
       )}
     >
-      {state.undone && (
-        <span className="mb-4 w-fit rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
-          Back from Undo: rate it again
-        </span>
-      )}
       <CardText
         key={`${card.id}-front`}
         text={card.front}
@@ -198,6 +193,12 @@ function Dock({ session, state }: { session: StudySession; state: StudyState }) 
   return (
     <div className="sticky bottom-0 z-10 border-t bg-background/95 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur">
       <div className="mx-auto flex w-full max-w-2xl flex-col gap-2 px-3 pt-3 sm:px-6">
+        {/* In the dock, not above the Front, so the Card doesn't move when it comes back. */}
+        {state.undone && state.failure === undefined && (
+          <p className="text-center text-xs font-medium text-muted-foreground">
+            Back from Undo: rate it again
+          </p>
+        )}
         {state.failure !== undefined && (
           <div role="alert" className="flex items-center gap-2 px-1 text-sm text-destructive">
             <AlertCircle aria-hidden className="size-4 shrink-0" />
