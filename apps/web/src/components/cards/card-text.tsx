@@ -41,6 +41,8 @@ type Context = {
   ended: boolean;
   /** The words searched for, marked in the text and code but not in Formulas. */
   words: readonly string[];
+  /** On the study screen once revealed: links are real links (prototype). */
+  live?: boolean;
 };
 
 const NO_WORDS: readonly string[] = [];
@@ -130,6 +132,7 @@ function Formula({
     return (
       <span
         tabIndex={-1}
+        data-formula={`${delimiter}${source}${delimiter}`}
         className="block max-w-full overflow-x-auto overflow-y-hidden py-1 outline-none"
         dangerouslySetInnerHTML={{ __html: result.html }}
       />
@@ -137,6 +140,7 @@ function Formula({
   }
   return (
     <span
+      data-formula={`${delimiter}${source}${delimiter}`}
       className={atomic ? "inline-block" : undefined}
       dangerouslySetInnerHTML={{ __html: result.html }}
     />
@@ -228,6 +232,19 @@ function inlineNode(node: CardNode, cx: Context): ReactNode {
     }
     case "Link": {
       const marks = node.getChildren("LinkMark");
+      const href = childNamed(node, "URL");
+      if (cx.live && href !== null)
+        return (
+          <a
+            key={key}
+            href={doc.slice(href.from, href.to)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline underline-offset-2"
+          >
+            {inline(node, cx, marks[0]?.to ?? node.from, marks[1]?.from ?? node.to)}
+          </a>
+        );
       return (
         <span key={key} className="underline underline-offset-2">
           {inline(node, cx, marks[0]?.to ?? node.from, marks[1]?.from ?? node.to)}
@@ -506,10 +523,12 @@ function firstLineOf(node: CardNode, cx: Context): ReactNode[] {
 export function CardText({
   text: side,
   words = NO_WORDS,
+  live = false,
   className,
 }: {
   text: string;
   words?: readonly string[];
+  live?: boolean;
   className?: string;
 }) {
   // The words as one string, so a new array of the same words keeps the render.
@@ -517,8 +536,14 @@ export function CardText({
   const content = useMemo(() => {
     const tree = cardParser.parse(side);
     const searched = search === "" ? [] : search.split(" ");
-    return blocks(tree.topNode, { doc: side, oneLine: false, ended: false, words: searched });
-  }, [side, search]);
+    return blocks(tree.topNode, {
+      doc: side,
+      oneLine: false,
+      ended: false,
+      words: searched,
+      live,
+    });
+  }, [side, search, live]);
   return (
     <div className={cn("card-text flex flex-col gap-2 [overflow-wrap:anywhere]", className)}>
       {content}
