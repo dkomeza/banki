@@ -3,19 +3,23 @@ import { Annotation, Compartment, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
+import { Cheatsheet } from "./cheatsheet";
 import type { Format } from "./formatting";
+import { insertAtCursor } from "./latex-complete";
+import type { LatexCommand } from "./latex-commands";
 import { applyFormat, livePreview } from "./live-preview";
 import { smallestChange } from "./table-model";
 import { EditorToolbar } from "./toolbar";
 import { fileUploads, ImageUploads, type Upload, uploadFiles } from "./uploads";
 import { useKeyboardInset } from "./use-keyboard-inset";
 import "./live-editor.css";
+import "./latex.css";
 
 // The live-preview editor as a React field, with nothing about Cards in it:
 // a value and its changes, a label, an error and a note to describe it, like
-// the textarea it replaces, and its formatting toolbar. Given an upload, it
-// takes Images too: pasted, dropped, or picked with the toolbar's Image
-// button; without one, it ignores files.
+// the textarea it replaces, its formatting toolbar and its LaTeX cheatsheet.
+// Given an upload, it takes Images too: pasted, dropped, or picked with the
+// toolbar's Image button; without one, it ignores files.
 
 /** Marks a change that came in through `value`, which isn't the User's. */
 const fromValue = Annotation.define<boolean>();
@@ -75,6 +79,20 @@ export function LiveEditor({
   /** What is announced of the uploads that failed, until their tiles go. */
   const [failures, setFailures] = useState<readonly { key: number; text: string }[]>([]);
   const [takesFiles] = useState(onUpload !== undefined);
+  /** The cheatsheet's search, while it is open. */
+  const [cheatsheet, setCheatsheet] = useState<string | null>(null);
+
+  /** Where the focus goes back to, and an entry goes in: the cell written in, or the side. */
+  const writtenIn = () => cell.current ?? view.current;
+  const closeCheatsheet = () => {
+    setCheatsheet(null);
+    writtenIn()?.focus();
+  };
+  const insert = (command: LatexCommand) => {
+    const target = writtenIn();
+    if (target !== null) insertAtCursor(target, command);
+    setCheatsheet(null);
+  };
 
   const aria = () =>
     EditorView.contentAttributes.of({
@@ -182,7 +200,17 @@ export function LiveEditor({
         disabled={readOnly}
         onFormat={format}
         onImages={takesFiles ? pickImages : undefined}
+        cheatsheetOpen={cheatsheet !== null}
+        onCheatsheet={() => (cheatsheet === null ? setCheatsheet("") : closeCheatsheet())}
       />
+      {cheatsheet !== null && (
+        <Cheatsheet
+          query={cheatsheet}
+          onQuery={setCheatsheet}
+          onInsert={insert}
+          onClose={closeCheatsheet}
+        />
+      )}
       {takesFiles && (
         // Always there, so each failure added to it is announced.
         <div aria-live="polite" className="sr-only">

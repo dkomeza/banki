@@ -27,6 +27,15 @@ describe("LiveEditor", () => {
     expect(html).toContain('aria-live="polite"');
   });
 
+  test("has a LaTeX cheatsheet button after the math group, the cheatsheet closed", () => {
+    const html = markup(false);
+
+    expect(html).toMatch(
+      /aria-label="Display formula".*?<\/button><button[^>]*aria-label="LaTeX cheatsheet" aria-haspopup="dialog" aria-expanded="false"/,
+    );
+    expect(html).not.toContain('role="dialog"');
+  });
+
   test("has no Image button without one", () => {
     const html = markup(false);
 
