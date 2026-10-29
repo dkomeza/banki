@@ -21,13 +21,21 @@ const NAV: readonly NavItem[] = [
  * inside (see Page).
  */
 export function Shell({ children }: { children: ReactNode }) {
+  // PROTOTYPE (BAN-26, Variant c): the study screen takes the whole window below 1024 px.
+  const studying = useLocation({ select: (l) => l.pathname.endsWith("/study") });
   return (
     <div className="min-h-svh lg:grid lg:grid-cols-[16rem_minmax(0,1fr)]">
       <Sidebar />
-      <div className="pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[calc(4rem+env(safe-area-inset-bottom))] pl-[env(safe-area-inset-left)] lg:p-0">
+      <div
+        className={
+          studying
+            ? "pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] lg:p-0"
+            : "pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[calc(4rem+env(safe-area-inset-bottom))] pl-[env(safe-area-inset-left)] lg:p-0"
+        }
+      >
         <main>{children}</main>
       </div>
-      <TabBar />
+      {!studying && <TabBar />}
       <Toaster />
     </div>
   );
