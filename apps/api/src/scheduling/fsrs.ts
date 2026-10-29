@@ -23,7 +23,7 @@ import {
   schedulerScheduledDaysMiddleware,
   schedulerStatsMiddleware,
 } from "ts-fsrs";
-import { FSRS6Model, FSRS6_DEFAULT_WEIGHTS } from "ts-fsrs/models/fsrs-6";
+import { FSRS6Model, FSRS6_DEFAULT_WEIGHTS, forgettingCurve } from "ts-fsrs/models/fsrs-6";
 
 // FSRS (ts-fsrs, FSRS-6) schedules every Card from its Reviews: its default
 // parameters, its default learning steps (1 min then 10 min; 10 min to
@@ -242,3 +242,23 @@ export const scheduleOf = (memory: MemoryState): CardSchedule => ({
   scheduledDays: memory.scheduledDays,
   lastReview: memory.lastReviewAt?.toISOString() ?? null,
 });
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * A Card's Predicted recall at `now`: FSRS-6's forgetting curve, with its
+ * default parameters, over the Card's stability and the fractional days since
+ * its last Review. It doesn't depend on the Desired retention. A Card never
+ * reviewed, or reviewed after `now`, is taken as just reviewed; one with no
+ * stability, as forgotten.
+ */
+export function predictedRecall(
+  { stability, lastReviewAt }: Pick<MemoryState, "stability" | "lastReviewAt">,
+  now: Date,
+): number {
+  const elapsedDays =
+    lastReviewAt === null ? 0 : Math.max(0, (now.getTime() - lastReviewAt.getTime()) / DAY_MS);
+  if (elapsedDays === 0) return 1;
+  if (stability <= 0) return 0;
+  return forgettingCurve(FSRS6_DEFAULT_WEIGHTS, elapsedDays, stability);
+}

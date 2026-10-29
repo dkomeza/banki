@@ -11,6 +11,13 @@ export const json = <T extends z.ZodType>(schema: T, message: string) =>
     if (!parsed.success) return c.json(apiError("invalid_request", message), 400);
     return parsed.data;
   });
+/** A query string validator that answers 400 `invalid_request` when `schema` refuses it. */
+export const query = <T extends z.ZodType>(schema: T, message: string) =>
+  validator("query", (value, c) => {
+    const parsed = schema.safeParse(value);
+    if (!parsed.success) return c.json(apiError("invalid_request", message), 400);
+    return parsed.data;
+  });
 
 export const INVALID_MOVE = apiError("invalid_move", "It can't move there");
 

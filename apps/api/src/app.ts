@@ -20,6 +20,7 @@ import { createImageRepository } from "./repositories/images";
 import { createReviewRepository } from "./repositories/reviews";
 import { createFolderRepository } from "./repositories/folders";
 import { createSettingsRepository } from "./repositories/settings";
+import { createStudyRepository } from "./repositories/study";
 import { createUserRepository } from "./repositories/user";
 import { authRoutes } from "./routes/auth";
 import { cardRoutes, deckCardRoutes } from "./routes/cards";
@@ -32,6 +33,7 @@ import { meRoutes } from "./routes/me";
 import { schemaRoutes } from "./routes/schemas";
 import { settingsRoutes } from "./routes/settings";
 import { setupRoutes } from "./routes/setup";
+import { studyRoutes } from "./routes/study";
 import { tagRoutes } from "./routes/tags";
 import { readVersion } from "./version";
 
@@ -94,6 +96,7 @@ export function createApp(
   const folders = createFolderRepository(database.db);
   const cards = createCardRepository(database.db);
   const reviews = createReviewRepository(database.db);
+  const study = createStudyRepository(database.db);
   const deletions = createDeletionRepository(database.db);
   const images = createImageRepository(database.db, uploadsDirOf(config.dataDir));
   const auth = createAuth({ db: database.db, config, secret });
@@ -125,6 +128,7 @@ export function createApp(
     .route("/api/settings", settingsRoutes({ settings, openRouterFetch }))
     .route("/api/decks", deckRoutes({ decks }))
     .route("/api/decks", deckCardRoutes({ cards }))
+    .route("/api/decks", studyRoutes({ study }))
     .route("/api/cards", cardRoutes({ cards, reviews }))
     .route("/api/tags", tagRoutes({ cards }))
     .route("/api/folders", folderRoutes({ folders }))

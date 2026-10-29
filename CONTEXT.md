@@ -88,6 +88,14 @@ _Avoid_: answer, attempt, repetition
 A Card is due on the Study day FSRS scheduled it for, from that day's Day start, and stays due until it is reviewed. A Card still in its learning steps is due at an exact moment instead, minutes after its last Review.
 _Avoid_: scheduled, pending
 
+**Queue**:
+The order in which a Session shows a Deck's Cards: due Cards most at risk first, new Cards mixed in among them in the order they were written, and a Card in its learning steps back when its step is over. Banki answers the next Card one at a time, from the Cards' state and the Session's progress, not as a list fixed at the start.
+_Avoid_: playlist, deck order, schedule
+
+**Predicted recall**:
+How likely the User is to recall a Card right now, from FSRS's forgetting curve over its memory state and the time since its last Review. The lower it is, the more at risk the Card is, and the sooner the Queue shows it.
+_Avoid_: retrievability, strength, score
+
 **Desired retention**:
 The share of its Cards the User wants to still remember when they come due, from 70% to 97%: higher means more Reviews. Settings hold one for every Deck, 90% unless the User changes it, and a Deck follows it until it is given its own. Changing it reschedules every Card it applies to at once.
 _Avoid_: target retention (except for a Plan's), retention rate, success rate
