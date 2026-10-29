@@ -57,7 +57,7 @@ const toCard = (row: Row, tags: readonly string[]): Card => ({
 const liveDeck = (userId: string, id: string) =>
   and(eq(deck.userId, userId), eq(deck.id, id), isNull(deck.deletedAt));
 
-const isLiveDeck = (db: Queryable, userId: string, id: string) =>
+export const isLiveDeck = (db: Queryable, userId: string, id: string) =>
   db.select({ id: deck.id }).from(deck).where(liveDeck(userId, id)).get() !== undefined;
 
 /** The Tags of the User's Cards `cardIds` picks, each Card's A–Z. */
@@ -90,7 +90,7 @@ function writeTags(db: Queryable, userId: string, cardId: string, tags: readonly
 }
 
 /** The User's live Card `id` in a live Deck. */
-const findIn = (db: Queryable, userId: string, id: string): Card | undefined => {
+export const findIn = (db: Queryable, userId: string, id: string): Card | undefined => {
   const row = db
     .select(COLUMNS)
     .from(card)
