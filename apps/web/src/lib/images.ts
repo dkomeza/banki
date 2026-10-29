@@ -4,7 +4,6 @@ import {
   IMAGE_FORMAT_MESSAGE,
   IMAGE_MAX_BYTES,
   IMAGE_SIGNATURE_BYTES,
-  type ImageReference,
   ImageUploadResponse,
   imageFormatOf,
   imageTooLargeMessage,
@@ -26,9 +25,12 @@ export const imageUrl = (file: string) => `/api/images/${file}`;
  * other URL stays as written.
  */
 export function imageSrc(url: string): string {
-  const file = /^images\/([\w-]+\.[A-Za-z0-9]+)$/.exec(url)?.[1];
+  const file = imageFileOf(url);
   return file === undefined ? url : imageUrl(file);
 }
+
+/** The Image file a URL names, `images/<file>`, or undefined for any other URL. */
+export const imageFileOf = (url: string) => /^images\/([\w-]+\.[A-Za-z0-9]+)$/.exec(url)?.[1];
 
 /**
  * Why `file` can't be an Image, the same message the API would give, or
@@ -88,38 +90,12 @@ export async function uploadImage(file: Blob, client: ApiClient = api): Promise<
 }
 
 /**
- * `text` with `insert` put in at `at` on a line of its own, breaking the line
- * before or after it where it sits mid-line, and where the cursor goes after
- * it, ready for the next one.
+ * `insert` as it goes in at a point on a line of its own, `before` and
+ * `after` being the characters either side of the point ("" at an end): with
+ * a line break before or after it where the point is mid-line.
  */
-export function insertOnOwnLine(
-  text: string,
-  at: number,
-  insert: string,
-): { text: string; cursor: number } {
-  const where = Math.min(Math.max(at, 0), text.length);
-  const before = text.slice(0, where);
-  const after = text.slice(where);
-  const lead = before === "" || before.endsWith("\n") ? "" : "\n";
-  const trail = after === "" || after.startsWith("\n") ? "" : "\n";
-  return {
-    text: `${before}${lead}${insert}${trail}${after}`,
-    cursor: where + lead.length + insert.length,
-  };
-}
-
-/**
- * `text` without the reference `ref`, and without its line too when nothing
- * else was on it, as deleting it by hand would leave it.
- */
-export function withoutReference(text: string, ref: ImageReference): string {
-  const lineStart = text.lastIndexOf("\n", ref.start - 1) + 1;
-  const newline = text.indexOf("\n", ref.end);
-  const lineEnd = newline === -1 ? text.length : newline;
-  const alone =
-    text.slice(lineStart, ref.start).trim() === "" && text.slice(ref.end, lineEnd).trim() === "";
-  if (!alone) return text.slice(0, ref.start) + text.slice(ref.end);
-  if (newline !== -1) return text.slice(0, lineStart) + text.slice(newline + 1);
-  // The last line: the line break before it goes instead.
-  return text.slice(0, Math.max(lineStart - 1, 0));
+export function onOwnLine(before: string, after: string, insert: string): string {
+  const lead = before === "" || before === "\n" ? "" : "\n";
+  const trail = after === "" || after === "\n" ? "" : "\n";
+  return `${lead}${insert}${trail}`;
 }

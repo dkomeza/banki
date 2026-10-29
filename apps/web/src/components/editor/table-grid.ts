@@ -1,5 +1,5 @@
 import type { AutoClose, CardNode } from "@banki/shared";
-import { defaultKeymap, redo, undo } from "@codemirror/commands";
+import { defaultKeymap, isolateHistory, redo, undo } from "@codemirror/commands";
 import { Compartment, EditorSelection, EditorState, type Extension } from "@codemirror/state";
 import { EditorView, keymap, WidgetType } from "@codemirror/view";
 import { autoCloseExtension } from "./auto-close";
@@ -23,6 +23,7 @@ import {
   withRowMoved,
 } from "./table-model";
 import { type MenuGroup, renderMenu } from "./table-menu";
+import { fileUploads, imageUploads } from "./uploads";
 import { snapToLines, unsnap } from "./widgets";
 
 // A complete GFM table shows as an editable grid, whether or not the cursor
@@ -251,6 +252,8 @@ class TableGrid {
     const header = this.model.rows[0]?.[c];
     return [
       previewCore(cellDecorations),
+      // The side's uploads, an Image going in inline at the cursor.
+      fileUploads(this.outer.state.facet(imageUploads), true),
       this.readOnly.of(EditorState.readOnly.of(this.settings.readOnly)),
       this.autoClose.of(autoCloseExtension(this.settings.autoClose)),
       EditorView.contentAttributes.of({
@@ -290,7 +293,11 @@ class TableGrid {
           update.docChanged &&
           update.transactions.some((tr) => tr.isUserEvent("input") || tr.isUserEvent("delete"))
         ) {
-          this.cellChanged(at, update.state.doc.toString());
+          // An Image put in stays one undo step in the side.
+          const isolated = update.transactions.some(
+            (tr) => tr.annotation(isolateHistory) !== undefined,
+          );
+          this.cellChanged(at, update.state.doc.toString(), isolated);
         }
       }),
     ];
@@ -306,8 +313,11 @@ class TableGrid {
     );
   }
 
-  /** Writes `model` over the table in the side's document. */
-  private write(model: TableModel): void {
+  /**
+   * Writes `model` over the table in the side's document, as an undo step of
+   * its own when `isolated`.
+   */
+  private write(model: TableModel, isolated = false): void {
     const range = this.locate();
     if (range === null) return;
     // The grid takes the model from the source it is drawn from (update), so
@@ -317,13 +327,19 @@ class TableGrid {
       formatTable(model),
       range.from,
     );
-    if (change !== null) this.outer.dispatch({ changes: change, userEvent: "input.table" });
+    if (change !== null) {
+      this.outer.dispatch({
+        changes: change,
+        userEvent: "input.table",
+        annotations: isolated ? isolateHistory.of("full") : [],
+      });
+    }
   }
 
-  private cellChanged(at: Cell, text: string): void {
+  private cellChanged(at: Cell, text: string, isolated: boolean): void {
     this.writing = at;
     try {
-      this.write(withCell(this.model, at.r, at.c, text));
+      this.write(withCell(this.model, at.r, at.c, text), isolated);
     } finally {
       this.writing = null;
     }

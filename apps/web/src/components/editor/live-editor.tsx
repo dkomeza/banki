@@ -1,18 +1,21 @@
 import type { AutoClose } from "@banki/shared";
 import { Annotation, Compartment, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { type RefObject, useEffect, useRef } from "react";
+import { type RefObject, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import type { Format } from "./formatting";
 import { applyFormat, livePreview } from "./live-preview";
 import { smallestChange } from "./table-model";
 import { EditorToolbar } from "./toolbar";
+import { fileUploads, ImageUploads, type Upload, uploadFiles } from "./uploads";
 import { useKeyboardInset } from "./use-keyboard-inset";
 import "./live-editor.css";
 
 // The live-preview editor as a React field, with nothing about Cards in it:
 // a value and its changes, a label, an error and a note to describe it, like
-// the textarea it replaces, and its formatting toolbar.
+// the textarea it replaces, and its formatting toolbar. Given an upload, it
+// takes Images too: pasted, dropped, or picked with the toolbar's Image
+// button; without one, it ignores files.
 
 /** Marks a change that came in through `value`, which isn't the User's. */
 const fromValue = Annotation.define<boolean>();
@@ -31,8 +34,9 @@ export function LiveEditor({
   className,
   viewRef,
   onFocus,
-  onCursor,
   onSubmit,
+  onUpload,
+  onUploading,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -52,10 +56,12 @@ export function LiveEditor({
   viewRef?: RefObject<EditorView | null>;
   /** Called as the focus comes into the editor, its table cells or its toolbar. */
   onFocus?: () => void;
-  /** Called with where the cursor is, as the User moves it or types. */
-  onCursor?: (cursor: number) => void;
   /** What Ctrl/Cmd+Enter does. */
   onSubmit: () => void;
+  /** Uploads a file as an Image. Read once, as the editor is made. */
+  onUpload?: Upload;
+  /** Called with whether an upload is on its way, as that changes. */
+  onUploading?: (uploading: boolean) => void;
 }) {
   useKeyboardInset();
   const host = useRef<HTMLDivElement>(null);
@@ -64,8 +70,11 @@ export function LiveEditor({
   const attributes = useRef(new Compartment());
   /** The table cell written in last, while the focus is in the editor. */
   const cell = useRef<EditorView | null>(null);
-  const handlers = useRef({ onChange, onCursor, onSubmit });
-  handlers.current = { onChange, onCursor, onSubmit };
+  const handlers = useRef({ onChange, onSubmit, onUploading });
+  handlers.current = { onChange, onSubmit, onUploading };
+  /** What is announced of the uploads that failed, until their tiles go. */
+  const [failures, setFailures] = useState<readonly string[]>([]);
+  const [takesFiles] = useState(onUpload !== undefined);
 
   const aria = () =>
     EditorView.contentAttributes.of({
@@ -84,6 +93,15 @@ export function LiveEditor({
       readOnly,
     });
     reconfigure.current = preview.reconfigure;
+    const uploads =
+      onUpload === undefined
+        ? null
+        : new ImageUploads(onUpload, {
+            onUploading: (uploading) => handlers.current.onUploading?.(uploading),
+            onFailed: (name, message) =>
+              setFailures((current) => [...current, `${name} wasn't added. ${message}`]),
+            onCleared: () => setFailures([]),
+          });
     const made = new EditorView({
       parent: host.current,
       state: EditorState.create({
@@ -91,12 +109,10 @@ export function LiveEditor({
         extensions: [
           preview.extension,
           attributes.current.of(aria()),
+          fileUploads(uploads),
           EditorView.updateListener.of((update) => {
             const typed = update.transactions.some((tr) => tr.annotation(fromValue) !== true);
             if (update.docChanged && typed) handlers.current.onChange(update.state.doc.toString());
-            if ((update.selectionSet || update.docChanged) && typed) {
-              handlers.current.onCursor?.(update.state.selection.main.head);
-            }
           }),
         ],
       }),
@@ -136,6 +152,14 @@ export function LiveEditor({
     if (view.current !== null) applyFormat(view.current, to, cell.current);
   };
 
+  /** The Image button's files, at the cursor of the cell written in, or of the side. */
+  const pickImages = (files: File[]) => {
+    const target = cell.current ?? view.current;
+    if (target === null) return;
+    target.focus();
+    void uploadFiles(target, files, target.state.selection.main.head);
+  };
+
   return (
     <div
       className={cn("live-editor", className)}
@@ -150,7 +174,21 @@ export function LiveEditor({
       }}
     >
       <div ref={host} className="live-editor-host" />
-      <EditorToolbar label={toolbarLabel} disabled={readOnly} onFormat={format} />
+      <EditorToolbar
+        label={toolbarLabel}
+        disabled={readOnly}
+        onFormat={format}
+        onImages={takesFiles ? pickImages : undefined}
+      />
+      {takesFiles && (
+        // Always there, so each failure added to it is announced.
+        <div aria-live="polite" className="sr-only">
+          {failures.map((failure, i) => (
+            // oxlint-disable-next-line no-array-index-key -- the list only ever grows, then clears
+            <p key={i}>{failure}</p>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

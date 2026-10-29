@@ -7,18 +7,14 @@ import {
   type FormEvent,
   type ReactNode,
   type RefObject,
+  useEffect,
   useId,
   useMemo,
   useRef,
   useState,
 } from "react";
 import { LiveEditor } from "@/components/editor/live-editor";
-import {
-  AddImageButton,
-  ImageStrip,
-  UploadFailures,
-  useImageUploads,
-} from "@/components/cards/card-images";
+import { clearUploadFailures } from "@/components/editor/uploads";
 import { Breadcrumb } from "@/components/folders/breadcrumb";
 import { useLibrary } from "@/components/folders/use-library";
 import { Page } from "@/components/page";
@@ -33,76 +29,61 @@ import {
   hasUnsavedChanges,
 } from "@/lib/cards";
 import type { Deck } from "@/lib/decks";
-import { insertOnOwnLine, withoutReference } from "@/lib/images";
+import { uploadImage } from "@/lib/images";
 import { settingsQueryOptions } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 
 // New card and Edit card are one writing page: a dated page with the two
 // sides written on ruled lines inside a bordered card, their labels in the
 // margin from 640 px, the Tags field under them, and the actions along the
-// card's foot under a hairline, "Add image" first.
+// card's foot under a hairline. Images go into a side through its editor.
 
 /**
  * The form's state: the sides as typed, what counts as saved, each side's
- * error, and the Images on their way up. `onChange` hears of every change to
- * a side, typed or an Image put in.
- *
- * Each Image uploaded goes on a line of its own at the cursor of the side
- * focused last, the Back when neither has been yet. The sides as last written
- * are kept apart from what has rendered, so uploads that finish together each
- * go after the one before.
+ * error, and whether an Image is on its way up into either side. `onChange`
+ * hears of every change to a side, typed or an Image put in.
  */
 export function useCardForm(saved0: Sides, { onChange }: { onChange?: () => void } = {}) {
   const [fields, setFields] = useState(saved0);
   const [saved, setSaved] = useState(saved0);
   const [errors, setErrors] = useState<SideErrors>({});
+  const [uploading, setUploading] = useState({ front: false, back: false });
   const frontRef = useRef<EditorView>(null);
+  const backRef = useRef<EditorView>(null);
   const latest = useRef(saved0);
-  const focused = useRef<keyof Sides>(undefined);
-  const cursors = useRef<Partial<Record<keyof Sides, number>>>({});
   const set = (side: keyof Sides, value: string) => {
     latest.current = { ...latest.current, [side]: value };
     setFields(latest.current);
     setErrors((current) => ({ ...current, [side]: undefined }));
     onChange?.();
   };
-  const uploads = useImageUploads((markdown) => {
-    const side = focused.current ?? "back";
-    const text = latest.current[side];
-    const placed = insertOnOwnLine(text, cursors.current[side] ?? text.length, markdown);
-    cursors.current[side] = placed.cursor;
-    set(side, placed.text);
-  });
   return {
     fields,
     errors,
     frontRef,
+    backRef,
     unsaved: hasUnsavedChanges(fields, saved),
     /** Changes one side, clearing that side's error. */
     set,
     setErrors,
-    /** Marks `next` as saved and shows it, so leaving doesn't ask. */
+    /**
+     * Marks `next` as saved and shows it, so leaving doesn't ask, and takes
+     * away the error tiles of uploads that failed.
+     */
     markSaved: (next: Sides) => {
       latest.current = next;
-      cursors.current = {};
+      for (const view of [frontRef.current, backRef.current]) {
+        if (view !== null) clearUploadFailures(view);
+      }
       setSaved(next);
       setFields(next);
       setErrors({});
     },
     /** Whether an Image is on its way up, which holds Save. */
-    uploading: uploads.uploading,
-    /** The uploads that failed or were refused, of the files picked last. */
-    uploadFailures: uploads.failures,
-    /** Uploads the files picked, putting each one's reference in as it is done. */
-    addImages: (files: readonly File[]) => void uploads.pick(files),
-    /** Notes that `side` has the focus now. */
-    focus: (side: keyof Sides) => {
-      focused.current = side;
-    },
-    /** Notes where the cursor is in `side` now, as the User moves it or types. */
-    moveCursor: (side: keyof Sides, cursor: number) => {
-      cursors.current[side] = cursor;
-    },
+    uploading: uploading.front || uploading.back,
+    /** Notes whether an Image is on its way up into `side`. */
+    setUploading: (side: keyof Sides, now: boolean) =>
+      setUploading((current) => ({ ...current, [side]: now })),
   };
 }
 
@@ -119,14 +100,12 @@ function Side({
   value,
   error,
   note,
-  images,
   inputRef,
   autoFocus,
   readOnly,
   onChange,
   onSubmit,
-  onFocus,
-  onSelect,
+  onUploading,
   className,
 }: {
   label: "Front" | "Back";
@@ -136,16 +115,13 @@ function Side({
   error: string | undefined;
   /** A note under the field, announced politely: the Duplicate warning. */
   note?: ReactNode;
-  /** The thumbnails of the Images it refers to, under the field. */
-  images: ReactNode;
-  inputRef?: RefObject<EditorView | null>;
+  inputRef: RefObject<EditorView | null>;
   autoFocus?: boolean;
   onChange: (value: string) => void;
   /** Ctrl/Cmd+Enter. */
   onSubmit: () => void;
-  onFocus: () => void;
-  /** Where the cursor is now, as the User moves it or types. */
-  onSelect: (cursor: number) => void;
+  /** Hears whether an Image is on its way up into it. */
+  onUploading: (uploading: boolean) => void;
   className?: string;
 }) {
   const id = useId();
@@ -159,7 +135,7 @@ function Side({
     <div className={cn("group flex flex-col gap-1 sm:flex-row sm:gap-6", className)}>
       <label
         id={`${id}-label`}
-        onClick={() => inputRef?.current?.focus()}
+        onClick={() => inputRef.current?.focus()}
         className="pt-1 text-xs font-semibold tracking-[0.08em] text-muted-foreground uppercase transition-colors group-focus-within:text-foreground motion-reduce:transition-none sm:w-16 sm:shrink-0 sm:pt-2.5 sm:text-right"
       >
         {label}
@@ -177,9 +153,9 @@ function Side({
           autoClose={autoClose}
           toolbarLabel={`${label} formatting`}
           viewRef={inputRef}
-          onFocus={onFocus}
-          onCursor={onSelect}
           onSubmit={onSubmit}
+          onUpload={uploadImage}
+          onUploading={onUploading}
           className={cn(
             // Ruled lines, one per line of text, so it writes like a page.
             "w-full rounded-md bg-[repeating-linear-gradient(to_bottom,transparent_0,transparent_calc(2rem-1px),var(--border)_calc(2rem-1px),var(--border)_2rem)] leading-[2rem]",
@@ -189,7 +165,6 @@ function Side({
               : "min-h-32 text-[1.05rem]/[2rem]",
           )}
         />
-        {images}
         {error !== undefined && (
           <p id={`${id}-error`} className="text-sm font-medium text-destructive">
             {error}
@@ -214,9 +189,10 @@ function Side({
  * while it makes the Card a Duplicate of another live Card in the Deck; the
  * Card `selfId` names, the one being edited, never counts.
  *
- * "Add image" puts each Image it uploads on a line of its own at the cursor
- * of the side focused last, the Back when neither has been yet, and Save is
- * held while an upload is on its way (`form.uploading`).
+ * Each side takes Images, pasted, dropped or picked with its toolbar's Image
+ * button, and Save is held while an upload is on its way (`form.uploading`).
+ * A file dropped anywhere else on the page is never opened, so nothing written
+ * is lost.
  */
 export function CardEditor({
   deck,
@@ -263,18 +239,12 @@ export function CardEditor({
     value: form.fields[side],
     error: form.errors[side],
     readOnly: saving,
-    images: (
-      <ImageStrip
-        markdown={form.fields[side]}
-        readOnly={saving}
-        onRemove={(ref) => form.set(side, withoutReference(form.fields[side], ref))}
-      />
-    ),
+    inputRef: side === "front" ? form.frontRef : form.backRef,
     onChange: (value: string) => form.set(side, value),
     onSubmit: save,
-    onFocus: () => form.focus(side),
-    onSelect: (cursor: number) => form.moveCursor(side, cursor),
+    onUploading: (uploading: boolean) => form.setUploading(side, uploading),
   });
+  useEffect(keepDroppedFiles, []);
   return (
     <Page width="reading">
       <div className="flex flex-col gap-6 lg:gap-8">
@@ -303,7 +273,6 @@ export function CardEditor({
             label="Front"
             placeholder="What to be asked"
             note={duplicates.length > 0 ? <DuplicateNote duplicates={duplicates} /> : null}
-            inputRef={form.frontRef}
             autoFocus={autoFocus}
             {...sideProps("front")}
           />
@@ -316,11 +285,9 @@ export function CardEditor({
           />
           <TagField input={tags} readOnly={saving} onSave={save} />
           <div className="flex flex-col gap-3 border-t pt-5 sm:flex-row sm:items-center sm:pl-22">
-            <AddImageButton uploading={form.uploading} disabled={saving} onPick={form.addImages} />
             {foot}
           </div>
         </form>
-        <UploadFailures failures={form.uploadFailures} />
         {after}
       </div>
     </Page>
@@ -358,6 +325,30 @@ function DuplicateNote({ duplicates }: { duplicates: readonly Card[] }) {
       </span>
     </p>
   );
+}
+
+/** Keeps the browser from opening files dragged where no side has taken them. */
+function keep(event: DragEvent) {
+  // A side that takes them has had them first.
+  if (event.defaultPrevented || !(event.dataTransfer?.types.includes("Files") ?? false)) return;
+  event.preventDefault();
+  if (event.type === "dragover" && event.dataTransfer !== null) {
+    event.dataTransfer.dropEffect = "none";
+  }
+}
+
+/**
+ * Keeps files dropped anywhere on the page but a side from being opened by
+ * the browser, which would leave the page and lose what is written: for as
+ * long as the writing page is up.
+ */
+function keepDroppedFiles() {
+  window.addEventListener("dragover", keep);
+  window.addEventListener("drop", keep);
+  return () => {
+    window.removeEventListener("dragover", keep);
+    window.removeEventListener("drop", keep);
+  };
 }
 
 /** Nothing is dragged on a Card's page, so nothing is ever dropped on its crumbs. */
