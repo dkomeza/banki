@@ -17,27 +17,23 @@ import {
 
 const FOLLOW = "follow";
 
-/** The whole percents 70–97: Settings' Desired retention, or a Deck's own (`value`). */
+/** The global Desired retention: the whole percents 70–97. */
 export function GlobalRetentionPicker({
   labelledBy,
   describedBy,
   autoFocus,
-  scope = "global",
-  value,
 }: {
   labelledBy: string;
   describedBy?: string;
   autoFocus?: boolean;
-  scope?: Scope;
-  value?: number | null;
 }) {
   const { global } = useRetention();
   const search = useCallback((query: string) => matchPercents(PERCENT_OPTIONS, query), []);
   return (
     <Combobox
       options={PERCENT_OPTIONS}
-      value={String(value ?? global)}
-      onPick={(picked) => changeRetention(scope, Number(picked))}
+      value={String(global)}
+      onPick={(value) => changeRetention("global", Number(value))}
       search={search}
       labelledBy={labelledBy}
       {...(describedBy === undefined ? {} : { describedBy })}
@@ -80,12 +76,9 @@ export function DeckRetentionPicker({
   const search = useCallback(
     (query: string) => {
       const wanted = query.trim().toLowerCase();
-      const follow = options
-        .slice(0, 1)
-        .filter(
-          (option) =>
-            wanted === "" || "follow settings".includes(wanted) || "global".includes(wanted),
-        );
+      const follows =
+        wanted === "" || "follow settings".includes(wanted) || "global".includes(wanted);
+      const follow = follows ? options.slice(0, 1) : [];
       return [...follow, ...matchPercents(options.slice(1), query)];
     },
     [options],

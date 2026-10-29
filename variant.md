@@ -1,5 +1,5 @@
-# b: Room
+# d: Room & Drawer
 
-Bet: a Deck's settings get a page of their own, `/decks/$deckId/settings`, built like Settings (section index, the setting it's about first and full width, a card per setting to come), reached from a Settings pill and the retention line on the deck page. Desired retention reads as a choice, Follow Settings or Its own, with the percent picker under Its own; Settings' Study card lists the Decks with their own.
+Bet: the Design Review verdict built as one Variant. A Deck's settings get b "Room"'s page of their own, `/decks/$deckId/settings`, reached from a Settings pill and the retention line on the deck page, with a card for each setting to come. The Desired retention section inside it is c "Drawer"'s: one picker whose first choice is Follow Settings, and ten cards coming due with the ones you'll remember filled in. Settings' Study card is c's, with the same picture.
 
 States: follows, own, picking, save-error

@@ -1,25 +1,26 @@
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { Calculator, Flag, PencilLine } from "lucide-react";
-import { type ReactNode, useId, useState } from "react";
+import { type ReactNode, useId } from "react";
 import { Breadcrumb } from "@/components/folders/breadcrumb";
 import { usePlaceActions } from "@/components/folders/place-actions";
 import { useLibrary } from "@/components/folders/use-library";
 import { DeckNotFound } from "@/components/not-found";
 import { Page } from "@/components/page";
-import { GlobalRetentionPicker, RetentionError } from "@/components/settings/retention-picker";
+import { DeckRetentionPicker, RetentionError } from "@/components/settings/retention-picker";
+import { RetentionPicture } from "@/components/settings/retention-picture";
 import { SaveState } from "@/components/settings/parts";
 import { type Section, SectionIndex } from "@/components/settings/section-index";
 import { type Deck, deckQueryOptions } from "@/lib/decks";
 import { ensureLibrary } from "@/lib/folders";
-import { changeRetention, outOfTen, protoState, useRetention } from "@/lib/proto-retention";
+import { protoState, useRetention } from "@/lib/proto-retention";
 import { useHiddenScrollbar } from "@/lib/use-hidden-scrollbar";
-import { cn } from "@/lib/utils";
 
-// PROTOTYPE (BAN-23, Variant b "Room"): a Deck's settings get a page of their
-// own, built like Settings: the setting the page is about first, full width,
-// then a card for each setting to come. Each one says whether it follows
-// Settings, and a Deck's own value is one choice away from following again.
+// PROTOTYPE (BAN-23, Variant d "Room & Drawer"): a Deck's settings get a page
+// of their own, as b "Room" has them, built like Settings: the setting the page
+// is about first, full width, then a card for each setting to come. Desired
+// retention inside it is c "Drawer"'s: one picker, Follow Settings first, and a
+// picture of ten cards coming due.
 
 export const Route = createFileRoute("/_shell/decks/$deckId_/settings")({
   loader: ({ context: { queryClient }, params: { deckId } }) =>
@@ -116,118 +117,50 @@ function Body({ deck }: { deck: Deck }) {
   );
 }
 
-/** Desired retention: follow Settings, or this deck's own value. */
+/**
+ * Desired retention, as c "Drawer" has it: one picker whose first choice is
+ * Follow Settings, then the picture of what the value means.
+ */
 function RetentionSection({ deckId }: { deckId: string }) {
-  const { global, own, saveState } = useRetention();
-  const value = own(deckId);
-  const start = protoState();
-  // Picking "Its own" before a value is chosen shows the picker, starting at Settings' value.
-  const [ownChosen, setOwnChosen] = useState(start === "picking");
-  const isOwn = value !== null || ownChosen;
-  const shown = value ?? global;
+  const { effective, own, global, saveState } = useRetention();
   const label = useId();
   const hint = useId();
   const scope = { deck: deckId };
-  const name = useId();
+  const value = effective(deckId);
 
   return (
     <section
       id="retention"
       aria-labelledby="retention-title"
-      className="flex scroll-mt-28 flex-col gap-6 rounded-[1.5rem] border bg-card p-5 text-card-foreground sm:p-7 lg:p-8"
+      className="flex scroll-mt-28 flex-col gap-5 rounded-[1.5rem] border bg-card p-5 text-card-foreground sm:p-7 lg:p-8"
     >
-      <div className="flex flex-col gap-1.5">
-        <div className="flex items-center justify-between gap-3">
-          <h2 id="retention-title" className="text-xl font-semibold tracking-tight lg:text-2xl">
-            Desired retention
-          </h2>
-          <SaveState state={saveState(scope)} />
-        </div>
-        <p className="max-w-prose text-[0.95rem] text-muted-foreground">
-          Of every 10 cards that come due, you'll remember about {outOfTen(shown)}. Higher means
-          more reviews; a change reschedules this deck's cards at once.
+      <div className="flex items-center justify-between gap-3">
+        <h2 id="retention-title" className="text-xl font-semibold tracking-tight lg:text-2xl">
+          Desired retention
+        </h2>
+        <SaveState state={saveState(scope)} />
+      </div>
+      <div className="flex max-w-xl flex-col gap-3">
+        <span id={label} className="sr-only">
+          This deck's Desired retention
+        </span>
+        <DeckRetentionPicker
+          deckId={deckId}
+          labelledBy={label}
+          describedBy={hint}
+          autoFocus={protoState() === "picking"}
+        />
+        <RetentionPicture percent={value} />
+        <p id={hint} className="text-sm text-muted-foreground">
+          {own(deckId) === null
+            ? `Follows Settings, ${global}% now. `
+            : `Its own, whatever Settings say (${global}% now). `}
+          Of every 100 of its cards that come due, you'll remember about {value}. Higher means more
+          reviews; a change reschedules this deck's cards at once.
         </p>
+        <RetentionError scope={scope} />
       </div>
-
-      <div role="radiogroup" aria-label="Desired retention" className="grid gap-3 sm:grid-cols-2">
-        <Choice
-          name={name}
-          checked={!isOwn}
-          onPick={() => {
-            setOwnChosen(false);
-            if (value !== null) changeRetention(scope, null);
-          }}
-          title="Follow Settings"
-          detail={`${global}% now, and whatever Settings change it to.`}
-        />
-        <Choice
-          name={name}
-          checked={isOwn}
-          onPick={() => setOwnChosen(true)}
-          title="Its own"
-          detail={
-            value === null
-              ? "Pick a percent for this deck alone."
-              : `${value}% for this deck alone.`
-          }
-        />
-      </div>
-
-      {isOwn && (
-        <div className="flex flex-col gap-2 rounded-xl bg-muted p-4 sm:max-w-sm">
-          <span id={label} className="text-sm font-medium">
-            This deck's Desired retention
-          </span>
-          {/* The percents alone: "Follow Settings" is the radio beside it. */}
-          <GlobalRetentionPicker
-            scope={scope}
-            value={value}
-            labelledBy={label}
-            describedBy={hint}
-            autoFocus={start === "picking"}
-          />
-          <p id={hint} className="text-sm text-muted-foreground">
-            Whole percents from 70% to 97%.
-          </p>
-        </div>
-      )}
-      <RetentionError scope={scope} />
     </section>
-  );
-}
-
-function Choice({
-  name,
-  checked,
-  onPick,
-  title,
-  detail,
-}: {
-  name: string;
-  checked: boolean;
-  onPick: () => void;
-  title: string;
-  detail: string;
-}) {
-  return (
-    <label
-      className={cn(
-        "flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors motion-reduce:transition-none has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-ring has-[:focus-visible]:outline-solid",
-        checked ? "border-primary bg-accent" : "hover:bg-muted",
-      )}
-    >
-      <input
-        type="radio"
-        name={name}
-        checked={checked}
-        onChange={onPick}
-        className="mt-1 size-4 accent-[var(--primary)]"
-      />
-      <span className="flex flex-col gap-0.5">
-        <span className={cn("font-medium", checked && "text-primary")}>{title}</span>
-        <span className="text-sm text-muted-foreground">{detail}</span>
-      </span>
-    </label>
   );
 }
 
