@@ -174,6 +174,19 @@ export function liveDecorations(state: EditorState, options: LivePreviewOptions)
         }
         case "Table": {
           if (!options.blocks || options.table === undefined) return false;
+          // Only a table of its own lines: one in a quote or a list item
+          // shares its lines with their markers, which the grid would lose.
+          if (node.parent?.name !== "Document") return true;
+          // Its delimiter row is complete once it closes as its header does:
+          // while `| --- | -` is being typed under `| A | B |`, it stays text.
+          const header = doc.lineAt(node.from);
+          const delimiter = header.number < doc.lines ? doc.line(header.number + 1) : null;
+          if (
+            header.text.trimEnd().endsWith("|") &&
+            !(delimiter?.text.trimEnd().endsWith("|") ?? false)
+          ) {
+            return true;
+          }
           const from = doc.lineAt(node.from).from;
           const to = doc.lineAt(node.to).to;
           out.push(

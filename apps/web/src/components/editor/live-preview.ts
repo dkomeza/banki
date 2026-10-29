@@ -14,7 +14,7 @@ import { autoCloseExtension } from "./auto-close";
 import { autoCloseChoice, formattingKeymap, previewCore, submitAction } from "./core";
 import { FORMATTING, type Format, INLINE_FORMATS } from "./formatting";
 import { blockAt, livePreviewDecorations } from "./decorations";
-import { enterGrid, focusFirstCell, TableWidget } from "./table-grid";
+import { continueInGrid, enterGrid, focusFirstCell, TableWidget } from "./table-grid";
 
 // The live-preview editor (ADR-0004): CodeMirror 6 on the Markdown source,
 // decorated from the Card parser's tree. Nothing in it is about Cards: a side
@@ -52,6 +52,23 @@ function moveIntoBlock(view: EditorView, forward: boolean): boolean {
   return true;
 }
 
+/**
+ * Typing that completes a table's delimiter row turns the table into a grid
+ * around the cursor: the cursor goes on into the grid, to its last row (a
+ * new first row under a lone header), rather than being left where the grid
+ * now stands.
+ */
+const followIntoGrid = EditorView.updateListener.of((update) => {
+  if (!update.docChanged || !update.view.hasFocus) return;
+  if (!update.transactions.some((tr) => tr.isUserEvent("input") || tr.isUserEvent("delete")))
+    return;
+  const { head } = update.state.selection.main;
+  const block = blockAt(update.state.field(sideDecorations), head);
+  if (block === null || head <= block.from || head > block.to) return;
+  const { view } = update;
+  requestAnimationFrame(() => continueInGrid(view, head));
+});
+
 /** What the editor does for an auto-close choice, and the choice, for its tables. */
 const settings = (choice: AutoClose) => [autoCloseChoice.of(choice), autoCloseExtension(choice)];
 
@@ -79,6 +96,7 @@ export function livePreview({
   return {
     extension: [
       previewCore(sideDecorations),
+      followIntoGrid,
       history(),
       EditorView.lineWrapping,
       indentUnit.of(INDENT),

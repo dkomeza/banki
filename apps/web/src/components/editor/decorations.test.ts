@@ -190,6 +190,21 @@ describe("tables", () => {
     expect(kinds(side("| a | b |\n| - | - |", 0))).toEqual(["table"]);
   });
 
+  test.each([
+    ["a quote", "> | a | b |\n> | - | - |\n> | 1 | $x$ |"],
+    ["a list item", "- | a | b |\n  | - | - |\n  | 1 | $x$ |"],
+  ])("in %s stay text, which the grid would lose the markers of", (_, doc) => {
+    expect(kinds(side(doc, 0))).not.toContain("table");
+    // Their cells' Formulas still render.
+    expect(kinds(side(doc, 0))).toContain("formula:x");
+  });
+
+  test("stay text while a delimiter row is typed, until it closes as the header does", () => {
+    expect(kinds(side("| a | b |\n|---|-", 0))).not.toContain("table");
+    expect(kinds(side("| a | b |\n|---|---|", 0))).toEqual(["table"]);
+    expect(kinds(side("a | b\n--- | ---", 0))).toEqual(["table"]);
+  });
+
   test("show as a grid with the cursor in them too", () => {
     expect(kinds(side("| a | b |\n| - | - |\n| 1 | 2 |", 3))).toEqual(["table"]);
   });

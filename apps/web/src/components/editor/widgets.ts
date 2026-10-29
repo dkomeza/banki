@@ -36,6 +36,25 @@ export function snapToLines(box: HTMLElement, view: EditorView): void {
   observers.set(box, observer);
 }
 
+/**
+ * Marks an inline Formula that wraps onto more lines than one (a long one on
+ * a narrow side), which then takes the room it needs rather than overlap
+ * the line above.
+ */
+function markWhenWrapped(el: HTMLElement, view: EditorView): void {
+  if (typeof ResizeObserver === "undefined") return;
+  const observer = new ResizeObserver(() => {
+    const line = Number.parseFloat(getComputedStyle(view.contentDOM).lineHeight);
+    if (!(line > 0)) return;
+    const wrapped = el.getBoundingClientRect().height > line * 1.4;
+    if (el.classList.contains("cm-lp-formula-wrapped") === wrapped) return;
+    el.classList.toggle("cm-lp-formula-wrapped", wrapped);
+    view.requestMeasure();
+  });
+  observer.observe(el);
+  observers.set(el, observer);
+}
+
 /** Stops keeping `box` to whole lines. */
 export function unsnap(box: HTMLElement): void {
   observers.get(box)?.disconnect();
@@ -88,6 +107,8 @@ export class FormulaWidget extends WidgetType {
       const el = document.createElement("span");
       el.className = "cm-lp-formula cm-lp-formula-inline";
       fillFormula(el, this.source, false);
+      // A broken one is text, its source and message, and wraps as text does.
+      if (!el.classList.contains("cm-lp-broken")) markWhenWrapped(el, view);
       return el;
     }
     const box = document.createElement(this.block ? "div" : "span");

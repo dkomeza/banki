@@ -1,5 +1,5 @@
 import type { AutoClose, CardNode } from "@banki/shared";
-import { redo, undo } from "@codemirror/commands";
+import { defaultKeymap, redo, undo } from "@codemirror/commands";
 import { Compartment, EditorSelection, EditorState, type Extension } from "@codemirror/state";
 import { EditorView, keymap, WidgetType } from "@codemirror/view";
 import { autoCloseExtension } from "./auto-close";
@@ -280,6 +280,7 @@ class TableGrid {
         { key: "Mod-y", run: () => redo(this.outer) },
         { key: "Mod-Shift-z", run: () => redo(this.outer) },
         ...formattingKeymap,
+        ...defaultKeymap,
       ]),
       EditorView.updateListener.of((update) => {
         if (update.focusChanged && update.view.hasFocus) this.current = at;
@@ -309,7 +310,8 @@ class TableGrid {
   private write(model: TableModel): void {
     const range = this.locate();
     if (range === null) return;
-    this.model = model;
+    // The grid takes the model from the source it is drawn from (update), so
+    // a change of shape redraws it.
     const change = smallestChange(
       this.outer.state.sliceDoc(range.from, range.to),
       formatTable(model),
@@ -338,6 +340,12 @@ class TableGrid {
     view.dispatch({ selection: EditorSelection.cursor(Math.min(offset ?? length, length)) });
   }
 
+  /** The cursor in the first cell of the last row, a new first row if there is none. */
+  continueTyping(): void {
+    if (this.model.rows.length > 1) this.focusCell(this.lastRow, 0);
+    else this.restructure(withRowAt(this.model, 1), { r: 1, c: 0 });
+  }
+
   /** Writes `model`, then puts the cursor in `cell` once the grid is redrawn. */
   private restructure(model: TableModel, cell: Cell): void {
     this.current = cell;
@@ -357,7 +365,8 @@ class TableGrid {
   /** Tab and Shift+Tab: the next or previous cell; Tab in the last one adds a row. */
   private step(by: 1 | -1): boolean {
     const index = this.current.r * this.width + this.current.c + by;
-    if (index < 0) return true;
+    // Shift+Tab in the first cell moves on, out of the grid, as Tab would.
+    if (index < 0) return false;
     if (index >= this.model.rows.length * this.width) {
       const r = this.model.rows.length;
       this.restructure(withRowAt(this.model, r), { r, c: 0 });
@@ -394,7 +403,10 @@ class TableGrid {
     return true;
   }
 
-  /** Escape: the cursor on the line after the table, made if there is none. */
+  /**
+   * Escape: the cursor on the line after the table. With none, it makes one,
+   * after a blank line: text right under a table would be one of its rows.
+   */
   private leave(): boolean {
     const range = this.locate();
     if (range === null) return false;
@@ -404,8 +416,8 @@ class TableGrid {
     if (line < doc.lines) this.outer.dispatch({ selection: { anchor: doc.line(line + 1).from } });
     else {
       this.outer.dispatch({
-        changes: { from: range.to, insert: "\n" },
-        selection: { anchor: range.to + 1 },
+        changes: { from: range.to, insert: "\n\n" },
+        selection: { anchor: range.to + 2 },
       });
     }
     return true;
@@ -564,6 +576,17 @@ class TableGrid {
     this.markActive();
     if (refocus) this.menuButton.focus();
   }
+}
+
+/**
+ * Puts the cursor in the first cell of the last row of the table at `pos`,
+ * just typed: a table with only its header gets its first row for it.
+ */
+export function continueInGrid(view: EditorView, pos: number): boolean {
+  const grid = gridAt(view, pos);
+  if (grid === undefined) return false;
+  grid.continueTyping();
+  return true;
 }
 
 /** Puts the cursor in the grid of the table at `pos`: its first row, or its last. */
