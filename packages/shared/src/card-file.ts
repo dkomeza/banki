@@ -171,4 +171,10 @@ export type CardFile = z.infer<typeof CardFile>;
  * provider's structured-outputs strict mode (ADR-0023): the limits `CardFile`
  * enforces are written in descriptions, not as keywords.
  */
-export const CARD_FILE_JSON_SCHEMA = z.toJSONSchema(CardFile, { io: "input" });
+export const CARD_FILE_JSON_SCHEMA = z.toJSONSchema(CardFile, {
+  io: "input",
+  // A number literal comes out as `"type": "number"`; the version is an integer.
+  override: ({ zodSchema, jsonSchema }) => {
+    if (zodSchema === CardFile.shape.version) jsonSchema.type = "integer";
+  },
+});

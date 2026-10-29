@@ -332,6 +332,10 @@ describe("CARD_FILE_JSON_SCHEMA", () => {
     }
   });
 
+  test("types the version as the integer 1", () => {
+    expect(SCHEMA.properties!.version).toMatchObject({ type: "integer", const: 1 });
+  });
+
   test("states the limits in its descriptions", () => {
     const card = SCHEMA.properties!.cards!.items!.properties!;
     expect(card.front!.description).toContain("20,000 characters");
