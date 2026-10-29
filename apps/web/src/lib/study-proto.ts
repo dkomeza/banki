@@ -1,3 +1,4 @@
+/* eslint-disable typescript/no-unsafe-type-assertion, typescript/no-unnecessary-type-assertion -- prototype code */
 import { type QueueKind, type Rating, StudyNextResponse } from "@banki/shared";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -57,7 +58,8 @@ function fixtureCard(id: string, deckId: string, front: string, back: string): C
 const SEED_IMAGE = "images/5eed0000-0000-4000-8000-00000000a001.png";
 
 /** The `math` state's Card: the seed's Calculus 2 sketch Card with the Maclaurin derivation after it. */
-const MATH_FRONT = "Sketch $y = \\ln(1+x)$ near $x = 0$.\n\nWhere is it defined, and what is its Maclaurin series?";
+const MATH_FRONT =
+  "Sketch $y = \\ln(1+x)$ near $x = 0$.\n\nWhere is it defined, and what is its Maclaurin series?";
 const MATH_BACK = [
   `![](${SEED_IMAGE})`,
   "It passes through the origin with slope $1$, since $\\frac{d}{dx}\\ln(1+x) = \\frac{1}{1+x}$.",
