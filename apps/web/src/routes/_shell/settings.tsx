@@ -5,6 +5,7 @@ import { AppVersion } from "@/components/settings/app-version";
 import { EditorCard } from "@/components/settings/editor-card";
 import { GradingCard } from "@/components/settings/grading-card";
 import { type Section, SectionIndex } from "@/components/settings/section-index";
+import { StudyCard } from "@/components/settings/study-card";
 import { StudyDayCard } from "@/components/settings/study-day-card";
 import { ThisDeviceCard } from "@/components/settings/this-device-card";
 import { meQueryOptions } from "@/lib/me";
@@ -23,6 +24,7 @@ export const Route = createFileRoute("/_shell/settings")({
 // In page order. Later features add their cards, and their sections here.
 const SECTIONS: readonly Section[] = [
   { id: "study-day", title: "Study day" },
+  { id: "study", title: "Study" },
   { id: "grading", title: "Grading" },
   { id: "editor", title: "Editor" },
   { id: "account", title: "Account" },
@@ -44,6 +46,7 @@ function SettingsPage() {
           {/* Masonry from 768 px: cards fill the left column first, then the right, so
               the Tab order and the index follow what the eye reads. */}
           <div className="gap-x-5 md:columns-2 lg:gap-x-6 [&>section]:mb-5 [&>section]:break-inside-avoid lg:[&>section]:mb-6">
+            <StudyCard />
             <GradingCard />
             <EditorCard />
             <AccountCard />

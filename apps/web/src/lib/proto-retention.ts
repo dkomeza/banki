@@ -104,13 +104,10 @@ export function retryRetention(scope: Scope) {
 }
 
 export function useRetention() {
-  const current = useSyncExternalStore(
-    (listener) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    get,
-  );
+  const current = useSyncExternalStore((listener) => {
+    listeners.add(listener);
+    return () => listeners.delete(listener);
+  }, get);
   return {
     global: current.global,
     /** The Deck's own value, or null while it follows Settings. */
@@ -134,7 +131,9 @@ export function useRetention() {
 export function retentionErrorText(failure: Failure, global: number): string {
   const tried = failure.attempted === null ? `following Settings` : `${failure.attempted}%`;
   const kept =
-    failure.kept === null ? `it still follows Settings (${global}%)` : `it's still ${failure.kept}%`;
+    failure.kept === null
+      ? `it still follows Settings (${global}%)`
+      : `it's still ${failure.kept}%`;
   return `The change to ${tried} didn't save, so ${kept}.`;
 }
 

@@ -1,6 +1,6 @@
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { CornerDownRight, Pencil, Trash2 } from "lucide-react";
+import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
+import { CornerDownRight, Pencil, Settings2, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { deleteAllWithUndo, showMovedToast } from "@/components/cards/card-toasts";
 import { CardTimeline } from "@/components/cards/card-timeline";
@@ -26,6 +26,7 @@ import {
   updateDeck,
 } from "@/lib/decks";
 import { ensureLibrary, placePath } from "@/lib/folders";
+import { useRetention } from "@/lib/proto-retention";
 import { useSelection } from "@/lib/selection";
 import { deckSearch, rememberDeckSearch } from "@/lib/tags";
 import { cn } from "@/lib/utils";
@@ -82,6 +83,8 @@ function DeckBody({ deck }: { deck: Deck }) {
     rememberDeckSearch(deck.id, filter);
   }, [deck.id, filter]);
   const selection = useSelection();
+  const retention = useRetention();
+  const ownRetention = retention.own(deck.id);
   // The Cards the destination picker is open for, while it is.
   const [moving, setMoving] = useState<readonly Card[]>();
   const [moveBusy, setMoveBusy] = useState(false);
@@ -150,7 +153,16 @@ function DeckBody({ deck }: { deck: Deck }) {
             </button>
           )}
           <p className="text-sm text-muted-foreground tabular-nums">
-            Created {createdLabel(deck.createdAt)} · {cardCountLabel(cards.length).toLowerCase()}
+            Created {createdLabel(deck.createdAt)} · {cardCountLabel(cards.length).toLowerCase()} ·{" "}
+            <Link
+              to="/decks/$deckId/settings"
+              params={{ deckId: deck.id }}
+              className="text-muted-foreground no-underline underline-offset-4 hover:text-foreground hover:underline"
+            >
+              {ownRetention === null
+                ? `${retention.global}% retention, from Settings`
+                : `its own ${ownRetention}% retention`}
+            </Link>
           </p>
           <div className="flex shrink-0 flex-wrap gap-2 pt-1">
             <Button
@@ -160,6 +172,15 @@ function DeckBody({ deck }: { deck: Deck }) {
             >
               <Pencil aria-hidden />
               Edit
+            </Button>
+            <Button
+              variant="outline"
+              className={cn(OUTLINE_PILL, "h-11 text-foreground no-underline")}
+              render={<Link to="/decks/$deckId/settings" params={{ deckId: deck.id }} />}
+              nativeButton={false}
+            >
+              <Settings2 aria-hidden />
+              Settings
             </Button>
             <Button
               variant="outline"
