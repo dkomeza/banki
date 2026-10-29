@@ -1,13 +1,16 @@
+import { completionStatus } from "@codemirror/autocomplete";
 import { type EditorState, StateField } from "@codemirror/state";
 import { EditorView, showTooltip, type Tooltip } from "@codemirror/view";
 import { changesPreview } from "./decorations";
 import { focusedField, formulaAt, formulaSource, formulaSourceEnd } from "./language";
+import { withSlotBoxes } from "./latex-complete";
 import { popoverContent } from "./widgets";
 
 // While an inline Formula is edited, its render floats in a small popover
 // anchored under it, over the text, which never moves; it goes when the
 // cursor leaves. A click on a rendered Formula puts the cursor at the end of
-// its source.
+// its source. While the LaTeX completion popup is open, it stands in for
+// the popover, and a snippet's empty slots show as boxes in the render.
 
 /** The inline Formula the cursor is in, in the focused editor, if any. */
 export function editedInlineFormula(state: EditorState) {
@@ -19,8 +22,9 @@ export function editedInlineFormula(state: EditorState) {
 
 function popoverFor(state: EditorState): Tooltip | null {
   const node = editedInlineFormula(state);
-  if (node === null) return null;
-  const source = formulaSource(node, state.doc);
+  // One card at a time: the completion popup stands in for it while open.
+  if (node === null || completionStatus(state) !== null) return null;
+  const source = withSlotBoxes(formulaSource(node, state.doc));
   return {
     pos: node.from,
     above: false,
@@ -32,7 +36,10 @@ function popoverFor(state: EditorState): Tooltip | null {
 /** The popover of the inline Formula being edited. */
 export const inlinePopover = StateField.define<Tooltip | null>({
   create: popoverFor,
-  update: (value, tr) => (changesPreview(tr) ? popoverFor(tr.state) : value),
+  update: (value, tr) =>
+    changesPreview(tr) || completionStatus(tr.startState) !== completionStatus(tr.state)
+      ? popoverFor(tr.state)
+      : value,
   provide: (field) => showTooltip.from(field),
 });
 

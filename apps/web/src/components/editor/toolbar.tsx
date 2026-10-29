@@ -1,5 +1,6 @@
 import {
   Bold,
+  BookOpen,
   Code,
   ImagePlus,
   Italic,
@@ -17,8 +18,9 @@ import type { Format } from "./formatting";
 
 // The formatting toolbar: a pill on the top edge of the editor being written
 // (on a phone, an ink bar docked above the keyboard). One Tab stop; the arrow
-// keys move along it. The Image button, when the editor takes files, ends it,
-// pinned at the ink bar's end on a phone.
+// keys move along it. The LaTeX cheatsheet's button follows the math group.
+// The Image button, when the editor takes files, ends it, pinned at the ink
+// bar's end on a phone.
 
 const TOOLS: readonly {
   format: Format;
@@ -46,6 +48,8 @@ export function EditorToolbar({
   disabled,
   onFormat,
   onImages,
+  cheatsheetOpen,
+  onCheatsheet,
 }: {
   /** Names the toolbar, such as "Front formatting". */
   label: string;
@@ -53,6 +57,10 @@ export function EditorToolbar({
   onFormat: (format: Format) => void;
   /** Takes the files the Image button picks; without it, there is no Image button. */
   onImages?: (files: File[]) => void;
+  /** Whether the LaTeX cheatsheet is open. */
+  cheatsheetOpen: boolean;
+  /** Opens or closes the LaTeX cheatsheet. */
+  onCheatsheet: () => void;
 }) {
   const bar = useRef<HTMLDivElement>(null);
   const picker = useRef<HTMLInputElement>(null);
@@ -101,6 +109,23 @@ export function EditorToolbar({
             >
               <Icon aria-hidden className="size-4" strokeWidth={2.1} />
             </button>
+            {tool.format === "displayFormula" && (
+              <button
+                type="button"
+                tabIndex={-1}
+                aria-label="LaTeX cheatsheet"
+                aria-haspopup="dialog"
+                aria-expanded={cheatsheetOpen}
+                title="LaTeX cheatsheet"
+                disabled={disabled}
+                data-cheatsheet-button=""
+                className="editor-toolbar-button editor-toolbar-cheatsheet"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={onCheatsheet}
+              >
+                <BookOpen aria-hidden className="size-4" strokeWidth={2.1} />
+              </button>
+            )}
           </Fragment>
         );
       })}

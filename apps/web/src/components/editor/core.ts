@@ -3,11 +3,13 @@ import { type Extension, Facet, type StateField } from "@codemirror/state";
 import { type DecorationSet, EditorView, type KeyBinding, tooltips } from "@codemirror/view";
 import { FORMATTING } from "./formatting";
 import { cardLanguage, trackFocus } from "./language";
+import { latexCompletion } from "./latex-complete";
 import { clickToEditFormula, inlinePopover } from "./popover";
 
 // What every live-preview editor has, a side's and each of its table's cells:
-// the Card's language, the reveal rule, the inline Formula's popover, the
-// formatting shortcuts, and the editor's settings for the grid to read.
+// the Card's language, the reveal rule, the inline Formula's popover, LaTeX
+// autocomplete, the formatting shortcuts, and the editor's settings for the
+// grid to read.
 
 /** The auto-close choice the editor follows. */
 export const autoCloseChoice = Facet.define<AutoClose, AutoClose>({
@@ -35,6 +37,7 @@ export function previewCore(decorations: StateField<DecorationSet>): Extension {
     decorations,
     inlinePopover,
     clickToEditFormula,
+    latexCompletion(),
     // On the page, so a popover isn't cut off by a scrolling table or card.
     tooltips({ position: "absolute", parent: document.body }),
     EditorView.contentAttributes.of({ spellcheck: "true" }),
