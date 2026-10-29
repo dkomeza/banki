@@ -20,10 +20,18 @@ export const NEWER_BANKI_MESSAGE = `This Card file was made by a newer Banki: th
 
 /**
  * A key's error for an input that left it out, saying so rather than that
- * `undefined` is the wrong type; any other input keeps its usual message.
+ * `undefined` is the wrong type, and for one of the wrong type, saying what
+ * the key holds (`"cards" is a list`). Without `holds`, a wrong type keeps
+ * its usual message.
  */
-const missing = (key: string) => (issue: { input?: unknown }) =>
-  issue.input === undefined ? `"${key}" is missing` : undefined;
+const missing =
+  (key: string, holds?: string) =>
+  (issue: { input?: unknown }): string | undefined =>
+    issue.input === undefined
+      ? `"${key}" is missing`
+      : holds === undefined
+        ? undefined
+        : `"${key}" is ${holds}`;
 
 /** An object's error for keys it doesn't have, naming them, and for an input that isn't an object. */
 const objectError =
@@ -40,7 +48,7 @@ export const CardFileMacro = z
   .strictObject(
     {
       name: z
-        .string({ error: missing("name") })
+        .string({ error: missing("name", "text") })
         .refine(
           (name) => MACRO_NAME.test(name),
           "A macro's name is \\ and letters, such as \\R, or \\ and one other character",
@@ -49,7 +57,7 @@ export const CardFileMacro = z
           "The macro's name, with its backslash: \\ followed by letters (such as \\R or \\norm), or \\ followed by one character that isn't a letter. No name appears twice in a file.",
         ),
       definition: z
-        .string({ error: missing("definition") })
+        .string({ error: missing("definition", "text") })
         .refine((definition) => definition.trim() !== "", "Write what the macro stands for")
         .describe(
           "What the macro stands for, in KaTeX's syntax, with #1 to #9 for its arguments (such as \\left\\| #1 \\right\\|). Not blank.",
@@ -65,25 +73,25 @@ export const CardFileCard = z
   .strictObject(
     {
       front: z
-        .string({ error: missing("front") })
+        .string({ error: missing("front", "text") })
         .pipe(CardSide)
         .describe(
           `The Card's Front: Markdown with LaTeX ($…$ inline, $$…$$ for display), not blank, up to ${CARD_SIDE_MAX_LENGTH.toLocaleString("en-GB")} characters. Kept exactly as written. An image is ![](images/<file>).`,
         ),
       back: z
-        .string({ error: missing("back") })
+        .string({ error: missing("back", "text") })
         .pipe(CardSide)
         .describe(
           `The Card's Back, by the same rules as the front: Markdown with LaTeX, not blank, up to ${CARD_SIDE_MAX_LENGTH.toLocaleString("en-GB")} characters, kept exactly as written.`,
         ),
       tags: z
-        .array(z.string(), { error: missing("tags") })
+        .array(z.string({ error: "A tag is text" }), { error: missing("tags", "a list") })
         .pipe(CardTags)
         .describe(
           `The Card's Tags, [] for none: each one word of letters, digits, - and _, up to ${TAG_MAX_LENGTH} characters, and at most ${CARD_TAGS_MAX} of them. They are lowercased, and duplicates are dropped.`,
         ),
       gradingNotes: z
-        .string({ error: missing("gradingNotes") })
+        .string({ error: missing("gradingNotes", "text or null") })
         .refine(
           (notes) => notes.trim() === "" || notes.length <= GRADING_NOTES_MAX_LENGTH,
           `Keep grading notes to ${GRADING_NOTES_MAX_LENGTH.toLocaleString("en-GB")} characters`,
@@ -114,7 +122,7 @@ export const CardFile = z
   .strictObject(
     {
       $schema: z
-        .string({ error: missing("$schema") })
+        .string({ error: missing("$schema", "a URL or null") })
         .nullable()
         .describe(
           "The URL of this JSON Schema, or null. Banki never fetches or checks it; an export writes its own.",
@@ -138,7 +146,7 @@ export const CardFile = z
           `The format's version: the integer ${CARD_FILE_VERSION}. A higher one is a file made by a newer Banki.`,
         ),
       macros: z
-        .array(CardFileMacro, { error: missing("macros") })
+        .array(CardFileMacro, { error: missing("macros", "a list") })
         .superRefine((macros, ctx) => {
           const seen = new Set<string>();
           for (const [index, { name }] of macros.entries()) {
@@ -155,7 +163,9 @@ export const CardFile = z
         .describe(
           "The macros the Cards' Formulas were written with, [] for none. No name appears twice. A Card may use a macro that isn't listed.",
         ),
-      cards: z.array(CardFileCard, { error: missing("cards") }).describe("The Cards, [] for none."),
+      cards: z
+        .array(CardFileCard, { error: missing("cards", "a list") })
+        .describe("The Cards, [] for none."),
     },
     { error: objectError("a Card file", NOT_A_CARD_FILE_MESSAGE) },
   )
@@ -177,4 +187,12 @@ export const CARD_FILE_JSON_SCHEMA = z.toJSONSchema(CardFile, {
   override: ({ zodSchema, jsonSchema }) => {
     if (zodSchema === CardFile.shape.version) jsonSchema.type = "integer";
   },
+});
+
+/**
+ * A Card file whose Cards aren't checked, only that `cards` is a list: what
+ * refuses a file as a whole on import, before its Cards are read one by one.
+ */
+export const CardFileEnvelope = CardFile.extend({
+  cards: z.array(z.unknown(), { error: missing("cards", "a list") }),
 });
