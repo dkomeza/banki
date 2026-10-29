@@ -25,6 +25,7 @@ const UNTOUCHED_DEFAULTS = {
   model: "anthropic/claude-haiku-5.5",
   apiKey: { state: "unset" },
   autoClose: "brackets",
+  desiredRetention: 90,
 } as const;
 
 const { boot, dataDir } = bootApps();

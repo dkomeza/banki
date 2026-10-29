@@ -17,6 +17,7 @@ import { createDeckRepository } from "./repositories/decks";
 import { createDeletionRepository } from "./repositories/deletions";
 import { createHealthRepository } from "./repositories/health";
 import { createImageRepository } from "./repositories/images";
+import { createReviewRepository } from "./repositories/reviews";
 import { createFolderRepository } from "./repositories/folders";
 import { createSettingsRepository } from "./repositories/settings";
 import { createUserRepository } from "./repositories/user";
@@ -92,6 +93,7 @@ export function createApp(
   const decks = createDeckRepository(database.db);
   const folders = createFolderRepository(database.db);
   const cards = createCardRepository(database.db);
+  const reviews = createReviewRepository(database.db);
   const deletions = createDeletionRepository(database.db);
   const images = createImageRepository(database.db, uploadsDirOf(config.dataDir));
   const auth = createAuth({ db: database.db, config, secret });
@@ -123,7 +125,7 @@ export function createApp(
     .route("/api/settings", settingsRoutes({ settings, openRouterFetch }))
     .route("/api/decks", deckRoutes({ decks }))
     .route("/api/decks", deckCardRoutes({ cards }))
-    .route("/api/cards", cardRoutes({ cards }))
+    .route("/api/cards", cardRoutes({ cards, reviews }))
     .route("/api/tags", tagRoutes({ cards }))
     .route("/api/folders", folderRoutes({ folders }))
     .route("/api/deletions", deletionRoutes({ deletions }))

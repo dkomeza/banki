@@ -102,7 +102,7 @@ export {
   ModelId,
   MODELS,
   modelById,
-  type Rating,
+  type ModelScore,
 } from "./models";
 export {
   API_KEY_MAX_LENGTH,
@@ -120,4 +120,26 @@ export {
   SettingsResponse,
   Timezone,
 } from "./settings";
-export { type StudyDay, type StudyDaySettings, studyDayBounds, studyDayOf } from "./study-day";
+export {
+  CARD_STATES,
+  CardSchedule,
+  CardState,
+  DEFAULT_DESIRED_RETENTION,
+  DESIRED_RETENTION_MAX,
+  DESIRED_RETENTION_MIN,
+  DesiredRetention,
+  RateCardResponse,
+  Rating,
+  RATINGS,
+  REVIEW_KINDS,
+  ReviewKind,
+  ReviewRequest,
+  ReviewResponse,
+} from "./scheduling";
+export {
+  addStudyDays,
+  type StudyDay,
+  type StudyDaySettings,
+  studyDayBounds,
+  studyDayOf,
+} from "./study-day";

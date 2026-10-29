@@ -31,6 +31,16 @@ describe("SettingsPatch", () => {
   );
 });
 
+describe("SettingsPatch's Desired retention", () => {
+  test.each([70, 90, 97])("takes %d", (desiredRetention) => {
+    expect(SettingsPatch.parse({ desiredRetention })).toEqual({ desiredRetention });
+  });
+
+  test.each([69, 98, 85.5, "85", null])("refuses %j", (desiredRetention) => {
+    expect(SettingsPatch.safeParse({ desiredRetention }).success).toBe(false);
+  });
+});
+
 describe("SettingsPatch's model", () => {
   test("takes a Model on the list", () => {
     expect(SettingsPatch.parse({ model: "openai/gpt-6-luna" })).toEqual({

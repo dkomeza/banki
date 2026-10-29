@@ -15,6 +15,7 @@ const GRADING = {
   model: "anthropic/claude-haiku-5.5",
   apiKey: { state: "unset" },
   autoClose: "brackets",
+  desiredRetention: 90,
 } as const;
 
 describe("formatHour", () => {

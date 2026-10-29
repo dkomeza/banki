@@ -1,17 +1,19 @@
 import {
   type ApiKeyStatus,
   DEFAULT_DAY_START_HOUR,
+  DEFAULT_DESIRED_RETENTION,
   type ModelId,
   type SettingsPatch,
   type SettingsResponse,
   effectiveAutoClose,
   effectiveModelId,
 } from "@banki/shared";
-import { eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import type { z } from "zod";
 import type { ApiKeyCipher } from "../crypto/api-key-cipher";
 import type { Queryable } from "../db/database";
-import { user_settings } from "../db/schema";
+import { card, deck, user_settings } from "../db/schema";
+import { rescheduleCards, schedulingSettingsOf } from "./reviews";
 
 export type Settings = SettingsResponse;
 
@@ -22,7 +24,13 @@ export type SettingsRepository = ReturnType<typeof createSettingsRepository>;
 
 type Row = Pick<
   typeof user_settings.$inferSelect,
-  "timezone" | "dayStartHour" | "model" | "apiKeyEncrypted" | "apiKeyLastFour" | "autoClose"
+  | "timezone"
+  | "dayStartHour"
+  | "model"
+  | "apiKeyEncrypted"
+  | "apiKeyLastFour"
+  | "autoClose"
+  | "desiredRetention"
 >;
 
 /** What a User without a row of Settings has. */
@@ -33,6 +41,7 @@ const DEFAULT_ROW: Row = {
   apiKeyEncrypted: null,
   apiKeyLastFour: null,
   autoClose: null,
+  desiredRetention: DEFAULT_DESIRED_RETENTION,
 };
 
 const rowOf = (db: Queryable, userId: string): Row =>
@@ -44,6 +53,7 @@ const rowOf = (db: Queryable, userId: string): Row =>
       apiKeyEncrypted: user_settings.apiKeyEncrypted,
       apiKeyLastFour: user_settings.apiKeyLastFour,
       autoClose: user_settings.autoClose,
+      desiredRetention: user_settings.desiredRetention,
     })
     .from(user_settings)
     .where(eq(user_settings.userId, userId))
@@ -90,6 +100,7 @@ export function createSettingsRepository(db: Queryable, cipher: ApiKeyCipher) {
       model: effectiveModelId(row.model),
       apiKey: apiKeyStatus(row, userId),
       autoClose: effectiveAutoClose(row.autoClose),
+      desiredRetention: row.desiredRetention,
     };
   };
 
@@ -104,10 +115,36 @@ export function createSettingsRepository(db: Queryable, cipher: ApiKeyCipher) {
     /** The User's Settings, with the defaults for whatever isn't stored. */
     get,
 
-    /** Changes the Settings given, creating the User's row if need be, and returns them all. */
-    update(userId: string, changes: z.output<typeof SettingsPatch>): Settings {
-      if (Object.keys(changes).length > 0) upsert(userId, changes);
-      return get(userId);
+    /**
+     * Changes the Settings given, creating the User's row if need be, and
+     * returns them all. A new Desired retention reschedules, in the same
+     * transaction, the Cards of every Deck that follows it, deleted ones too.
+     */
+    update(userId: string, changes: z.output<typeof SettingsPatch>, now = new Date()): Settings {
+      return db.transaction(
+        (tx) => {
+          if (Object.keys(changes).length === 0) return get(userId);
+          const { desiredRetention: before } = schedulingSettingsOf(tx, userId);
+          tx.insert(user_settings)
+            .values({ userId, ...changes })
+            .onConflictDoUpdate({ target: user_settings.userId, set: changes })
+            .run();
+          const { desiredRetention } = changes;
+          if (desiredRetention !== undefined && desiredRetention !== before) {
+            const following = tx
+              .select({ id: deck.id })
+              .from(deck)
+              .where(and(eq(deck.userId, userId), isNull(deck.desiredRetention)));
+            const cards = tx
+              .select({ id: card.id })
+              .from(card)
+              .where(and(eq(card.userId, userId), inArray(card.deckId, following)));
+            rescheduleCards(tx, userId, cards, desiredRetention, now);
+          }
+          return get(userId);
+        },
+        { behavior: "immediate" },
+      );
     },
 
     /** Stores the first fill's Timezone, as {@link setInitialTimezone} does, and returns the Settings. */

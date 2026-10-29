@@ -84,7 +84,9 @@ const toWall = (day: StudyDay) => {
 
 const fromWall = (wall: number): StudyDay => new Date(wall).toISOString().slice(0, 10);
 
-const addDays = (day: StudyDay, days: number) => fromWall(toWall(day) + days * DAY_MS);
+/** The Study day `days` after `day` (before it, when negative). */
+export const addStudyDays = (day: StudyDay, days: number): StudyDay =>
+  fromWall(toWall(day) + days * DAY_MS);
 
 /** When `day`'s Day start happens, as an instant in milliseconds. */
 const startOf = (day: StudyDay, { timezone, dayStartHour }: StudyDaySettings) =>
@@ -97,7 +99,7 @@ export function studyDayBounds(
 ): { start: Date; end: Date } {
   return {
     start: new Date(startOf(day, settings)),
-    end: new Date(startOf(addDays(day, 1), settings)),
+    end: new Date(startOf(addStudyDays(day, 1), settings)),
   };
 }
 
@@ -107,7 +109,7 @@ export function studyDayOf(moment: Date, settings: StudyDaySettings): StudyDay {
   // The wall clock gives the answer but for the odd hour around a DST change;
   // the bounds settle it.
   let day = fromWall(wallClock(ms, settings.timezone ?? "UTC") - settings.dayStartHour * HOUR_MS);
-  while (ms < startOf(day, settings)) day = addDays(day, -1);
-  while (ms >= startOf(addDays(day, 1), settings)) day = addDays(day, 1);
+  while (ms < startOf(day, settings)) day = addStudyDays(day, -1);
+  while (ms >= startOf(addStudyDays(day, 1), settings)) day = addStudyDays(day, 1);
   return day;
 }

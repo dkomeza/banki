@@ -4,6 +4,7 @@ import { createCardRepository } from "../repositories/cards";
 import { createDeckRepository } from "../repositories/decks";
 import { createFolderRepository } from "../repositories/folders";
 import { createImageRepository, hasImages } from "../repositories/images";
+import { hasReviews } from "../repositories/reviews";
 import { setInitialTimezone } from "../repositories/settings";
 
 import { SEED_IDS, SEED_TIMEZONE } from "./seed-ids";
@@ -601,6 +602,7 @@ export function userHasContent(db: Queryable, userId: string): boolean {
     createDeckRepository(db).any(userId) ||
     createFolderRepository(db).any(userId) ||
     createCardRepository(db).any(userId) ||
-    hasImages(db, userId)
+    hasImages(db, userId) ||
+    hasReviews(db, userId)
   );
 }

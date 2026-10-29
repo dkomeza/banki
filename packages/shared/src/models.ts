@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-/** A rating from 1 (the least) to 3 (the most). */
-export type Rating = 1 | 2 | 3;
+/** A Model's score on one measure, from 1 (the least) to 3 (the most). */
+export type ModelScore = 1 | 2 | 3;
 
 /**
  * A Model the Grader can run: one of Banki's curated list, each able to take
@@ -16,10 +16,10 @@ export type Model = {
   maker: string;
   sentence: string;
   /** How well it reads handwriting, or `"untested"` when nobody has measured it. */
-  handwriting: Rating | "untested";
-  speed: Rating;
+  handwriting: ModelScore | "untested";
+  speed: ModelScore;
   /** 1 is the cheapest. */
-  cost: Rating;
+  cost: ModelScore;
 };
 
 /**
