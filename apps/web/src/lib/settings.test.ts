@@ -4,8 +4,12 @@ import { describe, expect, test, vi } from "vitest";
 import { createApiClient } from "./api";
 import { fillFirstTimezone, saveSettings, settingsQueryOptions } from "./settings";
 
-/** The Grading Settings, which these tests leave alone. */
-const GRADING = { model: "anthropic/claude-haiku-5.5", apiKey: { state: "unset" } } as const;
+/** The Grading and Editor Settings, which these tests leave alone. */
+const GRADING = {
+  model: "anthropic/claude-haiku-5.5",
+  apiKey: { state: "unset" },
+  autoClose: "brackets",
+} as const;
 
 type Call = { method: string; path: string; body: unknown };
 

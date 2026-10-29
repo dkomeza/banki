@@ -5,8 +5,12 @@ import { settingsQueryOptions } from "./settings";
 import { shownSettings } from "./settings-saver";
 import { dropSettingsSaver, settingsSaverFor } from "./settings-store";
 
-/** The Grading Settings, which these tests leave alone. */
-const GRADING = { model: "anthropic/claude-haiku-5.5", apiKey: { state: "unset" } } as const;
+/** The Grading and Editor Settings, which these tests leave alone. */
+const GRADING = {
+  model: "anthropic/claude-haiku-5.5",
+  apiKey: { state: "unset" },
+  autoClose: "brackets",
+} as const;
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 const KEY = settingsQueryOptions().queryKey;

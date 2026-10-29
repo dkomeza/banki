@@ -2,10 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { ApiError, SettingsResponse } from "@banki/shared";
 import { type App, bootApps, get, ORIGIN, setUp } from "../testing/app";
 
-/** What a User who hasn't touched the Grading card has. */
-const GRADING_DEFAULTS = {
+/** What a User who hasn't touched the Grading or Editor cards has. */
+const UNTOUCHED_DEFAULTS = {
   model: "anthropic/claude-haiku-5.5",
   apiKey: { state: "unset" },
+  autoClose: "brackets",
 } as const;
 
 const { boot } = bootApps();
@@ -37,7 +38,11 @@ describe("GET /api/settings", () => {
     const res = await get(app, "/api/settings", cookie);
 
     expect(res.status).toBe(200);
-    expect(await settingsOf(res)).toEqual({ timezone: null, dayStartHour: 4, ...GRADING_DEFAULTS });
+    expect(await settingsOf(res)).toEqual({
+      timezone: null,
+      dayStartHour: 4,
+      ...UNTOUCHED_DEFAULTS,
+    });
   });
 
   test("answers 401 when signed out", async () => {
@@ -66,12 +71,12 @@ describe("PATCH /api/settings", () => {
     expect(await settingsOf(res)).toEqual({
       timezone: "Asia/Tokyo",
       dayStartHour: 0,
-      ...GRADING_DEFAULTS,
+      ...UNTOUCHED_DEFAULTS,
     });
     expect(await settingsOf(await get(app, "/api/settings", cookie))).toEqual({
       timezone: "Asia/Tokyo",
       dayStartHour: 0,
-      ...GRADING_DEFAULTS,
+      ...UNTOUCHED_DEFAULTS,
     });
   });
 
@@ -84,7 +89,34 @@ describe("PATCH /api/settings", () => {
     expect(await settingsOf(res)).toEqual({
       timezone: "Europe/Warsaw",
       dayStartHour: 6,
-      ...GRADING_DEFAULTS,
+      ...UNTOUCHED_DEFAULTS,
+    });
+  });
+
+  test.each(["off", "brackets", "brackets-and-dollar"] as const)(
+    "stores auto-close %s, and reads it back",
+    async (autoClose) => {
+      const { app, cookie } = await signedIn();
+
+      const res = await send(app, "PATCH", "/api/settings", { autoClose }, cookie);
+
+      expect(res.status).toBe(200);
+      expect((await settingsOf(res)).autoClose).toBe(autoClose);
+      expect((await settingsOf(await get(app, "/api/settings", cookie))).autoClose).toBe(autoClose);
+    },
+  );
+
+  test("keeps auto-close when another Setting changes", async () => {
+    const { app, cookie } = await signedIn();
+    await send(app, "PATCH", "/api/settings", { autoClose: "off" }, cookie);
+
+    const res = await send(app, "PATCH", "/api/settings", { dayStartHour: 6 }, cookie);
+
+    expect(await settingsOf(res)).toEqual({
+      timezone: null,
+      dayStartHour: 6,
+      ...UNTOUCHED_DEFAULTS,
+      autoClose: "off",
     });
   });
 
@@ -104,6 +136,8 @@ describe("PATCH /api/settings", () => {
     ["an hour past 23", { dayStartHour: 24 }],
     ["a negative hour", { dayStartHour: -1 }],
     ["a part of an hour", { dayStartHour: 4.5 }],
+    ["an auto-close Banki doesn't know", { autoClose: "always" }],
+    ["an auto-close that isn't a string", { autoClose: true }],
     ["something that isn't a Setting", { theme: "dark" }],
   ])("refuses %s with 400, changing nothing", async (_, body) => {
     const { app, cookie } = await signedIn();
@@ -115,7 +149,7 @@ describe("PATCH /api/settings", () => {
     expect(await settingsOf(await get(app, "/api/settings", cookie))).toEqual({
       timezone: null,
       dayStartHour: 4,
-      ...GRADING_DEFAULTS,
+      ...UNTOUCHED_DEFAULTS,
     });
   });
 
@@ -142,7 +176,7 @@ describe("PUT /api/settings/timezone/initial", () => {
     expect(await settingsOf(res)).toEqual({
       timezone: "Europe/Warsaw",
       dayStartHour: 4,
-      ...GRADING_DEFAULTS,
+      ...UNTOUCHED_DEFAULTS,
     });
   });
 
@@ -162,7 +196,7 @@ describe("PUT /api/settings/timezone/initial", () => {
     expect(await settingsOf(res)).toEqual({
       timezone: "Europe/Warsaw",
       dayStartHour: 4,
-      ...GRADING_DEFAULTS,
+      ...UNTOUCHED_DEFAULTS,
     });
   });
 
@@ -181,7 +215,7 @@ describe("PUT /api/settings/timezone/initial", () => {
     expect(await settingsOf(res)).toEqual({
       timezone: "Asia/Tokyo",
       dayStartHour: 6,
-      ...GRADING_DEFAULTS,
+      ...UNTOUCHED_DEFAULTS,
     });
   });
 
@@ -200,7 +234,7 @@ describe("PUT /api/settings/timezone/initial", () => {
     expect(await settingsOf(res)).toEqual({
       timezone: "Europe/Warsaw",
       dayStartHour: 6,
-      ...GRADING_DEFAULTS,
+      ...UNTOUCHED_DEFAULTS,
     });
   });
 

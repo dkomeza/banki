@@ -93,7 +93,9 @@ export function StudyDayCard() {
       </div>
 
       {state.failures
-        .flatMap((failure) => (failure.field === "model" ? [] : [failure]))
+        .flatMap((failure) =>
+          failure.field === "timezone" || failure.field === "dayStartHour" ? [failure] : [],
+        )
         .map((failure) => (
           <div
             key={failure.field}

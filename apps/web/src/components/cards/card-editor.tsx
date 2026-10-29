@@ -1,9 +1,10 @@
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { DEFAULT_AUTO_CLOSE } from "@banki/shared";
+import type { EditorView } from "@codemirror/view";
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Copy } from "lucide-react";
 import {
   type FormEvent,
-  type KeyboardEvent,
   type ReactNode,
   type RefObject,
   useId,
@@ -11,6 +12,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { LiveEditor } from "@/components/editor/live-editor";
 import {
   AddImageButton,
   ImageStrip,
@@ -32,6 +34,7 @@ import {
 } from "@/lib/cards";
 import type { Deck } from "@/lib/decks";
 import { insertOnOwnLine, withoutReference } from "@/lib/images";
+import { settingsQueryOptions } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 
 // New card and Edit card are one writing page: a dated page with the two
@@ -53,7 +56,7 @@ export function useCardForm(saved0: Sides, { onChange }: { onChange?: () => void
   const [fields, setFields] = useState(saved0);
   const [saved, setSaved] = useState(saved0);
   const [errors, setErrors] = useState<SideErrors>({});
-  const frontRef = useRef<HTMLTextAreaElement>(null);
+  const frontRef = useRef<EditorView>(null);
   const latest = useRef(saved0);
   const focused = useRef<keyof Sides>(undefined);
   const cursors = useRef<Partial<Record<keyof Sides, number>>>({});
@@ -121,9 +124,10 @@ function Side({
   autoFocus,
   readOnly,
   onChange,
-  onKeyDown,
+  onSubmit,
   onFocus,
   onSelect,
+  className,
 }: {
   label: "Front" | "Back";
   readOnly: boolean;
@@ -134,51 +138,52 @@ function Side({
   note?: ReactNode;
   /** The thumbnails of the Images it refers to, under the field. */
   images: ReactNode;
-  inputRef?: RefObject<HTMLTextAreaElement | null>;
+  inputRef?: RefObject<EditorView | null>;
   autoFocus?: boolean;
   onChange: (value: string) => void;
-  onKeyDown: (event: KeyboardEvent) => void;
+  /** Ctrl/Cmd+Enter. */
+  onSubmit: () => void;
   onFocus: () => void;
   /** Where the cursor is now, as the User moves it or types. */
   onSelect: (cursor: number) => void;
+  className?: string;
 }) {
   const id = useId();
   const front = label === "Front";
+  const autoClose = useQuery(settingsQueryOptions()).data?.settings.autoClose ?? DEFAULT_AUTO_CLOSE;
   const describedBy = [error !== undefined && `${id}-error`, note && `${id}-note`]
     .filter(Boolean)
     .join(" ");
   return (
-    <div className="flex flex-col gap-1 sm:flex-row sm:gap-6">
+    // The side being written has no outline: its label turns to ink, and its toolbar shows.
+    <div className={cn("group flex flex-col gap-1 sm:flex-row sm:gap-6", className)}>
       <label
-        htmlFor={id}
-        className="pt-1 text-xs font-semibold tracking-[0.08em] text-muted-foreground uppercase sm:w-16 sm:shrink-0 sm:pt-2.5 sm:text-right"
+        id={`${id}-label`}
+        onClick={() => inputRef?.current?.focus()}
+        className="pt-1 text-xs font-semibold tracking-[0.08em] text-muted-foreground uppercase transition-colors group-focus-within:text-foreground motion-reduce:transition-none sm:w-16 sm:shrink-0 sm:pt-2.5 sm:text-right"
       >
         {label}
       </label>
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-        <textarea
-          id={id}
-          ref={inputRef}
-          rows={front ? 2 : 5}
+        <LiveEditor
           value={value}
-          autoFocus={autoFocus}
-          readOnly={readOnly}
-          spellCheck
-          aria-invalid={error === undefined ? undefined : true}
-          aria-describedby={describedBy === "" ? undefined : describedBy}
-          onChange={(event) => onChange(event.target.value)}
-          onKeyDown={onKeyDown}
-          onFocus={onFocus}
-          onSelect={(event) => onSelect(event.currentTarget.selectionEnd)}
+          onChange={onChange}
           placeholder={placeholder}
-          // Ruled lines, one per line of text, so it writes like a page.
-          style={{
-            backgroundImage:
-              "repeating-linear-gradient(to bottom, transparent 0, transparent calc(2rem - 1px), var(--border) calc(2rem - 1px), var(--border) 2rem)",
-            backgroundAttachment: "local",
-          }}
+          labelledBy={`${id}-label`}
+          describedBy={describedBy === "" ? undefined : describedBy}
+          invalid={error !== undefined}
+          readOnly={readOnly}
+          autoFocus={autoFocus}
+          autoClose={autoClose}
+          toolbarLabel={`${label} formatting`}
+          viewRef={inputRef}
+          onFocus={onFocus}
+          onCursor={onSelect}
+          onSubmit={onSubmit}
           className={cn(
-            "field-sizing-content w-full resize-none rounded-md bg-transparent px-1 py-0 leading-[2rem] outline-none placeholder:text-muted-foreground/70 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring focus-visible:outline-solid aria-invalid:outline-2 aria-invalid:outline-offset-4 aria-invalid:outline-destructive aria-invalid:outline-solid",
+            // Ruled lines, one per line of text, so it writes like a page.
+            "w-full rounded-md bg-[repeating-linear-gradient(to_bottom,transparent_0,transparent_calc(2rem-1px),var(--border)_calc(2rem-1px),var(--border)_2rem)] leading-[2rem]",
+            error !== undefined && "outline-2 outline-offset-4 outline-destructive outline-solid",
             front
               ? "min-h-16 text-xl/[2rem] font-semibold tracking-tight"
               : "min-h-32 text-[1.05rem]/[2rem]",
@@ -254,12 +259,6 @@ export function CardEditor({
   const save = () => {
     if (!form.uploading) onSave();
   };
-  const onKeyDown = (event: KeyboardEvent) => {
-    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-      event.preventDefault();
-      save();
-    }
-  };
   const sideProps = (side: keyof Sides) => ({
     value: form.fields[side],
     error: form.errors[side],
@@ -272,7 +271,7 @@ export function CardEditor({
       />
     ),
     onChange: (value: string) => form.set(side, value),
-    onKeyDown,
+    onSubmit: save,
     onFocus: () => form.focus(side),
     onSelect: (cursor: number) => form.moveCursor(side, cursor),
   });
@@ -308,7 +307,13 @@ export function CardEditor({
             autoFocus={autoFocus}
             {...sideProps("front")}
           />
-          <Side label="Back" placeholder="What to recall" {...sideProps("back")} />
+          <Side
+            label="Back"
+            placeholder="What to recall"
+            // Room above it for the Front's note and its own toolbar.
+            className="sm:mt-7 lg:mt-3"
+            {...sideProps("back")}
+          />
           <TagField input={tags} readOnly={saving} onSave={save} />
           <div className="flex flex-col gap-3 border-t pt-5 sm:flex-row sm:items-center sm:pl-22">
             <AddImageButton uploading={form.uploading} disabled={saving} onPick={form.addImages} />

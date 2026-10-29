@@ -10,8 +10,12 @@ import {
   saveErrorText,
 } from "./time";
 
-/** The Grading Settings, which these tests leave alone. */
-const GRADING = { model: "anthropic/claude-haiku-5.5", apiKey: { state: "unset" } } as const;
+/** The Grading and Editor Settings, which these tests leave alone. */
+const GRADING = {
+  model: "anthropic/claude-haiku-5.5",
+  apiKey: { state: "unset" },
+  autoClose: "brackets",
+} as const;
 
 describe("formatHour", () => {
   test.each([

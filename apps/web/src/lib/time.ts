@@ -1,4 +1,5 @@
 import {
+  type AutoClose,
   DEFAULT_DAY_START_HOUR,
   type SettingsResponse,
   studyDayBounds,
@@ -150,7 +151,10 @@ export type StudyDayFailedSave =
   | { field: "dayStartHour"; attempted: number };
 
 /** A change to a Setting that didn't save. */
-export type FailedSave = StudyDayFailedSave | { field: "model"; attempted: string };
+export type FailedSave =
+  | StudyDayFailedSave
+  | { field: "model"; attempted: string }
+  | { field: "autoClose"; attempted: AutoClose };
 
 /** What a failed save says: what didn't change, and what is kept instead. */
 export function saveErrorText(failed: StudyDayFailedSave, kept: SettingsResponse): string {

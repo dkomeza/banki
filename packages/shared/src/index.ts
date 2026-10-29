@@ -66,7 +66,7 @@ export {
   RestoreDeletionsResponse,
   RestoreResponse,
 } from "./deletions";
-export { type CardNode, cardParser, Formula } from "./card-parser";
+export { CARD_EXTENSIONS, type CardNode, cardParser, Formula } from "./card-parser";
 export { ApiError } from "./error";
 export { frontKey } from "./front-key";
 export { HealthResponse } from "./health";
@@ -97,8 +97,12 @@ export {
   API_KEY_MAX_LENGTH,
   ApiKeyRequest,
   ApiKeyStatus,
+  AUTO_CLOSE_CHOICES,
+  AutoClose,
   DayStartHour,
+  DEFAULT_AUTO_CLOSE,
   DEFAULT_DAY_START_HOUR,
+  effectiveAutoClose,
   InitialTimezoneRequest,
   isTimezone,
   SettingsPatch,
