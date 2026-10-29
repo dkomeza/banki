@@ -309,7 +309,15 @@ export class ImageWidget extends WidgetType {
       label.textContent = "Open full size";
       open.append(icon(SquareArrowOutUpRight, "cm-lp-image-open-icon"), label);
       open.addEventListener("mousedown", (event) => event.stopPropagation());
-      frame.append(open);
+      // The card's foot: what it is, and "Open full size".
+      const caption = document.createElement("span");
+      caption.className = "cm-lp-image-caption";
+      const kind = document.createElement("span");
+      kind.className = "cm-lp-image-kind";
+      kind.textContent =
+        file === undefined ? "Linked image" : `${file.split(".").pop()?.toUpperCase()} image`;
+      caption.append(kind, open);
+      frame.append(caption);
     }
     // A click on the picture puts the cursor at the end of its source.
     box.addEventListener("mousedown", (event) => {

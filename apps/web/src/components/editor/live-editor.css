@@ -580,70 +580,82 @@ tbody tr:nth-child(even) > .cm-lp-cell {
 }
 
 /*
- * Images (BAN-20), Variant a, "On the rules": a picture sits on the page like
- * a pasted-in print, left-aligned, as wide as it is up to the side's width
- * and eight lines tall; everything transient about an Image (uploading, an
- * error) is one ruled line of text, so the side never jumps by more than a
- * line while files go up.
+ * Images (BAN-20), Variant b, "Mounted": every Image part is a card like the
+ * table's, on lines of its own: a picture is mounted on a card with a foot
+ * naming it, and an upload, an error or a missing Image takes the same card's
+ * place, so an upload turns into its picture where it stood.
  */
-.cm-lp-image-block {
+.cm-lp-image-block,
+.cm-lp-upload,
+.cm-lp-failed {
   padding: 0.5rem 0.25rem;
 }
 .cm-lp-image-frame {
   position: relative;
+  display: inline-flex;
+  flex-direction: column;
   align-self: flex-start;
-  display: inline-block;
   max-width: 100%;
   vertical-align: top;
+}
+.cm-lp-image-block .cm-lp-image-frame {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--card);
+  box-shadow: 0 8px 20px -16px var(--lp-shadow);
 }
 .cm-lp-image-block .cm-lp-image-img {
   display: block;
   max-width: 100%;
-  max-height: 16rem;
-  border: 1px solid var(--border);
+  max-height: 18rem;
+  margin: 0.5rem 0.5rem 0;
   border-radius: 0.375rem;
   background: var(--background);
   cursor: text;
 }
-.cm-lp-image-inline .cm-lp-image-img {
-  display: inline-block;
-  max-height: 3rem;
-  max-width: 6rem;
-  margin-block: 0.25rem;
-  border: 1px solid var(--border);
-  border-radius: 0.25rem;
-  vertical-align: middle;
-  background: var(--background);
+.cm-lp-image-caption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 12rem;
+  min-height: 2.25rem;
+  padding: 0 0.25rem 0 0.875rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1rem;
+  letter-spacing: normal;
 }
-/* "Open full size": a small pill on the print's top-right corner. */
+.cm-lp-image-kind {
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
 .cm-lp-image-open {
-  position: absolute;
-  top: 0.5rem;
-  right: 0.5rem;
   display: inline-flex;
   align-items: center;
   gap: 0.375rem;
-  height: 2rem;
-  padding: 0 0.75rem 0 0.625rem;
-  border: 1px solid var(--border);
+  height: 1.75rem;
+  padding: 0 0.625rem;
   border-radius: 999px;
-  background: var(--popover);
   color: var(--foreground);
-  box-shadow: 0 6px 16px -10px var(--lp-shadow);
-  font-size: 0.8125rem;
-  font-weight: 500;
-  line-height: 1;
-  letter-spacing: normal;
   text-decoration: none;
   white-space: nowrap;
   opacity: 0;
   transition: opacity 120ms ease;
 }
+.cm-lp-image-open-icon {
+  display: inline-flex;
+}
 .cm-lp-image-open-icon svg {
-  width: 0.9rem;
-  height: 0.9rem;
+  width: 0.875rem;
+  height: 0.875rem;
 }
 .cm-lp-image-open:hover {
+  background: var(--accent);
   color: var(--primary);
 }
 .cm-lp-image:hover .cm-lp-image-open,
@@ -653,7 +665,7 @@ tbody tr:nth-child(even) > .cm-lp-cell {
 }
 .cm-lp-image-open:focus-visible {
   outline: 2px solid var(--ring);
-  outline-offset: 2px;
+  outline-offset: 1px;
 }
 @media (hover: none) {
   .cm-lp-image-open {
@@ -661,33 +673,59 @@ tbody tr:nth-child(even) > .cm-lp-cell {
   }
 }
 @media (max-width: 1023.98px) {
+  .cm-lp-image-caption {
+    min-height: 3rem;
+  }
   .cm-lp-image-open {
     height: 2.75rem;
-    padding: 0 0.875rem 0 0.75rem;
+    padding: 0 0.875rem;
   }
 }
-/* A picture that isn't there: a dashed tile of the print's shape. */
-.cm-lp-image-missing {
+.cm-lp-image-inline .cm-lp-image-frame {
   display: inline-flex;
+  vertical-align: middle;
+}
+.cm-lp-image-inline .cm-lp-image-img {
+  display: inline-block;
+  max-height: 2.5rem;
+  max-width: 5rem;
+  margin-block: 0.25rem;
+  padding: 0.1875rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--card);
+  vertical-align: middle;
+}
+
+/* A missing Image: the card, dashed, with nothing mounted on it. */
+.cm-lp-image-missing {
+  display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 0.125rem;
-  width: 14rem;
+  width: 16rem;
   max-width: 100%;
-  height: 7rem;
+  height: 7.5rem;
   padding: 0 1rem;
-  border: 1px dashed color-mix(in oklab, var(--muted-foreground) 55%, transparent);
-  border-radius: 0.375rem;
   color: var(--muted-foreground);
   font-size: 0.8125rem;
   font-weight: 500;
   line-height: 1.25rem;
   letter-spacing: normal;
 }
+.cm-lp-image-block .cm-lp-image-frame:has(.cm-lp-image-missing) {
+  border-style: dashed;
+  border-color: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
+  background: transparent;
+  box-shadow: none;
+}
+.cm-lp-image-missing-icon {
+  display: inline-flex;
+}
 .cm-lp-image-missing-icon svg {
-  width: 1.1rem;
-  height: 1.1rem;
+  width: 1.25rem;
+  height: 1.25rem;
 }
 .cm-lp-image-missing-name {
   max-width: 100%;
@@ -699,42 +737,51 @@ tbody tr:nth-child(even) > .cm-lp-cell {
   white-space: nowrap;
 }
 .cm-lp-image-inline .cm-lp-image-missing {
-  width: 6rem;
-  height: 3rem;
-  vertical-align: middle;
+  width: 5rem;
+  height: 2.5rem;
+  border: 1px dashed color-mix(in oklab, var(--muted-foreground) 55%, transparent);
+  border-radius: 0.5rem;
 }
-.cm-lp-image-inline .cm-lp-image-missing-name {
+.cm-lp-image-inline .cm-lp-image-missing-name,
+.cm-lp-image-inline .cm-lp-image-missing-label {
   display: none;
 }
 
-/* Uploading: a line of muted text on its rule, a spinner in the accent. */
-.cm-lp-upload,
-.cm-lp-failed {
-  padding: 0 0.25rem;
-}
+/* Uploading: the card a picture will take, on a muted ground, with a running bar. */
 .cm-lp-upload-content,
 .cm-lp-failed-content {
+  position: relative;
   display: flex;
+  align-self: flex-start;
+  flex-direction: column;
   align-items: center;
-  gap: 0.5rem;
-  min-height: 2rem;
-  font-size: 0.875rem;
+  justify-content: center;
+  gap: 0.25rem;
+  width: 16rem;
+  max-width: 100%;
+  height: 7.5rem;
+  padding: 0 1.25rem;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 400;
   line-height: 1.25rem;
   letter-spacing: normal;
+  text-align: center;
 }
 .cm-lp-upload-content {
+  background: var(--muted);
   color: var(--muted-foreground);
 }
 .cm-lp-upload-icon,
 .cm-lp-failed-icon {
   display: inline-flex;
-  flex-shrink: 0;
 }
 .cm-lp-upload-icon svg,
 .cm-lp-failed-icon svg {
-  width: 1rem;
-  height: 1rem;
+  width: 1.25rem;
+  height: 1.25rem;
 }
 .cm-lp-upload-icon {
   color: var(--primary);
@@ -742,44 +789,68 @@ tbody tr:nth-child(even) > .cm-lp-cell {
 }
 .cm-lp-upload-text,
 .cm-lp-failed-text {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
-  overflow-wrap: anywhere;
+  max-width: 100%;
 }
 .cm-lp-upload-name,
 .cm-lp-failed-name {
-  font-weight: 600;
+  overflow: hidden;
   color: var(--foreground);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cm-lp-upload-text {
+  flex-direction: column-reverse;
 }
 .cm-lp-upload-bar {
-  display: none;
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  overflow: hidden;
+  background: color-mix(in oklab, var(--primary) 18%, transparent);
+}
+.cm-lp-upload-bar::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -40%;
+  width: 40%;
+  background: var(--primary);
+  content: "";
+  animation: cm-lp-run 1.2s ease-in-out infinite;
 }
 @keyframes cm-lp-spin {
   to {
     transform: rotate(360deg);
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .cm-lp-upload-icon {
-    animation: none;
-  }
-  .cm-lp-image-open {
-    transition: none;
+@keyframes cm-lp-run {
+  to {
+    left: 100%;
   }
 }
 
-/* Failed: the same line in red, with a × at its end. */
+/* Failed: the same card, tinted red, with a × in its corner. */
 .cm-lp-failed-content {
+  border-color: color-mix(in oklab, var(--destructive) 45%, var(--border));
+  background: color-mix(in oklab, var(--destructive) 6%, var(--card));
   color: var(--destructive);
 }
-.cm-lp-failed-name {
+.cm-lp-failed-message {
   color: var(--destructive);
 }
 .cm-lp-failed-dismiss {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
   display: inline-flex;
-  flex-shrink: 0;
   width: 1.75rem;
   height: 1.75rem;
-  margin-left: auto;
   align-items: center;
   justify-content: center;
   border-radius: 999px;
@@ -800,38 +871,49 @@ tbody tr:nth-child(even) > .cm-lp-cell {
 }
 @media (max-width: 1023.98px) {
   .cm-lp-failed-dismiss {
+    top: 0;
+    right: 0;
     width: 2.75rem;
     height: 2.75rem;
-    margin-block: -0.375rem;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cm-lp-upload-icon,
+  .cm-lp-upload-bar::after {
+    animation: none;
+  }
+  .cm-lp-upload-bar::after {
+    left: 0;
+    width: 100%;
+    opacity: 0.5;
+  }
+  .cm-lp-image-open {
+    transition: none;
   }
 }
 
-/* The drop cursor: an accent rule between lines, with a tag at its start. */
-.cm-lp-drop {
-  position: relative;
-  height: 0;
+/* While files are dragged over a side: its page tinted, and a dashed slot where they'd go. */
+.live-editor .cm-editor.cm-lp-dragover {
+  border-radius: 0.375rem;
+  outline: 2px dashed color-mix(in oklab, var(--primary) 60%, transparent);
+  outline-offset: 0.375rem;
+  background: color-mix(in oklab, var(--primary) 4%, transparent);
 }
-.cm-lp-drop::before {
-  position: absolute;
-  top: -1px;
-  right: 0;
-  left: 0;
-  height: 3px;
-  border-radius: 999px;
-  background: var(--primary);
-  content: "";
+.cm-lp-drop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 2rem;
+  margin: 0 0.25rem;
+  border: 1.5px dashed var(--primary);
+  border-radius: 0.5rem;
+  background: color-mix(in oklab, var(--primary) 10%, var(--card));
 }
 .cm-lp-drop-label {
-  position: absolute;
-  top: -0.7rem;
-  right: 0;
-  padding: 0 0.5rem;
-  border-radius: 999px;
-  background: var(--primary);
-  color: var(--primary-foreground);
-  font-size: 0.6875rem;
+  color: var(--primary);
+  font-size: 0.75rem;
   font-weight: 600;
-  line-height: 1.375rem;
+  line-height: 1rem;
   letter-spacing: normal;
 }
 
