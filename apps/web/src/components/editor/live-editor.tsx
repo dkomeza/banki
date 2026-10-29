@@ -209,6 +209,7 @@ export function LiveEditor({
           onQuery={setCheatsheet}
           onInsert={insert}
           onClose={closeCheatsheet}
+          onLeave={() => setCheatsheet(null)}
         />
       )}
       {takesFiles && (

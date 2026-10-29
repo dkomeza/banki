@@ -25,17 +25,22 @@ export function Cheatsheet({
   onQuery,
   onInsert,
   onClose,
+  onLeave,
 }: {
   query: string;
   onQuery: (query: string) => void;
   onInsert: (command: LatexCommand) => void;
   onClose: () => void;
+  /** Called as the focus leaves it for elsewhere on the page, which keeps the focus. */
+  onLeave: () => void;
 }) {
   const id = useId();
   const box = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const [current, setCurrent] = useState<CommandGroup>("Greek");
+  /** The group a chip jumped to, kept current while its section is in view. */
+  const picked = useRef<CommandGroup | null>(null);
   const found = useMemo(() => search(query), [query]);
   const groups = GROUPS.map((group) => ({
     group,
@@ -54,11 +59,12 @@ export function Cheatsheet({
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // The list is positioned, so each section's offsetTop is from the list's top.
   const jump = (group: CommandGroup) => {
     setCurrent(group);
+    picked.current = group;
     const section = list.current?.querySelector(`[data-group="${group}"]`);
-    if (section instanceof HTMLElement && list.current !== null)
-      list.current.scrollTo({ top: section.offsetTop - list.current.offsetTop });
+    if (section instanceof HTMLElement) list.current?.scrollTo({ top: section.offsetTop });
   };
 
   return (
@@ -69,6 +75,11 @@ export function Cheatsheet({
         role="dialog"
         aria-labelledby={`${id}-title`}
         className="cheatsheet"
+        onBlur={(event) => {
+          const to = event.relatedTarget;
+          if (!(to instanceof Element) || box.current?.contains(to)) return;
+          if (to.closest("[data-cheatsheet-button]") === null) onLeave();
+        }}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             event.preventDefault();
@@ -110,7 +121,7 @@ export function Cheatsheet({
                 data-label={group}
                 onClick={() => jump(group)}
               >
-                {group}
+                <span>{group}</span>
               </button>
             ))}
           </nav>
@@ -120,10 +131,20 @@ export function Cheatsheet({
           className="cheatsheet-list"
           onScroll={(event) => {
             if (query.trim() !== "") return;
-            const top = event.currentTarget.scrollTop + event.currentTarget.offsetTop + 8;
+            const { scrollTop, clientHeight } = event.currentTarget;
+            const sections = [...event.currentTarget.querySelectorAll<HTMLElement>("[data-group]")];
+            // A group jumped to near the end can't scroll to the top: it stays current while seen.
+            const jumped = sections.find((section) => section.dataset.group === picked.current);
+            if (
+              jumped !== undefined &&
+              jumped.offsetTop >= scrollTop - 1 &&
+              jumped.offsetTop < scrollTop + clientHeight
+            )
+              return;
+            picked.current = null;
             let at: CommandGroup = "Greek";
-            for (const section of event.currentTarget.querySelectorAll<HTMLElement>("[data-group]"))
-              if (section.offsetTop <= top)
+            for (const section of sections)
+              if (section.offsetTop <= scrollTop + 8)
                 at = GROUPS.find((group) => group === section.dataset.group) ?? at;
             setCurrent(at);
           }}

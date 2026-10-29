@@ -47,10 +47,10 @@ export function writtenInFormula(state: EditorState, from: number, to: number): 
   return insideFormula(plain, from + 1);
 }
 
-/** A snippet as CodeMirror's template: each `▯` a field, and one at its end. */
+/** A snippet as CodeMirror's template: each `▯` a field, and one at its end for the cursor. */
 function template(text: string): string {
   const escaped = text.replace(/\\([{}])/g, "\\\\$1");
-  return escaped.includes("▯") ? `${escaped.replaceAll("▯", "${}")}\${}` : escaped;
+  return `${escaped.replaceAll("▯", "${}")}\${}`;
 }
 
 /** Inserts `command` over `from`–`to` as a snippet, the cursor in its first slot. */

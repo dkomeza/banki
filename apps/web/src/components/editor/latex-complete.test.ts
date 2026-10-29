@@ -276,6 +276,15 @@ describe("inserting from the cheatsheet", () => {
     expect(insideFormula(editor.state, 8)).toBe(true);
   });
 
+  test("inside a Formula, puts the cursor after a command without arguments", () => {
+    const editor = new Editor(side("$x|$ b"));
+
+    insertAtCursor(editor.view, alpha);
+    insertAtCursor(editor.view, alpha);
+
+    expect(shown(editor.state)).toBe("$x\\alpha\\alpha|$ b");
+  });
+
   test("inside a Formula auto-close just made", () => {
     const editor = new Editor(side("$|$"));
 

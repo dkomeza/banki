@@ -6,7 +6,13 @@ import { COMMANDS, GROUPS } from "./latex-commands";
 /** The cheatsheet's markup with `query` typed in its search. */
 const markup = (query: string) =>
   renderToStaticMarkup(
-    <Cheatsheet query={query} onQuery={() => {}} onInsert={() => {}} onClose={() => {}} />,
+    <Cheatsheet
+      query={query}
+      onQuery={() => {}}
+      onInsert={() => {}}
+      onClose={() => {}}
+      onLeave={() => {}}
+    />,
   );
 
 /** The commands its entries insert, in order. */

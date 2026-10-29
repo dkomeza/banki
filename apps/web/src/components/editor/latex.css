@@ -215,6 +215,10 @@ body .cm-snippetField {
   white-space: nowrap;
 }
 /* The bold label, unseen, holds the chip at its picked width. */
+.cheatsheet-chip > span,
+.cheatsheet-chip::after {
+  grid-area: 1 / 1;
+}
 .cheatsheet-chip::after {
   content: attr(data-label);
   height: 0;
