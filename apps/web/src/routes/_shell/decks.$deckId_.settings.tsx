@@ -1,12 +1,13 @@
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { Calculator, Flag, PencilLine } from "lucide-react";
+import { Flag, PencilLine } from "lucide-react";
 import { type ReactNode, useId, useSyncExternalStore } from "react";
 import { Breadcrumb } from "@/components/folders/breadcrumb";
 import { usePlaceActions } from "@/components/folders/place-actions";
 import { useLibrary } from "@/components/folders/use-library";
 import { DeckNotFound } from "@/components/not-found";
 import { Page } from "@/components/page";
+import { DeckMacrosSection } from "@/components/settings/macros-tiles";
 import { SaveState } from "@/components/settings/parts";
 import { DeckRetentionPicker, RetentionError } from "@/components/settings/retention-picker";
 import { RetentionPicture } from "@/components/settings/retention-picture";
@@ -35,8 +36,8 @@ export const Route = createFileRoute("/_shell/decks/$deckId_/settings")({
 
 const SECTIONS: readonly Section[] = [
   { id: "retention", title: "Desired retention" },
-  { id: "answer-mode", title: "Answer mode" },
   { id: "macros", title: "Math macros" },
+  { id: "answer-mode", title: "Answer mode" },
   { id: "plan", title: "Plan" },
 ];
 
@@ -86,6 +87,7 @@ function Body({ deck }: { deck: Deck }) {
           </p>
         </div>
         <RetentionSection deck={deck} />
+        <DeckMacrosSection deck={deck.id} />
         <div className="gap-x-5 md:columns-2 lg:gap-x-6 [&>section]:mb-5 [&>section]:break-inside-avoid lg:[&>section]:mb-6">
           <Later
             id="answer-mode"
@@ -94,15 +96,6 @@ function Body({ deck }: { deck: Deck }) {
             follows="Rate yourself"
           >
             Whether this deck asks you to write your answers for the Grader, or to rate yourself.
-          </Later>
-          <Later
-            id="macros"
-            title="Math macros"
-            icon={<Calculator aria-hidden className="size-4" />}
-            follows="Settings' macros"
-          >
-            Shorthands like <code className="font-mono text-[0.9em]">\R</code> for this deck's
-            Formulas, on top of the ones in Settings.
           </Later>
           <Later
             id="plan"
