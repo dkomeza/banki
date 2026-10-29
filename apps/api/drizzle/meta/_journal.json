@@ -71,6 +71,13 @@
       "when": 1793178657109,
       "tag": "0009_images",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1793263769362,
+      "tag": "0010_auto_close",
+      "breakpoints": true
     }
   ]
 }

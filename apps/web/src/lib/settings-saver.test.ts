@@ -2,8 +2,12 @@ import type { SettingsPatch, SettingsResponse } from "@banki/shared";
 import { describe, expect, test } from "vitest";
 import { type SaverState, createSettingsSaver, shownSettings } from "./settings-saver";
 
-/** The Grading Settings, which these tests leave alone. */
-const GRADING = { model: "anthropic/claude-haiku-5.5", apiKey: { state: "unset" } } as const;
+/** The Grading and Editor Settings, which these tests leave alone. */
+const GRADING = {
+  model: "anthropic/claude-haiku-5.5",
+  apiKey: { state: "unset" },
+  autoClose: "brackets",
+} as const;
 
 /** A fake API that answers each PATCH only when the test says, and stores what it applies. */
 function fakeServer(initial: SettingsResponse) {

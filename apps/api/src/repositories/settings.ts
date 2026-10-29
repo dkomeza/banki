@@ -4,6 +4,7 @@ import {
   type ModelId,
   type SettingsPatch,
   type SettingsResponse,
+  effectiveAutoClose,
   effectiveModelId,
 } from "@banki/shared";
 import { eq, isNull } from "drizzle-orm";
@@ -21,7 +22,7 @@ export type SettingsRepository = ReturnType<typeof createSettingsRepository>;
 
 type Row = Pick<
   typeof user_settings.$inferSelect,
-  "timezone" | "dayStartHour" | "model" | "apiKeyEncrypted" | "apiKeyLastFour"
+  "timezone" | "dayStartHour" | "model" | "apiKeyEncrypted" | "apiKeyLastFour" | "autoClose"
 >;
 
 /** What a User without a row of Settings has. */
@@ -31,6 +32,7 @@ const DEFAULT_ROW: Row = {
   model: null,
   apiKeyEncrypted: null,
   apiKeyLastFour: null,
+  autoClose: null,
 };
 
 const rowOf = (db: Queryable, userId: string): Row =>
@@ -41,6 +43,7 @@ const rowOf = (db: Queryable, userId: string): Row =>
       model: user_settings.model,
       apiKeyEncrypted: user_settings.apiKeyEncrypted,
       apiKeyLastFour: user_settings.apiKeyLastFour,
+      autoClose: user_settings.autoClose,
     })
     .from(user_settings)
     .where(eq(user_settings.userId, userId))
@@ -86,6 +89,7 @@ export function createSettingsRepository(db: Queryable, cipher: ApiKeyCipher) {
       dayStartHour: row.dayStartHour,
       model: effectiveModelId(row.model),
       apiKey: apiKeyStatus(row, userId),
+      autoClose: effectiveAutoClose(row.autoClose),
     };
   };
 

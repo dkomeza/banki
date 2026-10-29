@@ -28,6 +28,21 @@ export const DayStartHour = z
   .min(0, "Expected an hour from 0 to 23")
   .max(23, "Expected an hour from 0 to 23");
 
+/**
+ * Auto-close, how the editor closes what is typed: `off`, `brackets` (`{`,
+ * `(` and `[`), or `brackets-and-dollar` (and `$`, for Formulas).
+ */
+export const AUTO_CLOSE_CHOICES = ["off", "brackets", "brackets-and-dollar"] as const;
+export const AutoClose = z.enum(AUTO_CLOSE_CHOICES);
+export type AutoClose = z.infer<typeof AutoClose>;
+
+/** The auto-close a User has until they change it. */
+export const DEFAULT_AUTO_CLOSE: AutoClose = "brackets";
+
+/** The auto-close `stored` stands for: the default when none is stored, or one Banki no longer knows. */
+export const effectiveAutoClose = (stored: string | null): AutoClose =>
+  AutoClose.safeParse(stored).data ?? DEFAULT_AUTO_CLOSE;
+
 /** The longest API key accepted, after trimming. */
 export const API_KEY_MAX_LENGTH = 200;
 
@@ -45,14 +60,15 @@ export type ApiKeyStatus = z.infer<typeof ApiKeyStatus>;
 
 /**
  * The body of `GET /api/settings`, and of every change to it. `timezone` is
- * null until stored; `model` is the effective Model, the default when none
- * is stored.
+ * null until stored; `model` is the effective Model, and `autoClose` the
+ * effective auto-close, each the default when none is stored.
  */
 export const SettingsResponse = z.object({
   timezone: z.string().nullable(),
   dayStartHour: z.number().int(),
   model: z.string(),
   apiKey: ApiKeyStatus,
+  autoClose: AutoClose,
 });
 export type SettingsResponse = z.infer<typeof SettingsResponse>;
 
@@ -61,6 +77,7 @@ export const SettingsPatch = z.strictObject({
   timezone: Timezone.optional(),
   dayStartHour: DayStartHour.optional(),
   model: ModelId.optional(),
+  autoClose: AutoClose.optional(),
 });
 export type SettingsPatch = z.input<typeof SettingsPatch>;
 

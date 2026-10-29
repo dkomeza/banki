@@ -45,6 +45,7 @@ const COMMITTED = [
   "0007_deletions",
   "0008_tags",
   "0009_images",
+  "0010_auto_close",
 ];
 
 /** The tables the committed migrations create. */

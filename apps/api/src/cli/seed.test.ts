@@ -20,10 +20,11 @@ import { runCli } from "../testing/cli";
 // These run the real CLI in a child process against a temporary data
 // directory, migrated from scratch by the CLI itself.
 
-/** What a User who hasn't touched the Grading card has. */
-const GRADING_DEFAULTS = {
+/** What a User who hasn't touched the Grading or Editor cards has. */
+const UNTOUCHED_DEFAULTS = {
   model: "anthropic/claude-haiku-5.5",
   apiKey: { state: "unset" },
+  autoClose: "brackets",
 } as const;
 
 const { boot, dataDir } = bootApps();
@@ -71,7 +72,7 @@ describe("banki seed", () => {
     expect(SettingsResponse.parse(await res.json())).toEqual({
       timezone: "Europe/Warsaw",
       dayStartHour: 4,
-      ...GRADING_DEFAULTS,
+      ...UNTOUCHED_DEFAULTS,
     });
   });
 
@@ -94,7 +95,7 @@ describe("banki seed", () => {
     expect(SettingsResponse.parse(await res.json())).toEqual({
       timezone: "Asia/Tokyo",
       dayStartHour: 4,
-      ...GRADING_DEFAULTS,
+      ...UNTOUCHED_DEFAULTS,
     });
   });
 });

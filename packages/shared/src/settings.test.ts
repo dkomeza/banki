@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ApiKeyRequest, SettingsPatch, isTimezone } from "./settings";
+import { ApiKeyRequest, SettingsPatch, effectiveAutoClose, isTimezone } from "./settings";
 
 describe("isTimezone", () => {
   test.each(["Europe/Warsaw", "UTC", "America/Argentina/Buenos_Aires", "Europe/Kiev"])(
@@ -58,5 +58,20 @@ describe("ApiKeyRequest", () => {
     ["201 characters", "k".repeat(201)],
   ])("refuses %s", (_, apiKey) => {
     expect(ApiKeyRequest.safeParse({ apiKey }).success).toBe(false);
+  });
+});
+
+describe("effectiveAutoClose", () => {
+  test("is the default, brackets, when none is stored", () => {
+    expect(effectiveAutoClose(null)).toBe("brackets");
+  });
+
+  test("is the stored choice", () => {
+    expect(effectiveAutoClose("off")).toBe("off");
+    expect(effectiveAutoClose("brackets-and-dollar")).toBe("brackets-and-dollar");
+  });
+
+  test("reads one Banki no longer knows as the default", () => {
+    expect(effectiveAutoClose("always")).toBe("brackets");
   });
 });

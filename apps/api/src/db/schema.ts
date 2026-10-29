@@ -39,6 +39,8 @@ export const user_settings = sqliteTable(
     apiKeyEncrypted: text("api_key_encrypted"),
     /** The API key's last four characters, all Settings shows of it; set exactly when it is. */
     apiKeyLastFour: text("api_key_last_four"),
+    /** The editor's auto-close; null for the default. One Banki no longer knows reads as the default. */
+    autoClose: text("auto_close"),
   },
   (table) => [check("user_settings_day_start_hour", sql`${table.dayStartHour} BETWEEN 0 AND 23`)],
 );
