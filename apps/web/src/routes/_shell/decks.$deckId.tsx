@@ -1,6 +1,6 @@
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { CornerDownRight, Pencil, Trash2 } from "lucide-react";
+import { CornerDownRight, Pencil, SlidersHorizontal, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { deleteAllWithUndo, showMovedToast } from "@/components/cards/card-toasts";
 import { CardTimeline } from "@/components/cards/card-timeline";
@@ -8,6 +8,7 @@ import { DeckPicker } from "@/components/cards/deck-picker";
 import { ConfirmDelete } from "@/components/decks/confirm-delete";
 import { Cover, Stack } from "@/components/decks/cover";
 import { DeckDialog } from "@/components/decks/deck-dialog";
+import { DeckSettingsDialog } from "@/components/decks/deck-settings-dialog";
 import { showDeletedToast } from "@/components/deleted/toasts";
 import { DeckNotFound } from "@/components/not-found";
 import { Breadcrumb } from "@/components/folders/breadcrumb";
@@ -26,6 +27,7 @@ import {
   updateDeck,
 } from "@/lib/decks";
 import { ensureLibrary, placePath } from "@/lib/folders";
+import { protoState, useRetention } from "@/lib/proto-retention";
 import { useSelection } from "@/lib/selection";
 import { deckSearch, rememberDeckSearch } from "@/lib/tags";
 import { cn } from "@/lib/utils";
@@ -73,6 +75,9 @@ function DeckBody({ deck }: { deck: Deck }) {
   const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // PROTOTYPE: every ?state= opens Deck settings.
+  const [tuning, setTuning] = useState(protoState() !== undefined);
+  const retention = useRetention();
   const library = useLibrary();
   const actions = usePlaceActions(library);
   // Null only when the Deck was deleted meanwhile, as its page is about to say.
@@ -164,6 +169,17 @@ function DeckBody({ deck }: { deck: Deck }) {
             <Button
               variant="outline"
               className={cn(OUTLINE_PILL, "h-11")}
+              onClick={() => setTuning(true)}
+            >
+              <SlidersHorizontal aria-hidden />
+              Deck settings
+              <span className="text-muted-foreground tabular-nums">
+                {retention.effective(deck.id)}%
+              </span>
+            </Button>
+            <Button
+              variant="outline"
+              className={cn(OUTLINE_PILL, "h-11")}
               onClick={() => actions.move({ kind: "deck", id: deck.id })}
             >
               <CornerDownRight aria-hidden />
@@ -209,6 +225,7 @@ function DeckBody({ deck }: { deck: Deck }) {
           return outcome;
         }}
       />
+      <DeckSettingsDialog deck={deck} open={tuning} onOpenChange={setTuning} />
       <ConfirmDelete
         open={deleting}
         onOpenChange={setDeleting}
