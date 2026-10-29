@@ -33,6 +33,7 @@ import { meRoutes } from "./routes/me";
 import { schemaRoutes } from "./routes/schemas";
 import { settingsRoutes } from "./routes/settings";
 import { setupRoutes } from "./routes/setup";
+import { reviewRoutes } from "./routes/reviews";
 import { studyRoutes } from "./routes/study";
 import { tagRoutes } from "./routes/tags";
 import { readVersion } from "./version";
@@ -130,6 +131,7 @@ export function createApp(
     .route("/api/decks", deckCardRoutes({ cards }))
     .route("/api/decks", studyRoutes({ study }))
     .route("/api/cards", cardRoutes({ cards, reviews }))
+    .route("/api/reviews", reviewRoutes({ study }))
     .route("/api/tags", tagRoutes({ cards }))
     .route("/api/folders", folderRoutes({ folders }))
     .route("/api/deletions", deletionRoutes({ deletions }))

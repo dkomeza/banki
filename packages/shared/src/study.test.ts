@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { StudyNextQuery, StudyNextResponse } from "./study";
+import { StudyNextQuery, StudyNextResponse, UndoReviewResponse } from "./study";
 
 describe("StudyNextQuery", () => {
   test("counts nothing shown when the counters are left out", () => {
@@ -31,6 +31,12 @@ describe("StudyNextQuery", () => {
   });
 });
 
+const preview = (state: string, scheduledDays: number) => ({
+  state,
+  scheduledDays,
+  due: "2026-05-01T10:10:00.000Z",
+});
+
 describe("StudyNextResponse", () => {
   const card = {
     id: "c1",
@@ -51,18 +57,42 @@ describe("StudyNextResponse", () => {
     scheduledDays: 0,
     lastReview: null,
   };
+  const intervals = {
+    again: preview("learning", 0),
+    hard: preview("learning", 0),
+    good: preview("learning", 0),
+    easy: preview("review", 3),
+  };
 
   test("takes a next Card of each kind, or none", () => {
     for (const kind of ["new", "learning", "review"]) {
-      expect(StudyNextResponse.safeParse({ next: { card, schedule, kind } }).success).toBe(true);
+      expect(
+        StudyNextResponse.safeParse({ next: { card, schedule, kind, intervals } }).success,
+      ).toBe(true);
     }
     expect(StudyNextResponse.parse({ next: null })).toEqual({ next: null });
   });
 
   test("refuses another kind, or no next at all", () => {
-    expect(StudyNextResponse.safeParse({ next: { card, schedule, kind: "due" } }).success).toBe(
+    expect(
+      StudyNextResponse.safeParse({ next: { card, schedule, kind: "due", intervals } }).success,
+    ).toBe(false);
+    expect(StudyNextResponse.safeParse({}).success).toBe(false);
+  });
+
+  test("refuses a next Card without its Interval previews, or with one missing", () => {
+    expect(StudyNextResponse.safeParse({ next: { card, schedule, kind: "new" } }).success).toBe(
       false,
     );
-    expect(StudyNextResponse.safeParse({}).success).toBe(false);
+    const { easy: _, ...three } = intervals;
+    expect(
+      StudyNextResponse.safeParse({ next: { card, schedule, kind: "new", intervals: three } })
+        .success,
+    ).toBe(false);
+  });
+
+  test("an Undo answers the Card, its schedule and its Interval previews", () => {
+    expect(UndoReviewResponse.safeParse({ card, schedule, intervals }).success).toBe(true);
+    expect(UndoReviewResponse.safeParse({ card, schedule }).success).toBe(false);
   });
 });
