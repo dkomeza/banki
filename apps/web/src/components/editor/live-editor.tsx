@@ -94,7 +94,7 @@ export function LiveEditor({
   const insert = (command: LatexCommand) => {
     const target = writtenIn();
     if (target !== null) insertAtCursor(target, command);
-    setCheatsheet(null);
+    // Variant b: the panel stays open, like a palette; the focus is in the side.
   };
 
   const aria = () =>

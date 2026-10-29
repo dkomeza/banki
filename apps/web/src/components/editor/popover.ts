@@ -20,7 +20,7 @@ export function editedInlineFormula(state: EditorState) {
 
 function popoverFor(state: EditorState): Tooltip | null {
   const node = editedInlineFormula(state);
-  // One card at a time: the completion popup stands in for it while open.
+  // The popup's Result pane stands in for it while open.
   if (node === null || completionStatus(state) !== null) return null;
   // Prototype: an empty slot shows as a box in the render.
   const source = formulaSource(node, state.doc).replaceAll("{}", "{\\square}");

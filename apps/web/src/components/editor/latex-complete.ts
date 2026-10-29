@@ -9,13 +9,14 @@ import {
 import { type EditorState, type Extension, Prec } from "@codemirror/state";
 import { type EditorView, keymap } from "@codemirror/view";
 import { typeset } from "@/lib/formula";
-import { formulaAt } from "./language";
+import { formulaAt, formulaSource } from "./language";
 import { type LatexCommand, matching, previewOf } from "./latex-commands";
 
 // LaTeX autocomplete (BAN-21): a `\` typed inside a Formula opens a popup of
 // the commands whose name starts with what follows it; accepting one inserts
 // it as a snippet, its slots filled in with Tab. The cheatsheet inserts the
-// same snippets at the cursor.
+// same snippets at the cursor. Variant b: beside the list, a pane shows the
+// whole Formula as it would be with the active command accepted.
 
 /** Whether `pos` is inside a Formula's source, between its delimiters. */
 export function insideFormula(state: EditorState, pos: number): boolean {
@@ -69,6 +70,7 @@ function optionFor(command: LatexCommand): Completion {
     option = {
       label: command.name,
       detail: rest.trim() === "" ? undefined : rest,
+      info: infoFor,
       apply: (view, _completion, from, to) => {
         const typed = view.state.sliceDoc(from, to);
         // An auto-closed `}` after `\begin{…` isn't doubled.
@@ -83,6 +85,38 @@ function optionFor(command: LatexCommand): Completion {
     commandOf.set(option, command);
   }
   return option;
+}
+
+/** The Formula being completed, and where the typed command sits in its source. */
+let completing: { source: string; from: number; to: number; display: boolean } | null = null;
+
+/** The Formula being completed as it would be with `command` accepted. */
+function resultWith(command: LatexCommand): string {
+  if (completing === null) return previewOf(command);
+  const { source, from, to } = completing;
+  return `${source.slice(0, from)}${previewOf(command)}${source.slice(to)}`;
+}
+
+/** The preview pane beside the list: the whole Formula with the active command in it. */
+function infoFor(completion: Completion) {
+  const command = commandOf.get(completion);
+  if (command === undefined) return null;
+  const dom = document.createElement("div");
+  dom.className = "cm-latex-info";
+  const label = document.createElement("span");
+  label.className = "cm-latex-info-label";
+  label.textContent = "Result";
+  const render = document.createElement("div");
+  render.className = "cm-latex-info-render";
+  const result = typeset(resultWith(command), completing?.display ?? false);
+  if ("html" in result) render.innerHTML = result.html;
+  const meaning = document.createElement("p");
+  meaning.className = "cm-latex-info-meaning";
+  const name = document.createElement("code");
+  name.textContent = command.snippet.replaceAll("▯", "□");
+  meaning.append(name, document.createElement("br"), command.meaning);
+  dom.append(label, render, meaning);
+  return dom;
 }
 
 function latexSource(context: CompletionContext): CompletionResult | null {
@@ -101,6 +135,16 @@ function latexSource(context: CompletionContext): CompletionResult | null {
   if (!insideFormula(state, pos)) return null;
   const found = matching(word.text);
   if (found.length === 0) return null;
+  const node = formulaAt(state, pos, -1) ?? formulaAt(state, pos, 1);
+  if (node !== null) {
+    const start = node.getChildren("FormulaMark")[0]?.to ?? node.from;
+    completing = {
+      source: formulaSource(node, state.doc),
+      from: word.from - start,
+      to: pos - start,
+      display: node.name !== "InlineFormula",
+    };
+  }
   return {
     from: word.from,
     options: found.map(optionFor),

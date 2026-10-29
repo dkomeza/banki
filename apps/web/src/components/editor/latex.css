@@ -1,15 +1,14 @@
 /*
- * LaTeX autocomplete and the cheatsheet (BAN-21), Variant a "Index cards":
- * the popup is a card of rows, each with its render on a small paper tile,
- * its command and its meaning; the cheatsheet is a card that drops from the
- * toolbar, tiles under group chips, a sheet from the bottom on a phone.
+ * LaTeX autocomplete and the cheatsheet (BAN-21), Variant b "Result pane":
+ * the popup is a slim list with a pane beside it that shows the whole
+ * Formula as it would be with the active command accepted; the cheatsheet is
+ * a panel docked at the page's right edge (a sheet over the lower screen
+ * below 1024 px) that stays open while you insert from it.
  */
 
-/* The completion popup: CodeMirror's, on the page, so ours beats its theme. */
 body .cm-tooltip.cm-tooltip-autocomplete.cm-latex-popup {
   z-index: 35;
   margin-top: 0.35rem;
-  overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 0.75rem;
   background: var(--popover);
@@ -21,164 +20,200 @@ body .cm-tooltip.cm-tooltip-autocomplete.cm-latex-popup {
   letter-spacing: normal;
 }
 body .cm-tooltip.cm-tooltip-autocomplete.cm-latex-popup > ul {
-  width: min(21rem, calc(100vw - 1rem));
+  width: min(15rem, calc(100vw - 1rem));
   min-width: 0;
-  max-height: 15.5rem;
-  padding: 0.3rem;
+  max-height: 14rem;
+  padding: 0.25rem;
   font-family: inherit;
 }
 body .cm-tooltip.cm-tooltip-autocomplete.cm-latex-popup > ul > li.cm-latex-option {
-  display: grid;
-  grid-template-columns: 2.75rem minmax(0, 1fr) auto;
-  grid-template-rows: auto auto;
-  column-gap: 0.65rem;
-  align-items: center;
-  min-height: 2.75rem;
-  padding: 0.25rem 0.5rem 0.25rem 0.25rem;
-  border-radius: 0.5rem;
-  color: inherit;
-  line-height: 1.2;
-}
-body .cm-tooltip.cm-tooltip-autocomplete.cm-latex-popup > ul > li.cm-latex-option[aria-selected] {
-  background: color-mix(in oklab, var(--primary) 13%, transparent);
-  color: inherit;
-}
-.cm-latex-render {
-  grid-row: 1 / span 2;
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 2.75rem;
-  height: 2.25rem;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 0.4rem;
-  background: var(--card);
-  font-size: 1.1rem;
+  gap: 0.35rem;
+  min-height: 2.25rem;
+  padding: 0 0.6rem;
+  border-radius: 0.45rem;
+  color: inherit;
 }
-li[aria-selected] > .cm-latex-render {
-  border-color: color-mix(in oklab, var(--primary) 45%, var(--border));
-}
-.cm-latex-render .katex {
-  font-size: 1em;
+body .cm-tooltip.cm-tooltip-autocomplete.cm-latex-popup > ul > li.cm-latex-option[aria-selected] {
+  background: var(--primary);
+  color: var(--primary-foreground);
 }
 .cm-latex-option .cm-completionLabel {
-  grid-column: 2;
+  order: 1;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.85rem;
-  color: var(--muted-foreground);
 }
 .cm-latex-option .cm-completionMatchedText {
-  color: var(--foreground);
-  font-weight: 650;
+  font-weight: 700;
   text-decoration: none;
 }
-.cm-latex-meaning {
-  grid-column: 2;
-  overflow: hidden;
-  color: var(--muted-foreground);
-  font-size: 0.75rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 body .cm-latex-option .cm-completionDetail {
-  grid-column: 3;
-  grid-row: 1 / span 2;
+  order: 2;
   margin: 0;
-  color: var(--muted-foreground);
+  opacity: 0.65;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.75rem;
   font-style: normal;
 }
-li[aria-selected] > .cm-completionDetail {
-  color: var(--primary) !important;
+.cm-latex-render {
+  order: 3;
+  margin-left: auto;
+  padding-left: 0.5rem;
+  font-size: 1rem;
+  white-space: nowrap;
 }
-@media (min-width: 1024px) {
+.cm-latex-render .katex {
+  font-size: 1em;
+}
+.cm-latex-meaning {
+  display: none;
+}
+
+/* The Result pane, CodeMirror's info beside the list. */
+body .cm-tooltip.cm-completionInfo {
+  z-index: 35;
+  width: 14rem;
+  max-width: calc(100vw - 1rem);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--card);
+  color: var(--card-foreground);
+  box-shadow: 0 12px 28px -14px oklch(0 0 0 / 0.35);
+  font-family: var(--font-sans);
+  font-weight: 400;
+  letter-spacing: normal;
+}
+.cm-latex-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.6rem 0.8rem 0.7rem;
+}
+.cm-latex-info-label {
+  color: var(--primary);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.cm-latex-info-render {
+  display: flex;
+  align-items: center;
+  min-height: 3.25rem;
+  overflow-x: auto;
+  padding: 0.25rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 1.35rem;
+}
+.cm-latex-info-render .katex {
+  font-size: 1em;
+}
+.cm-latex-info-meaning {
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+.cm-latex-info-meaning code {
+  color: var(--foreground);
+  font-size: 0.78rem;
+}
+@media (max-width: 1023.98px) {
   body .cm-tooltip.cm-tooltip-autocomplete.cm-latex-popup > ul > li.cm-latex-option {
-    min-height: 2.5rem;
+    min-height: 2.75rem;
   }
 }
 
-/* Slots: dashed boxes in the accent, filled in with Tab. */
+/* Slots: soft accent pills, filled in with Tab. */
 body .cm-snippetFieldPosition {
   display: inline-block;
-  width: 0.7em;
-  height: 1em;
-  margin: 0 0.08em;
-  vertical-align: -0.12em;
-  border: 1.5px dashed color-mix(in oklab, var(--primary) 70%, transparent);
-  border-left: 1.5px dashed color-mix(in oklab, var(--primary) 70%, transparent);
-  border-radius: 0.2em;
+  width: 0.8em;
+  height: 1.05em;
+  margin: 0 0.06em;
+  vertical-align: -0.15em;
+  border: none;
+  border-radius: 0.3em;
+  background: color-mix(in oklab, var(--primary) 26%, transparent);
 }
 body .cm-snippetField {
-  border-radius: 0.2em;
-  background: color-mix(in oklab, var(--primary) 14%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in oklab, var(--primary) 45%, transparent);
+  border-radius: 0.3em;
+  background: color-mix(in oklab, var(--primary) 18%, transparent);
 }
 
-/* The cheatsheet: a card under the toolbar. */
-.cheatsheet-scrim {
-  display: none;
-}
+/* The cheatsheet: a panel docked at the right edge of the page. */
 .cheatsheet {
-  position: absolute;
-  top: 0.25rem;
-  left: 50%;
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  bottom: 1rem;
   z-index: 40;
   display: flex;
   flex-direction: column;
-  width: min(27rem, calc(100vw - 2rem));
-  max-height: min(31rem, 72vh);
-  transform: translateX(-50%);
+  width: 22rem;
   border: 1px solid var(--border);
-  border-radius: 0.9rem;
+  border-radius: 1rem;
   background: var(--popover);
   color: var(--popover-foreground);
-  box-shadow: 0 18px 40px -18px oklch(0 0 0 / 0.4);
+  box-shadow: 0 18px 40px -22px oklch(0 0 0 / 0.4);
   font-size: 0.875rem;
   font-weight: 400;
   letter-spacing: normal;
   line-height: 1.25rem;
 }
-.cheatsheet-head,
-.cheatsheet-search,
-.cheatsheet-chips {
-  flex-shrink: 0;
+@media (min-width: 1024px) {
+  /* The writing page moves over, so the panel never covers it. */
+  body:has(.cheatsheet) main {
+    padding-right: 23rem;
+  }
 }
 .cheatsheet-head {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
-  justify-content: space-between;
-  padding: 0.7rem 0.6rem 0.2rem 0.95rem;
+  gap: 0.5rem;
+  padding: 0.85rem 0.6rem 0.35rem 1rem;
 }
 .cheatsheet-title {
-  font-size: 0.75rem;
+  font-size: 1rem;
   font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted-foreground);
+  letter-spacing: -0.01em;
 }
-.cheatsheet-close {
+.cheatsheet-count {
+  margin-right: auto;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+.cheatsheet-close,
+.cheatsheet-clear {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.875rem;
-  height: 1.875rem;
   border-radius: 999px;
   color: var(--muted-foreground);
 }
-.cheatsheet-close:hover {
+.cheatsheet-close {
+  width: 1.875rem;
+  height: 1.875rem;
+}
+.cheatsheet-clear {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+.cheatsheet-close:hover,
+.cheatsheet-clear:hover {
   background: var(--accent);
   color: var(--foreground);
 }
 .cheatsheet-search {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 0.5rem;
-  margin: 0.35rem 0.75rem 0.5rem;
-  padding: 0 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: 999px;
+  margin: 0.25rem 0.75rem 0.5rem;
+  padding: 0 0.5rem 0 0.75rem;
+  border: 1px solid var(--input);
+  border-radius: 0.6rem;
   background: var(--background);
 }
 .cheatsheet-search:focus-within {
@@ -195,82 +230,58 @@ body .cm-snippetField {
 .cheatsheet-search input::-webkit-search-cancel-button {
   display: none;
 }
-.cheatsheet-chips {
-  display: flex;
-  gap: 0.35rem;
-  padding: 0 0.75rem 0.6rem;
-  overflow-x: auto;
-  scrollbar-width: none;
-  border-bottom: 1px solid var(--border);
-}
-.cheatsheet-chip {
-  flex-shrink: 0;
-  height: 1.75rem;
-  padding: 0 0.7rem;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  color: var(--muted-foreground);
-  font-size: 0.8rem;
-  white-space: nowrap;
-}
-.cheatsheet-chip:hover {
-  color: var(--foreground);
-}
-.cheatsheet-chip[aria-selected="true"] {
-  border-color: color-mix(in oklab, var(--primary) 55%, transparent);
-  background: color-mix(in oklab, var(--primary) 12%, transparent);
-  color: var(--primary);
-  font-weight: 550;
-}
-.cheatsheet-chip:focus-visible,
-.cheatsheet-tile:focus-visible,
-.cheatsheet-close:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 1px;
-}
 .cheatsheet-list {
-  position: relative;
   flex: 1;
   min-height: 0;
-  padding: 0.25rem 0.75rem 0.75rem;
   overflow-y: auto;
   overscroll-behavior: contain;
+  border-top: 1px solid var(--border);
 }
 .cheatsheet-group {
-  margin: 0.6rem 0 0.4rem;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  justify-content: space-between;
+  padding: 0.45rem 1rem 0.35rem;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in oklab, var(--popover) 92%, var(--muted));
   color: var(--muted-foreground);
   font-size: 0.7rem;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
-.cheatsheet-tiles {
+.cheatsheet-group span {
+  font-weight: 500;
+  letter-spacing: 0;
+}
+.cheatsheet-row {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(5.75rem, 1fr));
-  gap: 0.35rem;
-}
-.cheatsheet-tile {
-  display: flex;
-  flex-direction: column;
+  grid-template-columns: 3.25rem minmax(0, 7.5rem) minmax(0, 1fr);
   align-items: center;
-  gap: 0.1rem;
-  min-width: 0;
-  padding: 0.45rem 0.35rem 0.4rem;
-  border: 1px solid var(--border);
-  border-radius: 0.55rem;
-  background: var(--card);
-  text-align: center;
+  gap: 0.6rem;
+  width: 100%;
+  min-height: 2.5rem;
+  padding: 0.2rem 1rem;
+  text-align: left;
 }
-.cheatsheet-tile:hover {
-  border-color: color-mix(in oklab, var(--primary) 45%, var(--border));
-  background: color-mix(in oklab, var(--primary) 6%, var(--card));
+li + li > .cheatsheet-row {
+  border-top: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+}
+.cheatsheet-row:hover {
+  background: color-mix(in oklab, var(--primary) 8%, transparent);
+}
+.cheatsheet-row:focus-visible,
+.cheatsheet-close:focus-visible,
+.cheatsheet-clear:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
 }
 .cheatsheet-render {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 2.25rem;
-  max-width: 100%;
   overflow: hidden;
   font-size: 1.05rem;
 }
@@ -278,97 +289,78 @@ body .cm-snippetField {
   font-size: 1em;
 }
 .cheatsheet-name {
-  max-width: 100%;
   overflow: hidden;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .cheatsheet-meaning {
-  display: -webkit-box;
-  max-width: 100%;
   overflow: hidden;
   color: var(--muted-foreground);
-  font-size: 0.66rem;
-  line-height: 0.9rem;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .cheatsheet-empty {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  padding: 2rem 0.5rem;
+  padding: 2.5rem 1.5rem;
+  color: var(--muted-foreground);
   text-align: center;
+}
+.cheatsheet-empty p:first-child {
+  margin-bottom: 0.35rem;
+  color: var(--foreground);
   font-weight: 550;
 }
-.cheatsheet-empty span {
+.cheatsheet-foot {
+  flex-shrink: 0;
+  padding: 0.5rem 1rem 0.65rem;
+  border-top: 1px solid var(--border);
   color: var(--muted-foreground);
-  font-weight: 400;
+  font-size: 0.75rem;
 }
 
-@media (min-width: 640px) and (max-width: 1023.98px) {
-  .cheatsheet-close {
-    width: 2.75rem;
-    height: 2.75rem;
-  }
-  .cheatsheet-search input {
-    height: 2.75rem;
-  }
-  .cheatsheet-chip {
-    height: 2.75rem;
-    padding: 0 0.9rem;
-  }
+/* Below 1024 px: a sheet over the lower part of the screen, the side above it. */
+@media (max-width: 1023.98px) {
   .cheatsheet {
-    width: min(32rem, calc(100vw - 2rem));
-  }
-}
-
-/* On a phone: a sheet from the bottom, over a scrim. */
-@media (max-width: 639.98px) {
-  .cheatsheet-scrim {
-    position: fixed;
-    inset: 0;
-    z-index: 39;
-    display: block;
-    background: oklch(0 0 0 / 0.3);
-  }
-  .cheatsheet {
-    position: fixed;
     top: auto;
     right: 0;
     bottom: 0;
     left: 0;
     width: auto;
-    max-height: min(78dvh, calc(100dvh - var(--keyboard-inset, 0px) - 3rem));
-    margin-bottom: var(--keyboard-inset, 0px);
+    height: min(46dvh, 30rem);
     padding-bottom: env(safe-area-inset-bottom);
-    transform: none;
-    border-radius: 1.1rem 1.1rem 0 0;
     border-bottom: none;
+    border-radius: 1.1rem 1.1rem 0 0;
+    box-shadow: 0 -12px 36px -18px oklch(0 0 0 / 0.4);
   }
-  .cheatsheet::before {
-    content: "";
-    align-self: center;
-    width: 2.25rem;
-    height: 0.25rem;
-    margin-top: 0.5rem;
-    border-radius: 999px;
-    background: var(--border);
+  body:has(.cheatsheet) main {
+    padding-bottom: min(46dvh, 30rem);
   }
   .cheatsheet-close {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+  .cheatsheet-clear {
     width: 2.75rem;
     height: 2.75rem;
   }
   .cheatsheet-search input {
     height: 2.75rem;
   }
-  .cheatsheet-chip {
-    height: 2.75rem;
-    padding: 0 0.9rem;
+  .cheatsheet-row {
+    min-height: 2.75rem;
   }
-  .cheatsheet-tiles {
-    grid-template-columns: repeat(auto-fill, minmax(5.25rem, 1fr));
+  .cheatsheet-foot {
+    display: none;
+  }
+}
+@media (max-width: 639.98px) {
+  /* The ink toolbar rides on top of the sheet, so the button that closes it stays in reach. */
+  .live-editor:has(.cheatsheet) > .editor-toolbar {
+    bottom: calc(min(46dvh, 30rem) + 0.5rem);
+  }
+  .cheatsheet-row {
+    grid-template-columns: 2.75rem minmax(0, 6.5rem) minmax(0, 1fr);
+    padding: 0.2rem 0.75rem;
   }
 }

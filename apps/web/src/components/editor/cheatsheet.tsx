@@ -1,14 +1,14 @@
 import { Search, X } from "lucide-react";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef } from "react";
 import { typeset } from "@/lib/formula";
-import { cn } from "@/lib/utils";
-import { type CommandGroup, GROUPS, type LatexCommand, previewOf, search } from "./latex-commands";
+import { GROUPS, type LatexCommand, previewOf, search } from "./latex-commands";
 
-// The LaTeX cheatsheet (BAN-21), Variant a "Index cards": a card that drops
-// from the toolbar over the side being written (a sheet from the bottom on a
-// phone), its groups as chips along the top and its commands as tiles, each
-// with its render, its command and its meaning. A tile inserts its snippet and
-// closes the card.
+// The LaTeX cheatsheet (BAN-21), Variant b "Result pane": a panel docked at
+// the page's right edge from 1024 px (the writing page moves over to make
+// room), a sheet over the lower part of the screen below that, so the side
+// stays in view above it. One list under sticky group headings, a row per
+// command: its render, its command and its meaning. A row inserts its snippet
+// and the panel stays open, like a palette.
 
 function Render({ command }: { command: LatexCommand }) {
   const html = useMemo(() => {
@@ -33,15 +33,14 @@ export function Cheatsheet({
   onClose: () => void;
 }) {
   const id = useId();
-  const box = useRef<HTMLDivElement>(null);
-  const list = useRef<HTMLDivElement>(null);
+  const box = useRef<HTMLElement>(null);
   const input = useRef<HTMLInputElement>(null);
-  const [current, setCurrent] = useState<CommandGroup>("Greek");
   const found = useMemo(() => search(query), [query]);
   const groups = GROUPS.map((group) => ({
     group,
     commands: found.filter((command) => command.group === group),
   })).filter(({ commands }) => commands.length > 0);
+  const searching = query.trim() !== "";
 
   useEffect(() => {
     input.current?.focus({ preventScroll: true });
@@ -55,113 +54,95 @@ export function Cheatsheet({
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const jump = (group: CommandGroup) => {
-    setCurrent(group);
-    const section = list.current?.querySelector(`[data-group="${group}"]`);
-    if (section instanceof HTMLElement && list.current !== null)
-      list.current.scrollTo({ top: section.offsetTop - list.current.offsetTop });
-  };
-
   return (
-    <>
-      <div aria-hidden className="cheatsheet-scrim" />
-      <div
-        ref={box}
-        role="dialog"
-        aria-labelledby={`${id}-title`}
-        className="cheatsheet"
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.preventDefault();
-            event.stopPropagation();
-            onClose();
-          }
-        }}
-      >
-        <div className="cheatsheet-head">
-          <h2 id={`${id}-title`} className="cheatsheet-title">
-            LaTeX cheatsheet
-          </h2>
-          <button type="button" className="cheatsheet-close" aria-label="Close" onClick={onClose}>
-            <X aria-hidden className="size-4" />
+    <aside
+      ref={box}
+      role="dialog"
+      aria-labelledby={`${id}-title`}
+      className="cheatsheet"
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          onClose();
+        }
+      }}
+    >
+      <div className="cheatsheet-head">
+        <h2 id={`${id}-title`} className="cheatsheet-title">
+          LaTeX cheatsheet
+        </h2>
+        <span className="cheatsheet-count">
+          {searching ? `${found.length} found` : `${found.length} commands`}
+        </span>
+        <button type="button" className="cheatsheet-close" aria-label="Close" onClick={onClose}>
+          <X aria-hidden className="size-4" />
+        </button>
+      </div>
+      <label className="cheatsheet-search">
+        <Search aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+        <span className="sr-only">Search commands</span>
+        <input
+          ref={input}
+          type="search"
+          value={query}
+          placeholder="Search by name or meaning"
+          onChange={(event) => onQuery(event.target.value)}
+          autoComplete="off"
+          spellCheck={false}
+        />
+        {searching && (
+          <button
+            type="button"
+            className="cheatsheet-clear"
+            aria-label="Clear the search"
+            onClick={() => {
+              onQuery("");
+              input.current?.focus();
+            }}
+          >
+            <X aria-hidden className="size-3.5" />
           </button>
-        </div>
-        <label className="cheatsheet-search">
-          <Search aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-          <span className="sr-only">Search commands</span>
-          <input
-            ref={input}
-            type="search"
-            value={query}
-            placeholder="Search: integral, arrow, \frac…"
-            onChange={(event) => onQuery(event.target.value)}
-            autoComplete="off"
-            spellCheck={false}
-          />
-        </label>
-        {query.trim() === "" && (
-          <div className="cheatsheet-chips" role="tablist" aria-label="Groups">
-            {GROUPS.map((group) => (
-              <button
-                key={group}
-                type="button"
-                role="tab"
-                aria-selected={current === group}
-                className="cheatsheet-chip"
-                onClick={() => jump(group)}
-              >
-                {group}
-              </button>
-            ))}
+        )}
+      </label>
+      <div className="cheatsheet-list">
+        {groups.length === 0 && (
+          <div className="cheatsheet-empty" role="status">
+            <p>No command matches “{query.trim()}”.</p>
+            <p>Search by a name like \sqrt, or a meaning like “root” or “arrow”.</p>
           </div>
         )}
-        <div
-          ref={list}
-          className="cheatsheet-list"
-          onScroll={(event) => {
-            if (query.trim() !== "") return;
-            const top = event.currentTarget.scrollTop + event.currentTarget.offsetTop + 8;
-            let at: CommandGroup = "Greek";
-            for (const section of event.currentTarget.querySelectorAll<HTMLElement>("[data-group]"))
-              if (section.offsetTop <= top)
-                at = GROUPS.find((group) => group === section.dataset.group) ?? at;
-            setCurrent(at);
-          }}
-        >
-          {groups.length === 0 && (
-            <p className="cheatsheet-empty" role="status">
-              Nothing matches “{query.trim()}”.
-              <span>Try a word like “integral”, “arrow” or “matrix”.</span>
-            </p>
-          )}
-          {query.trim() !== "" && groups.length > 0 && (
-            <p className="sr-only" role="status">
-              {found.length} found
-            </p>
-          )}
-          {groups.map(({ group, commands }) => (
-            <section key={group} data-group={group} aria-label={group}>
-              <h3 className="cheatsheet-group">{group}</h3>
-              <div className="cheatsheet-tiles">
-                {commands.map((command) => (
+        {searching && groups.length > 0 && (
+          <p className="sr-only" role="status">
+            {found.length} found
+          </p>
+        )}
+        {groups.map(({ group, commands }) => (
+          <section key={group} aria-labelledby={`${id}-${group}`}>
+            <h3 id={`${id}-${group}`} className="cheatsheet-group">
+              {group}
+              <span>{commands.length}</span>
+            </h3>
+            <ul>
+              {commands.map((command) => (
+                <li key={command.name}>
                   <button
-                    key={command.name}
                     type="button"
-                    className={cn("cheatsheet-tile")}
-                    title={command.meaning}
+                    className="cheatsheet-row"
                     aria-label={`${command.name}, ${command.meaning}`}
                     onClick={() => onInsert(command)}
                   >
                     <Render command={command} />
-                    <span className="cheatsheet-name">{command.name}</span>
+                    <code className="cheatsheet-name">{command.snippet.replaceAll("▯", "□")}</code>
                     <span className="cheatsheet-meaning">{command.meaning}</span>
                   </button>
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))}
       </div>
-    </>
+      <p className="cheatsheet-foot">Click a command to put it at the cursor.</p>
+    </aside>
   );
 }
