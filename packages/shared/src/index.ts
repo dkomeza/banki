@@ -77,6 +77,14 @@ export {
   NEWER_BANKI_MESSAGE,
   NOT_A_CARD_FILE_MESSAGE,
 } from "./card-file";
+export {
+  type CardFileProblem,
+  formatProblems,
+  type InvalidCard,
+  type NumberedCard,
+  type ParsedCardFile,
+  parseCardFile,
+} from "./card-file-parser";
 export { CARD_EXTENSIONS, type CardNode, cardParser, Formula } from "./card-parser";
 export { ApiError } from "./error";
 export { frontKey } from "./front-key";

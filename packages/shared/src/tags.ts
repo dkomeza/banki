@@ -35,7 +35,7 @@ export function tagNameProblem(raw: string): string | undefined {
  * import reuses it.
  */
 export const TagName = z
-  .string()
+  .string({ error: "A tag is text" })
   .superRefine((raw, ctx) => {
     const problem = tagNameProblem(raw);
     if (problem !== undefined) ctx.addIssue({ code: "custom", message: problem });
@@ -48,12 +48,27 @@ export const sortTags = (tags: Iterable<string>): string[] =>
 
 /**
  * A Card's Tags as a request gives them: each a `TagName`, duplicates (ignoring
- * case) dropped, at most 20 once they are, and answered A–Z.
+ * case) dropped, at most 20 once they are, and answered A–Z. Too many Tags is
+ * said even beside a bad one, so a Card file's import lists every problem.
+ * `params` sets the error for an input that isn't a list.
  */
-export const CardTags = z
-  .array(TagName)
-  .transform((tags) => sortTags(new Set(tags)))
-  .refine((tags) => tags.length <= CARD_TAGS_MAX, `A card carries up to ${CARD_TAGS_MAX} tags`);
+export const cardTags = (params?: z.core.$ZodArrayParams) =>
+  z
+    .array(TagName, params)
+    .superRefine(
+      (tags: unknown[], ctx) => {
+        const names = new Set(tags.filter((tag) => typeof tag === "string").map(tagOf));
+        if (names.size > CARD_TAGS_MAX) {
+          ctx.addIssue({ code: "custom", message: `A card carries up to ${CARD_TAGS_MAX} tags` });
+        }
+      },
+      // A bad Tag leaves the list's other Tags to count, and is said on its own.
+      { when: (payload) => Array.isArray(payload.value) },
+    )
+    .transform((tags) => sortTags(new Set(tags)));
+
+/** `cardTags` with zod's own error for an input that isn't a list. */
+export const CardTags = cardTags();
 
 /** The body of `GET /api/tags`: the User's Tags on live Cards in live Decks, A–Z. */
 export const TagListResponse = z.array(z.string());
