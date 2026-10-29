@@ -39,6 +39,7 @@ const deck = (id: string, name: string, folderId: string | null): Deck => ({
   folderId,
   createdAt: "2026-10-01T00:00:00.000Z",
   cardCount: 0,
+  desiredRetention: null,
 });
 
 // Languages and Maths › Analysis › Real, Archive empty, Organic at the Root.

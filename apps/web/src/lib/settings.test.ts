@@ -9,6 +9,7 @@ const GRADING = {
   model: "anthropic/claude-haiku-5.5",
   apiKey: { state: "unset" },
   autoClose: "brackets",
+  desiredRetention: 90,
 } as const;
 
 type Call = { method: string; path: string; body: unknown };

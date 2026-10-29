@@ -1,6 +1,6 @@
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { CornerDownRight, Pencil, Trash2 } from "lucide-react";
+import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
+import { CornerDownRight, Pencil, Settings2, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { deleteAllWithUndo, showMovedToast } from "@/components/cards/card-toasts";
 import { CardTimeline } from "@/components/cards/card-timeline";
@@ -26,15 +26,18 @@ import {
   updateDeck,
 } from "@/lib/decks";
 import { ensureLibrary, placePath } from "@/lib/folders";
+import { deckRetentionLabel } from "@/lib/retention";
 import { useSelection } from "@/lib/selection";
+import { settingsQueryOptions } from "@/lib/settings";
 import { deckSearch, rememberDeckSearch } from "@/lib/tags";
 import { cn } from "@/lib/utils";
 
 // The deck page opens with the breadcrumb from "Decks" down to the Deck, then
 // the Deck's stack, its cover on top, beside the name and the whole
-// description, with Edit, Move… and Delete under them. Edit opens the same
-// dialog as create; Delete asks in a dialog, naming how many Cards go with
-// it. The Cards follow below, on a timeline (CardTimeline), searched and
+// description, a line saying when it was created, how many Cards it has and
+// the Desired retention it schedules with (a link to its settings page), and
+// Edit, Settings, Move… and Delete under them. Edit opens the same dialog as
+// create; Delete asks in a dialog, naming how many Cards go with it. The Cards follow below, on a timeline (CardTimeline), searched and
 // filtered by Tag through the URL (`?q=…&tags=verb,irregular`), so Back from a
 // Card's edit page comes back to the same list. Cards Move to another Deck
 // one at a time from a Card's ⋯ menu, or several at once from selection mode,
@@ -50,6 +53,7 @@ export const Route = createFileRoute("/_shell/decks/$deckId")({
     Promise.all([
       queryClient.ensureQueryData(deckQueryOptions(deckId)),
       queryClient.ensureQueryData(cardsQueryOptions(deckId)),
+      queryClient.ensureQueryData(settingsQueryOptions()),
       ensureLibrary(queryClient),
     ]),
   component: DeckPage,
@@ -78,6 +82,7 @@ function DeckBody({ deck }: { deck: Deck }) {
   // Null only when the Deck was deleted meanwhile, as its page is about to say.
   const cards = useSuspenseQuery(cardsQueryOptions(deck.id)).data ?? [];
   const filter = Route.useSearch();
+  const { desiredRetention } = useSuspenseQuery(settingsQueryOptions()).data.settings;
   useEffect(() => {
     rememberDeckSearch(deck.id, filter);
   }, [deck.id, filter]);
@@ -150,7 +155,14 @@ function DeckBody({ deck }: { deck: Deck }) {
             </button>
           )}
           <p className="text-sm text-muted-foreground tabular-nums">
-            Created {createdLabel(deck.createdAt)} · {cardCountLabel(cards.length).toLowerCase()}
+            Created {createdLabel(deck.createdAt)} · {cardCountLabel(cards.length).toLowerCase()} ·{" "}
+            <Link
+              to="/decks/$deckId/settings"
+              params={{ deckId: deck.id }}
+              className="text-muted-foreground no-underline underline-offset-4 hover:text-foreground hover:underline"
+            >
+              {deckRetentionLabel(deck.desiredRetention, desiredRetention)}
+            </Link>
           </p>
           <div className="flex shrink-0 flex-wrap gap-2 pt-1">
             <Button
@@ -160,6 +172,15 @@ function DeckBody({ deck }: { deck: Deck }) {
             >
               <Pencil aria-hidden />
               Edit
+            </Button>
+            <Button
+              variant="outline"
+              className={cn(OUTLINE_PILL, "h-11 text-foreground no-underline")}
+              render={<Link to="/decks/$deckId/settings" params={{ deckId: deck.id }} />}
+              nativeButton={false}
+            >
+              <Settings2 aria-hidden />
+              Settings
             </Button>
             <Button
               variant="outline"

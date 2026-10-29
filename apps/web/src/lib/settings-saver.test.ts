@@ -7,6 +7,7 @@ const GRADING = {
   model: "anthropic/claude-haiku-5.5",
   apiKey: { state: "unset" },
   autoClose: "brackets",
+  desiredRetention: 90,
 } as const;
 
 /** A fake API that answers each PATCH only when the test says, and stores what it applies. */

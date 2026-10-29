@@ -154,7 +154,8 @@ export type StudyDayFailedSave =
 export type FailedSave =
   | StudyDayFailedSave
   | { field: "model"; attempted: string }
-  | { field: "autoClose"; attempted: AutoClose };
+  | { field: "autoClose"; attempted: AutoClose }
+  | { field: "desiredRetention"; attempted: number };
 
 /** What a failed save says: what didn't change, and what is kept instead. */
 export function saveErrorText(failed: StudyDayFailedSave, kept: SettingsResponse): string {

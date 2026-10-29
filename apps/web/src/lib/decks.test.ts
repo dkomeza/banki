@@ -22,6 +22,7 @@ const deck = (name: string, createdAt: string, id = name): Deck => ({
   folderId: null,
   createdAt,
   cardCount: 0,
+  desiredRetention: null,
 });
 
 const DECKS = [
