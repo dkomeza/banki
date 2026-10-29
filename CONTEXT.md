@@ -48,6 +48,10 @@ _Avoid_: equation, expression, math block
 A Card whose Front reads the same as another live Card's in the same Deck, ignoring case, spacing and Markdown formatting, but not what is inside a Formula. Banki warns about a Duplicate as it is written and still saves it; an import skips it.
 _Avoid_: copy, clone, repeat
 
+**Card file**:
+A file in Banki's own versioned JSON format that holds Cards, their Tags and grading notes, and the macros their Formulas use. An import reads one, an export writes one, and the LLM prompt asks for one. It never names a Deck or holds Reviews.
+_Avoid_: deck file, export file, Banki JSON
+
 **Deletion**:
 One act of deleting, and everything it took with it: a Card on its own, a Deck with its Cards, or a Folder with everything inside it. It is restored or removed as a whole. Something deleted earlier on its own keeps its own Deletion. Deleting several picked Cards at once makes one Deletion per Card, though the delete's Undo brings them all back.
 _Avoid_: trash item, deleted item
