@@ -81,12 +81,16 @@ How well the User recalled a Card: Again, Hard, Good or Easy. The User always gi
 _Avoid_: grade, score, ease
 
 **Review**:
-One Rating of one Card at one moment, with the time the User spent on it and whether it was self-rated or graded. Reviews are the Card's history: they are what FSRS learns from, and they outlive the Card.
+One Rating of one Card at one moment, with the time the User spent on it and whether it was self-rated or graded. Reviews are the Card's history: they are what FSRS learns from, and they outlive the Card. Undoing a Rating takes its Review back as if it had never been given.
 _Avoid_: answer, attempt, repetition
 
 **Due**:
 A Card is due on the Study day FSRS scheduled it for, from that day's Day start, and stays due until it is reviewed. A Card still in its learning steps is due at an exact moment instead, minutes after its last Review.
 _Avoid_: scheduled, pending
+
+**Interval**:
+How long a Rating puts a Card off before it is Due again: minutes while it is in its learning steps, Study days after them. The study screen shows each Rating's Interval on its button before the User picks one.
+_Avoid_: gap, delay, ivl
 
 **Queue**:
 The order in which a Session shows a Deck's Cards: due Cards most at risk first, new Cards mixed in among them in the order they were written, and a Card in its learning steps back when its step is over. Banki answers the next Card one at a time, from the Cards' state and the Session's progress, not as a list fixed at the start.
