@@ -18,12 +18,19 @@ import {
 
 const ref = (id: string) => `![](images/${id}.png)`;
 
-/** An editor holding `doc`, as uploadFiles sees one. */
+/**
+ * An editor holding `doc`, as uploadFiles sees one. Destroyed, it goes on
+ * taking transactions with its DOM off the page, as an EditorView does.
+ */
 function editor(doc: string, extensions: Extension) {
   const target = {
     state: EditorState.create({ doc, extensions }),
+    dom: { isConnected: true },
     dispatch(spec: TransactionSpec | Transaction) {
       target.state = spec instanceof Transaction ? spec.state : target.state.update(spec).state;
+    },
+    destroy() {
+      target.dom.isConnected = false;
     },
   };
   return target;
@@ -196,6 +203,21 @@ describe("uploadFiles", () => {
     const done = uploadFiles(view, [file("a.png")], 4);
     // The cell is drawn anew, without the upload.
     view.state = editor("cell", fileUploads(uploads)).state;
+
+    answers[0]?.({ ok: true, reference: "images/a.png" });
+    await done;
+
+    expect(view.state.doc.toString()).toBe("cell");
+    expect(heard.failed).toEqual([`a.png: ${PLACE_GONE}`]);
+    expect(heard.uploading).toEqual([true, false]);
+  });
+
+  test("says so when its editor was destroyed before it was done, a cell of a redrawn grid", async () => {
+    const { uploads, answers, heard } = controlledUploads();
+    const view = editor("cell", fileUploads(uploads, true));
+    const done = uploadFiles(view, [file("a.png")], 4);
+    // A row is added, and the grid destroys its cells' editors.
+    view.destroy();
 
     answers[0]?.({ ok: true, reference: "images/a.png" });
     await done;

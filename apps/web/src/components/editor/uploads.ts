@@ -176,8 +176,16 @@ export function finishUpload(
 /** Turns the upload `id` into an error tile saying `message`. */
 export const failUpload = (id: number, message: string) => failPending.of({ id, message });
 
-/** What {@link uploadFiles} needs of an editor: an EditorView. */
-type Target = { readonly state: EditorState; dispatch: (spec: TransactionSpec) => void };
+/**
+ * What {@link uploadFiles} needs of an editor: an EditorView. Its DOM leaves
+ * the page when it is destroyed, as a table's cell is when the grid is drawn
+ * anew; a destroyed view still takes transactions, but nothing hears them.
+ */
+type Target = {
+  readonly state: EditorState;
+  readonly dom: { readonly isConnected: boolean };
+  dispatch: (spec: TransactionSpec) => void;
+};
 
 const NOT_UPLOADED = "Banki couldn't upload the image. Try again.";
 /** Said of an upload whose place went before it was done: its table cell was redrawn. */
@@ -217,7 +225,7 @@ export async function uploadFiles(view: Target, files: readonly File[], pos: num
   for (const [i, item] of items.entries()) {
     const outcome = await outcomes[i];
     if (outcome?.ok !== true) continue;
-    const spec = finishUpload(view.state, item.id, outcome.reference);
+    const spec = view.dom.isConnected ? finishUpload(view.state, item.id, outcome.reference) : null;
     if (spec === null) uploads.failed(item.name, PLACE_GONE);
     else view.dispatch(spec);
     uploads.finished();
