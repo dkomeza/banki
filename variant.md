@@ -1,9 +1,9 @@
-# a: Index cards
+# c: Reference
 
-Bet: every command is shown as a small paper tile with its render, so the popup and the cheatsheet read the same way, and the cheatsheet is a card that drops from the toolbar over the side (a sheet from the bottom on a phone), browsed by group chips and closed by picking a tile.
+Bet: keep the writing in view and make the reference feel like a proper book: the popup is a compact ink card above the line (keys at its foot), so the inline Formula's render card stays visible under it, and the cheatsheet is a modal reference sheet you open, search, pick from and leave.
 
-- Popup: a card of rows under the cursor, each row a render tile, the command (the typed part in ink) over its meaning, and the snippet's shape at the right. The inline Formula's render card steps aside while the popup is open.
-- Slots: dashed boxes in the accent; a filled slot is tinted.
-- Cheatsheet: a card under the toolbar (a bottom sheet with a scrim on a phone), search on top, group chips that jump and follow the scroll, tiles of render, command and meaning. A tile inserts and closes it.
+- Popup: an ink card, like the phone's toolbar, above the cursor; ledger rows of command, meaning and render, the active one marked with an accent bar; "↑↓ move · ↵ or Tab insert · Esc close" at its foot on desktop. The inline Formula's render card stays under the line.
+- Slots: blanks underlined in the accent, like a form to fill in.
+- Cheatsheet: a modal sheet over a scrim (the whole screen on a phone); a big search line, a rail of groups with counts down the left (a strip of tabs on a phone) that follows the scroll, and a dense two-column table of render, command (with its slots) and meaning. A row inserts and closes it; with nothing found it offers to clear the search.
 
 States: completing, completing-cell, slots, cheatsheet, cheatsheet-search, cheatsheet-empty

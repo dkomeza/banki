@@ -125,6 +125,8 @@ export function latexCompletion(): Extension {
     autocompletion({
       override: [latexSource],
       icons: false,
+      // Variant c: above the line, so the inline Formula's render card stays in view below it.
+      aboveCursor: true,
       activateOnTypingDelay: 0,
       maxRenderedOptions: 30,
       tooltipClass: () => "cm-latex-popup",

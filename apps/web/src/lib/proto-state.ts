@@ -11,7 +11,7 @@ const QUOTIENT = {
 
 const SAMPLES: Record<string, { front: string; back: string }> = {
   completing: {
-    front: "Differentiate $\\fr$ by the quotient rule.",
+    front: "Differentiate $h(x) = \\fr$ by the quotient rule.",
     back: QUOTIENT.back,
   },
   "completing-cell": {
@@ -19,7 +19,7 @@ const SAMPLES: Record<string, { front: string; back: string }> = {
     back: "| $f(x)$ | $f'(x)$ |\n| --- | --- |\n| $x^n$ | $n x^{n-1}$ |\n| $\\ln x$ | $\\fr$ |\n| $e^{x}$ | $e^{x}$ |",
   },
   slots: {
-    front: "Differentiate $\\fr$ by the quotient rule.",
+    front: "Differentiate $h(x) = \\fr$ by the quotient rule.",
     back: QUOTIENT.back,
   },
   cheatsheet: QUOTIENT,

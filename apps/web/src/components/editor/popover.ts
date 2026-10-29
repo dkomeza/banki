@@ -1,4 +1,3 @@
-import { completionStatus } from "@codemirror/autocomplete";
 import { type EditorState, StateField } from "@codemirror/state";
 import { EditorView, showTooltip, type Tooltip } from "@codemirror/view";
 import { changesPreview } from "./decorations";
@@ -20,8 +19,7 @@ export function editedInlineFormula(state: EditorState) {
 
 function popoverFor(state: EditorState): Tooltip | null {
   const node = editedInlineFormula(state);
-  // One card at a time: the completion popup stands in for it while open.
-  if (node === null || completionStatus(state) !== null) return null;
+  if (node === null) return null;
   // Prototype: an empty slot shows as a box in the render.
   const source = formulaSource(node, state.doc).replaceAll("{}", "{\\square}");
   return {
@@ -35,10 +33,7 @@ function popoverFor(state: EditorState): Tooltip | null {
 /** The popover of the inline Formula being edited. */
 export const inlinePopover = StateField.define<Tooltip | null>({
   create: popoverFor,
-  update: (value, tr) =>
-    changesPreview(tr) || completionStatus(tr.startState) !== completionStatus(tr.state)
-      ? popoverFor(tr.state)
-      : value,
+  update: (value, tr) => (changesPreview(tr) ? popoverFor(tr.state) : value),
   provide: (field) => showTooltip.from(field),
 });
 
