@@ -247,7 +247,7 @@ function inlineNode(node: CardNode, cx: Context): ReactNode {
           key={key}
           source={formulaSource(node, doc)}
           display={display && !cx.oneLine}
-          delimiter={display ? "$" : "$"}
+          delimiter={display ? "$$" : "$"}
           atomic={cx.oneLine}
           written={cx.interactive ? formulaWritten(node, doc) : undefined}
         />
@@ -490,7 +490,7 @@ function block(node: CardNode, cx: Context): ReactNode {
           key={key}
           source={formulaSource(node, doc)}
           display
-          delimiter="$"
+          delimiter="$$"
           atomic={false}
           written={cx.interactive ? formulaWritten(node, doc) : undefined}
         />

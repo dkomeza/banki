@@ -421,36 +421,73 @@ const press = (
 describe("keyAction", () => {
   test("Space and Enter reveal, and never rate", () => {
     for (const key of [" ", "Enter"]) {
-      expect(keyAction(press(key), { revealed: false })).toEqual({ type: "reveal" });
-      expect(keyAction(press(key), { revealed: true })).toEqual({ type: "none" });
+      expect(keyAction(press(key), { showing: true, revealed: false, focus: undefined })).toEqual({
+        type: "reveal",
+      });
+      expect(keyAction(press(key), { showing: true, revealed: true, focus: undefined })).toEqual({
+        type: "none",
+      });
     }
   });
 
   test("1 to 4 rate Again, Hard, Good and Easy, only once revealed", () => {
     const ratings = ["again", "hard", "good", "easy"];
     ["1", "2", "3", "4"].forEach((key, i) => {
-      expect(keyAction(press(key), { revealed: true })).toEqual({
+      expect(keyAction(press(key), { showing: true, revealed: true, focus: undefined })).toEqual({
         type: "rate",
         rating: ratings[i],
       });
-      expect(keyAction(press(key), { revealed: false })).toEqual({ type: "none" });
+      expect(keyAction(press(key), { showing: true, revealed: false, focus: undefined })).toEqual({
+        type: "none",
+      });
     });
-    expect(keyAction(press("5"), { revealed: true })).toEqual({ type: "none" });
-    expect(keyAction(press("1", { ctrlKey: true }), { revealed: true })).toEqual({ type: "none" });
+    expect(keyAction(press("5"), { showing: true, revealed: true, focus: undefined })).toEqual({
+      type: "none",
+    });
+    expect(
+      keyAction(press("1", { ctrlKey: true }), { showing: true, revealed: true, focus: undefined }),
+    ).toEqual({ type: "none" });
   });
 
   test("Ctrl+Z and ⌘+Z undo, revealed or not", () => {
     for (const revealed of [false, true]) {
-      expect(keyAction(press("z", { ctrlKey: true }), { revealed })).toEqual({ type: "undo" });
-      expect(keyAction(press("z", { metaKey: true }), { revealed })).toEqual({ type: "undo" });
-      expect(keyAction(press("Z", { metaKey: true }), { revealed })).toEqual({ type: "undo" });
+      expect(
+        keyAction(press("z", { ctrlKey: true }), { showing: true, revealed, focus: undefined }),
+      ).toEqual({ type: "undo" });
+      expect(
+        keyAction(press("z", { metaKey: true }), { showing: true, revealed, focus: undefined }),
+      ).toEqual({ type: "undo" });
+      expect(
+        keyAction(press("Z", { metaKey: true }), { showing: true, revealed, focus: undefined }),
+      ).toEqual({ type: "undo" });
     }
-    expect(keyAction(press("z"), { revealed: true })).toEqual({ type: "none" });
+    expect(keyAction(press("z"), { showing: true, revealed: true, focus: undefined })).toEqual({
+      type: "none",
+    });
+  });
+
+  test("Space and Enter leave a focused control to itself, and do nothing on a rating button", () => {
+    for (const key of [" ", "Enter"]) {
+      expect(keyAction(press(key), { showing: true, revealed: false, focus: "control" })).toEqual({
+        type: "none",
+      });
+      expect(keyAction(press(key), { showing: true, revealed: true, focus: "rating" })).toEqual({
+        type: "block",
+      });
+      // At the end, "Back to deck" or "Try again" has the focus, or nothing does.
+      expect(keyAction(press(key), { showing: false, revealed: false, focus: undefined })).toEqual({
+        type: "none",
+      });
+    }
   });
 
   test("Esc leaves", () => {
-    expect(keyAction(press("Escape"), { revealed: false })).toEqual({ type: "leave" });
-    expect(keyAction(press("Escape"), { revealed: true })).toEqual({ type: "leave" });
+    expect(
+      keyAction(press("Escape"), { showing: true, revealed: false, focus: undefined }),
+    ).toEqual({ type: "leave" });
+    expect(keyAction(press("Escape"), { showing: true, revealed: true, focus: undefined })).toEqual(
+      { type: "leave" },
+    );
   });
 });
 

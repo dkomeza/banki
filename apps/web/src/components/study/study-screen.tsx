@@ -26,8 +26,8 @@ import { cn } from "@/lib/utils";
 // with nothing but the Card on plain paper. A thin top bar holds close (×),
 // the Deck's name and Undo; the actions dock to the bottom, in thumb reach:
 // Show answer, then four equal ratings led by their Interval. Going from Card
-// to Card, nothing moves: the Front keeps its size and place, and the Back
-// opens below it.
+// to Card, nothing moves: the Front always starts at the top, in the same
+// place. Revealed, it steps back (smaller, muted) and the Back opens below it.
 
 /** A Session over the Deck's Queue, started on mount and stopped on unmount. */
 function useStudySession(deckId: string): [StudySession, StudyState] {
@@ -51,13 +51,20 @@ export function StudyScreen({ deck }: { deck: Deck }) {
       if (event.defaultPrevented || event.repeat) return;
       const target = event.target instanceof Element ? event.target : null;
       if (target?.closest("input, textarea, select, [contenteditable]")) return;
-      const { revealed } = session.getState();
-      const action = keyAction(event, { revealed });
-      // Space and Enter never rate, not even on a focused rating button.
-      if ((event.key === " " || event.key === "Enter") && target?.closest("[data-rating]")) {
-        event.preventDefault();
-      }
+      const { phase, revealed } = session.getState();
+      const action = keyAction(event, {
+        showing: phase === "card",
+        revealed,
+        focus: target?.closest("[data-rating]")
+          ? "rating"
+          : target?.closest("a, button")
+            ? "control"
+            : undefined,
+      });
       switch (action.type) {
+        case "block":
+          event.preventDefault();
+          break;
         case "reveal":
           event.preventDefault();
           session.reveal();
@@ -121,9 +128,11 @@ function TopBar({ deck, state, onUndo }: { deck: Deck; state: StudyState; onUndo
         )}
         <Button
           variant="ghost"
-          className="h-11 gap-1.5 rounded-full px-3 lg:h-9"
+          className="h-11 min-w-11 gap-1.5 rounded-full px-3 lg:h-9 lg:min-w-9"
           disabled={state.rated === 0 || state.undoing || state.saving !== undefined}
           onClick={onUndo}
+          // A click leaves no focus behind, so Space still reveals the next Card.
+          onMouseDown={(event) => event.preventDefault()}
           title="Undo (Ctrl+Z)"
           aria-label="Undo"
         >
@@ -169,7 +178,12 @@ function CardView({ session, state }: { session: StudySession; state: StudyState
         key={`${card.id}-front`}
         text={card.front}
         interactive={state.revealed}
-        className="text-[1.85rem] leading-tight font-medium tracking-[-0.015em] lg:text-[2.6rem]"
+        className={cn(
+          "font-medium tracking-[-0.015em]",
+          state.revealed
+            ? "text-xl leading-snug text-muted-foreground lg:text-2xl"
+            : "text-[1.85rem] leading-tight lg:text-[2.6rem]",
+        )}
       />
       {state.revealed ? (
         <>
@@ -245,7 +259,7 @@ function Dock({ session, state }: { session: StudySession; state: StudyState }) 
                 </span>
                 <kbd
                   aria-hidden
-                  className="absolute top-1.5 right-2 hidden font-sans text-[0.65rem] text-muted-foreground/70 lg:block"
+                  className="absolute top-1.5 right-2 hidden font-sans text-[0.65rem] text-muted-foreground lg:block"
                 >
                   {RATING_KEYS[rating]}
                 </kbd>
@@ -284,7 +298,7 @@ function End({ deck, state, onRetry }: { deck: Deck; state: StudyState; onRetry:
         {title}
       </h1>
       {state.phase === "done" && state.rated > 0 && (
-        <p className="-mt-2 text-muted-foreground tabular-nums">
+        <p className="-mt-2 text-balance text-muted-foreground tabular-nums">
           {state.rated} {state.rated === 1 ? "card" : "cards"} rated. Undo is still up there if you
           need it.
         </p>

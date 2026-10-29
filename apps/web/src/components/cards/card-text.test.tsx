@@ -265,3 +265,10 @@ describe("CardText, interactive (the study screen's revealed Card)", () => {
     expect(line("Let $x^2$ be")).not.toContain("data-formula");
   });
 });
+
+describe("CardText, broken display Formulas", () => {
+  test("show their source between the $$ they were written with", () => {
+    expect(html("$$\\fracc{1}{2}$$ inline")).toContain("$$\\fracc{1}{2}$$");
+    expect(html("$$\n\\fracc{1}{2}\n$$")).toContain("$$\n\\fracc{1}{2}\n$$");
+  });
+});

@@ -379,24 +379,35 @@ export type KeyAction =
   | { type: "rate"; rating: Rating }
   | { type: "undo" }
   | { type: "leave" }
+  /** Keeps the key from doing what it would: Space or Enter on a focused rating button. */
+  | { type: "block" }
   | { type: "none" };
 
 /**
- * What a key does on the study screen: Space or Enter reveals; once revealed,
- * 1 to 4 rate (Again, Hard, Good, Easy); Ctrl/⌘+Z undoes; Esc leaves. Space
- * and Enter never rate.
+ * What a key does on the study screen, given whether a Card is shown, whether
+ * it is revealed, and what has the focus: Space or Enter reveals a shown Card;
+ * once revealed, 1 to 4 rate (Again, Hard, Good, Easy); Ctrl/⌘+Z undoes; Esc
+ * leaves. Space and Enter never rate, not even on a focused rating button, and
+ * on another focused control (a link, a button) they do what they do there.
  */
 export function keyAction(
   key: { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean },
-  { revealed }: { revealed: boolean },
+  {
+    showing,
+    revealed,
+    focus,
+  }: { showing: boolean; revealed: boolean; focus: "rating" | "control" | undefined },
 ): KeyAction {
   if ((key.ctrlKey || key.metaKey) && !key.altKey && key.key.toLowerCase() === "z") {
     return { type: "undo" };
   }
   if (key.ctrlKey || key.metaKey || key.altKey) return { type: "none" };
   if (key.key === "Escape") return { type: "leave" };
-  if (key.key === " " || key.key === "Enter")
-    return revealed ? { type: "none" } : { type: "reveal" };
+  if (key.key === " " || key.key === "Enter") {
+    if (focus === "rating") return { type: "block" };
+    if (focus === "control" || !showing || revealed) return { type: "none" };
+    return { type: "reveal" };
+  }
   if (!revealed) return { type: "none" };
   const rating = RATINGS.find((r) => RATING_KEYS[r] === key.key);
   return rating === undefined ? { type: "none" } : { type: "rate", rating };
