@@ -63,6 +63,14 @@ describe("UpdateDeckRequest", () => {
     expect(UpdateDeckRequest.safeParse({ folderId: "f1", onClash: "merge" }).success).toBe(false);
   });
 
+  test("takes a Desired retention of its own, or null to follow Settings", () => {
+    expect(UpdateDeckRequest.parse({ desiredRetention: 85 })).toEqual({ desiredRetention: 85 });
+    expect(UpdateDeckRequest.parse({ desiredRetention: null })).toEqual({ desiredRetention: null });
+    for (const desiredRetention of [69, 98, 85.5, "85"]) {
+      expect(UpdateDeckRequest.safeParse({ desiredRetention }).success).toBe(false);
+    }
+  });
+
   test("refuses onClash without a move", () => {
     expect(UpdateDeckRequest.safeParse({ name: "B", onClash: "replace" }).success).toBe(false);
   });

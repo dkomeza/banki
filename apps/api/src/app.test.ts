@@ -125,6 +125,7 @@ describe("migrations", () => {
       "0008_tags",
       "0009_images",
       "0010_auto_close",
+      "0011_scheduling",
     ]);
     first.close();
 

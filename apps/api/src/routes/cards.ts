@@ -4,12 +4,14 @@ import {
   DeleteCardsRequest,
   MoveCardsRequest,
   type MoveCardsResponse,
+  ReviewRequest,
   UpdateCardRequest,
 } from "@banki/shared";
 import { Hono } from "hono";
 import { apiError } from "../http/errors";
 import type { SignedInEnv } from "../http/require-signed-in";
 import type { CardRepository } from "../repositories/cards";
+import type { ReviewRepository } from "../repositories/reviews";
 import { json } from "./json";
 
 const NOT_FOUND = apiError("not_found", "Card not found");
@@ -48,8 +50,19 @@ export function deckCardRoutes({ cards }: { cards: CardRepository }) {
  * at once, each as a Deletion of its own, answering every `deletionId`. Each
  * takes 1 to 10,000 Card IDs and acts on all of them or none: one Card that
  * isn't live, or a Move's Deck that isn't, answers 404 `not_found`.
+ *
+ * `POST /:id/reviews` rates a Card: it records a Review of its Rating and
+ * time spent, reschedules the Card, and answers 201 with the Review and the
+ * Card's new schedule. A Rating that isn't one, or a duration that isn't a
+ * whole number of milliseconds from 0, answers 400 `invalid_request`.
  */
-export function cardRoutes({ cards }: { cards: CardRepository }) {
+export function cardRoutes({
+  cards,
+  reviews,
+}: {
+  cards: CardRepository;
+  reviews: ReviewRepository;
+}) {
   return new Hono<SignedInEnv>()
     .post("/move", json(MoveCardsRequest, "Invalid move"), (c) => {
       const { cardIds, deckId } = c.req.valid("json");
@@ -63,6 +76,11 @@ export function cardRoutes({ cards }: { cards: CardRepository }) {
       if (deletions === "not_found") return c.json(NOT_FOUND, 404);
       const body: DeleteCardsResponse = { deletions };
       return c.json(body, 200);
+    })
+    .post("/:id/reviews", json(ReviewRequest, "Invalid review"), (c) => {
+      const rated = reviews.rate(c.var.user.id, c.req.param("id"), c.req.valid("json"));
+      if (rated === "not_found") return c.json(NOT_FOUND, 404);
+      return c.json(rated, 201);
     })
     .get("/:id", (c) => {
       const found = cards.find(c.var.user.id, c.req.param("id"));

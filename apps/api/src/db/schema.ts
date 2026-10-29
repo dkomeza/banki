@@ -4,7 +4,15 @@
 // better-auth's tables (the User row, auth sessions, credential accounts and
 // verifications) are generated from Banki's auth options into `auth-schema.ts`
 // by `bun run auth:generate`; never edit that file by hand.
-import { DEFAULT_DAY_START_HOUR } from "@banki/shared";
+import {
+  CARD_STATES,
+  DEFAULT_DAY_START_HOUR,
+  DEFAULT_DESIRED_RETENTION,
+  DESIRED_RETENTION_MAX,
+  DESIRED_RETENTION_MIN,
+  RATINGS,
+  REVIEW_KINDS,
+} from "@banki/shared";
 import { sql } from "drizzle-orm";
 import {
   type AnySQLiteColumn,
@@ -12,6 +20,7 @@ import {
   index,
   integer,
   primaryKey,
+  real,
   sqliteTable,
   text,
   uniqueIndex,
@@ -41,8 +50,16 @@ export const user_settings = sqliteTable(
     apiKeyLastFour: text("api_key_last_four"),
     /** The editor's auto-close; null for the default. One Banki no longer knows reads as the default. */
     autoClose: text("auto_close"),
+    /** The Desired retention every Deck follows until it has its own, a whole percent. */
+    desiredRetention: integer("desired_retention").notNull().default(DEFAULT_DESIRED_RETENTION),
   },
-  (table) => [check("user_settings_day_start_hour", sql`${table.dayStartHour} BETWEEN 0 AND 23`)],
+  (table) => [
+    check("user_settings_day_start_hour", sql`${table.dayStartHour} BETWEEN 0 AND 23`),
+    check(
+      "user_settings_desired_retention",
+      sql`${table.desiredRetention} BETWEEN ${sql.raw(String(DESIRED_RETENTION_MIN))} AND ${sql.raw(String(DESIRED_RETENTION_MAX))}`,
+    ),
+  ],
 );
 
 /**
@@ -108,8 +125,14 @@ export const deck = sqliteTable(
     deletedAt: integer("deleted_at", { mode: "timestamp_ms" }),
     /** The Deletion it went with (ADR-0016); null while live. */
     deletionId: text("deletion_id"),
+    /** Its own Desired retention, a whole percent; null while it follows Settings. */
+    desiredRetention: integer("desired_retention"),
   },
   (table) => [
+    check(
+      "deck_desired_retention",
+      sql`${table.desiredRetention} BETWEEN ${sql.raw(String(DESIRED_RETENTION_MIN))} AND ${sql.raw(String(DESIRED_RETENTION_MAX))}`,
+    ),
     uniqueIndex("deck_user_folder_name_key")
       .on(table.userId, sql`coalesce(${table.folderId}, '')`, table.nameKey)
       .where(sql`${table.deletedAt} IS NULL`),
@@ -143,12 +166,61 @@ export const card = sqliteTable(
     deletedAt: integer("deleted_at", { mode: "timestamp_ms" }),
     /** The Deletion it went with (ADR-0016); null while live. */
     deletionId: text("deletion_id"),
+    // Its memory state, as FSRS left it after its last Review (scheduling/fsrs.ts).
+    /** Where it is in FSRS (`CARD_STATES`); `new` until its first Review. */
+    state: text("state", { enum: CARD_STATES }).notNull().default("new"),
+    /**
+     * When it is due; null while new. Past its learning steps, the Day start of
+     * the Study day it is due on (ADR-0024); in them, the exact moment.
+     */
+    dueAt: integer("due_at", { mode: "timestamp_ms" }),
+    stability: real("stability").notNull().default(0),
+    difficulty: real("difficulty").notNull().default(0),
+    reps: integer("reps").notNull().default(0),
+    lapses: integer("lapses").notNull().default(0),
+    /** The days its last Review scheduled it out; 0 in learning steps. */
+    scheduledDays: integer("scheduled_days").notNull().default(0),
+    /** Which learning step it is on, while in them. */
+    learningStep: integer("learning_step").notNull().default(0),
+    lastReviewAt: integer("last_review_at", { mode: "timestamp_ms" }),
   },
   (table) => [
     index("card_user_id").on(table.userId),
     index("card_deck_id").on(table.deckId),
     index("card_deletion_id").on(table.deletionId),
     index("card_deleted_at").on(table.deletedAt),
+  ],
+);
+
+/**
+ * The User's Reviews (CONTEXT.md): one Rating of one Card at one moment.
+ * `cardId` and `deckId` carry no foreign key: a Card's Removal leaves its
+ * Reviews in place, naming a Card and a Deck that may be gone (ADR-0018).
+ * `deckId` is the Card's latest Deck, which a Move rewrites (ADR-0021).
+ * `cardBefore` is the Card's memory state before the Review, as JSON
+ * (`MemoryState` in scheduling/fsrs.ts), so Undo can put it back.
+ */
+export const review = sqliteTable(
+  "review",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    cardId: text("card_id").notNull(),
+    deckId: text("deck_id").notNull(),
+    reviewedAt: integer("reviewed_at", { mode: "timestamp_ms" }).notNull(),
+    rating: text("rating", { enum: RATINGS }).notNull(),
+    kind: text("kind", { enum: REVIEW_KINDS }).notNull(),
+    /** The time spent on the Card, as the client measured it. */
+    durationMs: integer("duration_ms").notNull(),
+    cardBefore: text("card_before", { mode: "json" }).notNull(),
+  },
+  (table) => [
+    check("review_duration_ms", sql`${table.durationMs} >= 0`),
+    index("review_user_id").on(table.userId),
+    index("review_card_id_reviewed_at").on(table.cardId, table.reviewedAt),
+    index("review_deck_id").on(table.deckId),
   ],
 );
 

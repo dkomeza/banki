@@ -9,9 +9,10 @@ import {
 import { and, eq, isNull, ne, sql } from "drizzle-orm";
 import type { z } from "zod";
 import type { Queryable } from "../db/database";
-import { deck } from "../db/schema";
+import { card, deck } from "../db/schema";
 import { stampCards } from "./cards";
 import { type Clash, type Place, type Refusal, isLivePlace, placeIs } from "./places";
+import { deckRetentionOf, rescheduleCards } from "./reviews";
 
 export type Deck = DeckResponse;
 
@@ -29,6 +30,7 @@ const COLUMNS = {
   description: deck.description,
   folderId: deck.folderId,
   createdAt: deck.createdAt,
+  desiredRetention: deck.desiredRetention,
   /** Its live Cards. Spelt out: Drizzle leaves a column's table off inside `sql`. */
   cardCount:
     sql<number>`(SELECT count(*) FROM "card" WHERE "card"."deck_id" = "deck"."id" AND "card"."user_id" = "deck"."user_id" AND "card"."deleted_at" IS NULL)`.mapWith(
@@ -42,6 +44,7 @@ type Row = {
   description: string | null;
   folderId: string | null;
   createdAt: Date;
+  desiredRetention: number | null;
   cardCount: number;
 };
 
@@ -146,7 +149,15 @@ export function createDeckRepository(db: Queryable) {
               updatedAt: now,
             })
             .run();
-          return toDeck({ id, name, description, folderId, createdAt: now, cardCount: 0 });
+          return toDeck({
+            id,
+            name,
+            description,
+            folderId,
+            createdAt: now,
+            desiredRetention: null,
+            cardCount: 0,
+          });
         },
         { behavior: "immediate" },
       );
@@ -164,7 +175,7 @@ export function createDeckRepository(db: Queryable) {
     update(
       userId: string,
       id: string,
-      { name: newName, description, folderId, onClash }: DeckChanges,
+      { name: newName, description, folderId, onClash, desiredRetention }: DeckChanges,
       now = new Date(),
     ): Deck | Refusal | { clash: Clash } {
       return db.transaction(
@@ -188,16 +199,26 @@ export function createDeckRepository(db: Queryable) {
           ) {
             return "taken";
           }
+          const retentionBefore = deckRetentionOf(tx, userId, id);
           tx.update(deck)
             .set({
               name,
               nameKey: deckNameKey(name),
               folderId: place,
               ...(description === undefined ? {} : { description }),
+              ...(desiredRetention === undefined ? {} : { desiredRetention }),
               updatedAt: now,
             })
             .where(live(userId, id))
             .run();
+          const retention = deckRetentionOf(tx, userId, id);
+          if (retention !== retentionBefore) {
+            const cards = tx
+              .select({ id: card.id })
+              .from(card)
+              .where(and(eq(card.userId, userId), eq(card.deckId, id)));
+            rescheduleCards(tx, userId, cards, retention, now);
+          }
           return findIn(tx, userId, id) ?? "not_found";
         },
         { behavior: "immediate" },

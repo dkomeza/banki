@@ -46,6 +46,7 @@ const COMMITTED = [
   "0008_tags",
   "0009_images",
   "0010_auto_close",
+  "0011_scheduling",
 ];
 
 /** The tables the committed migrations create. */
@@ -58,6 +59,7 @@ const COMMITTED_TABLES = [
   "deck",
   "folder",
   "image",
+  "review",
   "user",
   "user_settings",
 ];
@@ -119,4 +121,43 @@ test("a migration older than the latest applied one fails startup before anythin
     /0101_note.*older than the latest applied migration/s,
   );
   expect(tables()).toEqual(before);
+});
+
+test("0011_scheduling keeps every Deck and Card, as new Cards following Settings", () => {
+  // The database as the release before it left it.
+  const journalPath = join(folder, "meta", "_journal.json");
+  const full = readFileSync(journalPath, "utf8");
+  const journal = z
+    .looseObject({ entries: z.array(z.looseObject({ tag: z.string() })) })
+    .parse(JSON.parse(full));
+  writeFileSync(
+    journalPath,
+    JSON.stringify({
+      ...journal,
+      entries: journal.entries.filter((entry) => entry.tag !== "0011_scheduling"),
+    }),
+  );
+  applyMigrations(opened.db, folder);
+  opened.db.run(
+    sql`INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES ('u', 'n', 'u@x.y', 1, 0, 0)`,
+  );
+  opened.db.run(sql`INSERT INTO user_settings (user_id, timezone) VALUES ('u', 'UTC')`);
+  opened.db.run(
+    sql`INSERT INTO deck (id, user_id, name, name_key, created_at, updated_at) VALUES ('d', 'u', 'D', 'd', 0, 0)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO card (id, user_id, deck_id, front, back, created_at, updated_at) VALUES ('c', 'u', 'd', 'f', 'b', 0, 0)`,
+  );
+
+  writeFileSync(journalPath, full);
+  expect(applyMigrations(opened.db, folder)).toEqual(["0011_scheduling"]);
+
+  expect(opened.db.values(sql`SELECT id, desired_retention FROM deck`)).toEqual([["d", null]]);
+  expect(opened.db.values(sql`SELECT id, state, due_at, reps FROM card`)).toEqual([
+    ["c", "new", null, 0],
+  ]);
+  expect(opened.db.values(sql`SELECT desired_retention FROM user_settings`)).toEqual([[90]]);
+  // The new columns refuse what is out of range.
+  expect(() => opened.db.run(sql`UPDATE deck SET desired_retention = 98`)).toThrow();
+  expect(() => opened.db.run(sql`UPDATE user_settings SET desired_retention = 69`)).toThrow();
 });
