@@ -73,7 +73,7 @@ export function LiveEditor({
   const handlers = useRef({ onChange, onSubmit, onUploading });
   handlers.current = { onChange, onSubmit, onUploading };
   /** What is announced of the uploads that failed, until their tiles go. */
-  const [failures, setFailures] = useState<readonly string[]>([]);
+  const [failures, setFailures] = useState<readonly { key: number; text: string }[]>([]);
   const [takesFiles] = useState(onUpload !== undefined);
 
   const aria = () =>
@@ -99,7 +99,10 @@ export function LiveEditor({
         : new ImageUploads(onUpload, {
             onUploading: (uploading) => handlers.current.onUploading?.(uploading),
             onFailed: (name, message) =>
-              setFailures((current) => [...current, `${name} wasn't added. ${message}`]),
+              setFailures((current) => [
+                ...current,
+                { key: (current.at(-1)?.key ?? 0) + 1, text: `${name} wasn't added. ${message}` },
+              ]),
             onCleared: () => setFailures([]),
           });
     const made = new EditorView({
@@ -183,9 +186,8 @@ export function LiveEditor({
       {takesFiles && (
         // Always there, so each failure added to it is announced.
         <div aria-live="polite" className="sr-only">
-          {failures.map((failure, i) => (
-            // oxlint-disable-next-line no-array-index-key -- the list only ever grows, then clears
-            <p key={i}>{failure}</p>
+          {failures.map((failure) => (
+            <p key={failure.key}>{failure.text}</p>
           ))}
         </div>
       )}

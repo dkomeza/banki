@@ -9,6 +9,7 @@ import {
   ImageUploads,
   pastedFiles,
   pendingField,
+  PLACE_GONE,
   placeReference,
   startUploads,
   type Upload,
@@ -113,6 +114,29 @@ describe("an upload's point", () => {
   });
 });
 
+describe("a finished upload", () => {
+  test("takes a cursor at its point on past it, so typing goes after the picture", () => {
+    const view = editor("", fileUploads(null));
+    const { items, effects } = startUploads(["a.png"], 0);
+    view.dispatch({ effects });
+
+    view.dispatch(finishUpload(view.state, items[0]?.id ?? 0, "images/a.png") ?? {});
+
+    expect(view.state.selection.main.head).toBe(ref("a").length);
+  });
+
+  test("leaves a cursor elsewhere where it is", () => {
+    const view = editor("ab", fileUploads(null));
+    view.dispatch({ selection: { anchor: 0 } });
+    const { items, effects } = startUploads(["a.png"], 2);
+    view.dispatch({ effects });
+
+    view.dispatch(finishUpload(view.state, items[0]?.id ?? 0, "images/a.png") ?? {});
+
+    expect(view.state.selection.main.head).toBe(0);
+  });
+});
+
 describe("uploadFiles", () => {
   test("puts several in, in the order given, however they finish, holding until all are in", async () => {
     const { uploads, answers, heard } = controlledUploads();
@@ -146,6 +170,38 @@ describe("uploadFiles", () => {
     ]);
     expect(heard.failed).toEqual([`notes.pdf: ${IMAGE_FORMAT_MESSAGE}`]);
     // An error tile doesn't hold anything.
+    expect(heard.uploading).toEqual([true, false]);
+  });
+
+  test("shows a failure at once, without waiting for the uploads before it", async () => {
+    const { uploads, answers } = controlledUploads();
+    const view = editor("text", fileUploads(uploads));
+
+    const done = uploadFiles(view, [file("a.png"), file("notes.pdf")], 4);
+    answers[1]?.({ ok: false, message: IMAGE_FORMAT_MESSAGE });
+    await settle();
+    expect(view.state.field(pendingField).map((p) => p.failed)).toEqual([
+      undefined,
+      IMAGE_FORMAT_MESSAGE,
+    ]);
+    answers[0]?.({ ok: true, reference: "images/a.png" });
+    await done;
+
+    expect(view.state.doc.toString()).toBe(`text\n${ref("a")}`);
+  });
+
+  test("says so when its place went before it was done, a redrawn table cell", async () => {
+    const { uploads, answers, heard } = controlledUploads();
+    const view = editor("cell", fileUploads(uploads));
+    const done = uploadFiles(view, [file("a.png")], 4);
+    // The cell is drawn anew, without the upload.
+    view.state = editor("cell", fileUploads(uploads)).state;
+
+    answers[0]?.({ ok: true, reference: "images/a.png" });
+    await done;
+
+    expect(view.state.doc.toString()).toBe("cell");
+    expect(heard.failed).toEqual([`a.png: ${PLACE_GONE}`]);
     expect(heard.uploading).toEqual([true, false]);
   });
 

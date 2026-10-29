@@ -1,6 +1,6 @@
 import { type EditorView, WidgetType } from "@codemirror/view";
 import { ImageOff, SquareArrowOutUpRight } from "lucide-react";
-import { imageFileOf, imageSrc, isImageMissing } from "@/lib/images";
+import { fullSizeHref, imageFileOf, imageSrc, isImageMissing } from "@/lib/images";
 import { iconElement } from "./icons";
 import { treeOf } from "./language";
 import { snapToLines, unsnap } from "./widgets";
@@ -42,10 +42,10 @@ function missingTile(url: string): HTMLElement {
 }
 
 /** "Open full size": the picture in a new tab. */
-function openLink(url: string): HTMLElement {
+function openLink(href: string): HTMLElement {
   const open = document.createElement("a");
   open.className = "cm-lp-image-open";
-  open.href = imageSrc(url);
+  open.href = href;
   open.target = "_blank";
   open.rel = "noopener";
   const label = document.createElement("span");
@@ -90,7 +90,10 @@ export class ImageWidget extends WidgetType {
         if (missing) frame.replaceChildren(missingTile(this.url));
       });
     });
-    frame.append(img, openLink(this.url));
+    frame.append(img);
+    // Only to a web address: never a `javascript:` or `data:` URL.
+    const href = fullSizeHref(this.url, document.baseURI);
+    if (href !== undefined) frame.append(openLink(href));
     box.append(frame);
     box.addEventListener("mousedown", (event) => {
       if (event.target instanceof Element && event.target.closest("a") !== null) return;

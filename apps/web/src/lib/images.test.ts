@@ -1,7 +1,14 @@
 import { describe, expect, test, vi } from "vitest";
 import { createApiClient } from "./api";
 import { CANT_REACH } from "./decks";
-import { imageFileOf, imageFileProblem, isImageMissing, onOwnLine, uploadImage } from "./images";
+import {
+  fullSizeHref,
+  imageFileOf,
+  imageFileProblem,
+  isImageMissing,
+  onOwnLine,
+  uploadImage,
+} from "./images";
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]);
 const pngFile = (size = PNG.byteLength) => {
@@ -129,5 +136,22 @@ describe("imageFileOf", () => {
     expect(imageFileOf("images/0b1c.png")).toBe("0b1c.png");
     expect(imageFileOf("https://example.com/a.png")).toBeUndefined();
     expect(imageFileOf("images/../secret")).toBeUndefined();
+  });
+});
+
+describe("fullSizeHref", () => {
+  const base = "https://banki.example/cards/1";
+
+  test("opens an Image where the API serves it, and a web address as written", () => {
+    expect(fullSizeHref("images/0b1c.png", base)).toBe("/api/images/0b1c.png");
+    expect(fullSizeHref("https://example.com/a.png", base)).toBe("https://example.com/a.png");
+    expect(fullSizeHref("pics/a.png", base)).toBe("pics/a.png");
+  });
+
+  test("opens nothing that isn't a web address", () => {
+    expect(fullSizeHref("javascript:alert(1)", base)).toBeUndefined();
+    expect(fullSizeHref(" JavaScript:alert(1)", base)).toBeUndefined();
+    expect(fullSizeHref("data:text/html,<b>x</b>", base)).toBeUndefined();
+    expect(fullSizeHref("http://[bad", base)).toBeUndefined();
   });
 });

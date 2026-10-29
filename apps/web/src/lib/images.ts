@@ -29,6 +29,21 @@ export function imageSrc(url: string): string {
   return file === undefined ? url : imageUrl(file);
 }
 
+/**
+ * Where "Open full size" may take a picture with this URL: its `src`, when
+ * that is a web page's address (http or https, resolved against `base`), and
+ * nowhere for any other, such as a `javascript:` or `data:` URL.
+ */
+export function fullSizeHref(url: string, base: string): string | undefined {
+  const src = imageSrc(url);
+  try {
+    const { protocol } = new URL(src, base);
+    return protocol === "http:" || protocol === "https:" ? src : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** The Image file a URL names, `images/<file>`, or undefined for any other URL. */
 export const imageFileOf = (url: string) => /^images\/([\w-]+\.[A-Za-z0-9]+)$/.exec(url)?.[1];
 

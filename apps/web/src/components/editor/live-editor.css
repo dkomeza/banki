@@ -606,6 +606,10 @@ div.cm-lp-image-block {
 .cm-lp-image-block .cm-lp-image-img {
   max-height: 16rem;
 }
+/* Room for "Open full size" beside a picture narrower than it. */
+.cm-lp-image-block .cm-lp-image-frame {
+  min-width: min(100%, 10.5rem);
+}
 /* Small, on its line: in a table's cell, or in a line of text. */
 .cm-lp-image-inline .cm-lp-image-frame {
   margin-block: 0.25rem;
@@ -660,11 +664,20 @@ div.cm-lp-image-block {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
-/* On touch, where nothing hovers, a print's is always there. */
+/* On touch, where nothing hovers, it is always there: a small one's beside it. */
 @media (hover: none) {
-  .cm-lp-image-block .cm-lp-image-open {
+  .cm-lp-image .cm-lp-image-open {
     opacity: 1;
     pointer-events: auto;
+  }
+  .cm-lp-image-inline .cm-lp-image-frame {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+  .cm-lp-image-inline .cm-lp-image-frame .cm-lp-image-open {
+    position: static;
+    box-shadow: none;
   }
 }
 /* A small one's is just its icon, on its corner. */
@@ -691,6 +704,7 @@ div.cm-lp-image-block {
   }
   .cm-lp-image-inline .cm-lp-image-open {
     width: 2.75rem;
+    height: 2.75rem;
     padding: 0;
   }
 }

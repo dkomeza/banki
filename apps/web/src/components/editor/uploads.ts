@@ -1,7 +1,6 @@
 import { imageMarkdown } from "@banki/shared";
 import { isolateHistory } from "@codemirror/commands";
 import {
-  type ChangeSpec,
   type EditorState,
   type Extension,
   Facet,
@@ -127,7 +126,11 @@ const dropField = StateField.define<number | null>({
  * The change that puts `markdown` in at `pos`: on a line of its own, or as it
  * is in a table's cell, which holds no line break.
  */
-export function placeReference(state: EditorState, pos: number, markdown: string): ChangeSpec {
+export function placeReference(
+  state: EditorState,
+  pos: number,
+  markdown: string,
+): { from: number; insert: string } {
   if (state.facet(inlineImages)) return { from: pos, insert: markdown };
   const { doc } = state;
   return {
@@ -146,7 +149,9 @@ export function startUploads(names: readonly string[], pos: number) {
 
 /**
  * The transaction that puts the reference of the upload `id` in where its
- * point is now, as one undo step, or null when it has gone.
+ * point is now, as one undo step, or null when it has gone. A cursor at the
+ * point goes on past it, as after any paste, so what is typed next goes after
+ * the picture rather than onto its line.
  */
 export function finishUpload(
   state: EditorState,
@@ -155,8 +160,13 @@ export function finishUpload(
 ): TransactionSpec | null {
   const pending = state.field(pendingField).find((p) => p.id === id);
   if (pending === undefined) return null;
+  const change = placeReference(state, pending.pos, imageMarkdown(reference));
+  const cursor = state.selection.main;
+  const follows =
+    state.selection.ranges.length === 1 && cursor.empty && cursor.head === change.from;
   return {
-    changes: placeReference(state, pending.pos, imageMarkdown(reference)),
+    changes: change,
+    ...(follows ? { selection: { anchor: change.from + change.insert.length } } : {}),
     effects: dropPending.of(id),
     annotations: isolateHistory.of("full"),
     userEvent: "input.image",
@@ -170,12 +180,15 @@ export const failUpload = (id: number, message: string) => failPending.of({ id, 
 type Target = { readonly state: EditorState; dispatch: (spec: TransactionSpec) => void };
 
 const NOT_UPLOADED = "Banki couldn't upload the image. Try again.";
+/** Said of an upload whose place went before it was done: its table cell was redrawn. */
+export const PLACE_GONE = "The table changed while it uploaded. Add it again.";
 
 /**
  * Uploads `files` at once, putting each one's reference in at `pos` as it is
  * done, in the order given: one that finishes early waits for those before
- * it. One that fails turns into an error tile, and the others go on. Nothing
- * happens without uploads or while the editor is read-only.
+ * it. One that fails turns into an error tile as soon as it does, and the
+ * others go on. Nothing happens without uploads or while the editor is
+ * read-only.
  */
 export async function uploadFiles(view: Target, files: readonly File[], pos: number) {
   const uploads = view.state.facet(imageUploads);
@@ -186,18 +199,27 @@ export async function uploadFiles(view: Target, files: readonly File[], pos: num
   );
   view.dispatch({ effects });
   uploads.started(items.length);
-  const outcomes = files.map((file) =>
-    uploads.upload(file).catch((): UploadOutcome => ({ ok: false, message: NOT_UPLOADED })),
+  const outcomes = files.map((file, i) =>
+    uploads
+      .upload(file)
+      .catch((): UploadOutcome => ({ ok: false, message: NOT_UPLOADED }))
+      .then((outcome) => {
+        // A failure has no place to keep, so it shows at once.
+        const item = items[i];
+        if (!outcome.ok && item !== undefined) {
+          view.dispatch({ effects: failUpload(item.id, outcome.message) });
+          uploads.failed(item.name, outcome.message);
+          uploads.finished();
+        }
+        return outcome;
+      }),
   );
   for (const [i, item] of items.entries()) {
-    const outcome = (await outcomes[i]) ?? { ok: false, message: NOT_UPLOADED };
-    if (outcome.ok) {
-      const spec = finishUpload(view.state, item.id, outcome.reference);
-      if (spec !== null) view.dispatch(spec);
-    } else {
-      view.dispatch({ effects: failUpload(item.id, outcome.message) });
-      uploads.failed(item.name, outcome.message);
-    }
+    const outcome = await outcomes[i];
+    if (outcome?.ok !== true) continue;
+    const spec = finishUpload(view.state, item.id, outcome.reference);
+    if (spec === null) uploads.failed(item.name, PLACE_GONE);
+    else view.dispatch(spec);
     uploads.finished();
   }
 }
