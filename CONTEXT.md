@@ -44,6 +44,10 @@ _Avoid_: attachment, upload, asset, media, picture
 One piece of math in a Card, written in LaTeX: inline between `$…$`, or on its own as display math between `$$…$$`. A `\$` is a dollar sign, never the start of a Formula.
 _Avoid_: equation, expression, math block
 
+**Macro**:
+A short name for LaTeX the User writes often, such as `\R` for `\mathbb{R}`, that Formulas can use, with up to nine arguments. Settings hold Macros for every Deck, and a Deck may have its own, which win over Settings' of the same name for its Cards only. A Card's Formulas use the Macros of the Deck it is in now, so a Move can change how they read.
+_Avoid_: shortcut, alias, command (a command is KaTeX's own, such as `\frac`)
+
 **Duplicate**:
 A Card whose Front reads the same as another live Card's in the same Deck, ignoring case, spacing and Markdown formatting, but not what is inside a Formula. Banki warns about a Duplicate as it is written and still saves it; an import skips it.
 _Avoid_: copy, clone, repeat
