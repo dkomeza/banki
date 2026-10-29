@@ -72,6 +72,22 @@ _Avoid_: top level, home folder
 One sitting of studying one deck. It can be resumed, and it ends after a period of inactivity.
 _Avoid_: using "session" for being signed in
 
+**Rating**:
+How well the User recalled a Card: Again, Hard, Good or Easy. The User always gives it, by self-rating or by confirming the Grader's suggestion.
+_Avoid_: grade, score, ease
+
+**Review**:
+One Rating of one Card at one moment, with the time the User spent on it and whether it was self-rated or graded. Reviews are the Card's history: they are what FSRS learns from, and they outlive the Card.
+_Avoid_: answer, attempt, repetition
+
+**Due**:
+A Card is due on the Study day FSRS scheduled it for, from that day's Day start, and stays due until it is reviewed. A Card still in its learning steps is due at an exact moment instead, minutes after its last Review.
+_Avoid_: scheduled, pending
+
+**Desired retention**:
+The share of its Cards the User wants to still remember when they come due, from 70% to 97%: higher means more Reviews. Settings hold one for every Deck, 90% unless the User changes it, and a Deck follows it until it is given its own. Changing it reschedules every Card it applies to at once.
+_Avoid_: target retention (except for a Plan's), retention rate, success rate
+
 **Email**:
 The address the User signs in with, together with the Password. Banki never sends mail to it; it only identifies the User.
 
