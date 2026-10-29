@@ -1,5 +1,6 @@
 import { DEFAULT_AUTO_CLOSE } from "@banki/shared";
-import type { EditorView } from "@codemirror/view";
+import { startCompletion } from "@codemirror/autocomplete";
+import { EditorView } from "@codemirror/view";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Copy } from "lucide-react";
@@ -30,7 +31,10 @@ import {
 } from "@/lib/cards";
 import type { Deck } from "@/lib/decks";
 import { uploadImage } from "@/lib/images";
+import { PROTO_QUERIES, protoSides, protoState } from "@/lib/proto-state";
 import { settingsQueryOptions } from "@/lib/settings";
+import { insertCommand } from "@/components/editor/latex-complete";
+import { COMMANDS } from "@/components/editor/latex-commands";
 import { cn } from "@/lib/utils";
 
 // New card and Edit card are one writing page: a dated page with the two
@@ -43,7 +47,8 @@ import { cn } from "@/lib/utils";
  * error, and whether an Image is on its way up into either side. `onChange`
  * hears of every change to a side, typed or an Image put in.
  */
-export function useCardForm(saved0: Sides, { onChange }: { onChange?: () => void } = {}) {
+export function useCardForm(given: Sides, { onChange }: { onChange?: () => void } = {}) {
+  const saved0 = protoSides(given);
   const [fields, setFields] = useState(saved0);
   const [saved, setSaved] = useState(saved0);
   const [errors, setErrors] = useState<SideErrors>({});
@@ -107,7 +112,9 @@ function Side({
   onSubmit,
   onUploading,
   className,
+  protoCheatsheet,
 }: {
+  protoCheatsheet?: string;
   label: "Front" | "Back";
   readOnly: boolean;
   placeholder: string;
@@ -156,6 +163,7 @@ function Side({
           onSubmit={onSubmit}
           onUpload={uploadImage}
           onUploading={onUploading}
+          protoCheatsheet={protoCheatsheet}
           className={cn(
             // Ruled lines, one per line of text, so it writes like a page.
             "w-full rounded-md bg-[repeating-linear-gradient(to_bottom,transparent_0,transparent_calc(2rem-1px),var(--border)_calc(2rem-1px),var(--border)_2rem)] leading-[2rem]",
@@ -245,6 +253,7 @@ export function CardEditor({
     onUploading: (uploading: boolean) => form.setUploading(side, uploading),
   });
   useEffect(keepDroppedFiles, []);
+  useProtoState(form);
   return (
     <Page width="reading">
       <div className="flex flex-col gap-6 lg:gap-8">
@@ -274,6 +283,7 @@ export function CardEditor({
             placeholder="What to be asked"
             note={duplicates.length > 0 ? <DuplicateNote duplicates={duplicates} /> : null}
             autoFocus={autoFocus}
+            protoCheatsheet={protoState === null ? undefined : PROTO_QUERIES[protoState]}
             {...sideProps("front")}
           />
           <Side
@@ -349,6 +359,58 @@ function keepDroppedFiles() {
     window.removeEventListener("dragover", keep);
     window.removeEventListener("drop", keep);
   };
+}
+
+/** Prototype only: puts the editor in the `?state=` the page was opened with. */
+function useProtoState(form: CardForm) {
+  useEffect(() => {
+    const front = form.frontRef.current;
+    const back = form.backRef.current;
+    if (front === null || back === null || protoState === null) return undefined;
+    const afterFr = (view: EditorView) => view.state.doc.toString().indexOf("\\fr$") + 3;
+    if (protoState === "completing-cell") {
+      // Focusing the side redraws its grid, so the cell is found again after.
+      const find = () => {
+        for (const el of back.dom.querySelectorAll(".cm-lp-cell .cm-editor")) {
+          const cell = el instanceof HTMLElement ? EditorView.findFromDOM(el) : null;
+          if (cell !== null && cell.state.doc.toString().includes("\\fr$")) return cell;
+        }
+        return null;
+      };
+      find()?.focus();
+      const later = setTimeout(() => {
+        const cell = find();
+        if (cell === null) return;
+        cell.focus();
+        cell.dispatch({ selection: { anchor: afterFr(cell) } });
+        startCompletion(cell);
+      }, 150);
+      return () => clearTimeout(later);
+    }
+    const timer = setTimeout(() => {
+      switch (protoState) {
+        case "completing": {
+          front.focus();
+          front.dispatch({ selection: { anchor: afterFr(front) } });
+          startCompletion(front);
+          break;
+        }
+        case "slots": {
+          front.focus();
+          const at = afterFr(front);
+          const frac = COMMANDS.find((command) => command.name === "\\frac");
+          if (frac !== undefined) insertCommand(front, frac, at - 3, at);
+          break;
+        }
+        default:
+          if (protoState !== null && protoState in PROTO_QUERIES) {
+            front.dispatch({ selection: { anchor: front.state.doc.line(1).to } });
+          }
+      }
+    }, 200);
+    return () => clearTimeout(timer);
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 }
 
 /** Nothing is dragged on a Card's page, so nothing is ever dropped on its crumbs. */
