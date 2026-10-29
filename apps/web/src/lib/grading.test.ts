@@ -16,6 +16,7 @@ const SETTINGS = {
   dayStartHour: 4,
   model: "anthropic/claude-haiku-5.5",
   apiKey: { state: "set", lastFour: "3f9a" },
+  autoClose: "brackets",
 } as const;
 
 /** A fake API answering every request with `status` and `body`, recording what it was sent. */
