@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { CARD_SIDE_MAX_LENGTH, CardSide } from "./cards";
-import { CARD_TAGS_MAX, CardTags, TAG_MAX_LENGTH } from "./tags";
+import { CARD_TAGS_MAX, cardTags, TAG_MAX_LENGTH } from "./tags";
 
 /** The longest a Card's grading notes may be. BAN-37 adopts the same limit. */
 export const GRADING_NOTES_MAX_LENGTH = 2_000;
@@ -84,12 +84,9 @@ export const CardFileCard = z
         .describe(
           `The Card's Back, by the same rules as the front: Markdown with LaTeX, not blank, up to ${CARD_SIDE_MAX_LENGTH.toLocaleString("en-GB")} characters, kept exactly as written.`,
         ),
-      tags: z
-        .array(z.string({ error: "A tag is text" }), { error: missing("tags", "a list") })
-        .pipe(CardTags)
-        .describe(
-          `The Card's Tags, [] for none: each one word of letters, digits, - and _, up to ${TAG_MAX_LENGTH} characters, and at most ${CARD_TAGS_MAX} of them. They are lowercased, and duplicates are dropped.`,
-        ),
+      tags: cardTags({ error: missing("tags", "a list") }).describe(
+        `The Card's Tags, [] for none: each one word of letters, digits, - and _, up to ${TAG_MAX_LENGTH} characters, and at most ${CARD_TAGS_MAX} of them. They are lowercased, and duplicates are dropped.`,
+      ),
       gradingNotes: z
         .string({ error: missing("gradingNotes", "text or null") })
         .refine(
@@ -147,19 +144,27 @@ export const CardFile = z
         ),
       macros: z
         .array(CardFileMacro, { error: missing("macros", "a list") })
-        .superRefine((macros, ctx) => {
-          const seen = new Set<string>();
-          for (const [index, { name }] of macros.entries()) {
-            if (seen.has(name)) {
-              ctx.addIssue({
-                code: "custom",
-                message: `${name} is defined more than once`,
-                path: [index, "name"],
-              });
+        .superRefine(
+          (macros: unknown[], ctx) => {
+            const seen = new Set<string>();
+            for (const [index, macro] of macros.entries()) {
+              const name =
+                typeof macro === "object" && macro !== null && "name" in macro && macro.name;
+              if (typeof name !== "string") continue;
+              if (seen.has(name)) {
+                ctx.addIssue({
+                  code: "custom",
+                  message: `${name} is defined more than once`,
+                  path: [index, "name"],
+                });
+              }
+              seen.add(name);
             }
-            seen.add(name);
-          }
-        })
+          },
+          // A repeat is said even beside another macro's problem, so an
+          // import lists every problem of the file it refuses.
+          { when: (payload) => Array.isArray(payload.value) },
+        )
         .describe(
           "The macros the Cards' Formulas were written with, [] for none. No name appears twice. A Card may use a macro that isn't listed.",
         ),

@@ -186,6 +186,14 @@ describe("parseCardFile refuses a file with an invalid macro", () => {
     expect(refused(withMacros([macro]))).toEqual([problem]);
   });
 
+  test("defined twice, beside another macro's problem", () => {
+    const macros = [{ name: "\\R", definition: "x" }, { name: "\\R" }];
+    expect(refused(withMacros(macros))).toEqual([
+      'macro 2, "definition": "definition" is missing',
+      'macro 2, "name": \\R is defined more than once',
+    ]);
+  });
+
   test("defined twice, at the repeat", () => {
     const macros = [
       { name: "\\R", definition: "\\mathbb{R}" },
@@ -250,6 +258,39 @@ describe("parseCardFile skips an invalid Card", () => {
 
   test("with a side of 20,000 characters kept", () => {
     expect(read(withCards([card("a".repeat(20_000))])).invalid).toEqual([]);
+  });
+
+  test("listing too many Tags beside a bad one", () => {
+    const tags = ["A b", ...Array.from({ length: 21 }, (_, i) => `t${i}`)];
+    expect(invalidOf(withCards([card("a", { tags })]))).toEqual([
+      [
+        1,
+        [
+          'card 1, "tags" #1: "A b": A tag is one word: letters, digits, - and _.',
+          'card 1, "tags": A card carries up to 20 tags',
+        ],
+      ],
+    ]);
+  });
+
+  test("counting Tags ignoring case, the bad one too", () => {
+    const tags = ["A b", ...Array.from({ length: 19 }, (_, i) => `t${i}`), "T0"];
+    expect(invalidOf(withCards([card("a", { tags })]))).toEqual([
+      [1, ['card 1, "tags" #1: "A b": A tag is one word: letters, digits, - and _.']],
+    ]);
+  });
+
+  test("listing a bad Tag beside one that isn't text", () => {
+    expect(invalidOf(withCards([card("a", { tags: [5, "Foo Bar", null] })]))).toEqual([
+      [
+        1,
+        [
+          'card 1, "tags" #1: 5: A tag is text',
+          'card 1, "tags" #2: "Foo Bar": A tag is one word: letters, digits, - and _.',
+          'card 1, "tags" #3: null: A tag is text',
+        ],
+      ],
+    ]);
   });
 
   test("listing all its problems, in field order", () => {
