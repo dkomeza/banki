@@ -78,6 +78,36 @@ export function EditorToolbar({
       className="editor-toolbar"
       onKeyDown={onKeyDown}
     >
+      {onImages !== undefined && (
+        <>
+          <input
+            ref={picker}
+            type="file"
+            accept={IMAGE_ACCEPT}
+            multiple
+            hidden
+            onChange={(event) => {
+              const files = [...(event.target.files ?? [])];
+              // Cleared, so picking the same file again is a change too.
+              event.target.value = "";
+              onImages(files);
+            }}
+          />
+          <button
+            type="button"
+            tabIndex={0}
+            aria-label="Image"
+            title="Image"
+            disabled={disabled}
+            className="editor-toolbar-button editor-toolbar-image"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => picker.current?.click()}
+          >
+            <ImagePlus aria-hidden className="size-4" strokeWidth={2.1} />
+          </button>
+          <span aria-hidden className="editor-toolbar-separator" />
+        </>
+      )}
       {TOOLS.map((tool, i) => {
         const Icon = tool.icon;
         const startsGroup = i > 0 && TOOLS[i - 1]?.group !== tool.group;
@@ -86,7 +116,7 @@ export function EditorToolbar({
             {startsGroup && <span aria-hidden className="editor-toolbar-separator" />}
             <button
               type="button"
-              tabIndex={i === 0 ? 0 : -1}
+              tabIndex={i === 0 && onImages === undefined ? 0 : -1}
               aria-label={tool.label}
               aria-keyshortcuts={
                 tool.key === undefined ? undefined : `Control+${tool.key} Meta+${tool.key}`
@@ -103,36 +133,6 @@ export function EditorToolbar({
           </Fragment>
         );
       })}
-      {onImages !== undefined && (
-        <>
-          <span aria-hidden className="editor-toolbar-separator" />
-          <input
-            ref={picker}
-            type="file"
-            accept={IMAGE_ACCEPT}
-            multiple
-            hidden
-            onChange={(event) => {
-              const files = [...(event.target.files ?? [])];
-              // Cleared, so picking the same file again is a change too.
-              event.target.value = "";
-              onImages(files);
-            }}
-          />
-          <button
-            type="button"
-            tabIndex={-1}
-            aria-label="Image"
-            title="Image"
-            disabled={disabled}
-            className="editor-toolbar-button editor-toolbar-image"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => picker.current?.click()}
-          >
-            <ImagePlus aria-hidden className="size-4" strokeWidth={2.1} />
-          </button>
-        </>
-      )}
     </div>
   );
 }

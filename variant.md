@@ -1,13 +1,13 @@
-# a: On the rules
+# c: Full width
 
-Bet: an Image sits on the page like a pasted-in print, left-aligned and at most eight lines tall, and everything transient about it (uploading, an error) is one ruled line of text, so the side never jumps while files go up.
+Bet: a picture is a plate as wide as the side, letterboxed at one fixed height, so every picture in a Card reads at the same size and the text keeps one column; what is transient is a small chip on its own line, and the Image button leads the toolbar.
 
-- Picture: its own size up to the side's width and 16 rem tall, a hairline border; "Open full size" is a pill on its top-right corner on hover or focus (always on touch).
-- Uploading: a muted line, "⟳ Uploading **name**", in place of the line the reference will take.
-- Error: the same line in red, "⚠ **name** message ×".
-- Missing: a dashed tile the shape of a small print, "Missing image" and the file name.
-- Drop cursor: an accent rule between lines, tagged "Drop to add here" at its end.
-- Toolbar: the Image button ends the pill after a separator; on a phone it is pinned at the ink bar's end while the other tools scroll.
-- Table cell: a small framed thumbnail, 3 rem tall.
+- Picture: the side's full width, 15 rem tall (11 rem on a phone), the picture contained on a muted ground; "Open full size" is a round ink icon button in its bottom corner on hover or focus (always on touch), named for screen readers.
+- Uploading: an accent-tinted chip, spinner and the file's name, with a thin bar running under it.
+- Error: a red chip, "⚠ **name** · message ×".
+- Missing: a dashed plate, "Missing image" and the file name.
+- Drop cursor: the side tinted with the accent, and a caret-like accent rule (a ring at its start) between lines, "Drop to add here" under its end.
+- Toolbar: the Image button comes first, in the accent; on a phone it is the first key of the ink bar, on an accent ground.
+- Table cell: the picture fills the cell's width on a muted ground, 4 rem tall.
 
 States: picture, source, uploading, failed, missing, dragging, table, toolbar

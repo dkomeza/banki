@@ -580,71 +580,98 @@ tbody tr:nth-child(even) > .cm-lp-cell {
 }
 
 /*
- * Images (BAN-20), Variant a, "On the rules": a picture sits on the page like
- * a pasted-in print, left-aligned, as wide as it is up to the side's width
- * and eight lines tall; everything transient about an Image (uploading, an
- * error) is one ruled line of text, so the side never jumps by more than a
- * line while files go up.
+ * Images (BAN-20), Variant c, "Full width": a picture is a plate as wide as
+ * the side, letterboxed on a muted ground at a fixed height of whole lines,
+ * so every picture in a Card reads at one size; what is transient (an upload,
+ * an error) is a small chip on its own line, and the Image button comes
+ * first in the toolbar.
  */
 .cm-lp-image-block {
   padding: 0.5rem 0.25rem;
 }
 .cm-lp-image-frame {
   position: relative;
-  align-self: flex-start;
   display: inline-block;
   max-width: 100%;
   vertical-align: top;
 }
+.cm-lp-image-block .cm-lp-image-frame {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 15rem;
+  overflow: hidden;
+  border-radius: 0.75rem;
+  background: var(--muted);
+}
 .cm-lp-image-block .cm-lp-image-img {
   display: block;
   max-width: 100%;
-  max-height: 16rem;
-  border: 1px solid var(--border);
-  border-radius: 0.375rem;
-  background: var(--background);
+  max-height: 100%;
+  object-fit: contain;
   cursor: text;
 }
-.cm-lp-image-inline .cm-lp-image-img {
-  display: inline-block;
-  max-height: 3rem;
-  max-width: 6rem;
-  margin-block: 0.25rem;
-  border: 1px solid var(--border);
-  border-radius: 0.25rem;
-  vertical-align: middle;
-  background: var(--background);
+@media (max-width: 639.98px) {
+  .cm-lp-image-block .cm-lp-image-frame {
+    height: 11rem;
+  }
 }
-/* "Open full size": a small pill on the print's top-right corner. */
+.cm-lp-image-inline .cm-lp-image-frame {
+  display: inline-flex;
+  width: 100%;
+  min-width: 6rem;
+  height: 4rem;
+  margin-block: 0.25rem;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 0.375rem;
+  background: var(--muted);
+  vertical-align: middle;
+}
+.cm-lp-image-inline .cm-lp-image-img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+/* "Open full size": a round icon button in the plate's corner. */
 .cm-lp-image-open {
   position: absolute;
-  top: 0.5rem;
   right: 0.5rem;
+  bottom: 0.5rem;
   display: inline-flex;
+  width: 2.25rem;
+  height: 2.25rem;
   align-items: center;
-  gap: 0.375rem;
-  height: 2rem;
-  padding: 0 0.75rem 0 0.625rem;
-  border: 1px solid var(--border);
+  justify-content: center;
   border-radius: 999px;
-  background: var(--popover);
-  color: var(--foreground);
-  box-shadow: 0 6px 16px -10px var(--lp-shadow);
-  font-size: 0.8125rem;
-  font-weight: 500;
-  line-height: 1;
-  letter-spacing: normal;
+  background: var(--foreground);
+  color: var(--background);
+  box-shadow: 0 6px 16px -8px var(--lp-shadow);
   text-decoration: none;
-  white-space: nowrap;
   opacity: 0;
   transition: opacity 120ms ease;
 }
+.cm-lp-image-open-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.cm-lp-image-open-icon {
+  display: inline-flex;
+}
 .cm-lp-image-open-icon svg {
-  width: 0.9rem;
-  height: 0.9rem;
+  width: 1rem;
+  height: 1rem;
 }
 .cm-lp-image-open:hover {
-  color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-foreground);
 }
 .cm-lp-image:hover .cm-lp-image-open,
 .cm-lp-image-show .cm-lp-image-open,
@@ -662,32 +689,36 @@ tbody tr:nth-child(even) > .cm-lp-cell {
 }
 @media (max-width: 1023.98px) {
   .cm-lp-image-open {
+    width: 2.75rem;
     height: 2.75rem;
-    padding: 0 0.875rem 0 0.75rem;
   }
 }
-/* A picture that isn't there: a dashed tile of the print's shape. */
+/* A missing Image: the plate, empty, saying so. */
 .cm-lp-image-missing {
-  display: inline-flex;
+  display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 0.125rem;
-  width: 14rem;
   max-width: 100%;
-  height: 7rem;
   padding: 0 1rem;
-  border: 1px dashed color-mix(in oklab, var(--muted-foreground) 55%, transparent);
-  border-radius: 0.375rem;
   color: var(--muted-foreground);
   font-size: 0.8125rem;
   font-weight: 500;
   line-height: 1.25rem;
   letter-spacing: normal;
 }
+.cm-lp-image-block .cm-lp-image-frame:has(.cm-lp-image-missing) {
+  height: 7rem;
+  border: 1px dashed color-mix(in oklab, var(--muted-foreground) 50%, transparent);
+  background: transparent;
+}
+.cm-lp-image-missing-icon {
+  display: inline-flex;
+}
 .cm-lp-image-missing-icon svg {
-  width: 1.1rem;
-  height: 1.1rem;
+  width: 1.25rem;
+  height: 1.25rem;
 }
 .cm-lp-image-missing-name {
   max-width: 100%;
@@ -698,33 +729,36 @@ tbody tr:nth-child(even) > .cm-lp-cell {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.cm-lp-image-inline .cm-lp-image-missing {
-  width: 6rem;
-  height: 3rem;
-  vertical-align: middle;
-}
 .cm-lp-image-inline .cm-lp-image-missing-name {
   display: none;
 }
 
-/* Uploading: a line of muted text on its rule, a spinner in the accent. */
+/* Uploading and failed: a chip on a line of its own. */
 .cm-lp-upload,
 .cm-lp-failed {
   padding: 0 0.25rem;
 }
 .cm-lp-upload-content,
 .cm-lp-failed-content {
-  display: flex;
+  position: relative;
+  display: inline-flex;
+  align-self: flex-start;
   align-items: center;
   gap: 0.5rem;
-  min-height: 2rem;
-  font-size: 0.875rem;
-  font-weight: 400;
+  max-width: 100%;
+  min-height: 1.75rem;
+  margin-block: 0.125rem;
+  padding: 0.125rem 0.75rem 0.125rem 0.5rem;
+  overflow: hidden;
+  border-radius: 999px;
+  font-size: 0.8125rem;
+  font-weight: 500;
   line-height: 1.25rem;
   letter-spacing: normal;
 }
 .cm-lp-upload-content {
-  color: var(--muted-foreground);
+  background: color-mix(in oklab, var(--primary) 12%, var(--card));
+  color: var(--foreground);
 }
 .cm-lp-upload-icon,
 .cm-lp-failed-icon {
@@ -733,66 +767,85 @@ tbody tr:nth-child(even) > .cm-lp-cell {
 }
 .cm-lp-upload-icon svg,
 .cm-lp-failed-icon svg {
-  width: 1rem;
-  height: 1rem;
+  width: 0.95rem;
+  height: 0.95rem;
 }
 .cm-lp-upload-icon {
   color: var(--primary);
   animation: cm-lp-spin 0.9s linear infinite;
 }
+.cm-lp-upload-verb {
+  display: none;
+}
 .cm-lp-upload-text,
 .cm-lp-failed-text {
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cm-lp-failed-text {
+  white-space: normal;
   overflow-wrap: anywhere;
 }
 .cm-lp-upload-name,
 .cm-lp-failed-name {
   font-weight: 600;
-  color: var(--foreground);
+}
+.cm-lp-failed-name::after {
+  content: " ·";
 }
 .cm-lp-upload-bar {
-  display: none;
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  overflow: hidden;
+}
+.cm-lp-upload-bar::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -40%;
+  width: 40%;
+  background: var(--primary);
+  content: "";
+  animation: cm-lp-run 1.2s ease-in-out infinite;
 }
 @keyframes cm-lp-spin {
   to {
     transform: rotate(360deg);
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .cm-lp-upload-icon {
-    animation: none;
-  }
-  .cm-lp-image-open {
-    transition: none;
+@keyframes cm-lp-run {
+  to {
+    left: 100%;
   }
 }
-
-/* Failed: the same line in red, with a × at its end. */
 .cm-lp-failed-content {
-  color: var(--destructive);
-}
-.cm-lp-failed-name {
+  padding-right: 0.125rem;
+  border-radius: 1rem;
+  background: color-mix(in oklab, var(--destructive) 10%, var(--card));
   color: var(--destructive);
 }
 .cm-lp-failed-dismiss {
   display: inline-flex;
   flex-shrink: 0;
-  width: 1.75rem;
-  height: 1.75rem;
-  margin-left: auto;
+  width: 1.5rem;
+  height: 1.5rem;
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  color: var(--muted-foreground);
+  color: var(--destructive);
   cursor: pointer;
 }
 .cm-lp-failed-dismiss svg {
-  width: 0.95rem;
-  height: 0.95rem;
+  width: 0.875rem;
+  height: 0.875rem;
 }
 .cm-lp-failed-dismiss:hover {
-  background: var(--accent);
-  color: var(--foreground);
+  background: color-mix(in oklab, var(--destructive) 14%, transparent);
 }
 .cm-lp-failed-dismiss:focus-visible {
   outline: 2px solid var(--ring);
@@ -802,11 +855,25 @@ tbody tr:nth-child(even) > .cm-lp-cell {
   .cm-lp-failed-dismiss {
     width: 2.75rem;
     height: 2.75rem;
-    margin-block: -0.375rem;
+    margin-block: -0.5rem;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cm-lp-upload-icon,
+  .cm-lp-upload-bar::after {
+    animation: none;
+  }
+  .cm-lp-image-open {
+    transition: none;
   }
 }
 
-/* The drop cursor: an accent rule between lines, with a tag at its start. */
+/* While files are dragged over a side: the side tinted, and a caret-like accent rule where they'd go. */
+.live-editor .cm-editor.cm-lp-dragover {
+  border-radius: 0.375rem;
+  background: color-mix(in oklab, var(--primary) 7%, transparent);
+  box-shadow: 0 0 0 0.375rem color-mix(in oklab, var(--primary) 7%, transparent);
+}
 .cm-lp-drop {
   position: relative;
   height: 0;
@@ -815,23 +882,30 @@ tbody tr:nth-child(even) > .cm-lp-cell {
   position: absolute;
   top: -1px;
   right: 0;
-  left: 0;
-  height: 3px;
-  border-radius: 999px;
+  left: 0.875rem;
+  height: 2px;
   background: var(--primary);
+  content: "";
+}
+.cm-lp-drop::after {
+  position: absolute;
+  top: -0.4rem;
+  left: 0.125rem;
+  width: 0.8rem;
+  height: 0.8rem;
+  border: 2px solid var(--primary);
+  border-radius: 999px;
+  background: var(--card);
   content: "";
 }
 .cm-lp-drop-label {
   position: absolute;
-  top: -0.7rem;
+  top: 0.25rem;
   right: 0;
-  padding: 0 0.5rem;
-  border-radius: 999px;
-  background: var(--primary);
-  color: var(--primary-foreground);
+  color: var(--primary);
   font-size: 0.6875rem;
   font-weight: 600;
-  line-height: 1.375rem;
+  line-height: 1rem;
   letter-spacing: normal;
 }
 
@@ -841,14 +915,13 @@ tbody tr:nth-child(even) > .cm-lp-cell {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.86em;
 }
-/* On a phone the Image button stays at the ink bar's end while the rest scrolls. */
+/* The Image button leads the toolbar, in the accent. */
+.editor-toolbar-image {
+  color: var(--primary);
+}
 @media (max-width: 639.98px) {
   .editor-toolbar-image {
-    position: sticky;
-    right: -0.1875rem;
-    margin-left: 0.25rem;
-    border-left: 1px solid color-mix(in oklab, var(--background) 25%, transparent);
-    border-radius: 0 999px 999px 0;
-    background: var(--foreground);
+    color: var(--background);
+    background: color-mix(in oklab, var(--primary) 70%, var(--foreground));
   }
 }
