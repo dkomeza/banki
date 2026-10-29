@@ -34,6 +34,7 @@ export function Combobox({
   noMatch,
   chevron = false,
   renderOption,
+  autoFocus = false,
 }: {
   options: readonly ComboboxOption[];
   value: string | null;
@@ -50,6 +51,8 @@ export function Combobox({
   chevron?: boolean;
   /** Draws an option in the list, in place of its label and detail on one line. */
   renderOption?: (option: ComboboxOption) => ReactNode;
+  /** PROTOTYPE: focuses (and so opens) the picker on mount. */
+  autoFocus?: boolean;
 }) {
   const id = useId();
   const [open, setOpen] = useState(false);
@@ -106,6 +109,7 @@ export function Combobox({
     <div className="relative">
       <Input
         ref={inputRef}
+        autoFocus={autoFocus}
         role="combobox"
         aria-expanded={open}
         // Only while the list is there to point at.
