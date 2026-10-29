@@ -66,6 +66,17 @@ export {
   RestoreDeletionsResponse,
   RestoreResponse,
 } from "./deletions";
+export {
+  CARD_FILE_JSON_SCHEMA,
+  CARD_FILE_SCHEMA_PATH,
+  CARD_FILE_VERSION,
+  CardFile,
+  CardFileCard,
+  CardFileMacro,
+  GRADING_NOTES_MAX_LENGTH,
+  NEWER_BANKI_MESSAGE,
+  NOT_A_CARD_FILE_MESSAGE,
+} from "./card-file";
 export { CARD_EXTENSIONS, type CardNode, cardParser, Formula } from "./card-parser";
 export { ApiError } from "./error";
 export { frontKey } from "./front-key";

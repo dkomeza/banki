@@ -28,6 +28,7 @@ import { folderRoutes } from "./routes/folders";
 import { healthRoutes } from "./routes/health";
 import { imageRoutes } from "./routes/images";
 import { meRoutes } from "./routes/me";
+import { schemaRoutes } from "./routes/schemas";
 import { settingsRoutes } from "./routes/settings";
 import { setupRoutes } from "./routes/setup";
 import { tagRoutes } from "./routes/tags";
@@ -44,6 +45,7 @@ const PUBLIC_ROUTES: PublicRoutes = new Set([
   "POST /api/auth/sign-in/email",
   "POST /api/auth/sign-out",
   "GET /api/auth/get-session",
+  "GET /api/schemas/card-file-v1.json",
 ]);
 
 /** A limiter of attempts at something that takes the Password, as strict as sign-in's. */
@@ -125,7 +127,8 @@ export function createApp(
     .route("/api/tags", tagRoutes({ cards }))
     .route("/api/folders", folderRoutes({ folders }))
     .route("/api/deletions", deletionRoutes({ deletions }))
-    .route("/api/images", imageRoutes({ images }));
+    .route("/api/images", imageRoutes({ images }))
+    .route("/api/schemas", schemaRoutes());
   app.notFound(notFound);
   app.onError(internalError);
 
