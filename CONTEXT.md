@@ -104,6 +104,10 @@ _Avoid_: retrievability, strength, score
 The share of its Cards the User wants to still remember when they come due, from 70% to 97%: higher means more Reviews. Settings hold one for every Deck, 90% unless the User changes it, and a Deck follows it until it is given its own. Changing it reschedules every Card it applies to at once.
 _Avoid_: target retention (except for a Plan's), retention rate, success rate
 
+**Recall rate**:
+The share of the review Cards a Session showed that the User recalled the first time: their first Rating in it wasn't Again. New Cards and Cards in their learning steps don't count, so it measures what Desired retention aims at. A Session with no review Card has none.
+_Avoid_: accuracy, score, retention (alone)
+
 **Email**:
 The address the User signs in with, together with the Password. Banki never sends mail to it; it only identifies the User.
 
