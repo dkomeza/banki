@@ -24,6 +24,8 @@ import {
   studyApi,
 } from "@/lib/study";
 import { cn } from "@/lib/utils";
+import type { Summary } from "@/proto/fixture";
+import { SummaryView } from "@/proto/summary";
 
 // The study screen ("Focus"): it leaves the shell and takes the whole window,
 // with nothing but the Card on plain paper. A thin top bar holds close (×),
@@ -106,6 +108,42 @@ export function StudyScreen({ deck }: { deck: Deck }) {
         )}
       </main>
       {state.phase === "card" && session !== undefined && <Dock session={session} state={state} />}
+      <Toaster />
+    </div>
+  );
+}
+
+/** Prototype only: the summary a `?state=summary…` shows, in the study screen's frame, with a Rating standing so Undo is on. */
+export function SummaryPreview({ deck, summary }: { deck: Deck; summary: Summary }) {
+  const navigate = useNavigate();
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape")
+        void navigate({ to: "/decks/$deckId", params: { deckId: deck.id } });
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [navigate, deck.id]);
+  const state: StudyState = {
+    phase: "done",
+    shown: undefined,
+    previewedAt: 0,
+    revealed: false,
+    saving: undefined,
+    undoing: false,
+    failure: undefined,
+    rated: summary.studied,
+    ratable: false,
+    undone: false,
+    newHeld: summary.newHeld,
+    loadingMore: false,
+  };
+  return (
+    <div className="flex min-h-svh flex-col pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]">
+      <TopBar deck={deck} state={state} onUndo={() => toast("Undo isn't wired up in the prototype")} />
+      <main className="flex flex-1 flex-col">
+        <SummaryView deck={deck} summary={summary} />
+      </main>
       <Toaster />
     </div>
   );

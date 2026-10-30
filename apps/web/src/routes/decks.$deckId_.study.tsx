@@ -3,9 +3,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import { DeckMacros } from "@/components/cards/deck-macros";
 import { DeckNotFound } from "@/components/not-found";
 import { Page } from "@/components/page";
-import { StudyScreen } from "@/components/study/study-screen";
+import { StudyScreen, SummaryPreview } from "@/components/study/study-screen";
 import { deckQueryOptions } from "@/lib/decks";
 import { settingsQueryOptions } from "@/lib/settings";
+import { summaryFixture } from "@/proto/fixture";
 
 // The study screen: full-screen, outside the shell, with nothing but the Card.
 
@@ -23,6 +24,7 @@ export const Route = createFileRoute("/decks/$deckId_/study")({
 function StudyPage() {
   const { deckId } = Route.useParams();
   const { data: deck } = useSuspenseQuery(deckQueryOptions(deckId));
+  const summary = summaryFixture();
   if (deck === null)
     return (
       <Page width="reading">
@@ -31,7 +33,11 @@ function StudyPage() {
     );
   return (
     <DeckMacros own={deck.macros}>
-      <StudyScreen key={deck.id} deck={deck} />
+      {summary !== undefined ? (
+        <SummaryPreview deck={deck} summary={summary} />
+      ) : (
+        <StudyScreen key={deck.id} deck={deck} />
+      )}
     </DeckMacros>
   );
 }

@@ -1,6 +1,6 @@
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
-import { CornerDownRight, Pencil, Play, Settings2, Trash2 } from "lucide-react";
+import { CornerDownRight, Pencil, Settings2, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { DeckMacros } from "@/components/cards/deck-macros";
 import { deleteAllWithUndo, showMovedToast } from "@/components/cards/card-toasts";
@@ -15,7 +15,7 @@ import { Breadcrumb } from "@/components/folders/breadcrumb";
 import { placeRoute, usePlaceActions } from "@/components/folders/place-actions";
 import { useLibrary } from "@/components/folders/use-library";
 import { Page } from "@/components/page";
-import { OUTLINE_PILL, PILL } from "@/components/settings/parts";
+import { OUTLINE_PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
 import { type Card, cardCountLabel, cardsQueryOptions, moveCards } from "@/lib/cards";
 import {
@@ -32,6 +32,7 @@ import { useSelection } from "@/lib/selection";
 import { settingsQueryOptions } from "@/lib/settings";
 import { deckSearch, rememberDeckSearch } from "@/lib/tags";
 import { cn } from "@/lib/utils";
+import { StudyLine } from "@/proto/study-line";
 
 // The deck page opens with the breadcrumb from "Decks" down to the Deck, then
 // the Deck's stack, its cover on top, beside the name and the whole
@@ -171,15 +172,8 @@ function DeckBody({ deck }: { deck: Deck }) {
               {deckRetentionLabel(deck.desiredRetention, desiredRetention)}
             </Link>
           </p>
+          <StudyLine deck={deck} />
           <div className="flex shrink-0 flex-wrap gap-2 pt-1">
-            <Button
-              className={cn(PILL, "h-11 text-primary-foreground no-underline")}
-              render={<Link to="/decks/$deckId/study" params={{ deckId: deck.id }} />}
-              nativeButton={false}
-            >
-              <Play aria-hidden />
-              Study
-            </Button>
             <Button
               variant="outline"
               className={cn(OUTLINE_PILL, "h-11")}
