@@ -126,6 +126,8 @@ describe("migrations", () => {
       "0009_images",
       "0010_auto_close",
       "0011_scheduling",
+      "0012_soft_cap",
+      "0013_macros",
     ]);
     first.close();
 

@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import type { Card } from "./cards";
 import {
   CARD_GONE,
+  MORE_FAILED,
   NEXT_FAILED,
   type NextCard,
   type Progress,
@@ -105,7 +106,8 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 /**
  * A fake study API over a Queue of Cards, answering each call at once unless
- * the test makes it fail, and recording every call.
+ * the test makes it fail, and recording every call. Once the Queue is empty it
+ * answers `held` New cards held back.
  */
 function fakeApi(queue: NextCard[]) {
   const calls = {
@@ -115,11 +117,15 @@ function fakeApi(queue: NextCard[]) {
   };
   let reviews = 0;
   const fail = { next: false, rate: false as boolean | "gone", undo: false as boolean | "gone" };
+  const held = { count: 0 };
   const api: StudyApi = {
     next: async (progress) => {
       calls.next.push(progress);
       if (fail.next) throw new Error("offline");
-      return queue.shift() ?? null;
+      const shown = queue.shift();
+      return shown === undefined
+        ? { next: null, newHeld: held.count }
+        : { next: shown, newHeld: 0 };
     },
     rate: async (cardId, rating, durationMs) => {
       calls.rate.push({ cardId, rating, durationMs });
@@ -136,7 +142,7 @@ function fakeApi(queue: NextCard[]) {
       return { card: card(cardId), intervals: intervals(`${cardId}-undone`) };
     },
   };
-  return { api, calls, fail };
+  return { api, calls, fail, held, queue };
 }
 
 function setUp(queue: NextCard[]) {
@@ -211,12 +217,12 @@ describe("a Session", () => {
     await revealAndRate(t, "good");
 
     expect(t.calls.next).toEqual([
-      { reviewsShown: 0, newShown: 0, after: undefined },
-      { reviewsShown: 1, newShown: 0, after: "a" },
-      { reviewsShown: 1, newShown: 1, after: "b" },
+      { reviewsShown: 0, newShown: 0, batches: 1, after: undefined },
+      { reviewsShown: 1, newShown: 0, batches: 1, after: "a" },
+      { reviewsShown: 1, newShown: 1, batches: 1, after: "b" },
       // a came back from its learning step, and c was a learning Card from before: neither counts.
-      { reviewsShown: 1, newShown: 1, after: "a" },
-      { reviewsShown: 1, newShown: 1, after: "c" },
+      { reviewsShown: 1, newShown: 1, batches: 1, after: "a" },
+      { reviewsShown: 1, newShown: 1, batches: 1, after: "c" },
     ]);
   });
 
@@ -283,7 +289,7 @@ describe("a Session", () => {
     await flush();
 
     expect(t.calls.rate.map((r) => r.durationMs)).toEqual([3000, 4500]);
-    expect(t.calls.next.at(-1)).toEqual({ reviewsShown: 1, newShown: 1, after: "a" });
+    expect(t.calls.next.at(-1)).toEqual({ reviewsShown: 1, newShown: 1, batches: 1, after: "a" });
   });
 
   test("a Rating that fails keeps the Card with the error, and Try again saves it", async () => {
@@ -404,6 +410,130 @@ describe("a Session", () => {
 
     expect(t.shownId()).toBe("b");
     expect(t.calls.next).toHaveLength(2);
+  });
+});
+
+/** A Session that rated "a" (new) and "b" (review), then ran out with 37 New cards held. */
+async function ranOut() {
+  const t = setUp([next("a", "new"), next("b", "review")]);
+  t.held.count = 37;
+  await t.session.start();
+  await revealAndRate(t, "good");
+  await revealAndRate(t, "good");
+  return t;
+}
+
+describe("another New-card batch", () => {
+  test("the done phase says how many New cards the batch held", async () => {
+    const t = await ranOut();
+
+    expect(t.state()).toMatchObject({ phase: "done", newHeld: 37, rated: 2 });
+  });
+
+  test("a Session that ends with none held says 0", async () => {
+    const t = setUp([next("a")]);
+    await t.session.start();
+    await revealAndRate(t, "good");
+
+    expect(t.state()).toMatchObject({ phase: "done", newHeld: 0 });
+  });
+
+  test("more() adds a batch and loads the next Card, keeping the counters, the rated count and Undo", async () => {
+    const t = await ranOut();
+    t.queue.push(next("c", "new"));
+
+    t.session.more();
+    expect(t.state()).toMatchObject({ phase: "done", loadingMore: true });
+    await flush();
+
+    expect(t.calls.next.at(-1)).toEqual({
+      reviewsShown: 1,
+      newShown: 1,
+      batches: 2,
+      after: undefined,
+    });
+    expect(t.shownId()).toBe("c");
+    expect(t.state()).toMatchObject({ phase: "card", newHeld: 0, rated: 2, loadingMore: false });
+
+    // The next calls carry the batch on.
+    await revealAndRate(t, "good");
+    expect(t.calls.next.at(-1)).toEqual({ reviewsShown: 1, newShown: 2, batches: 2, after: "c" });
+    expect(t.state()).toMatchObject({ phase: "done", rated: 3 });
+
+    // Undo still goes back through the earlier batch's Ratings.
+    await t.session.undo();
+    await t.session.undo();
+    await t.session.undo();
+    expect(t.calls.undo).toEqual(["r3", "r2", "r1"]);
+    expect(t.shownId()).toBe("a");
+  });
+
+  test("each more() adds one more batch", async () => {
+    const t = await ranOut();
+    t.session.more();
+    await flush();
+    expect(t.state()).toMatchObject({ phase: "done", newHeld: 37 });
+
+    t.session.more();
+    await flush();
+
+    expect(t.calls.next.map((c) => c.batches)).toEqual([1, 1, 1, 2, 3]);
+  });
+
+  test("with no Card back (the New cards deleted meanwhile), shows the end again", async () => {
+    const t = await ranOut();
+    t.held.count = 0;
+
+    t.session.more();
+    await flush();
+
+    expect(t.state()).toMatchObject({ phase: "done", newHeld: 0, rated: 2, loadingMore: false });
+  });
+
+  test("a more() that fails stays at the end with a message, and asks for the same batch again", async () => {
+    const t = await ranOut();
+    t.fail.next = true;
+
+    t.session.more();
+    await flush();
+
+    expect(t.messages).toEqual([MORE_FAILED]);
+    expect(t.state()).toMatchObject({ phase: "done", newHeld: 37, loadingMore: false });
+
+    t.fail.next = false;
+    t.queue.push(next("c", "new"));
+    t.session.more();
+    await flush();
+
+    expect(t.calls.next.at(-1)?.batches).toBe(2);
+    expect(t.shownId()).toBe("c");
+  });
+
+  test("does nothing unless the end holds New cards back, or while one is on its way", async () => {
+    const t = setUp([next("a")]);
+    await t.session.start();
+    t.session.more();
+    await flush();
+    expect(t.calls.next).toHaveLength(1);
+
+    await revealAndRate(t, "good");
+    t.session.more();
+    await flush();
+    expect(t.calls.next).toHaveLength(2);
+
+    const held = await ranOut();
+    held.session.more();
+    held.session.more();
+    await flush();
+    expect(held.calls.next.map((c) => c.batches)).toEqual([1, 1, 1, 2]);
+  });
+
+  test("an Undo from the end leaves no New cards held", async () => {
+    const t = await ranOut();
+
+    await t.session.undo();
+
+    expect(t.state()).toMatchObject({ phase: "card", newHeld: 0 });
   });
 });
 

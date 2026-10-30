@@ -6,14 +6,17 @@ import {
   type CompletionResult,
   snippet,
 } from "@codemirror/autocomplete";
+import type { Macro } from "@banki/shared";
 import { type EditorState, type Extension, Prec } from "@codemirror/state";
 import { type EditorView, keymap } from "@codemirror/view";
-import { typeset } from "@/lib/formula";
+import { NO_MACROS, typeset } from "@/lib/formula";
+import { formulaMacros } from "./formula-macros";
 import { formulaAt } from "./language";
 import { type LatexCommand, matching, previewOf } from "./latex-commands";
 
 // LaTeX autocomplete (BAN-21): a `\` typed inside a Formula opens a popup of
-// the commands whose name starts with what follows it; accepting one inserts
+// the commands whose name starts with what follows it, the Deck's Macros
+// among them (BAN-22); accepting one inserts
 // it as a snippet, its slots filled in with Tab. The cheatsheet inserts the
 // same snippets at the cursor.
 
@@ -29,11 +32,12 @@ export function insideFormula(state: EditorState, pos: number): boolean {
 
 /**
  * A Formula's source with each empty `{}` a box, so a snippet's unfilled
- * slots show in its render; the source as it is when that doesn't typeset.
+ * slots show in its render; the source as it is when that doesn't typeset
+ * (with the Deck's `macros`).
  */
-export function withSlotBoxes(source: string): string {
+export function withSlotBoxes(source: string, macros: readonly Macro[] = NO_MACROS): string {
   const boxed = source.replaceAll("{}", String.raw`{\square}`);
-  return boxed !== source && "html" in typeset(boxed, false) ? boxed : source;
+  return boxed !== source && "html" in typeset(boxed, false, macros) ? boxed : source;
 }
 
 /**
@@ -78,7 +82,7 @@ export function insertAtCursor(view: EditorView, command: LatexCommand) {
 const commandOf = new WeakMap<Completion, LatexCommand>();
 
 /** The options, so each keeps its identity (and its render) as the popup narrows. */
-const options = new Map<LatexCommand, Completion>();
+const options = new WeakMap<LatexCommand, Completion>();
 
 function optionFor(command: LatexCommand): Completion {
   let option = options.get(command);
@@ -118,7 +122,7 @@ export function latexSource(context: CompletionContext): CompletionResult | null
     slashes++;
   if (slashes % 2 === 1) return null;
   if (!writtenInFormula(state, word.from, pos)) return null;
-  const found = matching(word.text);
+  const found = matching(word.text, state.facet(formulaMacros));
   if (found.length === 0) return null;
   return {
     from: word.from,
@@ -128,12 +132,16 @@ export function latexSource(context: CompletionContext): CompletionResult | null
   };
 }
 
-/** A command's render, for a popup row. */
-export function renderCommand(command: LatexCommand, className: string): HTMLElement {
+/** A command's render, for a popup row, with the Deck's `macros`. */
+export function renderCommand(
+  command: LatexCommand,
+  className: string,
+  macros: readonly Macro[] = NO_MACROS,
+): HTMLElement {
   const el = document.createElement("span");
   el.className = className;
   el.setAttribute("aria-hidden", "true");
-  const result = typeset(previewOf(command), false);
+  const result = typeset(previewOf(command), false, macros);
   if ("html" in result) el.innerHTML = result.html;
   return el;
 }
@@ -151,9 +159,11 @@ export function latexCompletion(): Extension {
       addToOptions: [
         {
           position: 20,
-          render: (completion) => {
+          render: (completion, state) => {
             const command = commandOf.get(completion);
-            return command === undefined ? null : renderCommand(command, "cm-latex-render");
+            return command === undefined
+              ? null
+              : renderCommand(command, "cm-latex-render", state.facet(formulaMacros));
           },
         },
         {

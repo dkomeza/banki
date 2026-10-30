@@ -1,22 +1,13 @@
 import { ApiKeyRequest, InitialTimezoneRequest, SettingsPatch } from "@banki/shared";
 import { getLogger } from "@logtape/logtape";
 import { Hono } from "hono";
-import { validator } from "hono/validator";
-import type { z } from "zod";
 import { apiError } from "../http/errors";
 import type { SignedInEnv } from "../http/require-signed-in";
 import { type OpenRouterFetch, checkApiKey } from "../openrouter/check-api-key";
 import type { SettingsRepository } from "../repositories/settings";
+import { json } from "./json";
 
 const logger = getLogger(["banki", "settings"]);
-
-/** A JSON body validator that answers 400 `invalid_request` when `schema` refuses it. */
-const json = <T extends z.ZodType>(schema: T) =>
-  validator("json", (value, c) => {
-    const parsed = schema.safeParse(value);
-    if (!parsed.success) return c.json(apiError("invalid_request", "Invalid settings"), 400);
-    return parsed.data;
-  });
 
 /**
  * The signed-in User's Settings. `GET /` reads them, `PATCH /` changes any of
@@ -34,13 +25,13 @@ export function settingsRoutes({
 }) {
   return new Hono<SignedInEnv>()
     .get("/", (c) => c.json(settings.get(c.var.user.id), 200))
-    .patch("/", json(SettingsPatch), (c) =>
+    .patch("/", json(SettingsPatch, "Invalid settings"), (c) =>
       c.json(settings.update(c.var.user.id, c.req.valid("json")), 200),
     )
-    .put("/timezone/initial", json(InitialTimezoneRequest), (c) =>
+    .put("/timezone/initial", json(InitialTimezoneRequest, "Invalid settings"), (c) =>
       c.json(settings.setInitialTimezone(c.var.user.id, c.req.valid("json").timezone), 200),
     )
-    .put("/api-key", json(ApiKeyRequest), async (c) => {
+    .put("/api-key", json(ApiKeyRequest, "Invalid settings"), async (c) => {
       const { apiKey } = c.req.valid("json");
       const check = await checkApiKey(apiKey, { fetch: openRouterFetch });
       if (check === "refused") {

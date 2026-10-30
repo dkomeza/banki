@@ -1,9 +1,10 @@
-import type { AutoClose, CardNode } from "@banki/shared";
+import type { AutoClose, CardNode, Macro } from "@banki/shared";
 import { defaultKeymap, isolateHistory, redo, undo } from "@codemirror/commands";
 import { Compartment, EditorSelection, EditorState, type Extension } from "@codemirror/state";
 import { EditorView, keymap, WidgetType } from "@codemirror/view";
 import { autoCloseExtension } from "./auto-close";
 import { autoCloseChoice, formattingKeymap, previewCore, submitAction } from "./core";
+import { formulaMacros } from "./formula-macros";
 import { livePreviewDecorations } from "./decorations";
 import { treeOf } from "./language";
 import {
@@ -58,19 +59,26 @@ export class TableWidget extends WidgetType {
     readonly source: string,
     readonly readOnly: boolean,
     readonly autoClose: AutoClose,
+    readonly macros: readonly Macro[],
   ) {
     super();
   }
 
   static of(source: string, state: EditorState): TableWidget {
-    return new TableWidget(source, state.readOnly, state.facet(autoCloseChoice));
+    return new TableWidget(
+      source,
+      state.readOnly,
+      state.facet(autoCloseChoice),
+      state.facet(formulaMacros),
+    );
   }
 
   override eq(other: TableWidget) {
     return (
       other.source === this.source &&
       other.readOnly === this.readOnly &&
-      other.autoClose === this.autoClose
+      other.autoClose === this.autoClose &&
+      other.macros === this.macros
     );
   }
 
@@ -109,14 +117,19 @@ class TableGrid {
   private writing: Cell | null = null;
   private readonly readOnly = new Compartment();
   private readonly autoClose = new Compartment();
-  private settings: { readOnly: boolean; autoClose: AutoClose };
+  private readonly macros = new Compartment();
+  private settings: { readOnly: boolean; autoClose: AutoClose; macros: readonly Macro[] };
 
   constructor(
     private readonly outer: EditorView,
     widget: TableWidget,
   ) {
     this.model = parseTable(widget.source);
-    this.settings = { readOnly: widget.readOnly, autoClose: widget.autoClose };
+    this.settings = {
+      readOnly: widget.readOnly,
+      autoClose: widget.autoClose,
+      macros: widget.macros,
+    };
     this.dom = document.createElement("div");
     this.dom.className = "cm-lp-table";
     const card = document.createElement("div");
@@ -170,14 +183,20 @@ class TableGrid {
   update(widget: TableWidget): void {
     if (
       widget.readOnly !== this.settings.readOnly ||
-      widget.autoClose !== this.settings.autoClose
+      widget.autoClose !== this.settings.autoClose ||
+      widget.macros !== this.settings.macros
     ) {
-      this.settings = { readOnly: widget.readOnly, autoClose: widget.autoClose };
+      this.settings = {
+        readOnly: widget.readOnly,
+        autoClose: widget.autoClose,
+        macros: widget.macros,
+      };
       for (const view of this.cells.flat()) {
         view.dispatch({
           effects: [
             this.readOnly.reconfigure(EditorState.readOnly.of(widget.readOnly)),
             this.autoClose.reconfigure(autoCloseExtension(widget.autoClose)),
+            this.macros.reconfigure(formulaMacros.of(widget.macros)),
           ],
         });
       }
@@ -256,6 +275,7 @@ class TableGrid {
       fileUploads(this.outer.state.facet(imageUploads), true),
       this.readOnly.of(EditorState.readOnly.of(this.settings.readOnly)),
       this.autoClose.of(autoCloseExtension(this.settings.autoClose)),
+      this.macros.of(formulaMacros.of(this.settings.macros)),
       EditorView.contentAttributes.of({
         "aria-label":
           r === 0

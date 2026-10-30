@@ -6,6 +6,7 @@ import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { ArrowUp, FileText, Folder, RotateCcw, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { DeckMacros } from "@/components/cards/deck-macros";
 import { CardLine } from "@/components/cards/card-text";
 import { monogram } from "@/components/decks/cover";
 import { KRAFT_BODY, KRAFT_TAB } from "@/components/folders/folder-tile";
@@ -169,7 +170,10 @@ function Tile({
             {kindLabel(d.top.kind)} · {agoLabel(d.deletedAt, now)}
           </p>
           {d.top.kind === "card" ? (
-            <CardLine text={d.top.name} className="leading-snug font-semibold tracking-tight" />
+            // Its Front renders with its Deck's Macros, even once that Deck is deleted.
+            <DeckMacros own={d.deck?.macros}>
+              <CardLine text={d.top.name} className="leading-snug font-semibold tracking-tight" />
+            </DeckMacros>
           ) : (
             <p className="line-clamp-2 leading-snug font-semibold tracking-tight [overflow-wrap:anywhere]">
               {name}

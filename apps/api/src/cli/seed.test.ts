@@ -26,7 +26,17 @@ const UNTOUCHED_DEFAULTS = {
   apiKey: { state: "unset" },
   autoClose: "brackets",
   desiredRetention: 90,
+  newCardBatch: 20,
+  learningLimit: 10,
+  macros: [] as { name: string; definition: string }[],
 } as const;
+
+/** Settings' Macros as the Seed data writes them. */
+const SEEDED_MACROS = [
+  { name: "\\norm", definition: "\\left\\| #1 \\right\\|" },
+  { name: "\\abs", definition: "\\left| #1 \\right|" },
+  { name: "\\eps", definition: "\\varepsilon" },
+];
 
 const { boot, dataDir } = bootApps();
 
@@ -74,6 +84,7 @@ describe("banki seed", () => {
       timezone: "Europe/Warsaw",
       dayStartHour: 4,
       ...UNTOUCHED_DEFAULTS,
+      macros: SEEDED_MACROS,
     });
   });
 
@@ -97,7 +108,55 @@ describe("banki seed", () => {
       timezone: "Asia/Tokyo",
       dayStartHour: 4,
       ...UNTOUCHED_DEFAULTS,
+      macros: SEEDED_MACROS,
     });
+  });
+});
+
+describe("banki seed's Macros", () => {
+  test("leaves Macros the User already wrote alone", async () => {
+    await setup();
+    const { app, close } = boot();
+    const cookie = cookiesFrom(await signIn(app));
+    const mine = [{ name: "\\R", definition: "\\mathbb{R}" }];
+    await app.request("/api/settings", {
+      method: "PATCH",
+      headers: { "content-type": "application/json", origin: ORIGIN, cookie },
+      body: JSON.stringify({ macros: mine }),
+    });
+    close();
+
+    await seed();
+
+    const { app: after } = boot();
+    const res = await get(after, "/api/settings", cookiesFrom(await signIn(after)));
+    expect(SettingsResponse.parse(await res.json()).macros).toEqual(mine);
+  });
+
+  test("gives Calculus 2 its own \\d and an \\eps over Settings', and Cards that use them", async () => {
+    await setup();
+    await seed();
+
+    const { app } = boot();
+    const cookie = cookiesFrom(await signIn(app));
+    const { decks: D, cards: C } = SEED_IDS;
+    const deckOf = async (id: string) =>
+      DeckResponse.parse(await (await get(app, `/api/decks/${id}`, cookie)).json());
+
+    expect((await deckOf(D.calculus2)).macros).toEqual([
+      { name: "\\d", definition: "\\mathrm{d}" },
+      { name: "\\eps", definition: "\\epsilon" },
+    ]);
+    expect((await deckOf(D.spanish)).macros).toEqual([]);
+    const sides = await Promise.all(
+      C.calculus2.slice(-3).map(async (id) => {
+        const card = CardResponse.parse(await (await get(app, `/api/cards/${id}`, cookie)).json());
+        return `${card.front}\n${card.back}`;
+      }),
+    );
+    for (const macro of ["\\norm{", "\\abs{", "\\eps", "\\d "]) {
+      expect(sides.join("\n")).toContain(macro);
+    }
   });
 });
 

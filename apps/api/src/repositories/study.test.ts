@@ -81,7 +81,7 @@ describe("next", () => {
     write(deckId, "a", 30);
     write(deckId, "b", 20);
     write(deckId, "c", 10);
-    const progress: QueueProgress = { reviewsShown: 0, newShown: 0 };
+    const progress: QueueProgress = { reviewsShown: 0, newShown: 0, batches: 1 };
     const shown: Array<[string, string]> = [];
 
     /** Asks for the next Card at `now`, counts it as the client would, and rates it. */
@@ -118,6 +118,7 @@ describe("next", () => {
     ]);
     expect(study.next(USER, deckId, progress, { now: later(110 * SECOND) })).toEqual({
       next: null,
+      newHeld: 0,
     });
   });
 
@@ -130,7 +131,9 @@ describe("next", () => {
       { id: "c1", now: START },
     );
 
-    expect(study.next(USER, deckId, { reviewsShown: 0, newShown: 0 }, { now: START })).toEqual({
+    expect(
+      study.next(USER, deckId, { reviewsShown: 0, newShown: 0, batches: 1 }, { now: START }),
+    ).toEqual({
       next: {
         card: {
           id: "c1",
@@ -158,6 +161,7 @@ describe("next", () => {
           studyDay: { timezone: null, dayStartHour: DEFAULT_DAY_START_HOUR },
         }),
       },
+      newHeld: 0,
     });
   });
 
@@ -170,7 +174,7 @@ describe("next", () => {
     cards.softDelete(USER, "gone");
 
     expect(
-      study.next(USER, deckId, { reviewsShown: 0, newShown: 0 }, { now: START }),
+      study.next(USER, deckId, { reviewsShown: 0, newShown: 0, batches: 1 }, { now: START }),
     ).toMatchObject({
       next: { card: { id: "kept" } },
     });
@@ -182,10 +186,39 @@ describe("next", () => {
     give("a", "easy", START);
 
     expect(
-      study.next(USER, deckId, { reviewsShown: 0, newShown: 0 }, { now: later(MINUTE) }),
+      study.next(
+        USER,
+        deckId,
+        { reviewsShown: 0, newShown: 0, batches: 1 },
+        { now: later(MINUTE) },
+      ),
     ).toEqual({
       next: null,
+      newHeld: 0,
     });
+  });
+
+  test("paces New cards by the User's stored New-card batch and Learning limit", () => {
+    const deckId = deckNamed("Spanish");
+    for (const [i, id] of ["a", "b", "c", "d", "e", "f", "g"].entries()) write(deckId, id, 70 - i);
+    const done = { reviewsShown: 0, newShown: 5, batches: 1 };
+
+    // The defaults: a batch of 20.
+    expect(study.next(USER, deckId, done, { now: START })).toMatchObject({
+      next: { card: { id: "a" }, kind: "new" },
+      newHeld: 0,
+    });
+
+    opened.db.run(
+      sql`INSERT INTO user_settings (user_id, new_card_batch, learning_limit) VALUES (${USER}, 5, 5)`,
+    );
+    expect(study.next(USER, deckId, done, { now: START })).toEqual({ next: null, newHeld: 7 });
+
+    // Another batch, but five Cards in learning: the Learning limit holds.
+    for (const id of ["a", "b", "c", "d", "e"]) give(id, "again", START);
+    expect(
+      study.next(USER, deckId, { ...done, batches: 2, after: "e" }, { now: later(SECOND) }),
+    ).toMatchObject({ next: { card: { id: "a" }, kind: "learning" }, newHeld: 0 });
   });
 
   test("is not_found for a deleted, unknown or other User's Deck", () => {
@@ -195,7 +228,9 @@ describe("next", () => {
     write(others, "theirs", 10, OTHER);
 
     for (const deckId of [deleted, "missing", others]) {
-      expect(study.next(USER, deckId, { reviewsShown: 0, newShown: 0 })).toBe("not_found");
+      expect(study.next(USER, deckId, { reviewsShown: 0, newShown: 0, batches: 1 })).toBe(
+        "not_found",
+      );
     }
   });
 });

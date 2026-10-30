@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { typeset } from "@/lib/formula";
-import { COMMANDS, GROUPS, matching, previewOf, search } from "./latex-commands";
+import { COMMANDS, GROUPS, macroCommands, matching, previewOf, search } from "./latex-commands";
 
 const names = (commands: readonly { name: string }[]) => commands.map(({ name }) => name);
 
@@ -92,5 +92,46 @@ describe("the cheatsheet's search", () => {
 
   test("lists every command with no query", () => {
     expect(search("  ")).toHaveLength(COMMANDS.length);
+  });
+});
+
+describe("the Deck's Macros as commands", () => {
+  const macros = [
+    { name: "\\norm", definition: "\\left\\| #1 \\right\\|" },
+    { name: "\\inner", definition: "\\left\\langle #1, #2 \\right\\rangle" },
+    { name: "\\eps", definition: "\\varepsilon" },
+    { name: "\\frac", definition: "#1/#2" },
+  ];
+
+  test("insert a slot per argument, render with sample arguments, and mean their definition", () => {
+    const [norm, inner, eps] = macroCommands(macros);
+
+    expect(norm).toMatchObject({ snippet: "\\norm{▯}", preview: "\\norm{x}", group: "Macros" });
+    expect(inner).toMatchObject({ snippet: "\\inner{▯}{▯}", preview: "\\inner{x}{y}" });
+    expect(eps).toMatchObject({ snippet: "\\eps", meaning: "\\varepsilon" });
+    expect(typeset(previewOf(norm ?? COMMANDS[0]!), false, macros)).toHaveProperty("html");
+  });
+
+  test("are matched by the same prefix rule as KaTeX's commands", () => {
+    expect(names(matching("\\no", macros))[0]).toBe("\\norm");
+    expect(names(matching("\\e", macros))).toContain("\\eps");
+    expect(names(matching("\\no"))).not.toContain("\\norm");
+  });
+
+  test("take the place of KaTeX's command of their name", () => {
+    const fracs = matching("\\frac", macros);
+
+    expect(names(fracs).filter((name) => name === "\\frac")).toHaveLength(1);
+    expect(fracs[0]?.group).toBe("Macros");
+  });
+
+  test("are found by the cheatsheet's search, by name and definition", () => {
+    expect(names(search("norm", macros))).toContain("\\norm");
+    expect(names(search("langle", macros))).toContain("\\inner");
+    expect(search("", macros)).toHaveLength(COMMANDS.length - 1 + macros.length);
+  });
+
+  test("keep their identity while the list does", () => {
+    expect(macroCommands(macros)[0]).toBe(macroCommands(macros)[0]);
   });
 });

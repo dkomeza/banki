@@ -2,13 +2,16 @@ import {
   type ApiKeyStatus,
   DEFAULT_DAY_START_HOUR,
   DEFAULT_DESIRED_RETENTION,
+  DEFAULT_LEARNING_LIMIT,
+  DEFAULT_NEW_CARD_BATCH,
+  type Macro,
   type ModelId,
   type SettingsPatch,
   type SettingsResponse,
   effectiveAutoClose,
   effectiveModelId,
 } from "@banki/shared";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { z } from "zod";
 import type { ApiKeyCipher } from "../crypto/api-key-cipher";
 import type { Queryable } from "../db/database";
@@ -31,6 +34,9 @@ type Row = Pick<
   | "apiKeyLastFour"
   | "autoClose"
   | "desiredRetention"
+  | "newCardBatch"
+  | "learningLimit"
+  | "macros"
 >;
 
 /** What a User without a row of Settings has. */
@@ -42,6 +48,9 @@ const DEFAULT_ROW: Row = {
   apiKeyLastFour: null,
   autoClose: null,
   desiredRetention: DEFAULT_DESIRED_RETENTION,
+  newCardBatch: DEFAULT_NEW_CARD_BATCH,
+  learningLimit: DEFAULT_LEARNING_LIMIT,
+  macros: [],
 };
 
 const rowOf = (db: Queryable, userId: string): Row =>
@@ -54,6 +63,9 @@ const rowOf = (db: Queryable, userId: string): Row =>
       apiKeyLastFour: user_settings.apiKeyLastFour,
       autoClose: user_settings.autoClose,
       desiredRetention: user_settings.desiredRetention,
+      newCardBatch: user_settings.newCardBatch,
+      learningLimit: user_settings.learningLimit,
+      macros: user_settings.macros,
     })
     .from(user_settings)
     .where(eq(user_settings.userId, userId))
@@ -71,6 +83,21 @@ export function setInitialTimezone(db: Queryable, userId: string, timezone: stri
       target: user_settings.userId,
       set: { timezone },
       setWhere: isNull(user_settings.timezone),
+    })
+    .run();
+}
+
+/**
+ * Stores Settings' `macros` only while the User has none, so the Seed data
+ * leaves a list the User wrote alone, as it does a chosen Timezone.
+ */
+export function setInitialMacros(db: Queryable, userId: string, macros: Macro[]): void {
+  db.insert(user_settings)
+    .values({ userId, macros })
+    .onConflictDoUpdate({
+      target: user_settings.userId,
+      set: { macros },
+      setWhere: sql`${user_settings.macros} = '[]'`,
     })
     .run();
 }
@@ -101,6 +128,9 @@ export function createSettingsRepository(db: Queryable, cipher: ApiKeyCipher) {
       apiKey: apiKeyStatus(row, userId),
       autoClose: effectiveAutoClose(row.autoClose),
       desiredRetention: row.desiredRetention,
+      newCardBatch: row.newCardBatch,
+      learningLimit: row.learningLimit,
+      macros: row.macros,
     };
   };
 

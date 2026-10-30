@@ -2,6 +2,7 @@ import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Trash2 } from "lucide-react";
 import { useRef, useState } from "react";
+import { DeckMacros } from "@/components/cards/deck-macros";
 import { FormError } from "@/components/auth-card";
 import { CardEditor, useCardForm } from "@/components/cards/card-editor";
 import { deleteWithUndo } from "@/components/cards/card-toasts";
@@ -61,7 +62,9 @@ function CardInDeck({ card }: { card: Card }) {
       <CardNotFound />
     </Page>
   ) : (
-    <EditCard key={card.id} deck={deck} card={card} />
+    <DeckMacros own={deck.macros}>
+      <EditCard key={card.id} deck={deck} card={card} />
+    </DeckMacros>
   );
 }
 

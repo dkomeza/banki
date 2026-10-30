@@ -3,11 +3,17 @@ import { describe, expect, test } from "vitest";
 import { Cheatsheet } from "./cheatsheet";
 import { COMMANDS, GROUPS } from "./latex-commands";
 
-/** The cheatsheet's markup with `query` typed in its search. */
-const markup = (query: string) =>
+const MACROS = [
+  { name: "\\norm", definition: "\\left\\| #1 \\right\\|" },
+  { name: "\\eps", definition: "\\varepsilon" },
+];
+
+/** The cheatsheet's markup with `query` typed in its search, and the Deck's `macros`. */
+const markup = (query: string, macros: readonly { name: string; definition: string }[] = []) =>
   renderToStaticMarkup(
     <Cheatsheet
       query={query}
+      macros={macros}
       onQuery={() => {}}
       onInsert={() => {}}
       onClose={() => {}}
@@ -74,5 +80,36 @@ describe("the cheatsheet", () => {
 
     expect(entries(html)).toEqual([]);
     expect(html).toContain("Nothing matches “qwerty”.");
+  });
+});
+
+describe("the cheatsheet's Macros", () => {
+  test("come first, in a group of their own with its chip, current", () => {
+    const html = markup("", MACROS);
+    const sections = [...html.matchAll(/<section data-group="([^"]+)"/g)].map(([, group]) => group);
+    const chips = [...html.matchAll(/class="cheatsheet-chip" data-label="([^"]+)"/g)];
+
+    expect(sections).toEqual(["Macros", ...GROUPS]);
+    expect(chips.map(([, group]) => group)).toEqual(["Macros", ...GROUPS]);
+    expect(html).toMatch(/aria-current="true" class="cheatsheet-chip" data-label="Macros"/);
+    expect(entries(html).slice(0, 2)).toEqual(["\\norm", "\\eps"]);
+  });
+
+  test("show each Macro's render with sample arguments, its name and its definition", () => {
+    const html = markup("", MACROS);
+
+    expect(html).toContain('<annotation encoding="application/x-tex">\\norm{x}</annotation>');
+    expect(html).toContain(
+      '<span class="cheatsheet-name">\\norm</span><span class="cheatsheet-meaning">\\left\\| #1 \\right\\|</span>',
+    );
+  });
+
+  test("are found by name and by definition", () => {
+    expect(entries(markup("norm", MACROS))).toContain("\\norm");
+    expect(entries(markup("varepsilon", MACROS))).toContain("\\eps");
+  });
+
+  test("aren't a group without any", () => {
+    expect(markup("")).not.toContain('data-group="Macros"');
   });
 });
