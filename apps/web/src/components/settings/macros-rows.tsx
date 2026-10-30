@@ -16,15 +16,18 @@ import {
   deleteMacro,
   overrideMacro,
   retryMacros,
+  settle,
   useInherited,
   useMacroList,
 } from "@/lib/proto-macros";
 import { cn } from "@/lib/utils";
 
-// PROTOTYPE (BAN-22), Variant b: Rows. A Macro reads like every other row on
-// the Settings page: its render, its name and definition, and Edit beside
-// them, which opens its form in place on a muted background. A row that
-// isn't saved (new, or with an error) stays open. On a Deck, its own rows come
+// PROTOTYPE (BAN-22), Variant e: Live fields (round 2, from b: Rows). A Macro
+// reads like every other row on the Settings page, its render in a tile
+// beside its name and definition, but there's no Edit: the name and definition
+// are fields that read as text until one is focused. Focus shows them as
+// fields, with the hint under them, and leaving the row puts it back. Problems
+// show under a row whether it's focused or not. On a Deck, its own rows come
 // first, and Settings' follow under them, each with Override, which gives the
 // Deck its own copy to change.
 
@@ -167,6 +170,12 @@ function Tile({ html, muted = false }: { html: string | undefined; muted?: boole
   );
 }
 
+const QUIET_FIELD = cn(
+  MONO,
+  "-ml-2 h-11 border-transparent bg-transparent px-2 shadow-none hover:border-input lg:h-7 dark:bg-transparent",
+  "group-focus-within/row:border-input group-focus-within/row:bg-background dark:group-focus-within/row:bg-input/30",
+);
+
 function Item({
   scope,
   row,
@@ -178,152 +187,106 @@ function Item({
   check: Checked;
   startOpen: boolean;
 }) {
-  const [open, setOpen] = useState(startOpen);
-  // A row that isn't saved stays open until it is.
-  const unsaved = !check.saved;
-  const shown = open || unsaved || startOpen;
+  const id = useId();
+  const [focused, setFocused] = useState(false);
+  const problem = check.nameError ?? check.definitionError;
+  const label = row.name === "\\" ? "this macro" : row.name;
   return (
-    <li className="flex flex-col gap-3 py-3 first:pt-0 last:pb-0">
+    // The row is always its own form: its name and definition read as text
+    // until one is focused, which shows them as fields and the hint under
+    // them. Leaving the row (a click or tap elsewhere, Tab past it, Escape)
+    // puts it back to reading.
+    <li
+      className="group/row flex flex-col gap-1.5 py-2 transition-colors focus-within:-mx-3 focus-within:rounded-xl focus-within:px-3 focus-within:border-t-transparent focus-within:bg-muted/70 [&:focus-within+li]:border-t-transparent"
+      onFocus={() => setFocused(true)}
+      onBlur={(event) => {
+        const next = event.relatedTarget;
+        if (next instanceof Node && event.currentTarget.contains(next)) return;
+        setFocused(false);
+        settle(row.id);
+        // A new row left with nothing in it goes away rather than sit there empty.
+        if (row.name === "\\" && row.definition.trim() === "") deleteMacro(scope, row.id);
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      }}
+    >
       <div className="flex items-center gap-3">
         <Tile html={check.html} />
-        <div className="min-w-0 flex-1">
-          <p className={cn(MONO, "truncate font-medium")}>
-            {row.name === "\\" ? (
-              <span className="text-muted-foreground">New macro</span>
-            ) : (
-              row.name
-            )}
-          </p>
-          <p className={cn(MONO, "truncate text-sm text-muted-foreground")}>
-            {row.definition === "" ? "No definition yet" : row.definition}
-          </p>
-        </div>
-        {!shown && (
-          <Button
-            variant="outline"
-            size="lg"
-            className={OUTLINE_PILL}
-            aria-label={`Edit ${row.name}`}
-            onClick={() => setOpen(true)}
-          >
-            Edit
-          </Button>
-        )}
-      </div>
-      {check.replaces !== undefined && !shown && (
-        <Note>
-          Replaces KaTeX's <code className="font-mono text-foreground">{check.replaces}</code>.
-        </Note>
-      )}
-      {shown && (
-        <Editor
-          scope={scope}
-          row={row}
-          check={check}
-          onDone={unsaved ? undefined : () => setOpen(false)}
-        />
-      )}
-    </li>
-  );
-}
-
-/** A row's form, in place on a muted background; every change saves as it's made. */
-function Editor({
-  scope,
-  row,
-  check,
-  onDone,
-}: {
-  scope: Scope;
-  row: MacroRow;
-  check: Checked;
-  onDone: (() => void) | undefined;
-}) {
-  const id = useId();
-  return (
-    <div className="flex flex-col gap-3 rounded-xl bg-muted/70 p-3.5 sm:p-4">
-      <div className="grid gap-3 sm:grid-cols-[minmax(0,8rem)_minmax(0,1fr)]">
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor={`${id}-name`} className="text-sm font-medium">
-            Name
-          </label>
+        <div className="flex min-w-0 flex-1 flex-col">
           <Input
             id={`${id}-name`}
+            aria-label="Name"
             value={row.name}
+            autoFocus={startOpen}
             spellCheck={false}
             autoCapitalize="off"
             autoComplete="off"
             aria-invalid={check.nameError === undefined ? undefined : true}
-            aria-describedby={check.nameError === undefined ? undefined : `${id}-name-note`}
+            aria-describedby={`${id}-note`}
             onChange={(event) => changeMacro(scope, row.id, { name: event.target.value })}
-            className={cn(MONO, "bg-background lg:h-9")}
+            className={cn(QUIET_FIELD, "font-medium")}
           />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor={`${id}-definition`} className="text-sm font-medium">
-            Stands for
-          </label>
           <Input
             id={`${id}-definition`}
+            aria-label={`What ${row.name === "\\" ? "it" : row.name} stands for`}
             value={row.definition}
             spellCheck={false}
             autoCapitalize="off"
             autoComplete="off"
-            placeholder="\left\| #1 \right\|"
+            placeholder="Stands for, such as \left\| #1 \right\|"
             aria-invalid={check.definitionError === undefined ? undefined : true}
-            aria-describedby={`${id}-definition-note`}
+            aria-describedby={`${id}-note`}
             onChange={(event) => changeMacro(scope, row.id, { definition: event.target.value })}
-            className={cn(MONO, "bg-background lg:h-9")}
+            className={cn(
+              QUIET_FIELD,
+              "text-sm text-muted-foreground group-focus-within/row:text-foreground md:text-sm",
+            )}
           />
         </div>
-      </div>
-      {check.nameError !== undefined && <Problem id={`${id}-name-note`}>{check.nameError}</Problem>}
-      {check.definitionError !== undefined ? (
-        <Problem id={`${id}-definition-note`}>KaTeX says “{check.definitionError}”.</Problem>
-      ) : (
-        <p id={`${id}-definition-note`} className="text-sm text-muted-foreground">
-          {check.incomplete
-            ? "#1 to #9 are its arguments. It's saved once it has a name and a definition."
-            : check.arity === 0
-              ? "Takes no arguments."
-              : `Takes ${check.arity === 1 ? "one argument" : `${check.arity} arguments`}, #1${check.arity > 1 ? ` to #${check.arity}` : ""}.`}
-        </p>
-      )}
-      {check.html !== undefined && (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-background px-3 py-2 dark:bg-input/20">
-          <code className="font-mono text-sm text-muted-foreground">{check.sample}</code>
-          <span aria-hidden className="text-muted-foreground">
-            →
-          </span>
-          <MacroMath html={check.html} className="text-[1.2rem]" />
-        </div>
-      )}
-      {check.replaces !== undefined && (
-        <Note>
-          Replaces KaTeX's <code className="font-mono text-foreground">{check.replaces}</code> in
-          your Formulas.
-        </Note>
-      )}
-      {!check.saved && !check.incomplete && (
-        <p className="text-sm font-medium text-destructive">Not saved until it's fixed.</p>
-      )}
-      <div className="flex items-center justify-between gap-3">
         <Button
           variant="ghost"
-          size="lg"
-          className="-ml-2 text-destructive hover:text-destructive"
+          size="icon-lg"
+          className="invisible shrink-0 text-muted-foreground group-focus-within/row:visible hover:text-destructive"
+          aria-label={`Delete ${label}`}
           onClick={() => deleteMacro(scope, row.id)}
         >
           <Trash2 aria-hidden />
-          Delete
         </Button>
-        {onDone !== undefined && (
-          <Button variant="outline" size="lg" className={OUTLINE_PILL} onClick={onDone}>
-            Done
-          </Button>
+      </div>
+      <div id={`${id}-note`} className="flex flex-col gap-1.5 empty:hidden">
+        {check.nameError !== undefined && <Problem>{check.nameError}</Problem>}
+        {check.definitionError !== undefined && (
+          <Problem>KaTeX says “{check.definitionError}”.</Problem>
+        )}
+        {problem !== undefined && (
+          <p className="text-sm text-muted-foreground">Not saved until it's fixed.</p>
+        )}
+        {focused && problem === undefined && (
+          <p className="text-sm text-muted-foreground">
+            {check.incomplete ? (
+              "#1 to #9 are its arguments. It's saved once it has a name and a definition."
+            ) : (
+              <>
+                {check.arity === 0
+                  ? "Takes no arguments: "
+                  : `Takes ${check.arity === 1 ? "one argument" : `${check.arity} arguments`}: `}
+                <code className="font-mono text-foreground">{check.sample}</code>. Saved as you
+                type.
+              </>
+            )}
+          </p>
+        )}
+        {check.replaces !== undefined && (
+          <Note>
+            Replaces KaTeX's <code className="font-mono text-foreground">{check.replaces}</code>
+            {focused ? " in your Formulas." : "."}
+          </Note>
         )}
       </div>
-    </div>
+    </li>
   );
 }
 
@@ -367,7 +330,7 @@ function Note({ children }: { children: ReactNode }) {
   );
 }
 
-function Problem({ id, children }: { id: string; children: ReactNode }) {
+function Problem({ id, children }: { id?: string; children: ReactNode }) {
   return (
     <p id={id} className="flex items-start gap-1.5 text-sm font-medium text-destructive">
       <CircleAlert aria-hidden className="mt-0.5 size-3.5 shrink-0" />
