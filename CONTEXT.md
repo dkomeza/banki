@@ -17,7 +17,7 @@ A named place that holds Decks and other Folders, nested to any depth, for organ
 _Avoid_: directory, group, category
 
 **Card**:
-One thing to remember, written as a Front and a Back in Markdown with LaTeX, in exactly one Deck. A Deck's delete deletes its Cards with it, together.
+One thing to remember, written as a Front and a Back in Markdown with LaTeX, in exactly one Deck, optionally with Grading notes. A Deck's delete deletes its Cards with it, together.
 _Avoid_: note, flashcard, item
 
 **Move**:
@@ -31,6 +31,10 @@ _Avoid_: question, prompt
 **Back**:
 The side of a Card that holds what the User should recall: what self-rating reveals, and the reference the Grader compares a written answer with. Never the User's own written answer.
 _Avoid_: answer, solution
+
+**Grading notes**:
+Text on a Card, in Markdown with LaTeX, that tells the Grader what an answer must include or may vary in, such as "must mention both conditions". A Card has them or not. They are never shown while studying, and never hold Images.
+_Avoid_: hint, rubric, answer key, notes (alone)
 
 **Tag**:
 A one-word label on Cards, such as `irregular-verb`, for finding them again: it has no effect on study or scheduling. A Card carries any number of Tags, and the same Tag on Cards in different Decks is one Tag. A Tag exists only while some Card carries it; it has no name or life of its own to rename or delete.
