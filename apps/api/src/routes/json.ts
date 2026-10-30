@@ -7,20 +7,28 @@ import type { Clash } from "../repositories/places";
 /**
  * What a refused body's 400 says: the first problem with its `macros`, which
  * names it (a bad name, a blank or long definition, a name twice, too many),
- * or else a problem one of Banki's own rules words (such as "Keep grading
- * notes to 2,000 characters"), or else `message`.
+ * or else, when `named`, a problem one of Banki's own rules words (such as
+ * "Keep grading notes to 2,000 characters"), or else `message`.
  */
-const problemOf = (error: z.ZodError, message: string) =>
+const problemOf = (error: z.ZodError, message: string, named: boolean) =>
   error.issues.find((issue) => issue.path[0] === "macros")?.message ??
-  error.issues.find((issue) => issue.code === "custom")?.message ??
+  (named ? error.issues.find((issue) => issue.code === "custom")?.message : undefined) ??
   message;
 
-/** A JSON body validator that answers 400 `invalid_request` when `schema` refuses it. */
-export const json = <T extends z.ZodType>(schema: T, message: string) =>
+/**
+ * A JSON body validator that answers 400 `invalid_request` when `schema`
+ * refuses it. With `named`, a problem one of Banki's own rules words is
+ * answered in its words.
+ */
+export const json = <T extends z.ZodType>(
+  schema: T,
+  message: string,
+  { named = false }: { named?: boolean } = {},
+) =>
   validator("json", (value, c) => {
     const parsed = schema.safeParse(value);
     if (!parsed.success) {
-      return c.json(apiError("invalid_request", problemOf(parsed.error, message)), 400);
+      return c.json(apiError("invalid_request", problemOf(parsed.error, message, named)), 400);
     }
     return parsed.data;
   });

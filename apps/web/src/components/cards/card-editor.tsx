@@ -109,7 +109,7 @@ const SAVE_KEY =
   typeof navigator !== "undefined" && /Mac|iP/.test(navigator.platform) ? "⌘" : "Ctrl";
 
 /** One field on ruled lines, its label in the margin from 640 px. */
-function Field({
+export function Field({
   label,
   placeholder,
   value,
