@@ -1,5 +1,5 @@
-# b: Rows
+# d: In place
 
-Bet: a Macro reads like every other Settings row (its render in a tile, its name and definition, Edit beside them), and Edit opens its form in place on a muted background, which stays open while the row is new or has an error; on a Deck, a Math macros card in the masonry lists its own rows first, then Settings' under "From Settings", each with Override (which gives the Deck its own copy to change), and an overridden one struck through as "Overridden by this deck's".
+Bet: built on b (Rows), the row is its own form: Edit turns the name and definition into fields where they were read, under a muted background on the row itself, with the tile beside them rendering as you type and a trash button at its end; there's no Done, as the row closes when focus leaves it (a click or tap elsewhere, Tab past it, or Escape). A row with a problem closes too, and says under it in red that it isn't saved, with Edit to fix it; a new row left blank goes away. On a Deck, Settings' follow under "From Settings" with Override, as in b.
 
 States: empty, list, adding, invalid, builtin, save-error
