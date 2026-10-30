@@ -26,6 +26,8 @@ const UNTOUCHED_DEFAULTS = {
   apiKey: { state: "unset" },
   autoClose: "brackets",
   desiredRetention: 90,
+  newCardBatch: 20,
+  learningLimit: 10,
 } as const;
 
 const { boot, dataDir } = bootApps();

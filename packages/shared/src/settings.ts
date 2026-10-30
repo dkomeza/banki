@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ModelId } from "./models";
 import { DesiredRetention } from "./scheduling";
+import { LearningLimit, NewCardBatch } from "./study";
 
 /** The Day start a User has until they change it: 4:00 a.m. */
 export const DEFAULT_DAY_START_HOUR = 4;
@@ -63,7 +64,9 @@ export type ApiKeyStatus = z.infer<typeof ApiKeyStatus>;
  * The body of `GET /api/settings`, and of every change to it. `timezone` is
  * null until stored; `model` is the effective Model, and `autoClose` the
  * effective auto-close, each the default when none is stored. `desiredRetention`
- * is the one every Deck follows until it has its own.
+ * is the one every Deck follows until it has its own. `newCardBatch` and
+ * `learningLimit` pace a Session's New cards (CONTEXT.md: New-card batch,
+ * Learning limit).
  */
 export const SettingsResponse = z.object({
   timezone: z.string().nullable(),
@@ -72,6 +75,8 @@ export const SettingsResponse = z.object({
   apiKey: ApiKeyStatus,
   autoClose: AutoClose,
   desiredRetention: z.number().int(),
+  newCardBatch: z.number().int(),
+  learningLimit: z.number().int(),
 });
 export type SettingsResponse = z.infer<typeof SettingsResponse>;
 
@@ -85,6 +90,8 @@ export const SettingsPatch = z.strictObject({
   model: ModelId.optional(),
   autoClose: AutoClose.optional(),
   desiredRetention: DesiredRetention.optional(),
+  newCardBatch: NewCardBatch.optional(),
+  learningLimit: LearningLimit.optional(),
 });
 export type SettingsPatch = z.input<typeof SettingsPatch>;
 

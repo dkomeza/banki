@@ -1,14 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import { DefaultScheduler } from "ts-fsrs";
 import { predictedRecall } from "./fsrs";
-import { type QueueCard, type QueueProgress, nextInQueue } from "./queue";
+import { type QueueCard, type QueueLimits, type QueueProgress, nextInQueue } from "./queue";
 
 const NOW = new Date("2026-05-20T12:00:00Z");
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
 const ago = (ms: number) => new Date(NOW.getTime() - ms);
 const from = (ms: number) => new Date(NOW.getTime() + ms);
-const START: QueueProgress = { reviewsShown: 0, newShown: 0 };
+const START: QueueProgress = { reviewsShown: 0, newShown: 0, batches: 1 };
+/** Limits too loose to hold back any New card in the tests that aren't about them. */
+const LOOSE: QueueLimits = { newCardBatch: 100, learningLimit: 50 };
 
 /** A new Card written `minutesAgo` minutes before now. */
 const fresh = (id: string, minutesAgo = 0): QueueCard => ({
@@ -51,16 +53,33 @@ const learning = (
   createdAt: ago(DAY),
 });
 
+/** `count` Cards in their learning steps, none due yet, the first due soonest. */
+const pile = (count: number, state: "learning" | "relearning" = "learning") =>
+  Array.from({ length: count }, (_, i) =>
+    learning(`${state}${i}`, from((i + 1) * 10 * MINUTE), state),
+  );
+
+/** Three new Cards and a review: with no pause, the first new Card is at position 0. */
+const rest = () => [fresh("n1", 3), fresh("n2", 2), fresh("n3", 1), review("r")];
+
+/** `count` new Cards, `n000` written first. */
+const news = (count: number) =>
+  Array.from({ length: count }, (_, i) => fresh(`n${String(i).padStart(3, "0")}`, count - i));
+
+/** The Card the Queue shows next, or null, under `limits`. */
+const pick = (cards: readonly QueueCard[], progress: QueueProgress, limits = LOOSE) =>
+  nextInQueue(cards, progress, limits, NOW).next;
+
 /**
  * Walks the Queue as a Session would, without Ratings: each Card shown leaves
  * it, and counts by its kind. Answers the IDs in order.
  */
-function walk(cards: QueueCard[]): string[] {
+function walk(cards: QueueCard[], limits = LOOSE): string[] {
   const left = [...cards];
   const progress = { ...START };
   const shown: string[] = [];
   for (;;) {
-    const next = nextInQueue(left, progress, NOW);
+    const next = pick(left, progress, limits);
     if (next === null) return shown;
     shown.push(next.id);
     left.splice(
@@ -101,11 +120,11 @@ describe("predictedRecall", () => {
 
 describe("nextInQueue", () => {
   test("answers null for an empty Deck", () => {
-    expect(nextInQueue([], START, NOW)).toBeNull();
+    expect(pick([], START)).toBeNull();
   });
 
   test("answers null when no Card is due and none is in learning", () => {
-    expect(nextInQueue([review("r1", { dueAt: from(DAY) })], START, NOW)).toBeNull();
+    expect(pick([review("r1", { dueAt: from(DAY) })], START)).toBeNull();
   });
 
   describe("due reviews", () => {
@@ -145,7 +164,7 @@ describe("nextInQueue", () => {
     });
 
     test("count a review due at this very moment", () => {
-      expect(nextInQueue([review("r", { dueAt: NOW })], START, NOW)).toEqual({
+      expect(pick([review("r", { dueAt: NOW })], START)).toEqual({
         id: "r",
         kind: "review",
       });
@@ -189,10 +208,10 @@ describe("nextInQueue", () => {
 
     test("follow once the reviews run out", () => {
       // 2 new of 4 at positions 1 and 3, but the reviews run out after position 1.
-      const progress = { reviewsShown: 1, newShown: 1 };
+      const progress = { ...START, reviewsShown: 1, newShown: 1 };
       const cards = [fresh("n2"), fresh("n3")];
 
-      expect(nextInQueue(cards, progress, NOW)).toEqual({ id: "n2", kind: "new" });
+      expect(pick(cards, progress)).toEqual({ id: "n2", kind: "new" });
     });
 
     test("go one after another with no reviews", () => {
@@ -206,16 +225,12 @@ describe("nextInQueue", () => {
       const r4 = review("r4", { stability: 2 });
 
       expect(
-        nextInQueue(
-          [n2, review("r3", { stability: 1 }), r4],
-          { reviewsShown: 2, newShown: 1 },
-          NOW,
-        ),
+        pick([n2, review("r3", { stability: 1 }), r4], { ...START, reviewsShown: 2, newShown: 1 }),
       ).toEqual({
         id: "r3",
         kind: "review",
       });
-      expect(nextInQueue([n2, r4], { reviewsShown: 3, newShown: 1 }, NOW)).toEqual({
+      expect(pick([n2, r4], { ...START, reviewsShown: 3, newShown: 1 })).toEqual({
         id: "n2",
         kind: "new",
       });
@@ -226,31 +241,31 @@ describe("nextInQueue", () => {
     test("whose step is over go next, ahead of reviews and new Cards", () => {
       const cards = [fresh("n"), review("r", { stability: 1 }), learning("l", ago(MINUTE))];
 
-      expect(nextInQueue(cards, START, NOW)).toEqual({ id: "l", kind: "learning" });
+      expect(pick(cards, START)).toEqual({ id: "l", kind: "learning" });
     });
 
     test("relearning Cards count as learning", () => {
       const cards = [review("r"), learning("l", ago(MINUTE), "relearning")];
 
-      expect(nextInQueue(cards, START, NOW)).toEqual({ id: "l", kind: "learning" });
+      expect(pick(cards, START)).toEqual({ id: "l", kind: "learning" });
     });
 
     test("go the one due longest ago first", () => {
       const cards = [learning("recent", ago(MINUTE)), learning("long", ago(5 * MINUTE))];
 
-      expect(nextInQueue(cards, START, NOW)?.id).toBe("long");
+      expect(pick(cards, START)?.id).toBe("long");
     });
 
     test("are held back while their step isn't over", () => {
       const cards = [learning("l", from(MINUTE)), review("r")];
 
-      expect(nextInQueue(cards, START, NOW)).toEqual({ id: "r", kind: "review" });
+      expect(pick(cards, START)).toEqual({ id: "r", kind: "review" });
     });
 
     test("never come straight after themselves while another Card is left", () => {
       const cards = [learning("l", ago(MINUTE)), review("r")];
 
-      expect(nextInQueue(cards, { ...START, after: "l" }, NOW)).toEqual({
+      expect(pick(cards, { ...START, after: "l" })).toEqual({
         id: "r",
         kind: "review",
       });
@@ -259,13 +274,13 @@ describe("nextInQueue", () => {
     test("give way to another due learning Card after themselves", () => {
       const cards = [learning("l1", ago(5 * MINUTE)), learning("l2", ago(MINUTE))];
 
-      expect(nextInQueue(cards, { ...START, after: "l1" }, NOW)?.id).toBe("l2");
+      expect(pick(cards, { ...START, after: "l1" })?.id).toBe("l2");
     });
 
     test("give way to a learning Card shown early, rather than come straight after themselves", () => {
       const cards = [learning("l1", ago(MINUTE)), learning("l2", from(10 * MINUTE))];
 
-      expect(nextInQueue(cards, { ...START, after: "l1" }, NOW)).toEqual({
+      expect(pick(cards, { ...START, after: "l1" })).toEqual({
         id: "l2",
         kind: "learning",
       });
@@ -274,7 +289,7 @@ describe("nextInQueue", () => {
     test("come straight after themselves when no other Card is left", () => {
       const cards = [learning("l", ago(MINUTE))];
 
-      expect(nextInQueue(cards, { ...START, after: "l" }, NOW)).toEqual({
+      expect(pick(cards, { ...START, after: "l" })).toEqual({
         id: "l",
         kind: "learning",
       });
@@ -283,7 +298,7 @@ describe("nextInQueue", () => {
     test("an `after` that is no Card in the Deck changes nothing", () => {
       const cards = [learning("l", ago(MINUTE)), review("r")];
 
-      expect(nextInQueue(cards, { ...START, after: "gone" }, NOW)?.id).toBe("l");
+      expect(pick(cards, { ...START, after: "gone" })?.id).toBe("l");
     });
   });
 
@@ -291,24 +306,144 @@ describe("nextInQueue", () => {
     test("shows the learning Card with the earliest due time when nothing else is left", () => {
       const cards = [learning("later", from(10 * MINUTE)), learning("sooner", from(MINUTE))];
 
-      expect(nextInQueue(cards, START, NOW)).toEqual({ id: "sooner", kind: "learning" });
+      expect(pick(cards, START)).toEqual({ id: "sooner", kind: "learning" });
     });
 
     test("waits while a review or a new Card is left", () => {
-      expect(nextInQueue([learning("l", from(MINUTE)), fresh("n")], START, NOW)?.id).toBe("n");
-      expect(nextInQueue([learning("l", from(MINUTE)), review("r")], START, NOW)?.id).toBe("r");
+      expect(pick([learning("l", from(MINUTE)), fresh("n")], START)?.id).toBe("n");
+      expect(pick([learning("l", from(MINUTE)), review("r")], START)?.id).toBe("r");
     });
 
     test("ignores reviews not yet due", () => {
       const cards = [learning("l", from(MINUTE)), review("r", { dueAt: from(DAY) })];
 
-      expect(nextInQueue(cards, START, NOW)).toEqual({ id: "l", kind: "learning" });
+      expect(pick(cards, START)).toEqual({ id: "l", kind: "learning" });
     });
 
     test("shows the Card just shown when it is the only one left", () => {
       const cards = [learning("l", from(10 * MINUTE))];
 
-      expect(nextInQueue(cards, { ...START, after: "l" }, NOW)?.id).toBe("l");
+      expect(pick(cards, { ...START, after: "l" })?.id).toBe("l");
+    });
+  });
+
+  describe("the Learning limit", () => {
+    const limits: QueueLimits = { newCardBatch: 100, learningLimit: 5 };
+
+    test("introduces New cards while fewer of the Deck's Cards than it are in learning", () => {
+      expect(pick([...pile(4), ...rest()], START, limits)).toEqual({ id: "n1", kind: "new" });
+    });
+
+    test("pauses New cards once that many are in learning: a due review comes instead", () => {
+      expect(pick([...pile(5), ...rest()], START, limits)).toEqual({ id: "r", kind: "review" });
+      expect(pick([...pile(6), ...rest()], START, limits)).toEqual({ id: "r", kind: "review" });
+    });
+
+    test("counts relearning Cards, and learning ones from earlier Sessions not yet due", () => {
+      const cards = [...pile(3), ...pile(2, "relearning"), ...rest()];
+
+      expect(pick(cards, START, limits)?.id).toBe("r");
+    });
+
+    test("still lets a learning Card whose step is over go first", () => {
+      const cards = [...pile(4), learning("due", ago(MINUTE)), ...rest()];
+
+      expect(pick(cards, START, limits)).toEqual({ id: "due", kind: "learning" });
+    });
+
+    test("with nothing else left, shows the learning Card due soonest early, never a New card", () => {
+      const cards = [...pile(5), fresh("n")];
+
+      expect(pick(cards, START, limits)).toEqual({ id: "learning0", kind: "learning" });
+    });
+
+    test("introduces New cards again once the count drops below it", () => {
+      const cards = [...pile(5), fresh("n")];
+      expect(pick(cards, START, limits)?.kind).toBe("learning");
+
+      // One of them graduated.
+      expect(pick(cards.slice(1), START, limits)).toEqual({ id: "n", kind: "new" });
+    });
+
+    test("holds after another batch", () => {
+      const cards = [...pile(5), fresh("n")];
+      const progress = { ...START, newShown: 5, batches: 2 };
+
+      expect(pick(cards, progress, { newCardBatch: 5, learningLimit: 5 })?.kind).toBe("learning");
+    });
+
+    test("never empties the Queue: no New card is held when it answers none", () => {
+      expect(nextInQueue([...pile(5), fresh("n")], START, limits, NOW).newHeld).toBe(0);
+    });
+  });
+
+  describe("the New-card batch", () => {
+    const limits: QueueLimits = { newCardBatch: 5, learningLimit: 50 };
+
+    test("introduces that many New cards, then no more", () => {
+      expect(walk(news(8), limits)).toEqual(["n000", "n001", "n002", "n003", "n004"]);
+    });
+
+    test("once reached, only due reviews and learning Cards come, learning shown early", () => {
+      const done = { ...START, newShown: 5 };
+      const cards = [...news(3), review("r"), learning("l", from(MINUTE))];
+
+      expect(pick(cards, done, limits)).toEqual({ id: "r", kind: "review" });
+      expect(
+        pick(
+          cards.filter((c) => c.id !== "r"),
+          done,
+          limits,
+        ),
+      ).toEqual({
+        id: "l",
+        kind: "learning",
+      });
+    });
+
+    test("once reached, answers no Card with the New cards it held", () => {
+      const answer = nextInQueue(news(37), { ...START, newShown: 5 }, limits, NOW);
+
+      expect(answer).toEqual({ next: null, newHeld: 37 });
+    });
+
+    test("holds none back while it shows a Card, or when no New card is left", () => {
+      expect(nextInQueue(news(8), START, limits, NOW).newHeld).toBe(0);
+      expect(nextInQueue([review("r")], { ...START, newShown: 5 }, limits, NOW).newHeld).toBe(0);
+      expect(nextInQueue([], { ...START, newShown: 5 }, limits, NOW)).toEqual({
+        next: null,
+        newHeld: 0,
+      });
+    });
+
+    test("another batch allows the next `batch` New cards", () => {
+      const cards = news(12).slice(5);
+      const second = { ...START, newShown: 5, batches: 2 };
+
+      expect(pick(cards, second, limits)).toEqual({ id: "n005", kind: "new" });
+      expect(nextInQueue(cards.slice(5), { ...second, newShown: 10 }, limits, NOW)).toEqual({
+        next: null,
+        newHeld: 2,
+      });
+    });
+
+    test("counts what the Session has shown, even past a batch made smaller meanwhile", () => {
+      const answer = nextInQueue(news(3), { ...START, newShown: 12 }, limits, NOW);
+
+      expect(answer).toEqual({ next: null, newHeld: 3 });
+    });
+
+    test("spaces its New cards among the reviews by what it allows, not by every New card", () => {
+      // 100 due reviews and 500 New cards: the batch's 20 spread across the 100 reviews,
+      // new Card `k` at ⌊(k+½)·120/20⌋ = 6k + 3.
+      const reviews = Array.from({ length: 100 }, (_, i) =>
+        review(`r${String(i).padStart(3, "0")}`),
+      );
+      const shown = walk([...news(500), ...reviews], { newCardBatch: 20, learningLimit: 50 });
+
+      expect(shown).toHaveLength(120);
+      const positions = shown.flatMap((id, i) => (id.startsWith("n") ? [i] : []));
+      expect(positions).toEqual(Array.from({ length: 20 }, (_, k) => 6 * k + 3));
     });
   });
 });

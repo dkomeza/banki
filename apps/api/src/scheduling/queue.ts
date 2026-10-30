@@ -3,7 +3,8 @@ import { predictedRecall } from "./fsrs";
 
 // The Queue (CONTEXT.md): which of a Deck's Cards a Session shows next. It is
 // stateless: each answer is worked out afresh from the Cards' state, `now`
-// and how many review and new Cards the Session has shown.
+// how many review and new Cards the Session has shown, and the Settings that
+// pace its New cards (CONTEXT.md: New-card batch, Learning limit).
 
 /** What the Queue needs to know of a live Card in the Deck. */
 export type QueueCard = {
@@ -16,15 +17,29 @@ export type QueueCard = {
   createdAt: Date;
 };
 
-/** The Session's progress: the review and new Cards it has shown, and the Card it showed last. */
+/**
+ * The Session's progress: the review and new Cards it has shown, the New-card
+ * batches it has been given, and the Card it showed last.
+ */
 export type QueueProgress = {
   reviewsShown: number;
   newShown: number;
+  /** How many New-card batches the Session has been given: 1 at its start. */
+  batches: number;
   /** The ID of the Card just shown, if any. */
   after?: string | undefined;
 };
 
+/** The User's Settings that pace New cards: the New-card batch and the Learning limit. */
+export type QueueLimits = { newCardBatch: number; learningLimit: number };
+
 export type QueuePick = { id: string; kind: QueueKind };
+
+/**
+ * What the Queue answers: the Card it shows next, or null when it is empty,
+ * and, when it is empty, how many New cards the New-card batch held back.
+ */
+export type QueueAnswer = { next: QueuePick | null; newHeld: number };
 
 const isLearning = (state: CardState) => state === "learning" || state === "relearning";
 
@@ -42,7 +57,13 @@ function earliestDue(learning: QueueCard[], after: string | undefined): QueueCar
 
 /**
  * The Card the Queue shows next, and its kind, or null when the Queue is
- * empty: no Card is due and none is in learning.
+ * empty: no Card it may show is due and none is in learning.
+ *
+ * New cards are paced by `limits`. The Session may introduce
+ * `newCardBatch × batches` of them in all, counting those it has shown; once
+ * it has, the rest are held back, and an empty Queue says how many
+ * (`newHeld`). While the Deck has `learningLimit` or more Cards in learning
+ * or relearning, none is introduced: a due review comes where one would.
  *
  * 1. A learning Card whose step is over goes first, the one due longest ago
  *    first, but never the Card just shown (`after`) while any other Card is
@@ -51,37 +72,44 @@ function earliestDue(learning: QueueCard[], after: string | undefined): QueueCar
  *    first (then the earlier due, then the ID), with the new Cards, in the
  *    order they were written, at evenly spaced, centered positions among
  *    them: new Card `k` of `n` in `t` is at position `⌊(k+½)·t/n⌋`, where `t`
- *    and `n` count those the Session has shown too. When the reviews run out,
- *    the rest of the new Cards follow.
+ *    and `n` count those the Session has shown too, and of the new Cards left
+ *    only those the batch still allows. When the reviews run out, the rest of
+ *    the allowed new Cards follow.
  * 3. With neither left, the learning Card with the earliest due time is shown
  *    early.
  */
 export function nextInQueue(
   cards: readonly QueueCard[],
-  { reviewsShown, newShown, after }: QueueProgress,
+  { reviewsShown, newShown, batches, after }: QueueProgress,
+  { newCardBatch, learningLimit }: QueueLimits,
   now: Date,
-): QueuePick | null {
+): QueueAnswer {
   const learning = cards.filter((c) => isLearning(c.state) && c.dueAt !== null);
   const reviews = cards.filter(
     (c) => c.state === "review" && c.dueAt !== null && c.dueAt.getTime() <= now.getTime(),
   );
   const fresh = cards.filter((c) => c.state === "new");
+  // The New cards the batch still allows, of which none while the Learning limit is reached.
+  const allowed = Math.min(fresh.length, Math.max(0, newCardBatch * batches - newShown));
+  const paused = cards.filter((c) => isLearning(c.state)).length >= learningLimit;
+  const introducing = paused ? 0 : allowed;
 
   const learningDue = learning
     .filter((c) => c.dueAt !== null && c.dueAt.getTime() <= now.getTime())
     .toSorted(byThenId((c) => c.dueAt?.getTime() ?? 0));
-  const others = reviews.length + fresh.length + learning.filter((c) => c.id !== after).length;
+  const others = reviews.length + introducing + learning.filter((c) => c.id !== after).length;
   const dueLearning = learningDue.find((c) => c.id !== after || others === 0);
-  if (dueLearning !== undefined) return { id: dueLearning.id, kind: "learning" };
+  if (dueLearning !== undefined) return shows(dueLearning, "learning");
 
-  if (fresh.length > 0 || reviews.length > 0) {
-    const newCount = fresh.length + newShown;
-    const total = reviews.length + fresh.length + reviewsShown + newShown;
+  if (introducing > 0 || reviews.length > 0) {
+    // Spaced by what the batch allows, whether or not the Learning limit pauses them.
+    const newCount = allowed + newShown;
+    const total = reviews.length + allowed + reviewsShown + newShown;
     const position = reviewsShown + newShown;
     const newPosition = Math.floor(((newShown + 0.5) * total) / newCount);
-    if (reviews.length === 0 || (fresh.length > 0 && position >= newPosition)) {
+    if (introducing > 0 && (reviews.length === 0 || position >= newPosition)) {
       const first = fresh.toSorted(byThenId((c) => c.createdAt.getTime()))[0];
-      if (first !== undefined) return { id: first.id, kind: "new" };
+      if (first !== undefined) return shows(first, "new");
     }
     const recall = new Map(reviews.map((c) => [c.id, predictedRecall(c, now)]));
     const mostAtRisk = reviews.toSorted(
@@ -89,9 +117,16 @@ export function nextInQueue(
         (recall.get(a.id) ?? 0) - (recall.get(b.id) ?? 0) ||
         byThenId<QueueCard>((c) => c.dueAt?.getTime() ?? 0)(a, b),
     )[0];
-    if (mostAtRisk !== undefined) return { id: mostAtRisk.id, kind: "review" };
+    if (mostAtRisk !== undefined) return shows(mostAtRisk, "review");
   }
 
   const early = earliestDue(learning, after);
-  return early === undefined ? null : { id: early.id, kind: "learning" };
+  if (early !== undefined) return shows(early, "learning");
+  // Empty: the Learning limit can't be what holds them, as no Card is in learning.
+  return { next: null, newHeld: fresh.length };
 }
+
+const shows = (card: QueueCard, kind: QueueKind): QueueAnswer => ({
+  next: { id: card.id, kind },
+  newHeld: 0,
+});

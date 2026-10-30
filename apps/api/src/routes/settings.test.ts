@@ -2,12 +2,14 @@ import { describe, expect, test } from "bun:test";
 import { ApiError, SettingsResponse } from "@banki/shared";
 import { type App, bootApps, get, ORIGIN, setUp } from "../testing/app";
 
-/** What a User who hasn't touched the Grading or Editor cards has. */
+/** What a User who hasn't touched the Grading, Editor, Study or Advanced cards has. */
 const UNTOUCHED_DEFAULTS = {
   model: "anthropic/claude-haiku-5.5",
   apiKey: { state: "unset" },
   autoClose: "brackets",
   desiredRetention: 90,
+  newCardBatch: 20,
+  learningLimit: 10,
 } as const;
 
 const { boot } = bootApps();
@@ -121,6 +123,38 @@ describe("PATCH /api/settings", () => {
     });
   });
 
+  test.each([
+    ["newCardBatch", [5, 37, 100]],
+    ["learningLimit", [5, 23, 50]],
+  ] as const)(
+    "stores %s from its lowest to its highest, and reads it back",
+    async (field, values) => {
+      const { app, cookie } = await signedIn();
+
+      for (const value of values) {
+        const res = await send(app, "PATCH", "/api/settings", { [field]: value }, cookie);
+        expect(res.status).toBe(200);
+        expect((await settingsOf(res))[field]).toBe(value);
+        expect((await settingsOf(await get(app, "/api/settings", cookie)))[field]).toBe(value);
+      }
+    },
+  );
+
+  test("keeps the New-card batch and the Learning limit when another Setting changes", async () => {
+    const { app, cookie } = await signedIn();
+    await send(app, "PATCH", "/api/settings", { newCardBatch: 40, learningLimit: 15 }, cookie);
+
+    const res = await send(app, "PATCH", "/api/settings", { dayStartHour: 6 }, cookie);
+
+    expect(await settingsOf(res)).toEqual({
+      timezone: null,
+      dayStartHour: 6,
+      ...UNTOUCHED_DEFAULTS,
+      newCardBatch: 40,
+      learningLimit: 15,
+    });
+  });
+
   test("accepts an alias Intl accepts, such as Europe/Kiev", async () => {
     const { app, cookie } = await signedIn();
 
@@ -139,6 +173,14 @@ describe("PATCH /api/settings", () => {
     ["a part of an hour", { dayStartHour: 4.5 }],
     ["an auto-close Banki doesn't know", { autoClose: "always" }],
     ["an auto-close that isn't a string", { autoClose: true }],
+    ["a New-card batch under 5", { newCardBatch: 4 }],
+    ["a New-card batch over 100", { newCardBatch: 101 }],
+    ["a part of a New-card batch", { newCardBatch: 12.5 }],
+    ["a New-card batch that isn't a number", { newCardBatch: "20" }],
+    ["a Learning limit under 5", { learningLimit: 4 }],
+    ["a Learning limit over 50", { learningLimit: 51 }],
+    ["a part of a Learning limit", { learningLimit: 7.5 }],
+    ["a Learning limit that is null", { learningLimit: null }],
     ["something that isn't a Setting", { theme: "dark" }],
   ])("refuses %s with 400, changing nothing", async (_, body) => {
     const { app, cookie } = await signedIn();
