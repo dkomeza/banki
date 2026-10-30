@@ -160,22 +160,24 @@ function TopBar({
 }) {
   return (
     <header className="sticky top-0 z-10 grid h-14 grid-cols-[1fr_auto_1fr] items-center gap-2 bg-background/95 px-2 backdrop-blur sm:px-4">
-      <Button
-        variant="ghost"
-        size="icon"
-        className="rounded-full text-foreground no-underline"
-        aria-label="Back to deck"
-        title="Back to deck (Esc)"
-        render={<Link to="/decks/$deckId" params={{ deckId: deck.id }} />}
-        nativeButton={false}
-      >
-        <X aria-hidden className="size-5" />
-      </Button>
+      <div className="flex items-center gap-1">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="rounded-full text-foreground no-underline"
+          aria-label="Back to deck"
+          title="Back to deck (Esc)"
+          render={<Link to="/decks/$deckId" params={{ deckId: deck.id }} />}
+          nativeButton={false}
+        >
+          <X aria-hidden className="size-5" />
+        </Button>
+        {edit}
+      </div>
       <span className="max-w-[50vw] truncate text-center text-sm font-medium text-muted-foreground">
         {deck.name}
       </span>
       <div className="flex items-center justify-end gap-1 sm:gap-2">
-        {edit}
         {state.rated > 0 && (
           <span className="hidden text-sm text-muted-foreground tabular-nums sm:inline">
             {state.rated} rated

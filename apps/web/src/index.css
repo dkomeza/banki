@@ -224,3 +224,24 @@
 .card-text .katex-display.fleqn > .katex {
   padding-left: 0;
 }
+
+/* Prototype (BAN-27, Variant b): the side panel is narrow, so from 1024 px its
+   editor puts the labels above the sides, as on a phone. */
+@media (min-width: 64rem) {
+  .stacked-editor form > div.sm\:flex-row:not(:last-child) {
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .stacked-editor .sm\:w-16 {
+    width: auto;
+  }
+  .stacked-editor .sm\:text-right {
+    text-align: left;
+  }
+  .stacked-editor .sm\:pl-22 {
+    padding-left: 0;
+  }
+  .stacked-editor .sm\:mt-7 {
+    margin-top: 0;
+  }
+}

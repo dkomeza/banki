@@ -151,7 +151,9 @@ export function useStudyEditing(session: StudySession, phase: string, cardId: st
     }
   };
 
-  // The `?state=` names, once the first Card shows.
+  // The `?state=` names, once the first Card shows. In development the
+  // Session starts twice (Strict Mode), so a Card that shows again in the
+  // first moments gets the state again.
   const applied = useRef(false);
   useEffect(() => {
     if (applied.current || phase !== "card") return;
@@ -162,12 +164,22 @@ export function useStudyEditing(session: StudySession, phase: string, cardId: st
       !["editing", "editing-front", "editing-new", "reset", "edited", "discard"].includes(state)
     )
       return;
-    if (state !== "editing-front") session.reveal();
-    if (state === "edited") {
-      setResetCard(session.getState().shown?.card.id);
-      return;
-    }
-    openEditor();
+    const apply = () => {
+      const shown = session.getState().shown;
+      if (shown === undefined) return;
+      if (state !== "editing-front") session.reveal();
+      if (state === "edited") setResetCard(shown.card.id);
+    };
+    apply();
+    if (state !== "edited") openEditor();
+    let last = session.getState().shown;
+    const stop = session.subscribe(() => {
+      const shown = session.getState().shown;
+      if (shown !== undefined && shown.card.id !== last?.card.id) apply();
+      else if (shown !== undefined && last !== shown && !session.getState().revealed) apply();
+      last = shown;
+    });
+    setTimeout(stop, 2000);
   });
 
   return { open, openEditor, close, justReset };
