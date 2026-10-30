@@ -1,9 +1,6 @@
 import { z } from "zod";
-import { CARD_SIDE_MAX_LENGTH, CardSide } from "./cards";
+import { CARD_SIDE_MAX_LENGTH, CardSide, GRADING_NOTES_MAX_LENGTH, GradingNotes } from "./cards";
 import { CARD_TAGS_MAX, cardTags, TAG_MAX_LENGTH } from "./tags";
-
-/** The longest a Card's grading notes may be. BAN-37 adopts the same limit. */
-export const GRADING_NOTES_MAX_LENGTH = 2_000;
 
 /** The only version of the Card file there is; Banki reads it for good. */
 export const CARD_FILE_VERSION = 1;
@@ -89,12 +86,8 @@ export const CardFileCard = z
       ),
       gradingNotes: z
         .string({ error: missing("gradingNotes", "text or null") })
-        .refine(
-          (notes) => notes.trim() === "" || notes.length <= GRADING_NOTES_MAX_LENGTH,
-          `Keep grading notes to ${GRADING_NOTES_MAX_LENGTH.toLocaleString("en-GB")} characters`,
-        )
         .nullable()
-        .transform((notes) => (notes === null || notes.trim() === "" ? null : notes))
+        .pipe(GradingNotes)
         .describe(
           `Notes for grading an answer to this Card: Markdown with LaTeX up to ${GRADING_NOTES_MAX_LENGTH.toLocaleString("en-GB")} characters, or null for none. Blank counts as null.`,
         ),

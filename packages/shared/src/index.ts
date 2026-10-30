@@ -17,6 +17,8 @@ export {
   CardSide,
   CreateCardRequest,
   DeleteCardsRequest,
+  GRADING_NOTES_MAX_LENGTH,
+  GradingNotes,
   MoveCardsRequest,
   MoveCardsResponse,
   UpdateCardRequest,
@@ -73,7 +75,6 @@ export {
   CardFile,
   CardFileCard,
   CardFileMacro,
-  GRADING_NOTES_MAX_LENGTH,
   NEWER_BANKI_MESSAGE,
   NOT_A_CARD_FILE_MESSAGE,
 } from "./card-file";

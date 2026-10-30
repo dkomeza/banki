@@ -479,3 +479,86 @@ describe("a Deck's card count", () => {
     expect((await get(app, `/api/cards/${card.id}`, cookie)).status).toBe(404);
   });
 });
+
+/** Creates a Card with the Front `f` and the Back `b`, and whatever else `body` gives. */
+const createWith = (app: App, cookie: string, deckId: string, body: Record<string, unknown>) =>
+  send(app, "POST", `/api/decks/${deckId}/cards`, { front: "f", back: "b", ...body }, cookie);
+/** Changes the Card `id` with `body`. */
+const patchWith = (app: App, cookie: string, id: string, body: Record<string, unknown>) =>
+  send(app, "PATCH", `/api/cards/${id}`, body, cookie);
+/** The Grading notes of the Card `res` answers. */
+const notesOf = async (res: Response) => CardResponse.parse(await res.json()).gradingNotes;
+
+describe("Grading notes", () => {
+  test("a create takes them as typed, and none when left out or blank", async () => {
+    const { app, cookie, deckId } = await signedIn();
+
+    const typed = await createWith(app, cookie, deckId, { gradingNotes: " Must mention $x$.\n" });
+    expect(typed.status).toBe(201);
+    expect(await notesOf(typed)).toBe(" Must mention $x$.\n");
+    expect(await notesOf(await createWith(app, cookie, deckId, {}))).toBeNull();
+    expect(
+      await notesOf(await createWith(app, cookie, deckId, { gradingNotes: "  \n" })),
+    ).toBeNull();
+    expect(await notesOf(await createWith(app, cookie, deckId, { gradingNotes: null }))).toBeNull();
+  });
+
+  test("a create refuses 2,001 characters with a 400 naming the problem", async () => {
+    const { app, cookie, deckId } = await signedIn();
+
+    const res = await createWith(app, cookie, deckId, { gradingNotes: "a".repeat(2_001) });
+
+    expect(res.status).toBe(400);
+    expect(await res.text()).toContain("Keep grading notes to 2,000 characters");
+    expect(await frontsIn(app, cookie, deckId)).toEqual([]);
+  });
+
+  test("a PATCH of only them sets them; null or blank clears them; leaving them out keeps them", async () => {
+    const { app, cookie, deckId } = await signedIn();
+    const card = await createCard(app, cookie, deckId);
+
+    const set = await patchWith(app, cookie, card.id, { gradingNotes: "Accept either." });
+    expect(set.status).toBe(200);
+    expect(await notesOf(set)).toBe("Accept either.");
+    expect(await notesOf(await patchWith(app, cookie, card.id, { front: "g" }))).toBe(
+      "Accept either.",
+    );
+    expect(await notesOf(await patchWith(app, cookie, card.id, { gradingNotes: null }))).toBeNull();
+    await patchWith(app, cookie, card.id, { gradingNotes: "again" });
+    expect(
+      await notesOf(await patchWith(app, cookie, card.id, { gradingNotes: " \t" })),
+    ).toBeNull();
+  });
+
+  test("a PATCH refuses 2,001 characters and keeps them", async () => {
+    const { app, cookie, deckId } = await signedIn();
+    const card = CardResponse.parse(
+      await (await createWith(app, cookie, deckId, { gradingNotes: "kept" })).json(),
+    );
+
+    const res = await patchWith(app, cookie, card.id, { gradingNotes: "a".repeat(2_001) });
+
+    expect(res.status).toBe(400);
+    expect(await notesOf(await get(app, `/api/cards/${card.id}`, cookie))).toBe("kept");
+  });
+
+  test("every Card answered carries them: the list, one Card and a Move's answer", async () => {
+    const { app, cookie, deckId } = await signedIn();
+    const other = await createDeck(app, cookie, "Verbs");
+    const card = CardResponse.parse(
+      await (await createWith(app, cookie, deckId, { gradingNotes: "notes" })).json(),
+    );
+
+    const listed = CardListResponse.parse(
+      await (await get(app, `/api/decks/${deckId}/cards`, cookie)).json(),
+    );
+    expect(listed.map((c) => c.gradingNotes)).toEqual(["notes"]);
+    expect(await notesOf(await get(app, `/api/cards/${card.id}`, cookie))).toBe("notes");
+    const moved = MoveCardsResponse.parse(
+      await (
+        await send(app, "POST", "/api/cards/move", { cardIds: [card.id], deckId: other.id }, cookie)
+      ).json(),
+    );
+    expect(moved.cards.map((c) => c.gradingNotes)).toEqual(["notes"]);
+  });
+});

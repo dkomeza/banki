@@ -125,7 +125,8 @@ const IMAGE = {
  * (`SEED_IDS.card`), with `align`, `cases`, a matrix and one broken Formula
  * (`\fracc`); a few in Japanese kanji and Organic chemistry, one of them very
  * long, and mhchem reactions (`\ce`, `\pu`). Calculus 10 stays empty, for the
- * empty state.
+ * empty state. Three have Grading notes, two of them with a Formula, the
+ * edit-card page's Card among them, so its editor opens with them.
  */
 const CARDS: readonly {
   id: string;
@@ -133,6 +134,7 @@ const CARDS: readonly {
   hoursAgo: number;
   front: string;
   back: string;
+  gradingNotes?: string;
 }[] = [
   {
     id: spanish[0],
@@ -147,6 +149,7 @@ const CARDS: readonly {
     hoursAgo: 960,
     front: "la cuenta",
     back: "the bill, the check\n¿Nos trae la cuenta, por favor?",
+    gradingNotes: "Accept *the bill* or *the check*; the example sentence isn't needed.",
   },
   {
     id: spanish[2],
@@ -248,6 +251,8 @@ const CARDS: readonly {
       "$$\\ln(1+x) = x - \\frac{x^2}{2} + \\frac{x^3}{3} - \\frac{x^4}{4} + \\cdots$$",
       "It converges for $-1 < x \\le 1$: at $x = 1$ by the alternating series test (giving $\\ln 2$), and it diverges at $x = -1$ (the harmonic series).",
     ].join("\n"),
+    gradingNotes:
+      "Must start from the geometric series and integrate it.\n\nMust give the interval $-1 < x \\le 1$, saying why $x = 1$ is in it and $x = -1$ isn't.",
   },
   {
     id: calculus2[2],
@@ -315,6 +320,8 @@ const CARDS: readonly {
       "It is concave everywhere, and goes through $(1, \\ln 2)$.",
       "It is defined for $x > -1$, with a vertical asymptote at $x = -1$.",
     ].join("\n"),
+    gradingNotes:
+      "Must give the domain $x > -1$ and the slope $1$ at the origin. The sketch may be described in words.",
   },
   {
     id: calculus2[10],
@@ -618,11 +625,11 @@ export function writeSeedData({
   }
 
   const cards = createCardRepository(db);
-  for (const { id, deckId, hoursAgo, front, back } of CARDS) {
+  for (const { id, deckId, hoursAgo, front, back, gradingNotes = null } of CARDS) {
     const created = cards.create(
       userId,
       deckId,
-      { front, back, tags: TAGS[id] ?? [] },
+      { front, back, tags: TAGS[id] ?? [], gradingNotes },
       { id, now: new Date(now.getTime() - hoursAgo * HOUR_MS) },
     );
     if (typeof created === "string") throw new Error(`The seed Card ${id} is ${created}`);

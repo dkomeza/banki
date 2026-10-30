@@ -49,6 +49,7 @@ const COMMITTED = [
   "0011_scheduling",
   "0012_soft_cap",
   "0013_macros",
+  "0014_grading_notes",
 ];
 
 /** The tables the committed migrations create. */
@@ -251,5 +252,40 @@ test("0013_macros keeps every Deck and Settings row, each with no Macros", () =>
   expect(opened.db.values(sql`SELECT id FROM card`)).toEqual([["c"]]);
   expect(opened.db.values(sql`SELECT timezone, macros FROM user_settings`)).toEqual([
     ["UTC", "[]"],
+  ]);
+});
+
+test("0014_grading_notes keeps every Card, with no Grading notes", () => {
+  // The database as the release before it left it: this migration and later ones not applied.
+  const journalPath = join(folder, "meta", "_journal.json");
+  const full = readFileSync(journalPath, "utf8");
+  const journal = z
+    .looseObject({ entries: z.array(z.looseObject({ tag: z.string() })) })
+    .parse(JSON.parse(full));
+  writeFileSync(
+    journalPath,
+    JSON.stringify({
+      ...journal,
+      entries: journal.entries.filter((entry) => entry.tag < "0014_grading_notes"),
+    }),
+  );
+  applyMigrations(opened.db, folder);
+  opened.db.run(
+    sql`INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES ('u', 'n', 'u@x.y', 1, 0, 0)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO deck (id, user_id, name, name_key, created_at, updated_at) VALUES ('d', 'u', 'D', 'd', 0, 0)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO card (id, user_id, deck_id, front, back, created_at, updated_at) VALUES ('c', 'u', 'd', 'f', 'b', 0, 0)`,
+  );
+
+  writeFileSync(journalPath, full);
+  expect(applyMigrations(opened.db, folder)).toEqual(
+    COMMITTED.slice(COMMITTED.indexOf("0014_grading_notes")),
+  );
+
+  expect(opened.db.values(sql`SELECT id, front, back, grading_notes FROM card`)).toEqual([
+    ["c", "f", "b", null],
   ]);
 });

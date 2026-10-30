@@ -10,9 +10,11 @@ import {
   deleteCard,
   deleteCards,
   duplicatesOf,
+  fieldErrors,
+  fieldsOf,
+  gradingNotesProblem,
   hasUnsavedChanges,
   moveCards,
-  sideErrors,
   sideProblem,
   updateCard,
 } from "./cards";
@@ -24,6 +26,7 @@ const card = (id: string, front = "f", back = "b", tags: string[] = []): Card =>
   front,
   back,
   tags,
+  gradingNotes: null,
   createdAt: "2026-10-01T10:00:00.000Z",
   updatedAt: "2026-10-01T10:00:00.000Z",
 });
@@ -46,26 +49,41 @@ const unreachable = () =>
     }),
   );
 
+/** A new card's fields: nothing typed. */
+const BLANK = { front: "", back: "", gradingNotes: "" };
+
+/** Fields with these sides and no Grading notes. */
+const sides = (front: string, back: string) => ({ front, back, gradingNotes: "" });
+
 describe("hasUnsavedChanges", () => {
-  const saved = { front: "el desayuno", back: "breakfast" };
+  const saved = { front: "el desayuno", back: "breakfast", gradingNotes: "Accept *meal*." };
 
   test("is false with nothing changed, or nothing typed on a new card", () => {
     expect(hasUnsavedChanges({ ...saved }, saved)).toBe(false);
-    expect(hasUnsavedChanges({ front: "", back: "" }, { front: "", back: "" })).toBe(false);
+    expect(hasUnsavedChanges(BLANK, BLANK)).toBe(false);
   });
 
-  test("is true once either side differs, even only by whitespace", () => {
+  test("is true once a side or the Grading notes differ, even only by whitespace", () => {
     expect(hasUnsavedChanges({ ...saved, front: "el desayuno " }, saved)).toBe(true);
     expect(hasUnsavedChanges({ ...saved, back: "breakfast\n" }, saved)).toBe(true);
-    expect(hasUnsavedChanges({ front: " ", back: "" }, { front: "", back: "" })).toBe(true);
+    expect(hasUnsavedChanges({ ...saved, gradingNotes: "" }, saved)).toBe(true);
+    expect(hasUnsavedChanges({ ...BLANK, front: " " }, BLANK)).toBe(true);
+    expect(hasUnsavedChanges({ ...BLANK, gradingNotes: " " }, BLANK)).toBe(true);
   });
 
   test("is false again once the text is back to what was saved", () => {
-    expect(hasUnsavedChanges({ front: "el desayuno", back: "breakfast" }, saved)).toBe(false);
+    expect(hasUnsavedChanges({ ...saved, gradingNotes: "Accept *meal*." }, saved)).toBe(false);
   });
 });
 
-describe("sideProblem and sideErrors", () => {
+describe("fieldsOf", () => {
+  test("writes a Card's missing Grading notes as blank", () => {
+    expect(fieldsOf(card("c1", "f", "b"))).toEqual({ front: "f", back: "b", gradingNotes: "" });
+    expect(fieldsOf({ ...card("c1", "f", "b"), gradingNotes: "n" }).gradingNotes).toBe("n");
+  });
+});
+
+describe("sideProblem, gradingNotesProblem and fieldErrors", () => {
   test("refuse a blank side or one over 20,000 characters, without trimming", () => {
     expect(sideProblem("", "Front")).toBe("Write the Front.");
     expect(sideProblem(" \n\t", "Back")).toBe("Write the Back.");
@@ -74,13 +92,23 @@ describe("sideProblem and sideErrors", () => {
     expect(sideProblem(`${"x".repeat(20_000)} `, "Front")).toBeDefined();
   });
 
-  test("name each side's problem under its own field", () => {
-    expect(sideErrors({ front: "", back: "b" })).toEqual({ front: "Write the Front." });
-    expect(sideErrors({ front: "", back: "" })).toEqual({
+  test("take Grading notes of none, blank or up to 2,000 characters, and refuse more", () => {
+    expect(gradingNotesProblem("")).toBeUndefined();
+    expect(gradingNotesProblem(" ".repeat(3_000))).toBeUndefined();
+    expect(gradingNotesProblem("n".repeat(2_000))).toBeUndefined();
+    expect(gradingNotesProblem("n".repeat(2_001))).toBe("Keep grading notes to 2,000 characters.");
+  });
+
+  test("name each field's problem under its own field", () => {
+    expect(fieldErrors(sides("", "b"))).toEqual({ front: "Write the Front." });
+    expect(fieldErrors(sides("", ""))).toEqual({
       front: "Write the Front.",
       back: "Write the Back.",
     });
-    expect(sideErrors({ front: "f", back: "b" })).toEqual({});
+    expect(fieldErrors({ ...sides("f", "b"), gradingNotes: "n".repeat(2_001) })).toEqual({
+      gradingNotes: "Keep grading notes to 2,000 characters.",
+    });
+    expect(fieldErrors(sides("f", "b"))).toEqual({});
   });
 });
 
@@ -93,7 +121,7 @@ describe("createCard", () => {
     const outcome = await createCard(
       queryClient,
       "d1",
-      { front: " $x^2$\n", back: "line\n\nline " },
+      { front: " $x^2$\n", back: "line\n\nline ", gradingNotes: " Must say $x$.\n" },
       ["exam", "verb"],
       client,
     );
@@ -102,6 +130,7 @@ describe("createCard", () => {
     expect(sent[0]?.body).toEqual({
       front: " $x^2$\n",
       back: "line\n\nline ",
+      gradingNotes: " Must say $x$.\n",
       tags: ["exam", "verb"],
     });
     expect(queryClient.getQueryData(cardQueryOptions("c1").queryKey)).toEqual(created);
@@ -110,15 +139,27 @@ describe("createCard", () => {
   test("sends nothing when a side is blank, naming it", async () => {
     const { client, fetch } = answering(() => Response.json({}, { status: 201 }));
 
+    const outcome = await createCard(new QueryClient(), "d1", sides("  ", "b"), [], client);
+
+    expect(outcome).toEqual({ ok: false, errors: { front: "Write the Front." } });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  test("sends nothing when the Grading notes are too long", async () => {
+    const { client, fetch } = answering(() => Response.json({}, { status: 201 }));
+
     const outcome = await createCard(
       new QueryClient(),
       "d1",
-      { front: "  ", back: "b" },
+      { ...sides("f", "b"), gradingNotes: "n".repeat(2_001) },
       [],
       client,
     );
 
-    expect(outcome).toEqual({ ok: false, errors: { front: "Write the Front." } });
+    expect(outcome).toEqual({
+      ok: false,
+      errors: { gradingNotes: "Keep grading notes to 2,000 characters." },
+    });
     expect(fetch).not.toHaveBeenCalled();
   });
 
@@ -127,12 +168,14 @@ describe("createCard", () => {
       Response.json({ error: { code: "not_found", message: "…" } }, { status: 404 }),
     );
 
-    expect(
-      await createCard(new QueryClient(), "d1", { front: "f", back: "b" }, [], gone.client),
-    ).toEqual({ ok: false, notFound: true });
-    expect(
-      await createCard(new QueryClient(), "d1", { front: "f", back: "b" }, [], unreachable()),
-    ).toEqual({ ok: false, message: CANT_REACH });
+    expect(await createCard(new QueryClient(), "d1", sides("f", "b"), [], gone.client)).toEqual({
+      ok: false,
+      notFound: true,
+    });
+    expect(await createCard(new QueryClient(), "d1", sides("f", "b"), [], unreachable())).toEqual({
+      ok: false,
+      message: CANT_REACH,
+    });
   });
 });
 
@@ -142,11 +185,30 @@ describe("updateCard", () => {
     const changed = card("c1", "new", "new back", ["noun"]);
     const { client, sent } = answering(() => Response.json(changed));
 
-    expect(
-      await updateCard(queryClient, "c1", { front: "new", back: "new back" }, ["noun"], client),
-    ).toEqual({ ok: true, card: changed });
-    expect(sent[0]?.body).toEqual({ front: "new", back: "new back", tags: ["noun"] });
+    expect(await updateCard(queryClient, "c1", sides("new", "new back"), ["noun"], client)).toEqual(
+      { ok: true, card: changed },
+    );
+    expect(sent[0]?.body).toEqual({
+      front: "new",
+      back: "new back",
+      gradingNotes: null,
+      tags: ["noun"],
+    });
     expect(queryClient.getQueryData(cardQueryOptions("c1").queryKey)).toEqual(changed);
+  });
+
+  test("sends blank Grading notes as none, clearing them", async () => {
+    const { client, sent } = answering(() => Response.json(card("c1")));
+
+    await updateCard(
+      new QueryClient(),
+      "c1",
+      { ...sides("f", "b"), gradingNotes: " \n" },
+      [],
+      client,
+    );
+
+    expect(sent[0]?.body).toMatchObject({ gradingNotes: null });
   });
 });
 

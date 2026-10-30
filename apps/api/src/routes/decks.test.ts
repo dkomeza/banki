@@ -175,6 +175,17 @@ describe("PATCH /api/decks/:id", () => {
     }
   });
 
+  test("answers its own message for a 400, not a rule's", async () => {
+    const { app, cookie } = await signedIn();
+    const created = await createDeck(app, cookie, { name: "Spanish" });
+
+    const res = await send(app, "PATCH", `/api/decks/${created.id}`, {}, cookie);
+
+    expect(await res.json()).toEqual({
+      error: { code: "invalid_request", message: "Invalid deck" },
+    });
+  });
+
   test("answers 404 not_found for an unknown or deleted Deck", async () => {
     const { app, cookie } = await signedIn();
     const gone = await createDeck(app, cookie, { name: "Gone" });

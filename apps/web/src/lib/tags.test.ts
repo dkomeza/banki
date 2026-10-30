@@ -20,6 +20,7 @@ const card = (front: string, back = "", tags: string[] = []): Card => ({
   front,
   back,
   tags,
+  gradingNotes: null,
   createdAt: "2026-10-01T10:00:00.000Z",
   updatedAt: "2026-10-01T10:00:00.000Z",
 });
