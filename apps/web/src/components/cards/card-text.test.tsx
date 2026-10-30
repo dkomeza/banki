@@ -1,5 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
+import { effectiveMacros } from "@banki/shared";
+import { MacrosContext } from "@/lib/macros";
 import { CardLine, CardText } from "./card-text";
 
 const html = (text: string) => renderToStaticMarkup(<CardText text={text} />);
@@ -270,5 +272,48 @@ describe("CardText, broken display Formulas", () => {
   test("show their source between the $$ they were written with", () => {
     expect(html("$$\\fracc{1}{2}$$ inline")).toContain("$$\\fracc{1}{2}$$");
     expect(html("$$\n\\fracc{1}{2}\n$$")).toContain("$$\n\\fracc{1}{2}\n$$");
+  });
+});
+
+const withMacros = (text: string, macros: readonly { name: string; definition: string }[]) =>
+  renderToStaticMarkup(
+    <MacrosContext value={macros}>
+      <CardText text={text} />
+    </MacrosContext>,
+  );
+/** The MathML of each Formula: what KaTeX made of it. */
+const mathml = (markup: string) => [...markup.matchAll(/<math[^]*?<\/math>/g)].map(([m]) => m);
+
+describe("CardText with a Deck's Macros", () => {
+  const settings = [
+    { name: "\\norm", definition: "\\left\\| #1 \\right\\|" },
+    { name: "\\eps", definition: "\\varepsilon" },
+  ];
+  test("typesets a Formula with them", () => {
+    const out = withMacros("$\\norm{x}$", settings);
+
+    expect(out).not.toContain("text-destructive");
+    expect(mathml(out)[0]).toContain("∥");
+  });
+
+  test("leaves a Macro undefined outside them, with KaTeX's message naming it", () => {
+    const out = html("$\\norm{x}$");
+
+    expect(out).toContain("Undefined control sequence: \\norm");
+  });
+
+  test("a Deck's own wins over Settings' of the same name", () => {
+    const own = effectiveMacros(settings, [{ name: "\\eps", definition: "\\epsilon" }]);
+
+    expect(mathml(withMacros("$\\eps$", settings))[0]).toContain("ε");
+    expect(mathml(withMacros("$\\eps$", own))[0]).toContain("ϵ");
+  });
+
+  test("a Formula's own \\def stays inside it, and wins over a Macro of its name there", () => {
+    const out = withMacros("$\\def\\eps{Q}\\eps$ and $\\eps$", settings);
+    const [first, second] = mathml(out);
+
+    expect(first).toContain("Q");
+    expect(second).toContain("ε");
   });
 });

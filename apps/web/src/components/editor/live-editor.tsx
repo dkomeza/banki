@@ -2,6 +2,7 @@ import type { AutoClose } from "@banki/shared";
 import { Annotation, Compartment, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { type RefObject, useEffect, useRef, useState } from "react";
+import { useMacros } from "@/lib/macros";
 import { cn } from "@/lib/utils";
 import { Cheatsheet } from "./cheatsheet";
 import type { Format } from "./formatting";
@@ -19,7 +20,9 @@ import "./latex.css";
 // a value and its changes, a label, an error and a note to describe it, like
 // the textarea it replaces, its formatting toolbar and its LaTeX cheatsheet.
 // Given an upload, it takes Images too: pasted, dropped, or picked with the
-// toolbar's Image button; without one, it ignores files.
+// toolbar's Image button; without one, it ignores files. Its Formulas are
+// typeset with the Macros of the `MacrosContext` it is in, which its
+// autocomplete and cheatsheet offer too.
 
 /** Marks a change that came in through `value`, which isn't the User's. */
 const fromValue = Annotation.define<boolean>();
@@ -68,6 +71,7 @@ export function LiveEditor({
   onUploading?: (uploading: boolean) => void;
 }) {
   useKeyboardInset();
+  const macros = useMacros();
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const reconfigure = useRef<ReturnType<typeof livePreview>["reconfigure"]>(null);
@@ -108,6 +112,7 @@ export function LiveEditor({
       placeholder,
       onSubmit: () => handlers.current.onSubmit(),
       autoClose,
+      macros,
       readOnly,
     });
     reconfigure.current = preview.reconfigure;
@@ -162,12 +167,12 @@ export function LiveEditor({
     if (current === null || reconfigure.current === null) return;
     current.dispatch({
       effects: [
-        ...reconfigure.current({ autoClose, readOnly }),
+        ...reconfigure.current({ autoClose, macros, readOnly }),
         attributes.current.reconfigure(aria()),
       ],
     });
     // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoClose, readOnly, labelledBy, describedBy, invalid]);
+  }, [autoClose, macros, readOnly, labelledBy, describedBy, invalid]);
 
   const format = (to: Format) => {
     if (view.current !== null) applyFormat(view.current, to, cell.current);
@@ -206,6 +211,7 @@ export function LiveEditor({
       {cheatsheet !== null && (
         <Cheatsheet
           query={cheatsheet}
+          macros={macros}
           onQuery={setCheatsheet}
           onInsert={insert}
           onClose={closeCheatsheet}

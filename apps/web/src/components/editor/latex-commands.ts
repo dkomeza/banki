@@ -1,6 +1,10 @@
+import { type Macro, macroArity } from "@banki/shared";
+import { NO_MACROS } from "@/lib/formula";
+import { sampleOf } from "@/lib/macros";
+
 // The LaTeX commands the editor knows (BAN-21): what its completion popup
-// offers inside a Formula and what its cheatsheet lists. A plain list, so
-// math macros (BAN-22) can join it later. Each is typeset by KaTeX 0.19.1,
+// offers inside a Formula and what its cheatsheet lists, with the Deck's
+// Macros (BAN-22) in a group of their own, first. Each is typeset by KaTeX 0.19.1,
 // with mhchem's \ce and \pu (lib/formula.ts registers them).
 //
 // `snippet` is what is inserted, a `▯` for each slot the User fills in;
@@ -8,6 +12,7 @@
 // an accent on). `common` ones come first among those that match.
 
 export type CommandGroup =
+  | "Macros"
   | "Greek"
   | "Operators"
   | "Relations"
@@ -503,10 +508,46 @@ export function previewOf(command: LatexCommand): string {
 /** Whether the command has slots to fill. */
 export const hasSlots = (command: LatexCommand) => command.snippet.includes("▯");
 
-/** The commands whose name starts with `typed` (a `\` and letters), best first. */
-export function matching(typed: string): LatexCommand[] {
+const macroLists = new WeakMap<readonly Macro[], LatexCommand[]>();
+
+/**
+ * The Deck's Macros as commands, in the "Macros" group: each inserts a slot
+ * per argument, renders with sample arguments, and means its definition.
+ * Kept per list, so each keeps its identity while the Macros stay the same.
+ */
+export function macroCommands(macros: readonly Macro[]): LatexCommand[] {
+  let commands = macroLists.get(macros);
+  if (commands === undefined) {
+    commands = macros.map(({ name, definition }) => {
+      const arity = macroArity(definition);
+      return {
+        name,
+        snippet: `${name}${"{▯}".repeat(arity)}`,
+        group: "Macros",
+        meaning: definition,
+        preview: sampleOf(name, arity),
+      };
+    });
+    macroLists.set(macros, commands);
+  }
+  return commands;
+}
+
+/** Every command there is with `macros`: the Macros first, in place of KaTeX's of their names. */
+function commandsWith(macros: readonly Macro[]): LatexCommand[] {
+  if (macros.length === 0) return [...COMMANDS];
+  const names = new Set(macros.map((macro) => macro.name));
+  return [...macroCommands(macros), ...COMMANDS.filter((command) => !names.has(command.name))];
+}
+
+/**
+ * The commands whose name starts with `typed` (a `\` and letters), best
+ * first, the Deck's `macros` among them.
+ */
+export function matching(typed: string, macros: readonly Macro[] = NO_MACROS): LatexCommand[] {
   const lower = typed.toLowerCase();
-  return COMMANDS.map((command, i) => ({ command, i }))
+  return commandsWith(macros)
+    .map((command, i) => ({ command, i }))
     .filter(({ command }) => command.name.toLowerCase().startsWith(lower))
     .toSorted(
       (a, b) =>
@@ -519,11 +560,15 @@ export function matching(typed: string): LatexCommand[] {
     .map(({ command }) => command);
 }
 
-/** The commands the cheatsheet's search finds: by name, keyword and meaning. */
-export function search(query: string): LatexCommand[] {
+/**
+ * The commands the cheatsheet's search finds, the Deck's `macros` among
+ * them: by name, keyword and meaning (a Macro's definition).
+ */
+export function search(query: string, macros: readonly Macro[] = NO_MACROS): LatexCommand[] {
   const words = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return [...COMMANDS];
-  return COMMANDS.filter((command) => {
+  const all = commandsWith(macros);
+  if (words.length === 0) return all;
+  return all.filter((command) => {
     const hay =
       `${command.name} ${command.meaning} ${command.keywords ?? ""} ${command.group}`.toLowerCase();
     return words.every((word) => hay.includes(word));

@@ -121,10 +121,23 @@ describe("list", () => {
         removesAt: "2026-10-31T00:00:00.000Z",
         top: { kind: "card", id: lone, name: "la madrugada\nthe small hours" },
         path: null,
-        deck: { id: spanish, name: "Spanish" },
+        deck: { id: spanish, name: "Spanish", macros: [] },
         counts: { folders: 0, decks: 0, cards: 0 },
       },
     ]);
+  });
+
+  test("gives a Card's Deck with its own Macros, kept once that Deck is deleted too", () => {
+    const calculus = makeDeck("Calculus 2");
+    const d = { name: "\\d", definition: "\\mathrm{d}" };
+    decks.update(USER, calculus, { macros: [d] });
+    const lone = write(calculus, "$\\d x$");
+    cards.softDelete(USER, lone, at("2026-10-01T00:00:00.000Z"));
+    decks.softDelete(USER, calculus, at("2026-10-02T00:00:00.000Z"));
+
+    const listed = deletions.list(USER).find((entry) => entry.top.kind === "card");
+
+    expect(listed?.deck).toEqual({ id: calculus, name: "Calculus 2", macros: [d] });
   });
 
   test("gives a Deck or Folder deep inside its whole Folder path, deleted Folders too", () => {

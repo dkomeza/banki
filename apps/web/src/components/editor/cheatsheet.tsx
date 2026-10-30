@@ -1,3 +1,4 @@
+import type { Macro } from "@banki/shared";
 import { Search, X } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { typeset } from "@/lib/formula";
@@ -6,14 +7,15 @@ import { type CommandGroup, GROUPS, type LatexCommand, previewOf, search } from 
 // The LaTeX cheatsheet: a card that drops
 // from the toolbar over the side being written (a sheet from the bottom on a
 // phone), its groups as chips along the top and its commands as tiles, each
-// with its render, its command and its meaning. A tile inserts its snippet and
-// closes the card.
+// with its render, its command and its meaning. The Deck's Macros come first,
+// in a group of their own, when it has any, each meaning its definition. A
+// tile inserts its snippet and closes the card.
 
-function Render({ command }: { command: LatexCommand }) {
+function Render({ command, macros }: { command: LatexCommand; macros: readonly Macro[] }) {
   const html = useMemo(() => {
-    const result = typeset(previewOf(command), false);
+    const result = typeset(previewOf(command), false, macros);
     return "html" in result ? result.html : "";
-  }, [command]);
+  }, [command, macros]);
   // oxlint-disable-next-line react/no-danger
   return (
     <span aria-hidden className="cheatsheet-render" dangerouslySetInnerHTML={{ __html: html }} />
@@ -22,12 +24,15 @@ function Render({ command }: { command: LatexCommand }) {
 
 export function Cheatsheet({
   query,
+  macros,
   onQuery,
   onInsert,
   onClose,
   onLeave,
 }: {
   query: string;
+  /** The Deck's effective Macros, listed first. */
+  macros: readonly Macro[];
   onQuery: (query: string) => void;
   onInsert: (command: LatexCommand) => void;
   onClose: () => void;
@@ -38,14 +43,17 @@ export function Cheatsheet({
   const box = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
-  const [current, setCurrent] = useState<CommandGroup>("Greek");
+  const shownGroups: readonly CommandGroup[] = macros.length === 0 ? GROUPS : ["Macros", ...GROUPS];
+  const [current, setCurrent] = useState<CommandGroup>(shownGroups[0] ?? "Greek");
   /** The group a chip jumped to, kept current while its section is in view. */
   const picked = useRef<CommandGroup | null>(null);
-  const found = useMemo(() => search(query), [query]);
-  const groups = GROUPS.map((group) => ({
-    group,
-    commands: found.filter((command) => command.group === group),
-  })).filter(({ commands }) => commands.length > 0);
+  const found = useMemo(() => search(query, macros), [query, macros]);
+  const groups = shownGroups
+    .map((group) => ({
+      group,
+      commands: found.filter((command) => command.group === group),
+    }))
+    .filter(({ commands }) => commands.length > 0);
 
   useEffect(() => {
     input.current?.focus({ preventScroll: true });
@@ -111,7 +119,7 @@ export function Cheatsheet({
         </label>
         {query.trim() === "" && (
           <nav className="cheatsheet-chips" aria-label="Groups">
-            {GROUPS.map((group) => (
+            {shownGroups.map((group) => (
               <button
                 key={group}
                 type="button"
@@ -142,10 +150,10 @@ export function Cheatsheet({
             )
               return;
             picked.current = null;
-            let at: CommandGroup = "Greek";
+            let at: CommandGroup = shownGroups[0] ?? "Greek";
             for (const section of sections)
               if (section.offsetTop <= scrollTop + 8)
-                at = GROUPS.find((group) => group === section.dataset.group) ?? at;
+                at = shownGroups.find((group) => group === section.dataset.group) ?? at;
             setCurrent(at);
           }}
         >
@@ -173,7 +181,7 @@ export function Cheatsheet({
                     aria-label={`${command.name}, ${command.meaning}`}
                     onClick={() => onInsert(command)}
                   >
-                    <Render command={command} />
+                    <Render command={command} macros={macros} />
                     <span className="cheatsheet-name">{command.name}</span>
                     <span className="cheatsheet-meaning">{command.meaning}</span>
                   </button>

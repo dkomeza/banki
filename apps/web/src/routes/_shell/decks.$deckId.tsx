@@ -2,6 +2,7 @@ import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { CornerDownRight, Pencil, Play, Settings2, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { DeckMacros } from "@/components/cards/deck-macros";
 import { deleteAllWithUndo, showMovedToast } from "@/components/cards/card-toasts";
 import { CardTimeline } from "@/components/cards/card-timeline";
 import { DeckPicker } from "@/components/cards/deck-picker";
@@ -66,7 +67,13 @@ function DeckPage() {
   return (
     <Page width="cards">
       <div className="flex flex-col gap-6 lg:gap-8">
-        {deck === null ? <DeckNotFound /> : <DeckBody key={deck.id} deck={deck} />}
+        {deck === null ? (
+          <DeckNotFound />
+        ) : (
+          <DeckMacros own={deck.macros}>
+            <DeckBody key={deck.id} deck={deck} />
+          </DeckMacros>
+        )}
       </div>
     </Page>
   );

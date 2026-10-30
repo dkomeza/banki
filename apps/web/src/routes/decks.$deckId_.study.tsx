@@ -1,5 +1,6 @@
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
+import { DeckMacros } from "@/components/cards/deck-macros";
 import { DeckNotFound } from "@/components/not-found";
 import { Page } from "@/components/page";
 import { StudyScreen } from "@/components/study/study-screen";
@@ -28,5 +29,9 @@ function StudyPage() {
         <DeckNotFound />
       </Page>
     );
-  return <StudyScreen key={deck.id} deck={deck} />;
+  return (
+    <DeckMacros own={deck.macros}>
+      <StudyScreen key={deck.id} deck={deck} />
+    </DeckMacros>
+  );
 }

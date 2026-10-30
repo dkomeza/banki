@@ -2,6 +2,7 @@ import { completionStatus } from "@codemirror/autocomplete";
 import { type EditorState, StateField } from "@codemirror/state";
 import { EditorView, showTooltip, type Tooltip } from "@codemirror/view";
 import { changesPreview } from "./decorations";
+import { formulaMacros } from "./formula-macros";
 import { focusedField, formulaAt, formulaSource, formulaSourceEnd } from "./language";
 import { withSlotBoxes } from "./latex-complete";
 import { popoverContent } from "./widgets";
@@ -24,12 +25,13 @@ function popoverFor(state: EditorState): Tooltip | null {
   const node = editedInlineFormula(state);
   // One card at a time: the completion popup stands in for it while open.
   if (node === null || completionStatus(state) !== null) return null;
-  const source = withSlotBoxes(formulaSource(node, state.doc));
+  const macros = state.facet(formulaMacros);
+  const source = withSlotBoxes(formulaSource(node, state.doc), macros);
   return {
     pos: node.from,
     above: false,
     arrow: false,
-    create: () => ({ dom: popoverContent(source) }),
+    create: () => ({ dom: popoverContent(source, macros) }),
   };
 }
 

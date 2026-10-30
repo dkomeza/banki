@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { authClient } from "./auth-client";
+import { dropDeckMacrosSavers } from "./deck-macros";
 import { dropDeckRetentionSavers } from "./deck-retention";
 import { meQueryOptions } from "./me";
 import { settingsQueryOptions } from "./settings";
@@ -29,6 +30,7 @@ export function useSignOut() {
         // The settings savers too, so the next sign-in starts clean.
         dropSettingsSaver(queryClient);
         dropDeckRetentionSavers(queryClient);
+        dropDeckMacrosSavers(queryClient);
         queryClient.removeQueries({ queryKey: settingsQueryOptions().queryKey });
         await navigate({ to: "/login" });
       },

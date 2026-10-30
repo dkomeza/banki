@@ -80,6 +80,7 @@ describe("create", () => {
       createdAt: "2026-10-01T10:00:00.000Z",
       cardCount: 0,
       desiredRetention: null,
+      macros: [],
     });
     expect(decks.find(USER, "deck-1")).toEqual(decks.list(USER)[0]);
   });
@@ -183,6 +184,7 @@ describe("update", () => {
       createdAt: "2026-09-01T00:00:00.000Z",
       cardCount: 0,
       desiredRetention: null,
+      macros: [],
     });
   });
 

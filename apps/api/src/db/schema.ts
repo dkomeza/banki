@@ -16,6 +16,7 @@ import {
   LEARNING_LIMIT_MIN,
   NEW_CARD_BATCH_MAX,
   NEW_CARD_BATCH_MIN,
+  type Macro,
   RATINGS,
   REVIEW_KINDS,
 } from "@banki/shared";
@@ -62,6 +63,8 @@ export const user_settings = sqliteTable(
     newCardBatch: integer("new_card_batch").notNull().default(DEFAULT_NEW_CARD_BATCH),
     /** How many of a Deck's Cards may be in learning before a Session stops introducing New cards. */
     learningLimit: integer("learning_limit").notNull().default(DEFAULT_LEARNING_LIMIT),
+    /** Settings' Macros, every Deck's Cards use under its own: a JSON list of `{ name, definition }`. */
+    macros: text("macros", { mode: "json" }).$type<Macro[]>().notNull().default([]),
   },
   (table) => [
     check("user_settings_day_start_hour", sql`${table.dayStartHour} BETWEEN 0 AND 23`),
@@ -145,6 +148,8 @@ export const deck = sqliteTable(
     deletionId: text("deletion_id"),
     /** Its own Desired retention, a whole percent; null while it follows Settings. */
     desiredRetention: integer("desired_retention"),
+    /** Its own Macros, on top of Settings': a JSON list of `{ name, definition }`. A deleted Deck keeps them. */
+    macros: text("macros", { mode: "json" }).$type<Macro[]>().notNull().default([]),
   },
   (table) => [
     check(

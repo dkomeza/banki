@@ -12,6 +12,7 @@ const GRADING = {
   desiredRetention: 90,
   newCardBatch: 20,
   learningLimit: 10,
+  macros: [] as { name: string; definition: string }[],
 } as const;
 
 type Call = { method: string; path: string; body: unknown };

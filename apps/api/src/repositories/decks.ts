@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   type CreateDeckRequest,
   type DeckResponse,
+  type Macro,
   type UpdateDeckRequest,
   deckNameKey,
   nextFreeName,
@@ -31,6 +32,7 @@ const COLUMNS = {
   folderId: deck.folderId,
   createdAt: deck.createdAt,
   desiredRetention: deck.desiredRetention,
+  macros: deck.macros,
   /** Its live Cards. Spelt out: Drizzle leaves a column's table off inside `sql`. */
   cardCount:
     sql<number>`(SELECT count(*) FROM "card" WHERE "card"."deck_id" = "deck"."id" AND "card"."user_id" = "deck"."user_id" AND "card"."deleted_at" IS NULL)`.mapWith(
@@ -45,6 +47,7 @@ type Row = {
   folderId: string | null;
   createdAt: Date;
   desiredRetention: number | null;
+  macros: Macro[];
   cardCount: number;
 };
 
@@ -156,6 +159,7 @@ export function createDeckRepository(db: Queryable) {
             folderId,
             createdAt: now,
             desiredRetention: null,
+            macros: [],
             cardCount: 0,
           });
         },
@@ -175,7 +179,7 @@ export function createDeckRepository(db: Queryable) {
     update(
       userId: string,
       id: string,
-      { name: newName, description, folderId, onClash, desiredRetention }: DeckChanges,
+      { name: newName, description, folderId, onClash, desiredRetention, macros }: DeckChanges,
       now = new Date(),
     ): Deck | Refusal | { clash: Clash } {
       return db.transaction(
@@ -207,6 +211,7 @@ export function createDeckRepository(db: Queryable) {
               folderId: place,
               ...(description === undefined ? {} : { description }),
               ...(desiredRetention === undefined ? {} : { desiredRetention }),
+              ...(macros === undefined ? {} : { macros }),
               updatedAt: now,
             })
             .where(live(userId, id))

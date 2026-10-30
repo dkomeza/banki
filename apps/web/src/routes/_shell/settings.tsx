@@ -5,6 +5,7 @@ import { AdvancedCard } from "@/components/settings/advanced-card";
 import { AppVersion } from "@/components/settings/app-version";
 import { EditorCard } from "@/components/settings/editor-card";
 import { GradingCard } from "@/components/settings/grading-card";
+import { MacrosCard } from "@/components/settings/macros-card";
 import { type Section, SectionIndex } from "@/components/settings/section-index";
 import { StudyCard } from "@/components/settings/study-card";
 import { StudyDayCard } from "@/components/settings/study-day-card";
@@ -30,6 +31,7 @@ const SECTIONS: readonly Section[] = [
   { id: "study", title: "Study" },
   { id: "grading", title: "Grading" },
   { id: "editor", title: "Editor" },
+  { id: "macros", title: "Math macros" },
   { id: "advanced", title: "Advanced" },
   { id: "account", title: "Account" },
   { id: "this-device", title: "This device" },
@@ -53,6 +55,7 @@ function SettingsPage() {
             <StudyCard />
             <GradingCard />
             <EditorCard />
+            <MacrosCard />
             <AdvancedCard />
             <AccountCard />
             <ThisDeviceCard />

@@ -87,6 +87,15 @@ export {
 } from "./card-file-parser";
 export { CARD_EXTENSIONS, type CardNode, cardParser, Formula } from "./card-parser";
 export { ApiError } from "./error";
+export {
+  effectiveMacros,
+  expandMacros,
+  Macro,
+  MACRO_DEFINITION_MAX_LENGTH,
+  macroArity,
+  MacroList,
+  MACROS_MAX,
+} from "./macros";
 export { frontKey } from "./front-key";
 export { HealthResponse } from "./health";
 export {

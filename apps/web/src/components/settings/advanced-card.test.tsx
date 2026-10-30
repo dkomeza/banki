@@ -15,6 +15,7 @@ const SETTINGS: SettingsResponse = {
   desiredRetention: 90,
   newCardBatch: 20,
   learningLimit: 10,
+  macros: [],
 };
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
