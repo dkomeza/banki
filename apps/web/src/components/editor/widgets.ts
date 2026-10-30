@@ -1,3 +1,4 @@
+import type { Macro } from "@banki/shared";
 import { type EditorView, WidgetType } from "@codemirror/view";
 import { typeset } from "@/lib/formula";
 
@@ -65,8 +66,13 @@ export function unsnap(box: HTMLElement): void {
  * Fills `el` with a typeset Formula or, for broken LaTeX, as the timeline
  * shows it: its source with its delimiters in red, then its error message.
  */
-function fillFormula(el: HTMLElement, source: string, display: boolean): void {
-  const result = typeset(source, display);
+function fillFormula(
+  el: HTMLElement,
+  source: string,
+  display: boolean,
+  macros: readonly Macro[],
+): void {
+  const result = typeset(source, display, macros);
   if ("html" in result) {
     el.innerHTML = result.html;
     return;
@@ -92,13 +98,18 @@ export class FormulaWidget extends WidgetType {
     readonly source: string,
     readonly display: boolean,
     readonly block: boolean,
+    /** The Deck's effective Macros: a changed list typesets it again. */
+    readonly macros: readonly Macro[],
   ) {
     super();
   }
 
   override eq(other: FormulaWidget) {
     return (
-      other.source === this.source && other.display === this.display && other.block === this.block
+      other.source === this.source &&
+      other.display === this.display &&
+      other.block === this.block &&
+      other.macros === this.macros
     );
   }
 
@@ -106,7 +117,7 @@ export class FormulaWidget extends WidgetType {
     if (!this.display) {
       const el = document.createElement("span");
       el.className = "cm-lp-formula cm-lp-formula-inline";
-      fillFormula(el, this.source, false);
+      fillFormula(el, this.source, false, this.macros);
       // A broken one is text, its source and message, and wraps as text does.
       if (!el.classList.contains("cm-lp-broken")) markWhenWrapped(el, view);
       return el;
@@ -115,7 +126,7 @@ export class FormulaWidget extends WidgetType {
     box.className = "cm-lp-formula cm-lp-formula-display";
     const content = document.createElement(this.block ? "div" : "span");
     content.className = "cm-lp-formula-display-content";
-    fillFormula(content, this.source, true);
+    fillFormula(content, this.source, true, this.macros);
     box.append(content);
     snapToLines(box, view);
     return box;
@@ -133,12 +144,15 @@ export class FormulaWidget extends WidgetType {
 
 /** A display Formula's live render, a block right under its source while it is edited. */
 export class LiveRenderWidget extends WidgetType {
-  constructor(readonly source: string) {
+  constructor(
+    readonly source: string,
+    readonly macros: readonly Macro[],
+  ) {
     super();
   }
 
   override eq(other: LiveRenderWidget) {
-    return other.source === this.source;
+    return other.source === this.source && other.macros === this.macros;
   }
 
   toDOM(view: EditorView) {
@@ -148,7 +162,7 @@ export class LiveRenderWidget extends WidgetType {
     box.setAttribute("aria-hidden", "true");
     const content = document.createElement("div");
     content.className = "cm-lp-live-content";
-    const result = typeset(this.source, true);
+    const result = typeset(this.source, true, this.macros);
     if ("error" in result) {
       content.classList.add("cm-lp-live-error");
       content.textContent = result.error;
@@ -178,12 +192,12 @@ export class BulletWidget extends WidgetType {
 }
 
 /** The inline Formula's popover: its render, its error, or a hint while it is empty. */
-export function popoverContent(source: string): HTMLElement {
+export function popoverContent(source: string, macros: readonly Macro[]): HTMLElement {
   const dom = document.createElement("div");
   dom.className = "cm-lp-popover";
   // The source it floats under is what assistive tech reads.
   dom.setAttribute("aria-hidden", "true");
-  const result = typeset(source, false);
+  const result = typeset(source, false, macros);
   if (source.trim() === "") {
     dom.classList.add("cm-lp-popover-empty");
     dom.textContent = "Type LaTeX";

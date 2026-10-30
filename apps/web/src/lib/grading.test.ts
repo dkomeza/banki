@@ -20,6 +20,7 @@ const SETTINGS = {
   desiredRetention: 90,
   newCardBatch: 20,
   learningLimit: 10,
+  macros: [],
 } as const;
 
 /** A fake API answering every request with `status` and `body`, recording what it was sent. */

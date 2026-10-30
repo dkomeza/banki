@@ -3,6 +3,7 @@ import { type EditorState, type Range, StateField, type Transaction } from "@cod
 import { Decoration, type DecorationSet, EditorView, type WidgetType } from "@codemirror/view";
 import { ImageWidget } from "./image-widget";
 import { focusedField, formulaSource, setFocused, treeOf } from "./language";
+import { formulaMacros } from "./formula-macros";
 import { BulletWidget, FormulaWidget, LiveRenderWidget } from "./widgets";
 
 // The live preview's reveal rule: each Formula, each picture and each piece
@@ -52,6 +53,7 @@ const FENCE = /^\s*(?:`{3,}|~{3,})/;
 export function liveDecorations(state: EditorState, options: LivePreviewOptions): DecorationSet {
   const { doc } = state;
   const focused = state.field(focusedField, false) ?? false;
+  const macros = state.facet(formulaMacros);
   /** Whether the cursor or a selection touches `from`…`to`, ends included. */
   const touches = (from: number, to: number) =>
     focused && state.selection.ranges.some((range) => range.from <= to && range.to >= from);
@@ -85,10 +87,9 @@ export function liveDecorations(state: EditorState, options: LivePreviewOptions)
           const source = formulaSource(node, doc);
           if (!touches(node.from, node.to)) {
             out.push(
-              Decoration.replace({ widget: new FormulaWidget(source, display, false) }).range(
-                node.from,
-                node.to,
-              ),
+              Decoration.replace({
+                widget: new FormulaWidget(source, display, false, macros),
+              }).range(node.from, node.to),
             );
           } else {
             out.push(formulaSourceMark.range(node.from, node.to));
@@ -104,7 +105,7 @@ export function liveDecorations(state: EditorState, options: LivePreviewOptions)
             else {
               out.push(
                 Decoration.replace({
-                  widget: new FormulaWidget(formulaSource(node, doc), true, false),
+                  widget: new FormulaWidget(formulaSource(node, doc), true, false, macros),
                 }).range(node.from, node.to),
               );
             }
@@ -117,7 +118,7 @@ export function liveDecorations(state: EditorState, options: LivePreviewOptions)
           if (!touches(node.from, node.to)) {
             out.push(
               Decoration.replace({
-                widget: new FormulaWidget(source, true, true),
+                widget: new FormulaWidget(source, true, true, macros),
                 block: true,
               }).range(from, to),
             );
@@ -247,9 +248,11 @@ export function liveDecorations(state: EditorState, options: LivePreviewOptions)
   /** Puts a display Formula's live render under the line it ends on. */
   function liveRenderUnder(end: number, source: string) {
     out.push(
-      Decoration.widget({ widget: new LiveRenderWidget(source), block: true, side: 1 }).range(
-        doc.lineAt(end).to,
-      ),
+      Decoration.widget({
+        widget: new LiveRenderWidget(source, macros),
+        block: true,
+        side: 1,
+      }).range(doc.lineAt(end).to),
     );
   }
 
