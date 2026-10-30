@@ -1,4 +1,4 @@
-import { Pencil, RotateCcw, Trash2 } from "lucide-react";
+import { Pencil, RotateCcw, Trash2, X } from "lucide-react";
 import { useEffect } from "react";
 import { FormError } from "@/components/auth-card";
 import { CardEditor, SaveHint } from "@/components/cards/card-editor";
@@ -119,6 +119,17 @@ export function StudyEditorHost({
               Edit card
             </h2>
           </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-11 rounded-full lg:size-9"
+            aria-label="Cancel"
+            title="Cancel (Esc)"
+            onClick={editor.cancel}
+          >
+            <X aria-hidden className="size-5" />
+          </Button>
         </header>
         <div className="flex-1 pb-[env(safe-area-inset-bottom)]">
           <CardEditor
@@ -130,7 +141,8 @@ export function StudyEditorHost({
             form={editor.form}
             tags={editor.tags}
             saving={editor.saving}
-            autoFocus
+            // Not on touch: the keyboard would cover the sheet before it is read.
+            autoFocus={window.matchMedia("(pointer: fine)").matches}
             onSave={editor.save}
             className="rounded-none border-0 bg-transparent shadow-none sm:px-8"
             beforeFoot={
