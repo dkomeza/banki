@@ -1,7 +1,11 @@
 import { RATINGS } from "@banki/shared";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { AlertCircle, LoaderCircle, Undo2, X } from "lucide-react";
-import { type MouseEvent, useEffect, useState, useSyncExternalStore } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { type MouseEvent, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { cardsQueryOptions } from "@/lib/cards";
+import { useStudyEditing } from "./study-edit";
+import { EditButton, ResetNote, StudyEditorHost } from "./variant-editor";
 import { toast } from "sonner";
 import { CardText } from "@/components/cards/card-text";
 import { PILL } from "@/components/settings/parts";
@@ -44,14 +48,38 @@ function useStudySession(deckId: string): [StudySession, StudyState] {
 export function StudyScreen({ deck }: { deck: Deck }) {
   const navigate = useNavigate();
   const [session, state] = useStudySession(deck.id);
+  const queryClient = useQueryClient();
+  // The editor's Duplicate warning reads the Deck's Cards: fetched ahead, so opening it doesn't wait.
+  useEffect(() => {
+    void queryClient.prefetchQuery(cardsQueryOptions(deck.id));
+  }, [queryClient, deck.id]);
+  const editing = useStudyEditing(session, state.phase, state.shown?.card.id);
+  const canEdit = state.phase === "card" && state.saving === undefined && !state.undoing;
+  const editingRef = useRef(editing);
+  editingRef.current = editing;
+  const canEditRef = useRef(canEdit);
+  canEditRef.current = canEdit;
 
   // Desktop keys: Space / Enter reveal, 1–4 rate, Ctrl/⌘+Z undoes, Esc leaves.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.repeat) return;
+      // While editing, the keys are the editor's.
+      if (editingRef.current.open) return;
       const target = event.target instanceof Element ? event.target : null;
       if (target?.closest("input, textarea, select, [contenteditable]")) return;
       const { phase, revealed } = session.getState();
+      if (
+        (event.key === "e" || event.key === "E") &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        canEditRef.current
+      ) {
+        event.preventDefault();
+        editingRef.current.openEditor();
+        return;
+      }
       const action = keyAction(event, {
         showing: phase === "card",
         revealed,
@@ -89,7 +117,12 @@ export function StudyScreen({ deck }: { deck: Deck }) {
 
   return (
     <div className="flex min-h-svh flex-col pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] [--toast-bottom:calc(7.5rem+env(safe-area-inset-bottom))]">
-      <TopBar deck={deck} state={state} onUndo={() => void session.undo()} />
+      <TopBar
+        deck={deck}
+        state={state}
+        onUndo={() => void session.undo()}
+        edit={<EditButton disabled={!canEdit} onClick={editing.openEditor} />}
+      />
       <main className="flex flex-1 flex-col">
         {state.phase === "card" ? (
           <CardView session={session} state={state} />
@@ -97,13 +130,34 @@ export function StudyScreen({ deck }: { deck: Deck }) {
           <End deck={deck} state={state} onRetry={() => session.retry()} />
         )}
       </main>
-      {state.phase === "card" && session !== undefined && <Dock session={session} state={state} />}
+      {state.phase === "card" && session !== undefined && (
+        <Dock session={session} state={state} justReset={editing.justReset} />
+      )}
+      {editing.open && state.shown !== undefined && (
+        <StudyEditorHost
+          deck={deck}
+          card={state.shown.card}
+          revealed={state.revealed}
+          session={session}
+          onClose={editing.close}
+        />
+      )}
       <Toaster />
     </div>
   );
 }
 
-function TopBar({ deck, state, onUndo }: { deck: Deck; state: StudyState; onUndo: () => void }) {
+function TopBar({
+  deck,
+  state,
+  onUndo,
+  edit,
+}: {
+  deck: Deck;
+  state: StudyState;
+  onUndo: () => void;
+  edit: React.ReactNode;
+}) {
   return (
     <header className="sticky top-0 z-10 grid h-14 grid-cols-[1fr_auto_1fr] items-center gap-2 bg-background/95 px-2 backdrop-blur sm:px-4">
       <Button
@@ -120,7 +174,8 @@ function TopBar({ deck, state, onUndo }: { deck: Deck; state: StudyState; onUndo
       <span className="max-w-[50vw] truncate text-center text-sm font-medium text-muted-foreground">
         {deck.name}
       </span>
-      <div className="flex items-center justify-end gap-2">
+      <div className="flex items-center justify-end gap-1 sm:gap-2">
+        {edit}
         {state.rated > 0 && (
           <span className="hidden text-sm text-muted-foreground tabular-nums sm:inline">
             {state.rated} rated
@@ -202,12 +257,21 @@ function CardView({ session, state }: { session: StudySession; state: StudyState
   );
 }
 
-function Dock({ session, state }: { session: StudySession; state: StudyState }) {
+function Dock({
+  session,
+  state,
+  justReset,
+}: {
+  session: StudySession;
+  state: StudyState;
+  justReset: boolean;
+}) {
   const intervals = state.shown?.intervals;
   return (
     <div className="sticky bottom-0 z-10 border-t bg-background/95 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur">
       <div className="mx-auto flex w-full max-w-2xl flex-col gap-2 px-3 pt-3 sm:px-6">
         {/* In the dock, not above the Front, so the Card doesn't move when it comes back. */}
+        {justReset && state.failure === undefined && <ResetNote />}
         {state.undone && state.failure === undefined && (
           <p className="text-center text-xs font-medium text-muted-foreground">
             Back from Undo: rate it again
