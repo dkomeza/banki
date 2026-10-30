@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
-import { CircleAlert, Info, Plus, Trash2 } from "lucide-react";
-import { type ReactNode, useId, useState } from "react";
+import { ChevronDown, CircleAlert, Info, Plus, Trash2 } from "lucide-react";
+import { type ReactNode, useId, useRef, useState } from "react";
 import { OUTLINE_PILL, SaveState, SettingsCard } from "@/components/settings/parts";
 import { MacroMath } from "@/components/settings/proto-macro-math";
 import { RetentionError } from "@/components/settings/retention-picker";
@@ -16,17 +16,20 @@ import {
   deleteMacro,
   overrideMacro,
   retryMacros,
+  settle,
   useInherited,
   useMacroList,
 } from "@/lib/proto-macros";
 import { cn } from "@/lib/utils";
 
-// PROTOTYPE (BAN-22), Variant b: Rows. A Macro reads like every other row on
-// the Settings page: its render, its name and definition, and Edit beside
-// them, which opens its form in place on a muted background. A row that
-// isn't saved (new, or with an error) stays open. On a Deck, its own rows come
-// first, and Settings' follow under them, each with Override, which gives the
-// Deck its own copy to change.
+// PROTOTYPE (BAN-22), Variant f: Unfolding row (round 2, from b: Rows). A
+// Macro reads like every other row on the Settings page, its render in a tile
+// beside its name and definition, and the whole row opens it, with a chevron
+// where b had Edit. Open, the row and its form are one bordered piece: the
+// row stays as its header, the form unfolds under it, and it folds up again
+// when focus leaves it (or on Escape). A row with a problem folds up too,
+// flagged. On a Deck, its own rows come first, and Settings' follow under
+// them, each with Override, which gives the Deck its own copy to change.
 
 const MONO = "font-mono text-[0.95rem] md:text-[0.9rem]";
 
@@ -179,151 +182,163 @@ function Item({
   startOpen: boolean;
 }) {
   const [open, setOpen] = useState(startOpen);
-  // A row that isn't saved stays open until it is.
-  const unsaved = !check.saved;
-  const shown = open || unsaved || startOpen;
+  const id = useId();
+  const header = useRef<HTMLButtonElement>(null);
+  const problem = check.nameError ?? check.definitionError;
+  const label = row.name === "\\" ? "New macro" : row.name;
+  const close = () => {
+    settle(row.id);
+    // A new row left with nothing in it goes away rather than sit there empty.
+    if (row.name === "\\" && row.definition.trim() === "") {
+      deleteMacro(scope, row.id);
+      return;
+    }
+    setOpen(false);
+  };
   return (
-    <li className="flex flex-col gap-3 py-3 first:pt-0 last:pb-0">
-      <div className="flex items-center gap-3">
+    <li
+      className={cn(
+        "transition-[margin,padding,background-color]",
+        open
+          ? "-mx-3 my-2 rounded-xl border bg-muted/50 px-3 first:mt-0 last:mb-0 [&+li]:border-t-transparent"
+          : "py-1 first:pt-0 last:pb-0",
+      )}
+      // Open, the row and its form are one piece, and it folds up as soon as
+      // focus leaves it: a click or tap elsewhere, Tab past it, or Escape.
+      onBlur={(event) => {
+        if (!open) return;
+        const next = event.relatedTarget;
+        if (next instanceof Node && event.currentTarget.contains(next)) return;
+        close();
+      }}
+      onKeyDown={(event) => {
+        if (!open || event.key !== "Escape") return;
+        event.preventDefault();
+        close();
+        header.current?.focus({ preventScroll: true });
+      }}
+    >
+      <button
+        ref={header}
+        type="button"
+        aria-expanded={open}
+        aria-controls={`${id}-form`}
+        aria-label={`${label}${open ? "" : ", edit"}`}
+        onClick={() => (open ? close() : setOpen(true))}
+        className="-mx-2 flex w-[calc(100%+1rem)] items-center gap-3 rounded-lg px-2 py-2 text-left outline-none hover:bg-muted/60 focus-visible:outline-2 focus-visible:outline-ring"
+      >
         <Tile html={check.html} />
-        <div className="min-w-0 flex-1">
-          <p className={cn(MONO, "truncate font-medium")}>
+        <span className="min-w-0 flex-1">
+          <span className={cn(MONO, "block truncate font-medium")}>
             {row.name === "\\" ? (
               <span className="text-muted-foreground">New macro</span>
             ) : (
               row.name
             )}
-          </p>
-          <p className={cn(MONO, "truncate text-sm text-muted-foreground")}>
+          </span>
+          <span className={cn(MONO, "block truncate text-sm text-muted-foreground")}>
             {row.definition === "" ? "No definition yet" : row.definition}
-          </p>
-        </div>
-        {!shown && (
-          <Button
-            variant="outline"
-            size="lg"
-            className={OUTLINE_PILL}
-            aria-label={`Edit ${row.name}`}
-            onClick={() => setOpen(true)}
-          >
-            Edit
-          </Button>
-        )}
-      </div>
-      {check.replaces !== undefined && !shown && (
+          </span>
+        </span>
+        <ChevronDown
+          aria-hidden
+          className={cn(
+            "size-4 shrink-0 text-muted-foreground transition-transform motion-reduce:transition-none",
+            open && "rotate-180",
+          )}
+        />
+      </button>
+      {!open && problem !== undefined && (
+        <Problem>
+          Not saved:{" "}
+          {(check.nameError ?? `KaTeX says “${check.definitionError}”`).replace(/\.$/u, "")}.
+        </Problem>
+      )}
+      {!open && problem === undefined && check.replaces !== undefined && (
         <Note>
           Replaces KaTeX's <code className="font-mono text-foreground">{check.replaces}</code>.
         </Note>
       )}
-      {shown && (
-        <Editor
-          scope={scope}
-          row={row}
-          check={check}
-          onDone={unsaved ? undefined : () => setOpen(false)}
-        />
+      {open && (
+        <div id={`${id}-form`} className="flex flex-col gap-3 border-t py-3.5">
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,7rem)_minmax(0,1fr)]">
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor={`${id}-name`} className="text-sm font-medium">
+                Name
+              </label>
+              <Input
+                id={`${id}-name`}
+                value={row.name}
+                autoFocus={row.name === "\\"}
+                spellCheck={false}
+                autoCapitalize="off"
+                autoComplete="off"
+                aria-invalid={check.nameError === undefined ? undefined : true}
+                aria-describedby={`${id}-note`}
+                onChange={(event) => changeMacro(scope, row.id, { name: event.target.value })}
+                className={cn(MONO, "bg-background lg:h-9")}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor={`${id}-definition`} className="text-sm font-medium">
+                Stands for
+              </label>
+              <Input
+                id={`${id}-definition`}
+                value={row.definition}
+                autoFocus={row.name !== "\\"}
+                spellCheck={false}
+                autoCapitalize="off"
+                autoComplete="off"
+                placeholder="\left\| #1 \right\|"
+                aria-invalid={check.definitionError === undefined ? undefined : true}
+                aria-describedby={`${id}-note`}
+                onChange={(event) => changeMacro(scope, row.id, { definition: event.target.value })}
+                className={cn(MONO, "bg-background lg:h-9")}
+              />
+            </div>
+          </div>
+          <div id={`${id}-note`} className="flex flex-col gap-1.5">
+            {check.nameError !== undefined && <Problem>{check.nameError}</Problem>}
+            {check.definitionError !== undefined && (
+              <Problem>KaTeX says “{check.definitionError}”.</Problem>
+            )}
+            {problem !== undefined ? (
+              <p className="text-sm text-muted-foreground">Not saved until it's fixed.</p>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                {check.incomplete ? (
+                  "#1 to #9 are its arguments. It's saved once it has a name and a definition."
+                ) : (
+                  <>
+                    {check.arity === 0
+                      ? "Takes no arguments: "
+                      : `Takes ${check.arity === 1 ? "one argument" : `${check.arity} arguments`}: `}
+                    <code className="font-mono text-foreground">{check.sample}</code>. Saved as you
+                    type.
+                  </>
+                )}
+              </p>
+            )}
+            {check.replaces !== undefined && (
+              <Note>
+                Replaces KaTeX's <code className="font-mono text-foreground">{check.replaces}</code>{" "}
+                in your Formulas.
+              </Note>
+            )}
+          </div>
+          <Button
+            variant="ghost"
+            size="lg"
+            className="-ml-2 self-start text-destructive hover:text-destructive"
+            onClick={() => deleteMacro(scope, row.id)}
+          >
+            <Trash2 aria-hidden />
+            Delete
+          </Button>
+        </div>
       )}
     </li>
-  );
-}
-
-/** A row's form, in place on a muted background; every change saves as it's made. */
-function Editor({
-  scope,
-  row,
-  check,
-  onDone,
-}: {
-  scope: Scope;
-  row: MacroRow;
-  check: Checked;
-  onDone: (() => void) | undefined;
-}) {
-  const id = useId();
-  return (
-    <div className="flex flex-col gap-3 rounded-xl bg-muted/70 p-3.5 sm:p-4">
-      <div className="grid gap-3 sm:grid-cols-[minmax(0,8rem)_minmax(0,1fr)]">
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor={`${id}-name`} className="text-sm font-medium">
-            Name
-          </label>
-          <Input
-            id={`${id}-name`}
-            value={row.name}
-            spellCheck={false}
-            autoCapitalize="off"
-            autoComplete="off"
-            aria-invalid={check.nameError === undefined ? undefined : true}
-            aria-describedby={check.nameError === undefined ? undefined : `${id}-name-note`}
-            onChange={(event) => changeMacro(scope, row.id, { name: event.target.value })}
-            className={cn(MONO, "bg-background lg:h-9")}
-          />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor={`${id}-definition`} className="text-sm font-medium">
-            Stands for
-          </label>
-          <Input
-            id={`${id}-definition`}
-            value={row.definition}
-            spellCheck={false}
-            autoCapitalize="off"
-            autoComplete="off"
-            placeholder="\left\| #1 \right\|"
-            aria-invalid={check.definitionError === undefined ? undefined : true}
-            aria-describedby={`${id}-definition-note`}
-            onChange={(event) => changeMacro(scope, row.id, { definition: event.target.value })}
-            className={cn(MONO, "bg-background lg:h-9")}
-          />
-        </div>
-      </div>
-      {check.nameError !== undefined && <Problem id={`${id}-name-note`}>{check.nameError}</Problem>}
-      {check.definitionError !== undefined ? (
-        <Problem id={`${id}-definition-note`}>KaTeX says “{check.definitionError}”.</Problem>
-      ) : (
-        <p id={`${id}-definition-note`} className="text-sm text-muted-foreground">
-          {check.incomplete
-            ? "#1 to #9 are its arguments. It's saved once it has a name and a definition."
-            : check.arity === 0
-              ? "Takes no arguments."
-              : `Takes ${check.arity === 1 ? "one argument" : `${check.arity} arguments`}, #1${check.arity > 1 ? ` to #${check.arity}` : ""}.`}
-        </p>
-      )}
-      {check.html !== undefined && (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-background px-3 py-2 dark:bg-input/20">
-          <code className="font-mono text-sm text-muted-foreground">{check.sample}</code>
-          <span aria-hidden className="text-muted-foreground">
-            →
-          </span>
-          <MacroMath html={check.html} className="text-[1.2rem]" />
-        </div>
-      )}
-      {check.replaces !== undefined && (
-        <Note>
-          Replaces KaTeX's <code className="font-mono text-foreground">{check.replaces}</code> in
-          your Formulas.
-        </Note>
-      )}
-      {!check.saved && !check.incomplete && (
-        <p className="text-sm font-medium text-destructive">Not saved until it's fixed.</p>
-      )}
-      <div className="flex items-center justify-between gap-3">
-        <Button
-          variant="ghost"
-          size="lg"
-          className="-ml-2 text-destructive hover:text-destructive"
-          onClick={() => deleteMacro(scope, row.id)}
-        >
-          <Trash2 aria-hidden />
-          Delete
-        </Button>
-        {onDone !== undefined && (
-          <Button variant="outline" size="lg" className={OUTLINE_PILL} onClick={onDone}>
-            Done
-          </Button>
-        )}
-      </div>
-    </div>
   );
 }
 
@@ -367,7 +382,7 @@ function Note({ children }: { children: ReactNode }) {
   );
 }
 
-function Problem({ id, children }: { id: string; children: ReactNode }) {
+function Problem({ id, children }: { id?: string; children: ReactNode }) {
   return (
     <p id={id} className="flex items-start gap-1.5 text-sm font-medium text-destructive">
       <CircleAlert aria-hidden className="mt-0.5 size-3.5 shrink-0" />

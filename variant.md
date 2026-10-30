@@ -1,5 +1,5 @@
-# b: Rows
+# f: Unfolding row
 
-Bet: a Macro reads like every other Settings row (its render in a tile, its name and definition, Edit beside them), and Edit opens its form in place on a muted background, which stays open while the row is new or has an error; on a Deck, a Math macros card in the masonry lists its own rows first, then Settings' under "From Settings", each with Override (which gives the Deck its own copy to change), and an overridden one struck through as "Overridden by this deck's".
+Bet: built on b (Rows), the whole row opens its Macro, with a chevron where b had Edit, and open, the row and its form are one bordered piece: the row stays as its header, rendering as you type, and b's labelled Name and Stands for fields unfold under it, with the hint and Delete; there's no Done, as it folds up when focus leaves it (a click or tap elsewhere, Tab past it, Escape, or the header again). A row with a problem folds up too, with its error in red under it; a new row left blank goes away. On a Deck, Settings' follow under "From Settings" with Override, as in b.
 
 States: empty, list, adding, invalid, builtin, save-error
