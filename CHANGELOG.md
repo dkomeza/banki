@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.2.0](https://github.com/dkomeza/banki/compare/v0.1.0...v0.2.0) (2026-10-30)
+
+
+### Features
+
+* Card file v1 and its public JSON Schema (BAN-30) ([#72](https://github.com/dkomeza/banki/issues/72)) ([261e826](https://github.com/dkomeza/banki/commit/261e8268698cbe3b6a8648c1818b66df6100a109))
+* FSRS scheduling core and desired retention (BAN-23) ([#73](https://github.com/dkomeza/banki/issues/73)) ([ce48d61](https://github.com/dkomeza/banki/commit/ce48d6109015dfbbf65c91e24de398c2890e3ec5))
+* grading notes field on cards (BAN-37) ([#79](https://github.com/dkomeza/banki/issues/79)) ([0a719b9](https://github.com/dkomeza/banki/commit/0a719b9e45d6f30cd840c220b7713202db347027))
+* images in the editor: paste, drop and an Image button (BAN-20) ([#74](https://github.com/dkomeza/banki/issues/74)) ([ddbb1a3](https://github.com/dkomeza/banki/commit/ddbb1a3cc1cfc380ced02f1487cbb7f87cc87000))
+* LaTeX autocomplete and cheatsheet (BAN-21) ([#77](https://github.com/dkomeza/banki/issues/77)) ([cb185e1](https://github.com/dkomeza/banki/commit/cb185e17071afd6af172e0641cddf1ce4d6a11f8))
+* live-preview card editor (BAN-19) ([#71](https://github.com/dkomeza/banki/issues/71)) ([749cc44](https://github.com/dkomeza/banki/commit/749cc44b3c989c6112fd411b8aabf6129cb39241))
+* math macros, global and per deck (BAN-22) ([#82](https://github.com/dkomeza/banki/issues/82)) ([5e0aa94](https://github.com/dkomeza/banki/commit/5e0aa94bc5077ad0840efdf01c8992000e7d8702))
+* move cards between decks (BAN-15) ([#69](https://github.com/dkomeza/banki/issues/69)) ([7016a8e](https://github.com/dkomeza/banki/commit/7016a8ec76fdf09fac71ed276bf1138098821354))
+* reset Edge to Seed data from a workflow (BAN-102) ([#68](https://github.com/dkomeza/banki/issues/68)) ([bbb8b46](https://github.com/dkomeza/banki/commit/bbb8b4607a34ada55c9fe104d210e85b05f9a5a2))
+* Settings shows the version Banki is running (BAN-103) ([#67](https://github.com/dkomeza/banki/issues/67)) ([c68d736](https://github.com/dkomeza/banki/commit/c68d736e5c71fc1abab20e37b69822cf2b34e3fb))
+* soft cap on new cards per session (BAN-25) ([#80](https://github.com/dkomeza/banki/issues/80)) ([45ffa99](https://github.com/dkomeza/banki/commit/45ffa99b6df0d86e6f10325516e06ea881479c1f))
+* strict import parser with precise errors (BAN-31) ([#75](https://github.com/dkomeza/banki/issues/75)) ([c590e9c](https://github.com/dkomeza/banki/commit/c590e9cb95a3216d94d1f6a8c5643fb452c1cf00))
+* study queue order and the next-card endpoint (BAN-24) ([#76](https://github.com/dkomeza/banki/issues/76)) ([2b3658b](https://github.com/dkomeza/banki/commit/2b3658b0aa7ec1f6e47a9cfadb9f70dc52c645e6))
+* study screen: reveal, rate, undo (BAN-26) ([#78](https://github.com/dkomeza/banki/issues/78)) ([58b5cdc](https://github.com/dkomeza/banki/commit/58b5cdcfb8371dc083f3cdd1044767da638547a5))
+
+
+### Fixes
+
+* the pull agent's self-update helper builds on the default bridge network ([#65](https://github.com/dkomeza/banki/issues/65)) ([93dfd73](https://github.com/dkomeza/banki/commit/93dfd7368478884ffb1208dcbb358b7bcd785324))
+
 ## 0.1.0 (2026-10-28)
 
 
