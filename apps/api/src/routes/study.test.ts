@@ -1,5 +1,11 @@
-import { describe, expect, test } from "bun:test";
-import { CardResponse, DeckResponse, StudyNextResponse } from "@banki/shared";
+import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
+import {
+  CardResponse,
+  DeckResponse,
+  RATINGS,
+  RateCardResponse,
+  StudyNextResponse,
+} from "@banki/shared";
 import { sql } from "drizzle-orm";
 import { openDatabase } from "../db/database";
 import { createDeckRepository } from "../repositories/decks";
@@ -46,6 +52,7 @@ async function createCard(app: App, cookie: string, deckId: string, front = "f")
   return CardResponse.parse(await res.json());
 }
 
+/** Rates a Card, answering its new schedule. */
 const rate = async (app: App, cookie: string, cardId: string, rating: string) => {
   const res = await send(
     app,
@@ -55,6 +62,7 @@ const rate = async (app: App, cookie: string, cardId: string, rating: string) =>
     cookie,
   );
   if (res.status !== 201) throw new Error(`Rate answered ${res.status}`);
+  return RateCardResponse.parse(await res.json()).schedule;
 };
 
 const nextOf = async (app: App, cookie: string, deckId: string, query = "") => {
@@ -64,7 +72,7 @@ const nextOf = async (app: App, cookie: string, deckId: string, query = "") => {
 };
 
 describe("GET /api/decks/:deckId/study/next", () => {
-  test("answers the next Card, its schedule and its kind", async () => {
+  test("answers the next Card, its schedule, its kind and its Interval previews", async () => {
     const { app, cookie, deckId } = await signedIn();
     const card = await createCard(app, cookie, deckId);
 
@@ -83,7 +91,52 @@ describe("GET /api/decks/:deckId/study/next", () => {
         lastReview: null,
       },
       kind: "new",
+      intervals: {
+        again: expect.objectContaining({ state: "learning", scheduledDays: 0 }),
+        hard: expect.objectContaining({ state: "learning", scheduledDays: 0 }),
+        good: expect.objectContaining({ state: "learning", scheduledDays: 0 }),
+        easy: expect.objectContaining({ state: "review" }),
+      },
     });
+  });
+
+  describe("each Interval preview is what its Rating then gives", () => {
+    afterEach(() => setSystemTime());
+
+    for (const rating of RATINGS) {
+      test(`for ${rating}, of a new Card and of one due for review`, async () => {
+        setSystemTime(new Date("2026-05-01T10:00:00Z"));
+        const { app, cookie, deckId } = await signedIn();
+        const fresh = await createCard(app, cookie, deckId, "fresh");
+
+        const shown = await nextOf(app, cookie, deckId);
+        expect(shown?.card.id).toBe(fresh.id);
+        const after = await rate(app, cookie, fresh.id, rating);
+        expect(shown?.intervals[rating]).toEqual({
+          state: after.state,
+          scheduledDays: after.scheduledDays,
+          due: after.due ?? "",
+        });
+
+        // Another Card, past its learning steps and due a few days later.
+        const old = await createCard(app, cookie, deckId, "old");
+        await send(app, "DELETE", `/api/cards/${fresh.id}`, undefined, cookie);
+        const learning = await rate(app, cookie, old.id, "good");
+        setSystemTime(new Date(learning.due ?? ""));
+        const graduated = await rate(app, cookie, old.id, "good");
+        expect(graduated.state).toBe("review");
+        setSystemTime(new Date(Date.parse(graduated.due ?? "") + 60 * 60_000));
+
+        const due = await nextOf(app, cookie, deckId);
+        expect(due?.kind).toBe("review");
+        const again = await rate(app, cookie, old.id, rating);
+        expect(due?.intervals[rating]).toEqual({
+          state: again.state,
+          scheduledDays: again.scheduledDays,
+          due: again.due ?? "",
+        });
+      });
+    }
   });
 
   test("answers next: null for an empty Deck", async () => {

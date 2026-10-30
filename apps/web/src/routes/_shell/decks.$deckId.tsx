@@ -1,6 +1,6 @@
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
-import { CornerDownRight, Pencil, Settings2, Trash2 } from "lucide-react";
+import { CornerDownRight, Pencil, Play, Settings2, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { deleteAllWithUndo, showMovedToast } from "@/components/cards/card-toasts";
 import { CardTimeline } from "@/components/cards/card-timeline";
@@ -14,7 +14,7 @@ import { Breadcrumb } from "@/components/folders/breadcrumb";
 import { placeRoute, usePlaceActions } from "@/components/folders/place-actions";
 import { useLibrary } from "@/components/folders/use-library";
 import { Page } from "@/components/page";
-import { OUTLINE_PILL } from "@/components/settings/parts";
+import { OUTLINE_PILL, PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
 import { type Card, cardCountLabel, cardsQueryOptions, moveCards } from "@/lib/cards";
 import {
@@ -165,6 +165,14 @@ function DeckBody({ deck }: { deck: Deck }) {
             </Link>
           </p>
           <div className="flex shrink-0 flex-wrap gap-2 pt-1">
+            <Button
+              className={cn(PILL, "h-11 text-primary-foreground no-underline")}
+              render={<Link to="/decks/$deckId/study" params={{ deckId: deck.id }} />}
+              nativeButton={false}
+            >
+              <Play aria-hidden />
+              Study
+            </Button>
             <Button
               variant="outline"
               className={cn(OUTLINE_PILL, "h-11")}

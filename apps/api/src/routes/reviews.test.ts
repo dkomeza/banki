@@ -1,8 +1,19 @@
-import { describe, expect, test } from "bun:test";
-import { CardResponse, DeckResponse, RateCardResponse, SettingsResponse } from "@banki/shared";
+import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
+import {
+  CardResponse,
+  DeckResponse,
+  RateCardResponse,
+  SettingsResponse,
+  UndoReviewResponse,
+} from "@banki/shared";
+import { sql } from "drizzle-orm";
+import { openDatabase } from "../db/database";
+import { createCardRepository } from "../repositories/cards";
+import { createDeckRepository } from "../repositories/decks";
+import { createReviewRepository } from "../repositories/reviews";
 import { type App, bootApps, codeOf, send, setUp } from "../testing/app";
 
-const { boot } = bootApps();
+const { boot, dataDir } = bootApps();
 
 /** A fresh app that Setup is done on, the signed-in cookie, and one Deck with one Card. */
 async function signedIn() {
@@ -182,5 +193,154 @@ describe("Desired retention", () => {
       expect(res.status).toBe(400);
       expect(await codeOf(res)).toBe("invalid_request");
     }
+  });
+});
+
+/** Makes another User, straight in the database, with a Card they rated once; answers the Review's ID. */
+function othersReview() {
+  const opened = openDatabase(dataDir());
+  try {
+    opened.db.run(
+      sql`INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES ('other', 'n', 'o@x.y', 1, 0, 0)`,
+    );
+    const deck = createDeckRepository(opened.db).create("other", {
+      name: "Theirs",
+      description: null,
+      folderId: null,
+    });
+    if (typeof deck === "string") throw new Error(`Their deck: ${deck}`);
+    const card = createCardRepository(opened.db).create("other", deck.id, {
+      front: "f",
+      back: "b",
+    });
+    if (typeof card === "string") throw new Error(`Their card: ${card}`);
+    const rated = createReviewRepository(opened.db).rate("other", card.id, {
+      rating: "good",
+      durationMs: 0,
+    });
+    if (rated === "not_found") throw new Error("Their review: not_found");
+    return rated.review.id;
+  } finally {
+    opened.close();
+  }
+}
+
+const rate = async (app: App, cookie: string, cardId: string, rating = "good") => {
+  const res = await send(
+    app,
+    "POST",
+    `/api/cards/${cardId}/reviews`,
+    { rating, durationMs: 1000 },
+    cookie,
+  );
+  if (res.status !== 201) throw new Error(`Rate answered ${res.status}`);
+  return RateCardResponse.parse(await res.json());
+};
+const undo = (app: App, cookie: string, reviewId: string) =>
+  send(app, "DELETE", `/api/reviews/${reviewId}`, undefined, cookie);
+const undone = async (res: Response) => {
+  expect(res.status).toBe(200);
+  return UndoReviewResponse.parse(await res.json());
+};
+const reviewsOf = (cardId: string) => {
+  const opened = openDatabase(dataDir());
+  try {
+    return opened.db.all<{ id: string }>(sql`SELECT id FROM review WHERE card_id = ${cardId}`);
+  } finally {
+    opened.close();
+  }
+};
+
+describe("DELETE /api/reviews/:id", () => {
+  afterEach(() => setSystemTime());
+
+  test("deletes the Review and puts back the memory state from before it, with fresh previews", async () => {
+    const { app, cookie, cardId } = await signedIn();
+    const first = await rate(app, cookie, cardId, "again");
+    const second = await rate(app, cookie, cardId, "good");
+
+    const back = await undone(await undo(app, cookie, second.review.id));
+    expect(back.card).toMatchObject({ id: cardId, front: "f", back: "b" });
+    expect(back.schedule).toEqual(first.schedule);
+    expect(back.intervals.good.state).toBe("learning");
+    expect(reviewsOf(cardId).map((r) => r.id)).toEqual([first.review.id]);
+
+    // Rate, rate, undo, undo: back to new, with no Review left.
+    const fresh = await undone(await undo(app, cookie, first.review.id));
+    expect(fresh.schedule).toMatchObject({ state: "new", due: null, reps: 0, lastReview: null });
+    expect(fresh.intervals.again).toMatchObject({ state: "learning", scheduledDays: 0 });
+    expect(reviewsOf(cardId)).toEqual([]);
+  });
+
+  test("a Card rated again after an Undo schedules as if the undone Rating was never given", async () => {
+    setSystemTime(new Date("2026-05-01T10:00:00Z"));
+    const { app, cookie, cardId } = await signedIn();
+    const easy = await rate(app, cookie, cardId, "easy");
+    await undo(app, cookie, easy.review.id);
+
+    const again = await rate(app, cookie, cardId, "easy");
+
+    expect(again.schedule).toEqual(easy.schedule);
+  });
+
+  test("reschedules the restored state when the Deck's Desired retention changed since", async () => {
+    setSystemTime(new Date("2026-05-01T10:00:00Z"));
+    const { app, cookie, deckId, cardId } = await signedIn();
+    const learning = await rate(app, cookie, cardId, "good");
+    setSystemTime(new Date(learning.schedule.due ?? ""));
+    const graduated = await rate(app, cookie, cardId, "good");
+    setSystemTime(new Date(graduated.schedule.due ?? ""));
+    const latest = await rate(app, cookie, cardId, "good");
+
+    // With no change, the Undo puts the graduated state back as it was.
+    const same = await undone(await undo(app, cookie, latest.review.id));
+    expect(same.schedule).toEqual(graduated.schedule);
+
+    const relatest = await rate(app, cookie, cardId, "good");
+    await send(app, "PATCH", `/api/decks/${deckId}`, { desiredRetention: 75 }, cookie);
+    const moved = await undone(await undo(app, cookie, relatest.review.id));
+
+    expect(moved.schedule).toMatchObject({
+      state: "review",
+      stability: graduated.schedule.stability,
+      reps: graduated.schedule.reps,
+      lastReview: graduated.schedule.lastReview,
+    });
+    expect(moved.schedule.scheduledDays).toBeGreaterThan(graduated.schedule.scheduledDays);
+  });
+
+  test("answers 409 review_not_newest for a Review that isn't its Card's newest, and keeps it", async () => {
+    const { app, cookie, cardId } = await signedIn();
+    const first = await rate(app, cookie, cardId);
+    await rate(app, cookie, cardId);
+
+    const res = await undo(app, cookie, first.review.id);
+
+    expect(res.status).toBe(409);
+    expect(await codeOf(res)).toBe("review_not_newest");
+    expect(reviewsOf(cardId)).toHaveLength(2);
+  });
+
+  test("answers 404 not_found for a missing Review, an undone one, another User's, or one whose Card is deleted", async () => {
+    const { app, cookie, cardId } = await signedIn();
+    const gone = await rate(app, cookie, cardId);
+    await undone(await undo(app, cookie, gone.review.id));
+    const theirs = othersReview();
+    const deleted = await rate(app, cookie, cardId);
+    await send(app, "DELETE", `/api/cards/${cardId}`, undefined, cookie);
+
+    for (const id of ["missing", gone.review.id, theirs, deleted.review.id]) {
+      const res = await undo(app, cookie, id);
+      expect(res.status).toBe(404);
+      expect(await codeOf(res)).toBe("not_found");
+    }
+    expect(reviewsOf(cardId)).toHaveLength(1);
+  });
+
+  test("answers 401 when signed out", async () => {
+    const { app, cookie, cardId } = await signedIn();
+    const { review } = await rate(app, cookie, cardId);
+
+    expect((await undo(app, "", review.id)).status).toBe(401);
   });
 });

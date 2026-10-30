@@ -5,8 +5,10 @@ import {
   type MemoryState,
   NEW_MEMORY_STATE,
   dueOnStudyDay,
+  previewIntervals,
   rate,
   reschedule,
+  restore,
   schedulerConfig,
 } from "./fsrs";
 
@@ -216,5 +218,86 @@ describe("reschedule", () => {
     expect(
       reschedule("c1", memory, last, { now: start, desiredRetention: 70, studyDay: UTC4 }),
     ).toBe(memory);
+  });
+});
+
+describe("previewIntervals", () => {
+  const start = at("2026-05-01T10:00:00Z");
+
+  test("previews each Rating as exactly what it gives", () => {
+    const { memory } = history("c1", ["good", "good", "good"], start);
+    const settings = { now: memory.dueAt ?? start, desiredRetention: 90, studyDay: UTC4 };
+
+    const previews = previewIntervals("c1", memory, settings);
+
+    for (const rating of ["again", "hard", "good", "easy"] as const) {
+      const after = rate("c1", memory, rating, settings);
+      expect(previews[rating]).toEqual({
+        state: after.state,
+        scheduledDays: after.scheduledDays,
+        due: after.dueAt?.toISOString() ?? "",
+      });
+    }
+    expect(previews.again.state).toBe("relearning");
+    expect(previews.good.scheduledDays).toBeGreaterThanOrEqual(1);
+  });
+
+  test("previews a new Card's learning steps as moments minutes out", () => {
+    const previews = previewIntervals("c1", NEW_MEMORY_STATE, {
+      now: start,
+      desiredRetention: 90,
+      studyDay: UTC4,
+    });
+
+    expect(previews.again).toEqual({
+      state: "learning",
+      scheduledDays: 0,
+      due: new Date(start.getTime() + MINUTE).toISOString(),
+    });
+    expect(previews.good.due).toBe(new Date(start.getTime() + 10 * MINUTE).toISOString());
+    expect(previews.easy.state).toBe("review");
+  });
+});
+
+describe("restore", () => {
+  const start = at("2026-05-01T10:00:00Z");
+
+  /** A Card rated Good three times, then once more: the state before that last Review, and the one before it. */
+  function undoable() {
+    const { memory: before, last: previous } = history("c1", ["good", "good", "good"], start);
+    return { before, previous, now: before.dueAt ?? start };
+  }
+
+  test("puts back the state the undone Review kept, with no change of retention", () => {
+    const { before, previous, now } = undoable();
+
+    expect(restore("c1", before, previous, { now, desiredRetention: 90, studyDay: UTC4 })).toEqual(
+      before,
+    );
+  });
+
+  test("reschedules it at the current retention when that changed since", () => {
+    const { before, previous, now } = undoable();
+    const settings = { now, desiredRetention: 80, studyDay: UTC4 };
+
+    const restored = restore("c1", before, previous, settings);
+
+    expect(restored).toEqual(reschedule("c1", before, previous, settings));
+    expect(restored.scheduledDays).toBeGreaterThan(before.scheduledDays);
+  });
+
+  test("a state that was already rescheduled for the current retention stays as it is", () => {
+    const { before, previous, now } = undoable();
+    const at80 = { now: previous.reviewedAt, desiredRetention: 80, studyDay: UTC4 };
+    const moved = reschedule("c1", before, previous, at80);
+
+    expect(restore("c1", moved, previous, { ...at80, now })).toEqual(moved);
+  });
+
+  test("a new Card, or one in its learning steps, comes back as it was", () => {
+    const settings = { now: start, desiredRetention: 80, studyDay: UTC4 };
+    expect(restore("c1", NEW_MEMORY_STATE, undefined, settings)).toEqual(NEW_MEMORY_STATE);
+    const { memory, last } = history("c1", ["good"], start);
+    expect(restore("c1", memory, last, settings)).toEqual(memory);
   });
 });

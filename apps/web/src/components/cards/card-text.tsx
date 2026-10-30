@@ -11,8 +11,11 @@ import "katex/dist/katex.min.css";
 // as HTML: the only markup set from a string is KaTeX's own output. Every
 // newline is a line break and a blank line a new paragraph.
 //
-// Every place a Card renders today is inside a link (the timeline) or names
-// one, so a Markdown link renders as underlined text, never a nested link.
+// A Card renders inside a link (the timeline) or names one almost everywhere,
+// so a Markdown link renders as underlined text, never a nested link. The study
+// screen's revealed Card is the exception: rendered `interactive`, its links
+// are real links, opening in a new tab, and each Formula carries its source
+// (`data-formula`) for a click to copy.
 // Headings render as larger bold lines, not as headings of the page.
 
 /** Delimiters and other markup that render as nothing. */
@@ -41,6 +44,8 @@ type Context = {
   ended: boolean;
   /** The words searched for, marked in the text and code but not in Formulas. */
   words: readonly string[];
+  /** Real links, and Formulas carrying their source to copy (the study screen, once revealed). */
+  interactive?: boolean;
 };
 
 const NO_WORDS: readonly string[] = [];
@@ -87,18 +92,28 @@ function formulaSource(node: CardNode, doc: string): string {
   return source + doc.slice(pos, to);
 }
 
+/** A Formula as written: its source between the delimiters it was written with. */
+function formulaWritten(node: CardNode, doc: string): string {
+  const [open, close] = node.getChildren("FormulaMark");
+  const mark = (m: CardNode | undefined) => (m === undefined ? "" : doc.slice(m.from, m.to));
+  return `${mark(open)}${formulaSource(node, doc)}${mark(close)}`;
+}
+
 /** One Formula: typeset, or on broken LaTeX its source in red with the error after it. */
 function Formula({
   source,
   display,
   delimiter,
   atomic,
+  written,
 }: {
   source: string;
   display: boolean;
   delimiter: string;
   /** Kept whole on a cut line: hidden by an ellipsis entirely or not at all. */
   atomic: boolean;
+  /** The Formula as written, carried as `data-formula` for a click to copy; none when it can't be. */
+  written?: string | undefined;
 }) {
   const result = typeset(source, display);
   if ("error" in result) {
@@ -130,6 +145,7 @@ function Formula({
     return (
       <span
         tabIndex={-1}
+        data-formula={written}
         className="block max-w-full overflow-x-auto overflow-y-hidden py-1 outline-none"
         dangerouslySetInnerHTML={{ __html: result.html }}
       />
@@ -137,10 +153,20 @@ function Formula({
   }
   return (
     <span
+      data-formula={written}
       className={atomic ? "inline-block" : undefined}
       dangerouslySetInnerHTML={{ __html: result.html }}
     />
   );
+}
+
+/** Whether a link's URL may open: http, https and mailto only, never `javascript:` and the like. */
+function isWebLink(url: string): boolean {
+  try {
+    return ["http:", "https:", "mailto:"].includes(new URL(url).protocol);
+  } catch {
+    return false;
+  }
 }
 
 /** Text between nodes: each newline a line break, with the next line's indent dropped. */
@@ -223,26 +249,57 @@ function inlineNode(node: CardNode, cx: Context): ReactNode {
           display={display && !cx.oneLine}
           delimiter={display ? "$$" : "$"}
           atomic={cx.oneLine}
+          written={cx.interactive ? formulaWritten(node, doc) : undefined}
         />
       );
     }
     case "Link": {
       const marks = node.getChildren("LinkMark");
+      const url = childNamed(node, "URL");
+      const href = url === null ? "" : doc.slice(url.from, url.to);
+      if (cx.interactive && isWebLink(href)) {
+        return (
+          <a
+            key={key}
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline underline-offset-2"
+          >
+            {inline(node, cx, marks[0]?.to ?? node.from, marks[1]?.from ?? node.to)}
+          </a>
+        );
+      }
       return (
         <span key={key} className="underline underline-offset-2">
           {inline(node, cx, marks[0]?.to ?? node.from, marks[1]?.from ?? node.to)}
         </span>
       );
     }
-    case "Autolink":
+    case "Autolink": {
+      const url = doc.slice(
+        childNamed(node, "URL")?.from ?? node.from,
+        childNamed(node, "URL")?.to ?? node.to,
+      );
+      if (cx.interactive && isWebLink(url)) {
+        return (
+          <a
+            key={key}
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline underline-offset-2"
+          >
+            {url}
+          </a>
+        );
+      }
       return (
         <span key={key} className="underline underline-offset-2">
-          {doc.slice(
-            childNamed(node, "URL")?.from ?? node.from,
-            childNamed(node, "URL")?.to ?? node.to,
-          )}
+          {url}
         </span>
       );
+    }
     case "Image": {
       const marks = node.getChildren("LinkMark");
       const alt = doc.slice(marks[0]?.to ?? node.from, marks[1]?.from ?? node.to);
@@ -435,6 +492,7 @@ function block(node: CardNode, cx: Context): ReactNode {
           display
           delimiter="$$"
           atomic={false}
+          written={cx.interactive ? formulaWritten(node, doc) : undefined}
         />
       );
     case "LinkReference":
@@ -506,10 +564,13 @@ function firstLineOf(node: CardNode, cx: Context): ReactNode[] {
 export function CardText({
   text: side,
   words = NO_WORDS,
+  interactive = false,
   className,
 }: {
   text: string;
   words?: readonly string[];
+  /** Real links, and Formulas a click can copy: the study screen's revealed Card. */
+  interactive?: boolean;
   className?: string;
 }) {
   // The words as one string, so a new array of the same words keeps the render.
@@ -517,8 +578,14 @@ export function CardText({
   const content = useMemo(() => {
     const tree = cardParser.parse(side);
     const searched = search === "" ? [] : search.split(" ");
-    return blocks(tree.topNode, { doc: side, oneLine: false, ended: false, words: searched });
-  }, [side, search]);
+    return blocks(tree.topNode, {
+      doc: side,
+      oneLine: false,
+      ended: false,
+      words: searched,
+      interactive,
+    });
+  }, [side, search, interactive]);
   return (
     <div className={cn("card-text flex flex-col gap-2 [overflow-wrap:anywhere]", className)}>
       {content}

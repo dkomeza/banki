@@ -1,9 +1,11 @@
 import {
   CARD_STATES,
   type CardSchedule,
+  type IntervalPreviews,
   type CardState,
   DESIRED_RETENTION_MAX,
   DESIRED_RETENTION_MIN,
+  RATINGS,
   type Rating,
   type StudyDaySettings,
   addStudyDays,
@@ -197,6 +199,31 @@ export function rate(
   };
 }
 
+/**
+ * Each Rating's Interval preview for a Card at `now`: what `rate` gives for
+ * it, so a preview is exactly what its Rating then does. A Card still in its
+ * learning steps after a Rating is due at the moment its step ends.
+ */
+export function previewIntervals(
+  cardId: string,
+  memory: MemoryState,
+  settings: { now: Date; desiredRetention: number; studyDay: StudyDaySettings },
+): IntervalPreviews {
+  const preview = (rating: Rating) => {
+    const after = rate(cardId, memory, rating, settings);
+    return {
+      state: after.state,
+      scheduledDays: after.scheduledDays,
+      due: (after.dueAt ?? settings.now).toISOString(),
+    };
+  };
+  const [again, hard, good, easy] = RATINGS.map(preview);
+  if (again === undefined || hard === undefined || good === undefined || easy === undefined) {
+    throw new Error("Four Ratings expected");
+  }
+  return { again, hard, good, easy };
+}
+
 /** A Card's last Review: when, its Rating, and the memory state it started from. */
 export type LastReview = { reviewedAt: Date; rating: Rating; before: MemoryState };
 
@@ -229,6 +256,29 @@ export function reschedule(
     scheduledDays: again.scheduledDays,
     dueAt: again.dueAt < now ? now : again.dueAt,
   };
+}
+
+/**
+ * A Card's memory state after its newest Review is undone (ADR-0025): `before`,
+ * the one that Review kept, given its Review `previous` before that one, if
+ * any. When the Desired retention changed since `before` was scheduled, its
+ * interval no longer matches the one `previous` gives at the current
+ * retention, and it is rescheduled at the current one (`reschedule`), as any
+ * change of retention does.
+ */
+export function restore(
+  cardId: string,
+  before: MemoryState,
+  previous: LastReview | undefined,
+  settings: { now: Date; desiredRetention: number; studyDay: StudyDaySettings },
+): MemoryState {
+  if (previous === undefined || before.state !== "review") return before;
+  const again = rate(cardId, previous.before, previous.rating, {
+    ...settings,
+    now: previous.reviewedAt,
+  });
+  if (again.scheduledDays === before.scheduledDays) return before;
+  return reschedule(cardId, before, previous, settings);
 }
 
 /** A Card's schedule, as the API answers it. */

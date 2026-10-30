@@ -151,4 +151,12 @@ export {
   studyDayBounds,
   studyDayOf,
 } from "./study-day";
-export { QUEUE_KINDS, QueueKind, StudyNextQuery, StudyNextResponse } from "./study";
+export {
+  IntervalPreview,
+  IntervalPreviews,
+  QUEUE_KINDS,
+  QueueKind,
+  StudyNextQuery,
+  StudyNextResponse,
+  UndoReviewResponse,
+} from "./study";

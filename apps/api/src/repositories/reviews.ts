@@ -11,7 +11,13 @@ import { type SQLWrapper, and, desc, eq, inArray, isNull, sql } from "drizzle-or
 import { z } from "zod";
 import type { Queryable } from "../db/database";
 import { card, deck, review, user_settings } from "../db/schema";
-import { type MemoryState, rate, reschedule, scheduleOf } from "../scheduling/fsrs";
+import {
+  type LastReview,
+  type MemoryState,
+  rate,
+  reschedule,
+  scheduleOf,
+} from "../scheduling/fsrs";
 
 export type ReviewRepository = ReturnType<typeof createReviewRepository>;
 
@@ -47,7 +53,7 @@ const toStored = (memory: MemoryState): z.infer<typeof StoredMemoryState> => ({
   lastReviewAt: memory.lastReviewAt?.toISOString() ?? null,
 });
 
-const fromStored = (stored: unknown): MemoryState => {
+export const fromStored = (stored: unknown): MemoryState => {
   const parsed = StoredMemoryState.parse(stored);
   return {
     ...parsed,
@@ -109,25 +115,35 @@ export function rescheduleCards(
     .where(and(eq(card.userId, userId), inArray(card.id, cardIds), eq(card.state, "review")))
     .all();
   for (const { id, ...current } of rows) {
-    const last = db
-      .select({ reviewedAt: review.reviewedAt, rating: review.rating, before: review.cardBefore })
-      .from(review)
-      .where(and(eq(review.userId, userId), eq(review.cardId, id)))
-      .orderBy(desc(review.reviewedAt), desc(sql`rowid`))
-      .limit(1)
-      .get();
+    const last = lastReviewOf(db, userId, id);
     if (last === undefined) continue;
-    const next = reschedule(
-      id,
-      current,
-      { reviewedAt: last.reviewedAt, rating: last.rating, before: fromStored(last.before) },
-      { now, desiredRetention, studyDay },
-    );
+    const next = reschedule(id, current, last, { now, desiredRetention, studyDay });
     db.update(card)
       .set({ dueAt: next.dueAt, scheduledDays: next.scheduledDays })
       .where(and(eq(card.userId, userId), eq(card.id, id)))
       .run();
   }
+}
+
+/** The newest Review of the User's Card `cardId`, with its ID, or undefined when it has none. */
+export function lastReviewOf(
+  db: Queryable,
+  userId: string,
+  cardId: string,
+): (LastReview & { id: string }) | undefined {
+  const last = db
+    .select({
+      id: review.id,
+      reviewedAt: review.reviewedAt,
+      rating: review.rating,
+      before: review.cardBefore,
+    })
+    .from(review)
+    .where(and(eq(review.userId, userId), eq(review.cardId, cardId)))
+    .orderBy(desc(review.reviewedAt), desc(sql`rowid`))
+    .limit(1)
+    .get();
+  return last === undefined ? undefined : { ...last, before: fromStored(last.before) };
 }
 
 /** Whether the User has any Review at all, of a Card that is gone too. */

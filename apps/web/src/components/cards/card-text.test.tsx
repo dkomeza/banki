@@ -4,6 +4,7 @@ import { CardLine, CardText } from "./card-text";
 
 const html = (text: string) => renderToStaticMarkup(<CardText text={text} />);
 const line = (text: string) => renderToStaticMarkup(<CardLine text={text} />);
+const live = (text: string) => renderToStaticMarkup(<CardText text={text} interactive />);
 
 /** The HTML with each piece of KaTeX's output as `{math}`, for checking what's around it. */
 function outside(markup: string): string {
@@ -232,5 +233,42 @@ describe("CardText's tables", () => {
   test("read without outer pipes", () => {
     const out = html("a | b\n--- | ---\n1 | 2");
     expect(out).toMatch(/<tr><td[^>]*>1<\/td><td[^>]*>2<\/td><\/tr>/);
+  });
+});
+
+describe("CardText, interactive (the study screen's revealed Card)", () => {
+  test("renders links as real links, opening in a new tab", () => {
+    const out = live("[see $x$](https://example.com) <https://example.org>");
+    expect(out).toContain(
+      '<a href="https://example.com" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">see ',
+    );
+    expect(out).toContain(
+      '<a href="https://example.org" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">https://example.org</a>',
+    );
+  });
+
+  test("keeps a link that isn't to the web as underlined text", () => {
+    const out = live("[run](javascript:alert(1)) and [here](notes.md)");
+    expect(out).not.toContain("<a ");
+    expect(out).not.toContain("href");
+  });
+
+  test("gives each Formula its source with its delimiters, as written, to copy", () => {
+    const out = live("Let $x^2$ be\n\n$$\n\\sum_n a_n\n$$\n\nand $$y$$ inline");
+    expect(out).toContain('data-formula="$x^2$"');
+    expect(out).toContain('data-formula="$$\n\\sum_n a_n\n$$"');
+    expect(out).toContain('data-formula="$$y$$"');
+  });
+
+  test("anywhere else, Formulas have nothing to copy", () => {
+    expect(html("Let $x^2$ be\n\n$$\ny\n$$")).not.toContain("data-formula");
+    expect(line("Let $x^2$ be")).not.toContain("data-formula");
+  });
+});
+
+describe("CardText, broken display Formulas", () => {
+  test("show their source between the $$ they were written with", () => {
+    expect(html("$$\\fracc{1}{2}$$ inline")).toContain("$$\\fracc{1}{2}$$");
+    expect(html("$$\n\\fracc{1}{2}\n$$")).toContain("$$\n\\fracc{1}{2}\n$$");
   });
 });
