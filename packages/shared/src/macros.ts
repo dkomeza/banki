@@ -44,15 +44,15 @@ export const MacroList = z
   });
 export type MacroList = z.infer<typeof MacroList>;
 
-/** How many arguments a Macro with `definition` takes: the highest `#n` in it, as KaTeX counts. */
+/**
+ * How many arguments a Macro with `definition` takes, as KaTeX counts them:
+ * `#1`, `#2`, … up to the first one missing (`##` is a `#`). KaTeX
+ * can't typeset a definition with a gap, such as `#1#3`.
+ */
 export function macroArity(definition: string): number {
+  const stripped = definition.replaceAll("##", "");
   let arity = 0;
-  for (let i = 0; i < definition.length; i++) {
-    if (definition[i] !== "#") continue;
-    const next = definition[i + 1] ?? "";
-    if (next === "#") i++;
-    else if (/[1-9]/.test(next)) arity = Math.max(arity, Number(next));
-  }
+  while (arity < 9 && stripped.includes(`#${arity + 1}`)) arity++;
   return arity;
 }
 
@@ -101,9 +101,10 @@ function tokenize(source: string): string[] {
     } else if (char === "%") {
       const newline = source.indexOf("\n", i);
       end = newline === -1 ? source.length : newline;
-    } else if (char.charCodeAt(0) >= 0xd800 && char.charCodeAt(0) <= 0xdbff) {
-      end = i + 2;
     }
+    // A character outside the Basic Multilingual Plane is two code units, after a `\` too.
+    const last = source.charCodeAt(end - 1);
+    if (last >= 0xd800 && last <= 0xdbff && end < source.length) end++;
     tokens.push(source.slice(i, end));
     i = end;
   }
@@ -119,6 +120,8 @@ function ownNames(tokens: readonly string[]): Set<string> {
   for (let i = 0; i < tokens.length; i++) {
     if (!DEFINERS.has(tokens[i] ?? "")) continue;
     let j = i + 1;
+    // `\newcommand*` is `\newcommand` for an argument with no paragraph break.
+    if (tokens[j] === "*") j++;
     while (isSpace(tokens[j] ?? "")) j++;
     if (tokens[j] === "{") j++;
     const name = tokens[j] ?? "";

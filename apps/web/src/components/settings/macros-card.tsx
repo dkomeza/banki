@@ -24,11 +24,13 @@ import {
   checkRow,
   type MacroRow,
   macrosSaveErrorText,
+  keptOf,
   newRowId,
+  reconcile,
   rowsFor,
   sameMacros,
   sampleOf,
-  savedMacros,
+  toSave,
 } from "@/lib/macros";
 import { settingsQueryOptions } from "@/lib/settings";
 import { shownSettings } from "@/lib/settings-saver";
@@ -152,7 +154,7 @@ function FromSettings({
         <Link
           to="/settings"
           hash="macros"
-          className="text-sm text-muted-foreground underline underline-offset-4"
+          className="inline-flex min-h-11 items-center text-sm text-muted-foreground underline underline-offset-4 lg:min-h-0"
         >
           Change in Settings
         </Link>
@@ -190,9 +192,11 @@ function Header({ state, children }: { state: Saving["state"]; children: ReactNo
 /**
  * One list's rows, Settings' or a Deck's own, as they are written. The rows
  * hold what isn't saved yet too (a new row, a row with a problem); each
- * change saves the rows that are written and have no problem, when that
- * changes the list. When the list saved changes otherwise (a failed save
- * puts it back, Try again, another device), the rows follow it.
+ * change saves the rows that are written and have no problem, with a row
+ * with a problem kept as it was last saved (`toSave`), when that changes the
+ * list. When the list saved changes otherwise (a failed save puts it back,
+ * Try again, another device), the rows follow it, an open one staying open
+ * (`reconcile`).
  */
 function MacroList({
   saving,
@@ -215,14 +219,12 @@ function MacroList({
   const [seen, setSeen] = useState(saving.shown);
   if (!sameMacros(seen, saving.shown)) {
     setSeen(saving.shown);
-    if (!sameMacros(saving.shown, savedMacros(rows, under))) {
-      setRows(rowsFor(saving.shown, rows));
-    }
+    if (!sameMacros(saving.shown, keptOf(rows))) setRows(reconcile(rows, saving.shown));
   }
 
-  const change = (next: MacroRow[]) => {
+  const change = (edited: MacroRow[]) => {
+    const { rows: next, list } = toSave(edited, under);
     setRows(next);
-    const list = savedMacros(next, under);
     if (!sameMacros(list, saving.shown)) saving.save(list);
   };
   const add = (macro: Macro) => {

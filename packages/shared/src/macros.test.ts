@@ -60,15 +60,20 @@ describe("MacroList", () => {
 });
 
 describe("macroArity", () => {
-  test("is the highest #n in the definition", () => {
+  test("is the number of its arguments, #1 to #9", () => {
     expect(macroArity("\\mathbb{R}")).toBe(0);
     expect(macroArity("\\left\\| #1 \\right\\|")).toBe(1);
     expect(macroArity("\\langle #2, #1 \\rangle")).toBe(2);
-    expect(macroArity("#3")).toBe(3);
+    expect(macroArity("#3#1#2")).toBe(3);
   });
 
   test("doesn't count ## as an argument", () => {
     expect(macroArity("##1")).toBe(0);
+  });
+
+  test("counts from #1 up to the first one missing, as KaTeX does", () => {
+    expect(macroArity("#1#3")).toBe(1);
+    expect(macroArity("#2")).toBe(0);
   });
 });
 
@@ -167,11 +172,16 @@ describe("expandMacros", () => {
     expect(expandMacros("$\\renewcommand\\eps{e}\\eps$", macros)).toBe(
       "$\\renewcommand\\eps{e}\\eps$",
     );
+    expect(expandMacros("$\\newcommand*{\\R}{z}\\R$", macros)).toBe("$\\newcommand*{\\R}{z}\\R$");
   });
 
   test("puts arguments in for #1 to #9, and # for ##", () => {
     expect(expandMacros("$\\swap ab$", [m("\\swap", "#2#1")])).toBe("$ba$");
     expect(expandMacros("$\\h$", [m("\\h", "\\#a##")])).toBe("$\\#a#$");
+  });
+
+  test("expands a Macro named by a character outside the Basic Multilingual Plane", () => {
+    expect(expandMacros("$\\😀 + 1$", [m("\\😀", "\\heartsuit")])).toBe("$\\heartsuit + 1$");
   });
 
   test("leaves a comment as written", () => {

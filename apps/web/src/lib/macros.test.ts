@@ -2,11 +2,13 @@ import { describe, expect, test } from "vitest";
 import {
   checkRow,
   type MacroRow,
+  keptOf,
   macrosSaveErrorText,
+  reconcile,
   rowsFor,
   sameMacros,
   sampleOf,
-  savedMacros,
+  toSave,
 } from "./macros";
 
 let n = 0;
@@ -59,6 +61,16 @@ describe("checkRow", () => {
     expect(check(rows, 1).nameError).toBe("\\d is already in this list.");
   });
 
+  test("a row renamed to a saved Macro's name is the repeat, not that Macro", () => {
+    const rows = [
+      { ...row("\\eps", "\\left\\| #1 \\right\\|"), kept: { name: "\\norm", definition: "x" } },
+      { ...row("\\eps", "\\varepsilon"), kept: { name: "\\eps", definition: "\\varepsilon" } },
+    ];
+
+    expect(check(rows, 0).nameError).toBe("\\eps is already in this list.");
+    expect(check(rows, 1).saved).toBe(true);
+  });
+
   test("gives KaTeX's message for a definition it can't typeset with sample arguments", () => {
     const checked = check([row("\\half", "\\frac{1}{2")]);
 
@@ -95,35 +107,85 @@ describe("checkRow", () => {
   });
 });
 
-describe("savedMacros", () => {
-  test("is the rows that are written and have no problem, in order", () => {
-    const rows = [
-      row("\\norm", "\\left\\| #1 \\right\\|"),
-      row("\\", ""),
-      row("\\bad", "\\frac{"),
-      row("\\eps", "\\varepsilon"),
-    ];
+const norm = { name: "\\norm", definition: "\\left\\| #1 \\right\\|" };
+const eps = { name: "\\eps", definition: "\\varepsilon" };
+const abs = { name: "\\abs", definition: "\\left| #1 \\right|" };
 
-    expect(savedMacros(rows, [])).toEqual([
-      { name: "\\norm", definition: "\\left\\| #1 \\right\\|" },
-      { name: "\\eps", definition: "\\varepsilon" },
+/** `rows` with the row named `name` changed by `edit`. */
+const edit = (rows: MacroRow[], name: string, change: Partial<MacroRow>) =>
+  rows.map((r) => (r.name === name ? { ...r, ...change } : r));
+
+describe("toSave", () => {
+  test("saves the rows that are written and have no problem, in order", () => {
+    const rows = [...rowsFor([norm]), row("\\", ""), row("\\bad", "\\frac{"), ...rowsFor([eps])];
+
+    expect(toSave(rows, []).list).toEqual([norm, eps]);
+  });
+
+  test("keeps a saved Macro as it was while its row has a problem", () => {
+    const rows = rowsFor([norm, eps]);
+
+    expect(toSave(edit(rows, "\\norm", { definition: "\\left\\| #1 \\right" }), []).list).toEqual([
+      norm,
+      eps,
     ]);
+    expect(toSave(edit(rows, "\\norm", { name: "\\eps" }), []).list).toEqual([norm, eps]);
+    expect(toSave(edit(rows, "\\norm", { name: "\\no rm" }), []).list).toEqual([norm, eps]);
+  });
+
+  test("a renamed or changed row saves as it is now", () => {
+    const rows = rowsFor([norm, eps]);
+    const { rows: next, list } = toSave(edit(rows, "\\eps", { definition: "\\epsilon" }), []);
+
+    expect(list).toEqual([norm, { ...eps, definition: "\\epsilon" }]);
+    expect(keptOf(next)).toEqual(list);
   });
 });
 
-describe("rowsFor", () => {
-  test("keeps the ID of each row whose name is still there", () => {
-    const before = [row("\\a", "x"), row("\\b", "y")];
-    const after = rowsFor(
-      [
-        { name: "\\b", definition: "z" },
-        { name: "\\c", definition: "w" },
-      ],
-      before,
-    );
+describe("reconcile", () => {
+  test("a failed rename puts the row back, keeping it (and so its form) open", () => {
+    const rows = rowsFor([norm, abs, eps]);
+    const sent = toSave(edit(rows, "\\abs", { name: "\\absval" }), []).rows;
 
-    expect(after[0]).toEqual({ name: "\\b", definition: "z", id: before[1]?.id });
-    expect(after[1]?.id).not.toBe(before[0]?.id);
+    const back = reconcile(sent, [norm, abs, eps]);
+
+    expect(back.map((r) => r.id)).toEqual(rows.map((r) => r.id));
+    expect(back[1]).toMatchObject({ ...abs, kept: abs });
+  });
+
+  test("a failed deletion brings the Macro back where it stood", () => {
+    const rows = rowsFor([norm, abs, eps]);
+    const sent = toSave(
+      rows.filter((r) => r.name !== "\\abs"),
+      [],
+    ).rows;
+
+    expect(reconcile(sent, [norm, abs, eps]).map((r) => r.name)).toEqual([
+      "\\norm",
+      "\\abs",
+      "\\eps",
+    ]);
+  });
+
+  test("a failed addition stays, unsaved, as does a row being written", () => {
+    const rows = [...rowsFor([norm]), row("\\half", "\\frac{1}{2")];
+    const added = toSave([...rows, row("\\grad", "\\nabla #1")], []).rows;
+
+    const back = reconcile(added, [norm]);
+
+    expect(back.map((r) => r.name)).toEqual(["\\norm", "\\half", "\\grad"]);
+    expect(back[2]?.kept).toBeUndefined();
+    expect(keptOf(back)).toEqual([norm]);
+  });
+
+  test("a change from elsewhere shows in its row, leaving the one being written alone", () => {
+    const rows = [...rowsFor([norm, eps]), row("\\", "")];
+
+    const back = reconcile(rows, [norm, { ...eps, definition: "\\epsilon" }]);
+
+    expect(back.map((r) => r.id)).toEqual(rows.map((r) => r.id));
+    expect(back[1]?.definition).toBe("\\epsilon");
+    expect(back[2]).toEqual(rows[2]);
   });
 });
 
@@ -142,9 +204,6 @@ describe("sampleOf and sameMacros", () => {
 });
 
 describe("macrosSaveErrorText", () => {
-  const abs = { name: "\\abs", definition: "\\left| #1 \\right|" };
-  const eps = { name: "\\eps", definition: "\\varepsilon" };
-
   test("names a rename, and what the row is back to", () => {
     expect(macrosSaveErrorText([{ ...abs, name: "\\absval" }, eps], [abs, eps])).toBe(
       "Couldn't save \\absval, so the row is back to \\abs.",
@@ -153,7 +212,7 @@ describe("macrosSaveErrorText", () => {
 
   test("names a Macro added, deleted or changed", () => {
     expect(macrosSaveErrorText([abs, eps], [abs])).toBe(
-      "Couldn't save \\eps, so it isn't in the list.",
+      "Couldn't save \\eps. Try again to save it.",
     );
     expect(macrosSaveErrorText([abs], [abs, eps])).toBe(
       "Couldn't save deleting \\eps, so it's back in the list.",
