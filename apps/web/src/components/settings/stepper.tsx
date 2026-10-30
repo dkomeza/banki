@@ -1,7 +1,7 @@
 import { Minus, Plus } from "lucide-react";
 import type { KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button";
-import { type StepperRange, stepped } from "@/lib/new-cards";
+import { type StepperRange, paged, stepped } from "@/lib/new-cards";
 import { cn } from "@/lib/utils";
 
 /**
@@ -34,8 +34,8 @@ export function Stepper({
       ArrowRight: () => stepped(value, 1, range),
       ArrowDown: () => stepped(value, -1, range),
       ArrowLeft: () => stepped(value, -1, range),
-      PageUp: () => Math.min(range.max, value + range.step * 5),
-      PageDown: () => Math.max(range.min, value - range.step * 5),
+      PageUp: () => paged(value, 1, range),
+      PageDown: () => paged(value, -1, range),
       Home: () => range.min,
       End: () => range.max,
     };

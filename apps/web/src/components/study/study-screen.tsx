@@ -1,5 +1,5 @@
 import { RATINGS } from "@banki/shared";
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { AlertCircle, LoaderCircle, Undo2, X } from "lucide-react";
 import { type MouseEvent, useEffect, useState, useSyncExternalStore } from "react";
@@ -293,7 +293,8 @@ function Dock({ session, state }: { session: StudySession; state: StudyState }) 
   );
 }
 
-function End({
+/** The end of the Session: done, nothing to study, or Banki out of reach. Exported for its tests. */
+export function End({
   deck,
   state,
   onRetry,
@@ -304,7 +305,8 @@ function End({
   onRetry: () => void;
   onMore: () => void;
 }) {
-  const { newCardBatch } = useSuspenseQuery(settingsQueryOptions()).data.settings;
+  // Fetched afresh as the end shows, so the batch named is the one the next Card comes by.
+  const newCardBatch = useQuery(settingsQueryOptions()).data?.settings.newCardBatch;
   const offer = state.phase === "done" ? moreOffer(state.newHeld, newCardBatch) : undefined;
   const title =
     state.phase === "nothing"

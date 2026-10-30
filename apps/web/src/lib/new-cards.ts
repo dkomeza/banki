@@ -43,6 +43,13 @@ export function stepped(
   return Math.min(max, Math.max(min, next));
 }
 
+/** The value Page Up (`1`) or Page Down (`-1`) moves `value` to: five presses of + or −. */
+export function paged(value: number, direction: -1 | 1, range: StepperRange): number {
+  let next = value;
+  for (let press = 0; press < 5; press++) next = stepped(next, direction, range);
+  return next;
+}
+
 /** What a change to a stepper's Setting that didn't save says: the change, and what is kept. */
 export const pacingErrorText = (attempted: number, kept: number): string =>
   `The change to ${attempted} didn't save, so it's still ${kept}.`;
@@ -50,15 +57,16 @@ export const pacingErrorText = (attempted: number, kept: number): string =>
 /**
  * What the study screen's end offers when the New-card batch held New cards
  * back: how many are waiting, and the button that takes another batch of
- * `batch`. Undefined when none are held, so the end is as it always was.
+ * `batch` (unnamed while the Settings aren't loaded). Undefined when none
+ * are held, so the end is as it always was.
  */
 export function moreOffer(
   newHeld: number,
-  batch: number,
+  batch: number | undefined,
 ): { waiting: string; action: string } | undefined {
   if (newHeld <= 0) return undefined;
   return {
     waiting: newHeld === 1 ? "1 new card is waiting." : `${newHeld} new cards are waiting.`,
-    action: `Learn ${batch} more`,
+    action: batch === undefined ? "Learn more" : `Learn ${batch} more`,
   };
 }

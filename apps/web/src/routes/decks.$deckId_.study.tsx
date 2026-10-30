@@ -12,8 +12,9 @@ export const Route = createFileRoute("/decks/$deckId_/study")({
   loader: ({ context: { queryClient }, params: { deckId } }) =>
     Promise.all([
       queryClient.ensureQueryData(deckQueryOptions(deckId)),
-      // The end's offer of another batch names the New-card batch.
-      queryClient.ensureQueryData(settingsQueryOptions()),
+      // The end's offer of another batch names the New-card batch. Never thrown:
+      // without the Settings the screen still studies, and the offer says less.
+      queryClient.prefetchQuery(settingsQueryOptions()),
     ]),
   component: StudyPage,
 });
