@@ -35,9 +35,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
         run: |
-          gh pr diff "$PR" --name-only \
-            | grep -vE '(^|/)bun\.lock$|\.(png|jpe?g|gif|webp|ico|woff2?|ttf|otf)$' \
-            | sort > files.txt || true
+          # A failed `gh` fails the step: an empty list would check no coverage.
+          gh pr diff "$PR" --name-only > changed.txt
+          # grep exits 1 when every file is filtered out, 2 on an error.
+          grep -vE '(^|/)bun\.lock$|\.(png|jpe?g|gif|webp|ico|woff2?|ttf|otf)$' changed.txt > files.txt || [ $? -eq 1 ]
+          sort -o files.txt files.txt
           {
             echo "list<<EOF"
             cat files.txt
