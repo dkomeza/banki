@@ -6,9 +6,11 @@ import type { Deck } from "@/lib/decks";
 import { cn } from "@/lib/utils";
 import { estimateLabel, overviewFixture } from "./fixture";
 
-// Variant b, Ledger: what Study will bring is a small card of its own, the
-// three figures side by side over their labels, with the Study pill closing
-// the row (under it, full width, on phones). The other actions stay below.
+// Round 2 (b's card, c's data): what Study will bring is b's small card, and
+// in it c's figures: the Cards Study will bring today, large in the accent,
+// with the counts and estimate as its caption. The Study pill closes the row
+// (under it, full width, on phones). Nothing to study says so in the figure's
+// place, in ink, with when the next Cards come.
 
 export function StudyLine({ deck }: { deck: Deck }) {
   const overview = overviewFixture();
@@ -16,30 +18,29 @@ export function StudyLine({ deck }: { deck: Deck }) {
   return (
     <section
       aria-label="Study"
-      className="flex flex-col gap-4 rounded-2xl border bg-card p-4 sm:flex-row sm:items-center sm:gap-6 sm:px-5"
+      className="flex flex-col gap-4 rounded-2xl border bg-card p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:px-5"
     >
       {nothing ? (
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <p className="font-semibold">Nothing to study</p>
+          <p className="text-lg font-semibold tracking-[-0.01em]">Nothing to study</p>
           <p className="text-sm text-muted-foreground tabular-nums">
             {overview.nextDue === null
-              ? "No card is scheduled yet."
+              ? "No card is scheduled yet"
               : `Next ${overview.nextDue.label}, ${overview.nextDue.count} cards`}
           </p>
         </div>
       ) : (
-        <dl className="grid flex-1 grid-cols-3 gap-4 sm:flex sm:gap-8">
-          {[
-            { value: String(overview.due), label: "due" },
-            { value: String(overview.new), label: "new" },
-            { value: estimateLabel(overview.estimateMs), label: "estimated" },
-          ].map((f) => (
-            <div key={f.label} className="flex flex-col">
-              <dd className="text-2xl font-semibold tracking-[-0.02em] tabular-nums">{f.value}</dd>
-              <dt className="text-sm text-muted-foreground">{f.label}</dt>
-            </div>
-          ))}
-        </dl>
+        <div className="flex min-w-0 items-center gap-4">
+          <span className="text-4xl leading-none font-semibold tracking-[-0.04em] text-primary tabular-nums">
+            {overview.due + overview.new}
+          </span>
+          <div className="flex flex-col gap-0.5">
+            <p className="font-semibold">cards today</p>
+            <p className="text-sm text-muted-foreground tabular-nums">
+              {overview.due} due · {overview.new} new · {estimateLabel(overview.estimateMs)}
+            </p>
+          </div>
+        </div>
       )}
       {nothing ? (
         <Button variant="outline" className={cn(OUTLINE_PILL, "h-11 w-full sm:w-auto")} disabled>
