@@ -352,7 +352,7 @@ function End({
             className={cn(
               offer === undefined ? PILL : OUTLINE_PILL,
               "h-12 px-7 text-base no-underline lg:h-11",
-              offer === undefined && "text-primary-foreground",
+              offer === undefined ? "text-primary-foreground" : "text-foreground",
             )}
             render={<Link to="/decks/$deckId" params={{ deckId: deck.id }} />}
             nativeButton={false}
