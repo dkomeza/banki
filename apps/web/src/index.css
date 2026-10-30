@@ -224,3 +224,23 @@
 .card-text .katex-display.fleqn > .katex {
   padding-left: 0;
 }
+
+/* Prototype (BAN-27, Variant c): the editor's foot docks to the bottom, where
+   the ratings were, as the study dock does. */
+.inplace-editor form > div:last-child {
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  margin-inline: -1.5rem;
+  margin-top: auto;
+  padding: 0.75rem 1.5rem max(0.75rem, env(safe-area-inset-bottom));
+  background: color-mix(in oklab, var(--background) 95%, transparent);
+  backdrop-filter: blur(8px);
+}
+@media (min-width: 40rem) {
+  .inplace-editor form > div:last-child {
+    flex-wrap: wrap;
+    margin-inline: -2.5rem;
+    padding-inline: 2.5rem;
+  }
+}
