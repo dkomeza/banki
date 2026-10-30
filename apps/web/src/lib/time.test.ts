@@ -16,6 +16,8 @@ const GRADING = {
   apiKey: { state: "unset" },
   autoClose: "brackets",
   desiredRetention: 90,
+  newCardBatch: 20,
+  learningLimit: 10,
 } as const;
 
 describe("formatHour", () => {

@@ -1,13 +1,16 @@
 import { RATINGS } from "@banki/shared";
+import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { AlertCircle, LoaderCircle, Undo2, X } from "lucide-react";
 import { type MouseEvent, useEffect, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import { CardText } from "@/components/cards/card-text";
-import { PILL } from "@/components/settings/parts";
+import { OUTLINE_PILL, PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import type { Deck } from "@/lib/decks";
+import { moreOffer } from "@/lib/new-cards";
+import { settingsQueryOptions } from "@/lib/settings";
 import {
   RATING_KEYS,
   RATING_LABELS,
@@ -94,7 +97,12 @@ export function StudyScreen({ deck }: { deck: Deck }) {
         {state.phase === "card" ? (
           <CardView session={session} state={state} />
         ) : state.phase === "loading" ? null : (
-          <End deck={deck} state={state} onRetry={() => session.retry()} />
+          <End
+            deck={deck}
+            state={state}
+            onRetry={() => session.retry()}
+            onMore={() => session.more()}
+          />
         )}
       </main>
       {state.phase === "card" && session !== undefined && <Dock session={session} state={state} />}
@@ -285,7 +293,19 @@ function Dock({ session, state }: { session: StudySession; state: StudyState }) 
   );
 }
 
-function End({ deck, state, onRetry }: { deck: Deck; state: StudyState; onRetry: () => void }) {
+function End({
+  deck,
+  state,
+  onRetry,
+  onMore,
+}: {
+  deck: Deck;
+  state: StudyState;
+  onRetry: () => void;
+  onMore: () => void;
+}) {
+  const { newCardBatch } = useSuspenseQuery(settingsQueryOptions()).data.settings;
+  const offer = state.phase === "done" ? moreOffer(state.newHeld, newCardBatch) : undefined;
   const title =
     state.phase === "nothing"
       ? "Nothing to study right now"
@@ -303,18 +323,43 @@ function End({ deck, state, onRetry }: { deck: Deck; state: StudyState; onRetry:
           need it.
         </p>
       )}
+      {offer !== undefined && (
+        <p className="-mt-2 text-balance text-muted-foreground tabular-nums">{offer.waiting}</p>
+      )}
       {state.phase === "unreachable" ? (
         <Button className={cn(PILL, "h-12 px-7 text-base lg:h-11")} onClick={onRetry}>
           Try again
         </Button>
       ) : (
-        <Button
-          className={cn(PILL, "h-12 px-7 text-base text-primary-foreground no-underline lg:h-11")}
-          render={<Link to="/decks/$deckId" params={{ deckId: deck.id }} />}
-          nativeButton={false}
-        >
-          Back to deck
-        </Button>
+        <div className="flex flex-wrap justify-center gap-3">
+          {offer !== undefined && (
+            <Button
+              className={cn(PILL, "h-12 px-7 text-base tabular-nums lg:h-11")}
+              disabled={state.loadingMore}
+              onClick={onMore}
+            >
+              {state.loadingMore && (
+                <LoaderCircle
+                  aria-hidden
+                  className="size-4 animate-spin motion-reduce:animate-none"
+                />
+              )}
+              {offer.action}
+            </Button>
+          )}
+          <Button
+            variant={offer === undefined ? "default" : "outline"}
+            className={cn(
+              offer === undefined ? PILL : OUTLINE_PILL,
+              "h-12 px-7 text-base no-underline lg:h-11",
+              offer === undefined && "text-primary-foreground",
+            )}
+            render={<Link to="/decks/$deckId" params={{ deckId: deck.id }} />}
+            nativeButton={false}
+          >
+            Back to deck
+          </Button>
+        </div>
       )}
     </div>
   );
