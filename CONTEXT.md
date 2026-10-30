@@ -84,6 +84,10 @@ _Avoid_: grade, score, ease
 One Rating of one Card at one moment, with the time the User spent on it and whether it was self-rated or graded. Reviews are the Card's history: they are what FSRS learns from, and they outlive the Card. Undoing a Rating takes its Review back as if it had never been given.
 _Avoid_: answer, attempt, repetition
 
+**Progress reset**:
+Putting a studied Card back to New, which the User may choose only while editing it, and never by default. Its Reviews stay and still count in statistics, but FSRS learns about the Card again from its newest Progress reset, and a Rating given before it can't be undone. Each one is kept, so a Card's history shows every Progress reset in its place.
+_Avoid_: forget, reset (alone, which is Edge's), relearn
+
 **Due**:
 A Card is due on the Study day FSRS scheduled it for, from that day's Day start, and stays due until it is reviewed. A Card still in its learning steps is due at an exact moment instead, minutes after its last Review.
 _Avoid_: scheduled, pending
