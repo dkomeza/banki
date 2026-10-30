@@ -53,7 +53,7 @@ function NewCardPage() {
   );
 }
 
-const BLANK = { front: "", back: "" };
+const BLANK = { front: "", back: "", gradingNotes: "" };
 
 function NewCard({ deck }: { deck: Deck }) {
   const queryClient = useQueryClient();

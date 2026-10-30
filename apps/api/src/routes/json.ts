@@ -7,10 +7,13 @@ import type { Clash } from "../repositories/places";
 /**
  * What a refused body's 400 says: the first problem with its `macros`, which
  * names it (a bad name, a blank or long definition, a name twice, too many),
- * or else `message`.
+ * or else a problem one of Banki's own rules words (such as "Keep grading
+ * notes to 2,000 characters"), or else `message`.
  */
 const problemOf = (error: z.ZodError, message: string) =>
-  error.issues.find((issue) => issue.path[0] === "macros")?.message ?? message;
+  error.issues.find((issue) => issue.path[0] === "macros")?.message ??
+  error.issues.find((issue) => issue.code === "custom")?.message ??
+  message;
 
 /** A JSON body validator that answers 400 `invalid_request` when `schema` refuses it. */
 export const json = <T extends z.ZodType>(schema: T, message: string) =>

@@ -2,7 +2,7 @@ import { DEFAULT_AUTO_CLOSE } from "@banki/shared";
 import type { EditorView } from "@codemirror/view";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Copy } from "lucide-react";
+import { Copy, Plus } from "lucide-react";
 import {
   type FormEvent,
   type ReactNode,
@@ -20,10 +20,12 @@ import { useLibrary } from "@/components/folders/use-library";
 import { Page } from "@/components/page";
 import { TagField, type TagInput } from "@/components/cards/tag-field";
 import { CardLine } from "@/components/cards/card-text";
+import { PILL } from "@/components/settings/parts";
+import { Button } from "@/components/ui/button";
 import {
   type Card,
-  type SideErrors,
-  type Sides,
+  type CardFields,
+  type FieldErrors,
   cardsQueryOptions,
   duplicatesOf,
   hasUnsavedChanges,
@@ -35,26 +37,35 @@ import { cn } from "@/lib/utils";
 
 // New card and Edit card are one writing page: a dated page with the two
 // sides written on ruled lines inside a bordered card, their labels in the
-// margin from 640 px, the Tags field under them, and the actions along the
-// card's foot under a hairline. Images go into a side through its editor.
+// margin from 640 px, then the Grading notes the same way (behind "Add grading
+// notes" until a Card has them), the Tags field under them, and the actions
+// along the card's foot under a hairline. Images go into a side through its
+// editor, never into the notes.
+
+/** A Card's sides, the fields that take Images. */
+type Side = "front" | "back";
 
 /**
- * The form's state: the sides as typed, what counts as saved, each side's
- * error, and whether an Image is on its way up into either side. `onChange`
- * hears of every change to a side, typed or an Image put in.
+ * The form's state: the fields as typed, what counts as saved, each field's
+ * error, whether the Grading notes are open, and whether an Image is on its
+ * way up into either side. `onChange` hears of every change to a field, typed
+ * or an Image put in.
  */
-export function useCardForm(saved0: Sides, { onChange }: { onChange?: () => void } = {}) {
+export function useCardForm(saved0: CardFields, { onChange }: { onChange?: () => void } = {}) {
   const [fields, setFields] = useState(saved0);
   const [saved, setSaved] = useState(saved0);
-  const [errors, setErrors] = useState<SideErrors>({});
+  const [errors, setErrors] = useState<FieldErrors>({});
   const [uploading, setUploading] = useState({ front: false, back: false });
+  // Open on a Card that has notes; once opened, open until the page is left.
+  const [notesOpen, setNotesOpen] = useState(saved0.gradingNotes !== "");
   const frontRef = useRef<EditorView>(null);
   const backRef = useRef<EditorView>(null);
+  const notesRef = useRef<EditorView>(null);
   const latest = useRef(saved0);
-  const set = (side: keyof Sides, value: string) => {
-    latest.current = { ...latest.current, [side]: value };
+  const set = (field: keyof CardFields, value: string) => {
+    latest.current = { ...latest.current, [field]: value };
     setFields(latest.current);
-    setErrors((current) => ({ ...current, [side]: undefined }));
+    setErrors((current) => ({ ...current, [field]: undefined }));
     onChange?.();
   };
   return {
@@ -62,15 +73,19 @@ export function useCardForm(saved0: Sides, { onChange }: { onChange?: () => void
     errors,
     frontRef,
     backRef,
+    notesRef,
     unsaved: hasUnsavedChanges(fields, saved),
-    /** Changes one side, clearing that side's error. */
+    /** Changes one field, clearing its error. */
     set,
+    /** Whether the Grading notes' field shows, rather than "Add grading notes". */
+    notesOpen,
+    openNotes: () => setNotesOpen(true),
     setErrors,
     /**
      * Marks `next` as saved and shows it, so leaving doesn't ask, and takes
      * away the error tiles of uploads that failed.
      */
-    markSaved: (next: Sides) => {
+    markSaved: (next: CardFields) => {
       latest.current = next;
       for (const view of [frontRef.current, backRef.current]) {
         if (view !== null) clearUploadFailures(view);
@@ -82,7 +97,7 @@ export function useCardForm(saved0: Sides, { onChange }: { onChange?: () => void
     /** Whether an Image is on its way up, which holds Save. */
     uploading: uploading.front || uploading.back,
     /** Notes whether an Image is on its way up into `side`. */
-    setUploading: (side: keyof Sides, now: boolean) =>
+    setUploading: (side: Side, now: boolean) =>
       setUploading((current) => ({ ...current, [side]: now })),
   };
 }
@@ -93,8 +108,8 @@ export type CardForm = ReturnType<typeof useCardForm>;
 const SAVE_KEY =
   typeof navigator !== "undefined" && /Mac|iP/.test(navigator.platform) ? "⌘" : "Ctrl";
 
-/** One side on ruled lines, its label in the margin from 640 px. */
-function Side({
+/** One field on ruled lines, its label in the margin from 640 px. */
+function Field({
   label,
   placeholder,
   value,
@@ -108,7 +123,7 @@ function Side({
   onUploading,
   className,
 }: {
-  label: "Front" | "Back";
+  label: "Front" | "Back" | "Grading notes";
   readOnly: boolean;
   placeholder: string;
   value: string;
@@ -120,12 +135,17 @@ function Side({
   onChange: (value: string) => void;
   /** Ctrl/Cmd+Enter. */
   onSubmit: () => void;
-  /** Hears whether an Image is on its way up into it. */
-  onUploading: (uploading: boolean) => void;
+  /** Hears whether an Image is on its way up into it; without it, it takes no Images. */
+  onUploading?: (uploading: boolean) => void;
   className?: string;
 }) {
   const id = useId();
-  const front = label === "Front";
+  const size =
+    label === "Front"
+      ? "min-h-16 text-xl/[2rem] font-semibold tracking-tight"
+      : label === "Back"
+        ? "min-h-32 text-[1.05rem]/[2rem]"
+        : "min-h-16 text-[0.95rem]/[2rem]";
   const autoClose = useQuery(settingsQueryOptions()).data?.settings.autoClose ?? DEFAULT_AUTO_CLOSE;
   const describedBy = [error !== undefined && `${id}-error`, note && `${id}-note`]
     .filter(Boolean)
@@ -154,15 +174,13 @@ function Side({
           toolbarLabel={`${label} formatting`}
           viewRef={inputRef}
           onSubmit={onSubmit}
-          onUpload={uploadImage}
+          onUpload={onUploading === undefined ? undefined : uploadImage}
           onUploading={onUploading}
           className={cn(
             // Ruled lines, one per line of text, so it writes like a page.
             "w-full rounded-md bg-[repeating-linear-gradient(to_bottom,transparent_0,transparent_calc(2rem-1px),var(--border)_calc(2rem-1px),var(--border)_2rem)] leading-[2rem]",
             error !== undefined && "outline-2 outline-offset-4 outline-destructive outline-solid",
-            front
-              ? "min-h-16 text-xl/[2rem] font-semibold tracking-tight"
-              : "min-h-32 text-[1.05rem]/[2rem]",
+            size,
           )}
         />
         {error !== undefined && (
@@ -183,14 +201,16 @@ function Side({
 
 /**
  * The writing page: the breadcrumb down to the Deck, the dateline over the
- * title, then the form, the Tags field under the sides, with `foot` along the
- * card's foot and `after` below it. Ctrl/Cmd+Enter in either side, or in the
- * Tags, saves. Under the Front, a note warns
+ * title, then the form, the Grading notes and the Tags field under the sides,
+ * with `foot` along the card's foot and `after` below it. Ctrl/Cmd+Enter in
+ * any field saves. Under the Front, a note warns
  * while it makes the Card a Duplicate of another live Card in the Deck; the
  * Card `selfId` names, the one being edited, never counts.
  *
  * Each side takes Images, pasted, dropped or picked with its toolbar's Image
  * button, and Save is held while an upload is on its way (`form.uploading`).
+ * The Grading notes take none: their editor has no Image button, and ignores
+ * files pasted or dropped on it.
  * A file dropped anywhere else on the page is never opened, so nothing written
  * is lost.
  */
@@ -235,15 +255,20 @@ export function CardEditor({
   const save = () => {
     if (!form.uploading) onSave();
   };
-  const sideProps = (side: keyof Sides) => ({
-    value: form.fields[side],
-    error: form.errors[side],
+  const fieldProps = (field: keyof CardFields) => ({
+    value: form.fields[field],
+    error: form.errors[field],
     readOnly: saving,
-    inputRef: side === "front" ? form.frontRef : form.backRef,
-    onChange: (value: string) => form.set(side, value),
+    onChange: (value: string) => form.set(field, value),
     onSubmit: save,
+  });
+  const sideProps = (side: Side) => ({
+    ...fieldProps(side),
+    inputRef: side === "front" ? form.frontRef : form.backRef,
     onUploading: (uploading: boolean) => form.setUploading(side, uploading),
   });
+  // Opened with the button, the notes take the focus it had.
+  const [focusNotes, setFocusNotes] = useState(false);
   useEffect(keepDroppedFiles, []);
   return (
     <Page width="reading">
@@ -269,20 +294,47 @@ export function CardEditor({
           }}
           className="flex flex-col gap-7 rounded-2xl border bg-card px-4 py-6 shadow-xs sm:px-6 sm:py-7"
         >
-          <Side
+          <Field
             label="Front"
             placeholder="What to be asked"
             note={duplicates.length > 0 ? <DuplicateNote duplicates={duplicates} /> : null}
             autoFocus={autoFocus}
             {...sideProps("front")}
           />
-          <Side
+          <Field
             label="Back"
             placeholder="What to recall"
             // Room above it for the Front's note and its own toolbar.
             className="sm:mt-7 lg:mt-3"
             {...sideProps("back")}
           />
+          {form.notesOpen ? (
+            <Field
+              label="Grading notes"
+              placeholder="What an answer must include, or may vary in"
+              inputRef={form.notesRef}
+              autoFocus={focusNotes}
+              // Room above it for its toolbar.
+              className="sm:mt-7 lg:mt-3"
+              {...fieldProps("gradingNotes")}
+            />
+          ) : (
+            <div className="-my-2 sm:pl-22">
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={saving}
+                className={cn(PILL, "-ml-3 h-11 text-muted-foreground lg:h-10")}
+                onClick={() => {
+                  setFocusNotes(true);
+                  form.openNotes();
+                }}
+              >
+                <Plus aria-hidden />
+                Add grading notes
+              </Button>
+            </div>
+          )}
           <TagField input={tags} readOnly={saving} onSave={save} />
           <div className="flex flex-col gap-3 border-t pt-5 sm:flex-row sm:items-center sm:pl-22">
             {foot}

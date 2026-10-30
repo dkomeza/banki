@@ -87,6 +87,7 @@ describe("create", () => {
       front: "  el desayuno \n",
       back: "breakfast\n\nTomo el desayuno.  ",
       tags: [],
+      gradingNotes: null,
       createdAt: "2026-10-01T10:00:00.000Z",
       updatedAt: "2026-10-01T10:00:00.000Z",
     });
@@ -592,5 +593,78 @@ describe("Tags", () => {
     expect(opened.db.select().from(card_tag).all()).toEqual([
       { cardId: created.id, userId: USER, name: "verb" },
     ]);
+  });
+});
+
+/** A Card in `deckId` with these Grading notes. */
+const withNotes = (deckId: string, gradingNotes: string | null, now?: Date) => {
+  const created = cards.create(
+    USER,
+    deckId,
+    { front: "f", back: "b", gradingNotes },
+    now === undefined ? {} : { now },
+  );
+  if (typeof created === "string") throw new Error(created);
+  return created;
+};
+
+describe("Grading notes", () => {
+  test("a create stores them as given, and a Card created without them has none", () => {
+    const deckId = deckNamed("Spanish");
+    const noted = withNotes(deckId, " Must mention $x$.\n");
+
+    expect(noted.gradingNotes).toBe(" Must mention $x$.\n");
+    expect(cards.find(USER, noted.id)?.gradingNotes).toBe(" Must mention $x$.\n");
+    expect(write(deckId, "plain").gradingNotes).toBeNull();
+    expect(rowOf(write(deckId, "row").id)?.gradingNotes).toBeNull();
+  });
+
+  test("an update of only them changes them and the update time, and null clears them", () => {
+    const created = withNotes(deckNamed("Spanish"), "old", at("2026-09-01T00:00:00.000Z"));
+
+    expect(
+      cards.update(USER, created.id, { gradingNotes: "new" }, at("2026-10-01T00:00:00.000Z")),
+    ).toEqual({
+      ...created,
+      gradingNotes: "new",
+      updatedAt: "2026-10-01T00:00:00.000Z",
+    });
+    expect(cards.update(USER, created.id, { gradingNotes: null })).toMatchObject({
+      gradingNotes: null,
+    });
+  });
+
+  test("an update without them keeps them", () => {
+    const created = withNotes(deckNamed("Spanish"), "kept");
+
+    expect(cards.update(USER, created.id, { front: "other", tags: ["x"] })).toMatchObject({
+      front: "other",
+      gradingNotes: "kept",
+    });
+  });
+
+  test("every Card in a list carries its own", () => {
+    const deckId = deckNamed("Spanish");
+    withNotes(deckId, "one", at("2026-09-01T00:00:00.000Z"));
+    withNotes(deckId, null, at("2026-09-02T00:00:00.000Z"));
+
+    const listed = cards.list(USER, deckId);
+    if (typeof listed === "string") throw new Error(listed);
+    expect(listed.map((c) => c.gradingNotes)).toEqual([null, "one"]);
+  });
+
+  test("survive a Move, and a delete then Restore", () => {
+    const from = deckNamed("Spanish");
+    const to = deckNamed("Verbs");
+    const created = withNotes(from, "Accept either tense.");
+
+    const moved = cards.move(USER, [created.id], to);
+    if (typeof moved === "string") throw new Error(moved);
+    expect(moved[0]?.gradingNotes).toBe("Accept either tense.");
+
+    const deletionId = cards.softDelete(USER, created.id);
+    if (deletionId === undefined) throw new Error("not deleted");
+    createDeletionRepository(opened.db).restore(USER, deletionId);
+    expect(cards.find(USER, created.id)?.gradingNotes).toBe("Accept either tense.");
   });
 });

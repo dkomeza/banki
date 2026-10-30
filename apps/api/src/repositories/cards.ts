@@ -15,9 +15,10 @@ export type Card = CardResponse;
 
 export type CardRepository = ReturnType<typeof createCardRepository>;
 
-/** A new Card, as `CreateCardRequest` parses it; no Tags unless given. */
-export type NewCard = Omit<z.output<typeof CreateCardRequest>, "tags"> & {
+/** A new Card, as `CreateCardRequest` parses it; no Tags or Grading notes unless given. */
+export type NewCard = Omit<z.output<typeof CreateCardRequest>, "tags" | "gradingNotes"> & {
   tags?: readonly string[];
+  gradingNotes?: string | null;
 };
 
 /** Changes to a Card, as `UpdateCardRequest` parses them. */
@@ -31,6 +32,7 @@ const COLUMNS = {
   deckId: card.deckId,
   front: card.front,
   back: card.back,
+  gradingNotes: card.gradingNotes,
   createdAt: card.createdAt,
   updatedAt: card.updatedAt,
 } as const;
@@ -40,6 +42,7 @@ type Row = {
   deckId: string;
   front: string;
   back: string;
+  gradingNotes: string | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -147,8 +150,8 @@ export function stampCards(
  * (ADR-0001), so another User's Card is as unknown as one that never existed,
  * and so is a deleted Card, or one whose Deck is deleted; so is a Deck that is
  * deleted or another User's, as a Deck to list or to create a Card in. Fronts
- * and Backs are expected already parsed (`CardSide`), and are stored exactly as
- * given; Tags too (`CardTags`: lowercase, without duplicates). A soft delete
+ * and Backs are expected already parsed (`CardSide`), and so are Grading notes
+ * (`GradingNotes`), all stored exactly as given; Tags too (`CardTags`: lowercase, without duplicates). A soft delete
  * leaves a Card's Tags alone, so they come back with it on Restore.
  */
 export function createCardRepository(db: Queryable) {
@@ -180,13 +183,13 @@ export function createCardRepository(db: Queryable) {
     create(
       userId: string,
       deckId: string,
-      { front, back, tags = NO_TAGS }: NewCard,
+      { front, back, tags = NO_TAGS, gradingNotes = null }: NewCard,
       { id = randomUUID(), now = new Date() }: { id?: string; now?: Date } = {},
     ): Card | "not_found" {
       return db.transaction(
         (tx) => {
           if (!isLiveDeck(tx, userId, deckId)) return "not_found";
-          const row = { id, deckId, front, back, createdAt: now, updatedAt: now };
+          const row = { id, deckId, front, back, gradingNotes, createdAt: now, updatedAt: now };
           tx.insert(card)
             .values({ ...row, userId })
             .run();
@@ -198,8 +201,8 @@ export function createCardRepository(db: Queryable) {
     },
 
     /**
-     * Changes a Card's Front, Back, Tags or any of them, Tags given replacing
-     * all of its own; "not_found" for no such Card.
+     * Changes a Card's Front, Back, Tags, Grading notes or any of them, Tags
+     * given replacing all of its own; "not_found" for no such Card.
      */
     update(userId: string, id: string, changes: CardChanges, now = new Date()): Card | "not_found" {
       return db.transaction(
@@ -209,6 +212,7 @@ export function createCardRepository(db: Queryable) {
             .set({
               ...(changes.front === undefined ? {} : { front: changes.front }),
               ...(changes.back === undefined ? {} : { back: changes.back }),
+              ...(changes.gradingNotes === undefined ? {} : { gradingNotes: changes.gradingNotes }),
               updatedAt: now,
             })
             .where(and(eq(card.userId, userId), eq(card.id, id)))
@@ -272,7 +276,7 @@ export function createCardRepository(db: Queryable) {
      * Moves the User's Cards `ids` into their Deck `deckId`, all of them or
      * none: "not_found" when one isn't a live Card in a live Deck of the
      * User's, or `deckId` isn't a live Deck of theirs. A moved Card is the same
-     * Card: it keeps its ID, Front, Back, Tags and `createdAt`, and takes its
+     * Card: it keeps its ID, Front, Back, Tags, Grading notes and `createdAt`, and takes its
      * Reviews along (ADR-0021); one whose old Deck had another Desired
      * retention is rescheduled for the new one's. A Move may make a Duplicate.
      * Answers the moved Cards, newest first.

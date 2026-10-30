@@ -184,6 +184,8 @@ export const card = sqliteTable(
       .references(() => deck.id, { onDelete: "cascade" }),
     front: text("front").notNull(),
     back: text("back").notNull(),
+    /** Its Grading notes, as typed; null for none. */
+    gradingNotes: text("grading_notes"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
     deletedAt: integer("deleted_at", { mode: "timestamp_ms" }),

@@ -287,6 +287,24 @@ describe("banki seed's Cards", () => {
     expect(card.back).toContain("$");
   });
 
+  test("gives three Cards Grading notes, the edit-card page's among them, with a Formula", async () => {
+    await setup();
+    await seed();
+
+    const { app } = boot();
+    const cookie = cookiesFrom(await signIn(app));
+    const noted = [];
+    for (const deckId of Object.values(SEED_IDS.decks)) {
+      const cards = CardListResponse.parse(
+        await (await get(app, `/api/decks/${deckId}/cards`, cookie)).json(),
+      );
+      noted.push(...cards.filter((card) => card.gradingNotes !== null));
+    }
+
+    expect(noted).toHaveLength(3);
+    expect(noted.find((card) => card.id === SEED_IDS.card)?.gradingNotes).toContain("$");
+  });
+
   test("stores the one Image under uploads/, and the edit-card page's Card refers to it", async () => {
     await setup();
     await seed();

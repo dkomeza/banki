@@ -127,7 +127,7 @@ describe("next", () => {
     cards.create(
       USER,
       deckId,
-      { front: "hola", back: "hello", tags: ["greeting"] },
+      { front: "hola", back: "hello", tags: ["greeting"], gradingNotes: 'Accept "hi" too.' },
       { id: "c1", now: START },
     );
 
@@ -141,6 +141,7 @@ describe("next", () => {
           front: "hola",
           back: "hello",
           tags: ["greeting"],
+          gradingNotes: 'Accept "hi" too.',
           createdAt: START.toISOString(),
           updatedAt: START.toISOString(),
         },
