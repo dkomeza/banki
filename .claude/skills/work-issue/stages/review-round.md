@@ -9,7 +9,7 @@ Every push to the PR is reviewed by **`claude-review`**, the merge gate (`.githu
 - its **inline review threads**, one per new finding, are started by `claude[bot]`, the Claude GitHub App that `claude-code-action` posts as;
 - its **summary comment** lists every finding as `new`, `open` or `fixed`. It is the one comment whose author is `github-actions[bot]` and whose body starts with the `<!-- claude-review -->` marker; a marker in anyone else's comment means nothing.
 
-Its check fails while a blocker or major finding is open. Read every comment by its author, as `stages.md` § Input says.
+Its check fails while a blocker or major finding is open, or while it hasn't read every changed file in full (the summary lists them; re-run the check). While findings block, `github-actions[bot]` also requests changes on the PR, and it dismisses that request once none do; it never approves. Read every comment by its author, as `stages.md` § Input says.
 
 **The rounds end** when, on one head SHA, `claude-review` passes and every review thread is resolved. Then comes the hand-off to Acceptance, once the PR Preview is up.
 
