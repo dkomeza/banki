@@ -2,6 +2,8 @@ import {
   type ApiKeyStatus,
   DEFAULT_DAY_START_HOUR,
   DEFAULT_DESIRED_RETENTION,
+  DEFAULT_LEARNING_LIMIT,
+  DEFAULT_NEW_CARD_BATCH,
   type ModelId,
   type SettingsPatch,
   type SettingsResponse,
@@ -31,6 +33,8 @@ type Row = Pick<
   | "apiKeyLastFour"
   | "autoClose"
   | "desiredRetention"
+  | "newCardBatch"
+  | "learningLimit"
 >;
 
 /** What a User without a row of Settings has. */
@@ -42,6 +46,8 @@ const DEFAULT_ROW: Row = {
   apiKeyLastFour: null,
   autoClose: null,
   desiredRetention: DEFAULT_DESIRED_RETENTION,
+  newCardBatch: DEFAULT_NEW_CARD_BATCH,
+  learningLimit: DEFAULT_LEARNING_LIMIT,
 };
 
 const rowOf = (db: Queryable, userId: string): Row =>
@@ -54,6 +60,8 @@ const rowOf = (db: Queryable, userId: string): Row =>
       apiKeyLastFour: user_settings.apiKeyLastFour,
       autoClose: user_settings.autoClose,
       desiredRetention: user_settings.desiredRetention,
+      newCardBatch: user_settings.newCardBatch,
+      learningLimit: user_settings.learningLimit,
     })
     .from(user_settings)
     .where(eq(user_settings.userId, userId))
@@ -101,6 +109,8 @@ export function createSettingsRepository(db: Queryable, cipher: ApiKeyCipher) {
       apiKey: apiKeyStatus(row, userId),
       autoClose: effectiveAutoClose(row.autoClose),
       desiredRetention: row.desiredRetention,
+      newCardBatch: row.newCardBatch,
+      learningLimit: row.learningLimit,
     };
   };
 

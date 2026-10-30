@@ -4,12 +4,18 @@ import { DeckNotFound } from "@/components/not-found";
 import { Page } from "@/components/page";
 import { StudyScreen } from "@/components/study/study-screen";
 import { deckQueryOptions } from "@/lib/decks";
+import { settingsQueryOptions } from "@/lib/settings";
 
 // The study screen: full-screen, outside the shell, with nothing but the Card.
 
 export const Route = createFileRoute("/decks/$deckId_/study")({
   loader: ({ context: { queryClient }, params: { deckId } }) =>
-    queryClient.ensureQueryData(deckQueryOptions(deckId)),
+    Promise.all([
+      queryClient.ensureQueryData(deckQueryOptions(deckId)),
+      // The end's offer of another batch names the New-card batch. Never thrown:
+      // without the Settings the screen still studies, and the offer says less.
+      queryClient.prefetchQuery(settingsQueryOptions()),
+    ]),
   component: StudyPage,
 });
 

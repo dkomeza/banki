@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Page } from "@/components/page";
 import { AccountCard } from "@/components/settings/account-card";
+import { AdvancedCard } from "@/components/settings/advanced-card";
 import { AppVersion } from "@/components/settings/app-version";
 import { EditorCard } from "@/components/settings/editor-card";
 import { GradingCard } from "@/components/settings/grading-card";
@@ -29,6 +30,7 @@ const SECTIONS: readonly Section[] = [
   { id: "study", title: "Study" },
   { id: "grading", title: "Grading" },
   { id: "editor", title: "Editor" },
+  { id: "advanced", title: "Advanced" },
   { id: "account", title: "Account" },
   { id: "this-device", title: "This device" },
 ];
@@ -51,6 +53,7 @@ function SettingsPage() {
             <StudyCard />
             <GradingCard />
             <EditorCard />
+            <AdvancedCard />
             <AccountCard />
             <ThisDeviceCard />
           </div>

@@ -8,8 +8,14 @@ import {
   CARD_STATES,
   DEFAULT_DAY_START_HOUR,
   DEFAULT_DESIRED_RETENTION,
+  DEFAULT_LEARNING_LIMIT,
+  DEFAULT_NEW_CARD_BATCH,
   DESIRED_RETENTION_MAX,
   DESIRED_RETENTION_MIN,
+  LEARNING_LIMIT_MAX,
+  LEARNING_LIMIT_MIN,
+  NEW_CARD_BATCH_MAX,
+  NEW_CARD_BATCH_MIN,
   RATINGS,
   REVIEW_KINDS,
 } from "@banki/shared";
@@ -52,12 +58,24 @@ export const user_settings = sqliteTable(
     autoClose: text("auto_close"),
     /** The Desired retention every Deck follows until it has its own, a whole percent. */
     desiredRetention: integer("desired_retention").notNull().default(DEFAULT_DESIRED_RETENTION),
+    /** How many New cards a Session introduces before it offers another batch. */
+    newCardBatch: integer("new_card_batch").notNull().default(DEFAULT_NEW_CARD_BATCH),
+    /** How many of a Deck's Cards may be in learning before a Session stops introducing New cards. */
+    learningLimit: integer("learning_limit").notNull().default(DEFAULT_LEARNING_LIMIT),
   },
   (table) => [
     check("user_settings_day_start_hour", sql`${table.dayStartHour} BETWEEN 0 AND 23`),
     check(
       "user_settings_desired_retention",
       sql`${table.desiredRetention} BETWEEN ${sql.raw(String(DESIRED_RETENTION_MIN))} AND ${sql.raw(String(DESIRED_RETENTION_MAX))}`,
+    ),
+    check(
+      "user_settings_new_card_batch",
+      sql`${table.newCardBatch} BETWEEN ${sql.raw(String(NEW_CARD_BATCH_MIN))} AND ${sql.raw(String(NEW_CARD_BATCH_MAX))}`,
+    ),
+    check(
+      "user_settings_learning_limit",
+      sql`${table.learningLimit} BETWEEN ${sql.raw(String(LEARNING_LIMIT_MIN))} AND ${sql.raw(String(LEARNING_LIMIT_MAX))}`,
     ),
   ],
 );

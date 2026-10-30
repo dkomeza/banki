@@ -1,9 +1,14 @@
-import type { StudyNextResponse, UndoReviewResponse } from "@banki/shared";
+import {
+  DEFAULT_LEARNING_LIMIT,
+  DEFAULT_NEW_CARD_BATCH,
+  type StudyNextResponse,
+  type UndoReviewResponse,
+} from "@banki/shared";
 import { and, eq, isNull, lte, ne, or } from "drizzle-orm";
 import type { Queryable } from "../db/database";
-import { card, review } from "../db/schema";
+import { card, review, user_settings } from "../db/schema";
 import { previewIntervals, restore, scheduleOf } from "../scheduling/fsrs";
-import { type QueueProgress, nextInQueue } from "../scheduling/queue";
+import { type QueueLimits, type QueueProgress, nextInQueue } from "../scheduling/queue";
 import { findIn, isLiveDeck } from "./cards";
 import {
   MEMORY_COLUMNS,
@@ -15,6 +20,22 @@ import {
 
 export type StudyRepository = ReturnType<typeof createStudyRepository>;
 
+/** The User's New-card batch and Learning limit: their Settings, or the defaults. */
+function queueLimitsOf(db: Queryable, userId: string): QueueLimits {
+  const row = db
+    .select({
+      newCardBatch: user_settings.newCardBatch,
+      learningLimit: user_settings.learningLimit,
+    })
+    .from(user_settings)
+    .where(eq(user_settings.userId, userId))
+    .get();
+  return {
+    newCardBatch: row?.newCardBatch ?? DEFAULT_NEW_CARD_BATCH,
+    learningLimit: row?.learningLimit ?? DEFAULT_LEARNING_LIMIT,
+  };
+}
+
 /**
  * Studying the User's Decks. Every query is scoped by the User (ADR-0001): a
  * deleted Deck, an unknown one and another User's are all "not_found".
@@ -23,9 +44,11 @@ export function createStudyRepository(db: Queryable) {
   return {
     /**
      * The Card the Queue of the User's Deck `deckId` shows next (`nextInQueue`),
-     * from its live Cards' state at `now` and the Session's progress, with its
+     * from its live Cards' state at `now`, the Session's progress and the
+     * User's New-card batch and Learning limit as they are now, with its
      * schedule, kind, and each Rating's Interval preview at `now`; `next` is
-     * null when the Queue is empty. `now` is for tests.
+     * null when the Queue is empty, with the New cards the batch held back in
+     * `newHeld`. `now` is for tests.
      */
     next(
       userId: string,
@@ -48,11 +71,16 @@ export function createStudyRepository(db: Queryable) {
             ),
           )
           .all();
-        const picked = nextInQueue(cards, progress, now);
-        if (picked === null) return { next: null };
+        const { next: picked, newHeld } = nextInQueue(
+          cards,
+          progress,
+          queueLimitsOf(tx, userId),
+          now,
+        );
+        if (picked === null) return { next: null, newHeld };
         const row = cards.find((c) => c.id === picked.id);
         const found = findIn(tx, userId, picked.id);
-        if (row === undefined || found === undefined) return { next: null };
+        if (row === undefined || found === undefined) return { next: null, newHeld: 0 };
         const { id, createdAt: _, ...memory } = row;
         const intervals = previewIntervals(id, memory, {
           now,
@@ -61,6 +89,7 @@ export function createStudyRepository(db: Queryable) {
         });
         return {
           next: { card: found, schedule: scheduleOf(memory), kind: picked.kind, intervals },
+          newHeld: 0,
         };
       });
     },

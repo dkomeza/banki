@@ -152,8 +152,16 @@ export {
   studyDayOf,
 } from "./study-day";
 export {
+  DEFAULT_LEARNING_LIMIT,
+  DEFAULT_NEW_CARD_BATCH,
   IntervalPreview,
   IntervalPreviews,
+  LEARNING_LIMIT_MAX,
+  LEARNING_LIMIT_MIN,
+  LearningLimit,
+  NEW_CARD_BATCH_MAX,
+  NEW_CARD_BATCH_MIN,
+  NewCardBatch,
   QUEUE_KINDS,
   QueueKind,
   StudyNextQuery,
