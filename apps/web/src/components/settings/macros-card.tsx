@@ -395,39 +395,29 @@ function Item({
 
   // Open, the row itself turns into its form, easing in: the name and
   // definition become fields where they were read, and the tile beside them
-  // renders as you type.
+  // renders as you type. Delete sits beside the name, but Tab goes from the
+  // name to the definition first.
   return (
     <li
-      className="-mx-3 flex animate-in scroll-mt-24 flex-col gap-2.5 rounded-xl bg-muted/70 px-3 py-3 outline-none duration-200 ease-out fade-in-0 slide-in-from-top-1 motion-reduce:animate-none [&+li]:border-t-transparent"
+      className="-mx-3 grid animate-in scroll-mt-24 grid-cols-[auto_minmax(0,1fr)_auto] gap-x-3 gap-y-2.5 rounded-xl bg-muted/70 px-3 py-3 outline-none duration-200 ease-out fade-in-0 slide-in-from-top-1 motion-reduce:animate-none [&+li]:border-t-transparent"
       tabIndex={-1}
       {...focusClose}
     >
-      <div className="flex items-start gap-3">
-        <Tile html={check.html} />
-        <Input
-          id={`${id}-name`}
-          aria-label="Name"
-          value={row.name}
-          // A new row starts at its name, one being edited at its definition.
-          autoFocus={row.name === "\\" || !startOpen}
-          spellCheck={false}
-          autoCapitalize="off"
-          autoComplete="off"
-          aria-invalid={check.nameError === undefined ? undefined : true}
-          aria-describedby={`${id}-note`}
-          onChange={(event) => onChange({ name: event.target.value })}
-          className={cn(MONO, "min-w-0 flex-1 bg-background font-medium lg:h-11")}
-        />
-        <Button
-          variant="ghost"
-          size="icon-lg"
-          className="shrink-0 text-muted-foreground hover:text-destructive"
-          aria-label={`Delete ${named}`}
-          onClick={onDelete}
-        >
-          <Trash2 aria-hidden />
-        </Button>
-      </div>
+      <Tile html={check.html} />
+      <Input
+        id={`${id}-name`}
+        aria-label="Name"
+        value={row.name}
+        // A new row starts at its name, one being edited at its definition.
+        autoFocus={row.name === "\\" || !startOpen}
+        spellCheck={false}
+        autoCapitalize="off"
+        autoComplete="off"
+        aria-invalid={check.nameError === undefined ? undefined : true}
+        aria-describedby={`${id}-note`}
+        onChange={(event) => onChange({ name: event.target.value })}
+        className={cn(MONO, "min-w-0 bg-background font-medium lg:h-11")}
+      />
       <Input
         id={`${id}-definition`}
         aria-label={`What ${row.name === "\\" ? "it" : row.name} stands for`}
@@ -440,9 +430,18 @@ function Item({
         aria-invalid={check.definitionError === undefined ? undefined : true}
         aria-describedby={`${id}-note`}
         onChange={(event) => onChange({ definition: event.target.value })}
-        className={cn(MONO, "bg-background lg:h-11")}
+        className={cn(MONO, "col-span-3 row-start-2 bg-background lg:h-11")}
       />
-      <div id={`${id}-note`} className="flex flex-col gap-1.5" aria-live="polite">
+      <Button
+        variant="ghost"
+        size="icon-lg"
+        className="col-start-3 row-start-1 text-muted-foreground hover:text-destructive"
+        aria-label={`Delete ${named}`}
+        onClick={onDelete}
+      >
+        <Trash2 aria-hidden />
+      </Button>
+      <div id={`${id}-note`} className="col-span-3 flex flex-col gap-1.5" aria-live="polite">
         {check.nameError !== undefined && <Problem>{check.nameError}</Problem>}
         {check.definitionError !== undefined && (
           <Problem>KaTeX says “{check.definitionError}”.</Problem>
