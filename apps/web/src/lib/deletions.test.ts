@@ -116,9 +116,9 @@ describe("names and places", () => {
   test("says where it was: the Folder path from Decks, or a Card's Deck", () => {
     expect(whereLabel(deletion({ path: [] }))).toBe("Decks");
     expect(whereLabel(deletion({ path: ["Maths", "Analysis"] }))).toBe("Decks › Maths › Analysis");
-    expect(whereLabel(deletion({ path: null, deck: { id: "d1", name: "Spanish" } }))).toBe(
-      "Spanish",
-    );
+    expect(
+      whereLabel(deletion({ path: null, deck: { id: "d1", name: "Spanish", macros: [] } })),
+    ).toBe("Spanish");
   });
 
   test("says how long ago, and groups by day", () => {

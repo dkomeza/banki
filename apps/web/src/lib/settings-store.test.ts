@@ -13,6 +13,7 @@ const GRADING = {
   desiredRetention: 90,
   newCardBatch: 20,
   learningLimit: 10,
+  macros: [] as { name: string; definition: string }[],
 } as const;
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));

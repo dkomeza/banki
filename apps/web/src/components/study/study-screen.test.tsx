@@ -21,6 +21,7 @@ const DECK: Deck = {
   createdAt: "2026-05-01T09:00:00.000Z",
   cardCount: 30,
   desiredRetention: null,
+  macros: [],
 };
 
 const SETTINGS: SettingsResponse = {
@@ -32,6 +33,7 @@ const SETTINGS: SettingsResponse = {
   desiredRetention: 90,
   newCardBatch: 20,
   learningLimit: 10,
+  macros: [],
 };
 
 const DONE: StudyState = {

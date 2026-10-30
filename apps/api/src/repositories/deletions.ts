@@ -289,6 +289,7 @@ export function createDeletionRepository(db: Queryable) {
                 deletionId: card.deletionId,
                 deckId: deck.id,
                 deckName: deck.name,
+                deckMacros: deck.macros,
               })
               .from(card)
               .innerJoin(deck, eq(deck.id, card.deckId))
@@ -327,7 +328,7 @@ export function createDeletionRepository(db: Queryable) {
             deletedAt: top.deletedAt,
             top: { kind: "card", id: top.id, name: top.front },
             path: null,
-            deck: { id: top.deckId, name: top.deckName },
+            deck: { id: top.deckId, name: top.deckName, macros: top.deckMacros },
             counts: { folders: 0, decks: 0, cards: 0 },
           };
         }

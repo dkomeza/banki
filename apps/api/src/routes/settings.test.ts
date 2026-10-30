@@ -10,6 +10,7 @@ const UNTOUCHED_DEFAULTS = {
   desiredRetention: 90,
   newCardBatch: 20,
   learningLimit: 10,
+  macros: [] as { name: string; definition: string }[],
 } as const;
 
 const { boot } = bootApps();
@@ -303,5 +304,69 @@ describe("PUT /api/settings/timezone/initial", () => {
     });
 
     expect(res.status).toBe(401);
+  });
+});
+
+describe("Settings' Macros", () => {
+  const norm = { name: "\\norm", definition: "\\left\\| #1 \\right\\|" };
+  const eps = { name: "\\eps", definition: "\\varepsilon" };
+
+  test("replaces the whole list as given, and reads it back", async () => {
+    const { app, cookie } = await signedIn();
+
+    const res = await send(app, "PATCH", "/api/settings", { macros: [norm, eps] }, cookie);
+    expect(res.status).toBe(200);
+    expect((await settingsOf(res)).macros).toEqual([norm, eps]);
+
+    await send(app, "PATCH", "/api/settings", { macros: [eps] }, cookie);
+    expect((await settingsOf(await get(app, "/api/settings", cookie))).macros).toEqual([eps]);
+  });
+
+  test("keeps the Macros when another Setting changes", async () => {
+    const { app, cookie } = await signedIn();
+    await send(app, "PATCH", "/api/settings", { macros: [norm] }, cookie);
+
+    const res = await send(app, "PATCH", "/api/settings", { dayStartHour: 5 }, cookie);
+
+    expect((await settingsOf(res)).macros).toEqual([norm]);
+  });
+
+  test("takes a name KaTeX already knows", async () => {
+    const { app, cookie } = await signedIn();
+    const frac = { name: "\\frac", definition: "#1/#2" };
+
+    const res = await send(app, "PATCH", "/api/settings", { macros: [frac] }, cookie);
+
+    expect((await settingsOf(res)).macros).toEqual([frac]);
+  });
+
+  test("refuses with a 400 naming the problem, and keeps the list it had", async () => {
+    const { app, cookie } = await signedIn();
+    await send(app, "PATCH", "/api/settings", { macros: [norm] }, cookie);
+    const refused: [unknown, string][] = [
+      [[{ name: "norm", definition: "x" }], "A macro's name is \\ and letters"],
+      [[{ name: "\\R", definition: "  " }], "Write what the macro stands for"],
+      [
+        [{ name: "\\R", definition: "x".repeat(1001) }],
+        "Keep \\R's definition to 1,000 characters",
+      ],
+      [[norm, { ...norm, definition: "y" }], "\\norm is in the list twice"],
+      [
+        Array.from({ length: 101 }, (_, i) => ({
+          name: `\\m${"a".repeat(i + 1)}`,
+          definition: "x",
+        })),
+        "Keep to 100 macros",
+      ],
+    ];
+
+    for (const [macros, message] of refused) {
+      const res = await send(app, "PATCH", "/api/settings", { macros }, cookie);
+      expect(res.status).toBe(400);
+      const { error } = ApiError.parse(await res.json());
+      expect(error.code).toBe("invalid_request");
+      expect(error.message).toContain(message);
+    }
+    expect((await settingsOf(await get(app, "/api/settings", cookie))).macros).toEqual([norm]);
   });
 });

@@ -27,7 +27,11 @@ export const SEED_IDS = {
     chemistry: "5eed0000-0000-4000-8000-000000000004",
     kanji: "5eed0000-0000-4000-8000-000000000005",
   },
-  /** Each seeded Deck's Cards, oldest first; Calculus 10 has none. */
+  /**
+   * Each seeded Deck's Cards, oldest first; Calculus 10 has none. Calculus 2's
+   * last three use Macros: Settings' `\norm`, `\abs` and `\eps`, and its own `\d`
+   * and `\eps`.
+   */
   cards: {
     spanish: [
       "5eed0000-0000-4000-8000-0000000c0101",
@@ -53,6 +57,9 @@ export const SEED_IDS = {
       "5eed0000-0000-4000-8000-0000000c0209",
       "5eed0000-0000-4000-8000-0000000c0204",
       "5eed0000-0000-4000-8000-0000000c0205",
+      "5eed0000-0000-4000-8000-0000000c0210",
+      "5eed0000-0000-4000-8000-0000000c0211",
+      "5eed0000-0000-4000-8000-0000000c0212",
     ],
     kanji: [
       "5eed0000-0000-4000-8000-0000000c0300",
