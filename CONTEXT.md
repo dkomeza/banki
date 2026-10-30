@@ -96,6 +96,18 @@ _Avoid_: gap, delay, ivl
 The order in which a Session shows a Deck's Cards: due Cards most at risk first, new Cards mixed in among them in the order they were written, and a Card in its learning steps back when its step is over. Banki answers the next Card one at a time, from the Cards' state and the Session's progress, not as a list fixed at the start.
 _Avoid_: playlist, deck order, schedule
 
+**New card**:
+A Card with no Review: never rated, or every Rating of it undone. A Session introduces New cards a New-card batch at a time.
+_Avoid_: unseen card, fresh card
+
+**New-card batch**:
+How many New cards a Session introduces before it stops introducing them and offers another batch of the same size. Due Cards and Cards in their learning steps go on regardless. A Setting, 20 unless the User changes it.
+_Avoid_: new-card limit, daily new cards, new cards per session
+
+**Learning limit**:
+How many of a Deck's Cards may be in their learning steps, first ones or after a lapse, before a Session stops introducing New cards. It introduces them again once fewer are. A Setting, 10 unless the User changes it.
+_Avoid_: learning pile, learn-ahead limit
+
 **Predicted recall**:
 How likely the User is to recall a Card right now, from FSRS's forgetting curve over its memory state and the time since its last Review. The lower it is, the more at risk the Card is, and the sooner the Queue shows it.
 _Avoid_: retrievability, strength, score
