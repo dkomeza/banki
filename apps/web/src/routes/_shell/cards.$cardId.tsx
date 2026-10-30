@@ -8,6 +8,8 @@ import { deleteWithUndo } from "@/components/cards/card-toasts";
 import { useDiscardGuard } from "@/components/cards/discard-guard";
 import { useTagInput } from "@/components/cards/tag-field";
 import { CardNotFound } from "@/components/not-found";
+import { protoState } from "@/components/study/study-edit";
+import { ResetProgress } from "@/components/study/variant-editor";
 import { Page } from "@/components/page";
 import { OUTLINE_PILL, PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
@@ -80,6 +82,9 @@ function EditCard({ deck, card }: { deck: Deck; card: Card }) {
     form.unsaved || tagsChanged(tags.tags, card.tags) || tags.draft.trim() !== "",
   );
   const [formError, setFormError] = useState<string>();
+  // Prototype (BAN-27): the API has no `studied` yet; `?state=studied` shows the tick.
+  const studied = protoState() === "studied";
+  const [reset, setReset] = useState(false);
   const saving = useRef(false);
   const toDeck = () =>
     navigate({
@@ -123,6 +128,7 @@ function EditCard({ deck, card }: { deck: Deck; card: Card }) {
         form={form}
         tags={tags}
         onSave={() => void save()}
+        beforeFoot={studied ? <ResetProgress checked={reset} onChange={setReset} /> : undefined}
         foot={
           <>
             <div className="flex min-w-0 flex-1 flex-col items-start gap-1">
@@ -147,7 +153,7 @@ function EditCard({ deck, card }: { deck: Deck; card: Card }) {
                 Cancel
               </Button>
               <Button type="submit" className={cn(PILL, "h-11 lg:h-10")} disabled={form.uploading}>
-                Save
+                {studied && reset ? "Save and reset" : "Save"}
               </Button>
             </div>
           </>

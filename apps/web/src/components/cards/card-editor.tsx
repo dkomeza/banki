@@ -206,7 +206,15 @@ export function CardEditor({
   autoFocus = false,
   foot,
   after,
+  bare = false,
+  className,
+  beforeFoot,
 }: {
+  /** Prototype (BAN-27): what sits above the foot's hairline, such as the Reset progress tick. */
+  beforeFoot?: ReactNode;
+  /** Prototype (BAN-27): the form alone, without the page, crumbs and title, to sit over the study screen. */
+  bare?: boolean;
+  className?: string;
   deck: Deck;
   selfId?: string;
   title: string;
@@ -245,6 +253,39 @@ export function CardEditor({
     onUploading: (uploading: boolean) => form.setUploading(side, uploading),
   });
   useEffect(keepDroppedFiles, []);
+  const formEl = (
+    <form
+      noValidate
+      onSubmit={(event: FormEvent) => {
+        event.preventDefault();
+        save();
+      }}
+      className={cn(
+        "flex flex-col gap-7 rounded-2xl border bg-card px-4 py-6 shadow-xs sm:px-6 sm:py-7",
+        className,
+      )}
+    >
+      <Side
+        label="Front"
+        placeholder="What to be asked"
+        note={duplicates.length > 0 ? <DuplicateNote duplicates={duplicates} /> : null}
+        autoFocus={autoFocus}
+        {...sideProps("front")}
+      />
+      <Side
+        label="Back"
+        placeholder="What to recall"
+        className="sm:mt-7 lg:mt-3"
+        {...sideProps("back")}
+      />
+      <TagField input={tags} readOnly={saving} onSave={save} />
+      {beforeFoot}
+      <div className="flex flex-col gap-3 border-t pt-5 sm:flex-row sm:items-center sm:pl-22">
+        {foot}
+      </div>
+    </form>
+  );
+  if (bare) return formEl;
   return (
     <Page width="reading">
       <div className="flex flex-col gap-6 lg:gap-8">
@@ -261,33 +302,7 @@ export function CardEditor({
             {title}
           </h1>
         </div>
-        <form
-          noValidate
-          onSubmit={(event: FormEvent) => {
-            event.preventDefault();
-            save();
-          }}
-          className="flex flex-col gap-7 rounded-2xl border bg-card px-4 py-6 shadow-xs sm:px-6 sm:py-7"
-        >
-          <Side
-            label="Front"
-            placeholder="What to be asked"
-            note={duplicates.length > 0 ? <DuplicateNote duplicates={duplicates} /> : null}
-            autoFocus={autoFocus}
-            {...sideProps("front")}
-          />
-          <Side
-            label="Back"
-            placeholder="What to recall"
-            // Room above it for the Front's note and its own toolbar.
-            className="sm:mt-7 lg:mt-3"
-            {...sideProps("back")}
-          />
-          <TagField input={tags} readOnly={saving} onSave={save} />
-          <div className="flex flex-col gap-3 border-t pt-5 sm:flex-row sm:items-center sm:pl-22">
-            {foot}
-          </div>
-        </form>
+        {formEl}
         {after}
       </div>
     </Page>

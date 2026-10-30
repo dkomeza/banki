@@ -364,6 +364,35 @@ export function createStudySession({
         undone: true,
       });
     },
+    /**
+     * Prototype (BAN-27): the editor opened over the shown Card. Its time is
+     * left out of the Card's `durationMs`: `resume` moves the Card's start on
+     * by however long the editor was open.
+     */
+    pause() {
+      const pausedAt = now();
+      return () => {
+        shownAt += now() - pausedAt;
+      };
+    },
+    /**
+     * Prototype (BAN-27): shows the edited Card in place, revealed as it was.
+     * With `intervals` (after a Progress reset), it shows them, revealed.
+     */
+    replace(card: Card, intervals?: IntervalPreviews) {
+      const shown = state.shown;
+      if (shown === undefined) return;
+      set({
+        shown: { ...shown, card, intervals: intervals ?? shown.intervals },
+        ...(intervals === undefined ? {} : { revealed: true, previewedAt: now() }),
+      });
+    },
+    /** Prototype (BAN-27): the shown Card was deleted, so the next one loads. */
+    skip() {
+      const shown = state.shown;
+      if (shown === undefined || busy()) return;
+      void loadNext(shown.card.id);
+    },
     /** Stops it: answers still on their way change nothing, until it starts again. */
     stop() {
       stopped = true;

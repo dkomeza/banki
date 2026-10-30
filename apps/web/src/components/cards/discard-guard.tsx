@@ -39,7 +39,7 @@ export function useDiscardGuard(unsaved: boolean) {
   };
 }
 
-function DiscardDialog({
+export function DiscardDialog({
   open,
   onKeep,
   onDiscard,
