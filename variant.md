@@ -1,5 +1,5 @@
-# c: Headline
+# e: Card and Headline
 
-One figure per screen, in the accent: the cards Study will bring today on the deck page, and the Recall rate (or the New cards learned) on the summary, with everything else as its caption and the actions docked at the bottom.
+Round 2, b's card with c's data on the deck page (the Cards today large in the accent, due · new · estimate as its caption, the Study pill closing the card), and c's Headline summary, unchanged: the Recall rate (or New cards learned) as one big figure, the actions docked at the bottom.
 
 States: `/decks/$deckId` (plain) and `?state=nothing`; `/decks/$deckId/study` `?state=summary`, `?state=summary-more`, `?state=summary-early`, `?state=summary-new`.
