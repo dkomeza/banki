@@ -29,8 +29,8 @@ export const studyOverviewQueryOptions = (deckId: string, client: ApiClient = ap
 
 /** "~9 min", rounded to whole minutes; "<1 min" under a minute. */
 export function estimateLabel(ms: number): string {
-  const minutes = Math.round(ms / 60_000);
-  return minutes < 1 ? "<1 min" : `~${minutes} min`;
+  if (ms < 60_000) return "<1 min";
+  return `~${Math.round(ms / 60_000)} min`;
 }
 
 /** "1 card", "14 cards". */

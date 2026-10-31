@@ -13,12 +13,14 @@ describe("estimateLabel", () => {
     expect(estimateLabel(9 * 60_000)).toBe("~9 min");
     expect(estimateLabel(9 * 60_000 + 29_000)).toBe("~9 min");
     expect(estimateLabel(9 * 60_000 + 30_000)).toBe("~10 min");
-    expect(estimateLabel(30_000)).toBe("~1 min");
+    expect(estimateLabel(60_000)).toBe("~1 min");
+    expect(estimateLabel(89_000)).toBe("~1 min");
   });
 
-  test("says <1 min under a minute's rounding", () => {
+  test("says <1 min under a minute", () => {
     expect(estimateLabel(0)).toBe("<1 min");
-    expect(estimateLabel(29_000)).toBe("<1 min");
+    expect(estimateLabel(40_000)).toBe("<1 min");
+    expect(estimateLabel(59_999)).toBe("<1 min");
   });
 });
 
