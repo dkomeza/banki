@@ -111,6 +111,28 @@ describe("SummaryView", () => {
     expect(out).toContain("45 s");
   });
 
+  test("names one Card in the singular", () => {
+    expect(
+      text(render({ summary: { studied: 1, newStudied: 1, recall: null, timeMs: 4000 } })),
+    ).toContain("new card learned");
+    expect(
+      text(
+        render({
+          summary: { studied: 1, newStudied: 0, recall: { kept: 1, of: 1 }, timeMs: 4000 },
+        }),
+      ),
+    ).toContain("card · 0 new");
+  });
+
+  test("a Session without review Cards that isn't all New leads with the Cards studied", () => {
+    const out = text(
+      render({ summary: { studied: 3, newStudied: 1, recall: null, timeMs: 4000 } }),
+    );
+
+    expect(out).toContain("cards studied");
+    expect(out).toContain("1 new");
+  });
+
   test("says nothing of what comes next until the overview is in", () => {
     const out = text(render({ overview: undefined }));
 

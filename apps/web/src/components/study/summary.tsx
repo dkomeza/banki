@@ -108,7 +108,7 @@ export function SummaryView({
     summary.recall === null
       ? {
           value: String(summary.studied),
-          label: allNew ? "new cards learned" : "cards studied",
+          label: `${allNew ? "new " : ""}${summary.studied === 1 ? "card" : "cards"} ${allNew ? "learned" : "studied"}`,
           detail: allNew ? undefined : `${summary.newStudied} new`,
         }
       : {
