@@ -125,13 +125,18 @@ export function StudyScreen({ deck }: { deck: Deck }) {
       />
       <main className="flex flex-1 flex-col">
         {state.phase === "card" ? (
-          <CardView session={session} state={state} />
+          <CardView session={session} state={state} editing={editing.open} />
         ) : state.phase === "loading" ? null : (
           <End deck={deck} state={state} onRetry={() => session.retry()} />
         )}
       </main>
       {state.phase === "card" && session !== undefined && (
-        <Dock session={session} state={state} justReset={editing.justReset} />
+        <Dock
+          session={session}
+          state={state}
+          justReset={editing.justReset}
+          editing={editing.open}
+        />
       )}
       {editing.open && state.shown !== undefined && (
         <StudyEditorHost
@@ -160,7 +165,7 @@ function TopBar({
 }) {
   return (
     <header className="sticky top-0 z-10 grid h-14 grid-cols-[1fr_auto_1fr] items-center gap-2 bg-background/95 px-2 backdrop-blur sm:px-4">
-      <div className="flex items-center gap-1">
+      <div className="flex items-center">
         <Button
           variant="ghost"
           size="icon"
@@ -172,12 +177,12 @@ function TopBar({
         >
           <X aria-hidden className="size-5" />
         </Button>
-        {edit}
       </div>
       <span className="max-w-[50vw] truncate text-center text-sm font-medium text-muted-foreground">
         {deck.name}
       </span>
       <div className="flex items-center justify-end gap-1 sm:gap-2">
+        {edit}
         {state.rated > 0 && (
           <span className="hidden text-sm text-muted-foreground tabular-nums sm:inline">
             {state.rated} rated
@@ -205,7 +210,15 @@ function TopBar({
   );
 }
 
-function CardView({ session, state }: { session: StudySession; state: StudyState }) {
+function CardView({
+  session,
+  state,
+  editing,
+}: {
+  session: StudySession;
+  state: StudyState;
+  editing: boolean;
+}) {
   const card = state.shown?.card;
   if (card === undefined) return null;
   const onClick = (event: MouseEvent) => {
@@ -226,6 +239,8 @@ function CardView({ session, state }: { session: StudySession; state: StudyState
       className={cn(
         "mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 pt-6 pb-10 sm:px-10 lg:pt-12",
         !state.revealed && "cursor-pointer",
+        // The editor's preview stands in for it, slid aside.
+        editing && "lg:invisible",
         // A Formula shows it can be copied: the pointer, and a dashed outline on hover.
         state.revealed &&
           "[&_[data-formula]]:cursor-pointer [&_[data-formula]]:rounded-md [&_[data-formula]]:outline-offset-2 [&_[data-formula]:hover]:outline-1 [&_[data-formula]:hover]:outline-primary/60 [&_[data-formula]:hover]:outline-dashed",
@@ -263,14 +278,21 @@ function Dock({
   session,
   state,
   justReset,
+  editing,
 }: {
   session: StudySession;
   state: StudyState;
   justReset: boolean;
+  editing: boolean;
 }) {
   const intervals = state.shown?.intervals;
   return (
-    <div className="sticky bottom-0 z-10 border-t bg-background/95 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur">
+    <div
+      className={cn(
+        "sticky bottom-0 z-10 border-t bg-background/95 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur transition-[translate,opacity] duration-300 ease-out motion-reduce:transition-none",
+        editing && "lg:translate-y-full lg:opacity-0",
+      )}
+    >
       <div className="mx-auto flex w-full max-w-2xl flex-col gap-2 px-3 pt-3 sm:px-6">
         {/* In the dock, not above the Front, so the Card doesn't move when it comes back. */}
         {justReset && state.failure === undefined && <ResetNote />}
@@ -308,7 +330,15 @@ function Dock({
                   i > 0 && "border-l",
                 )}
               >
-                <span className="flex h-7 items-center text-lg font-semibold tabular-nums">
+                <span
+                  key={justReset ? "reset" : "kept"}
+                  style={justReset ? { animationDelay: `${i * 70}ms` } : undefined}
+                  className={cn(
+                    "flex h-7 items-center text-lg font-semibold tabular-nums",
+                    justReset &&
+                      "motion-safe:animate-in motion-safe:fill-mode-both motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-400",
+                  )}
+                >
                   {state.saving === rating ? (
                     <LoaderCircle aria-hidden className="size-5 animate-spin" />
                   ) : (

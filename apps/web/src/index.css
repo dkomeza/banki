@@ -245,3 +245,93 @@
     margin-top: 0;
   }
 }
+
+/* Prototype (BAN-27, Variant d): the editor's way in and out. Below 1024 px
+   the sheet rises and sinks; from 1024 px the panel slides in from the right
+   while the preview, which starts where Focus's Card stands, slides aside. */
+@keyframes glide-up {
+  from {
+    transform: translateY(100%);
+  }
+}
+@keyframes glide-down {
+  to {
+    transform: translateY(100%);
+  }
+}
+@keyframes glide-in {
+  from {
+    transform: translateX(100%);
+  }
+}
+@keyframes glide-out {
+  to {
+    transform: translateX(100%);
+  }
+}
+@keyframes glide-aside {
+  from {
+    transform: translateX(17rem);
+  }
+}
+@keyframes glide-back {
+  to {
+    transform: translateX(17rem);
+  }
+}
+@keyframes glide-rise {
+  from {
+    opacity: 0;
+    transform: translateY(0.75rem);
+  }
+}
+@keyframes glide-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes glide-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes glide-spin-back {
+  from {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .glide .glide-panel {
+    animation: glide-up 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .glide[data-leaving] .glide-panel {
+    animation: glide-down 260ms cubic-bezier(0.4, 0, 1, 1) both;
+  }
+  .glide .glide-body {
+    animation: glide-rise 380ms 140ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .glide[data-leaving] .glide-body {
+    animation: none;
+  }
+  @media (min-width: 64rem) {
+    .glide .glide-panel {
+      animation-name: glide-in;
+      animation-duration: 460ms;
+    }
+    .glide[data-leaving] .glide-panel {
+      animation-name: glide-out;
+    }
+    .glide .glide-preview {
+      animation: glide-aside 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+    .glide[data-leaving] .glide-preview {
+      animation: glide-back 260ms cubic-bezier(0.4, 0, 0.2, 1) both;
+    }
+    .glide .glide-label {
+      animation: glide-fade-in 300ms 320ms both;
+    }
+    .glide[data-leaving] .glide-label {
+      animation: glide-fade-out 120ms both;
+    }
+  }
+}

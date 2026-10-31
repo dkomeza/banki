@@ -1,4 +1,5 @@
 import { Pencil, RotateCcw, Trash2, X } from "lucide-react";
+import { useRef, useState } from "react";
 import { FormError } from "@/components/auth-card";
 import { CardEditor, SaveHint } from "@/components/cards/card-editor";
 import { CardText } from "@/components/cards/card-text";
@@ -10,36 +11,49 @@ import type { StudySession } from "@/lib/study";
 import { cn } from "@/lib/utils";
 import { type StudyEditor, useStudyEditor } from "./study-edit";
 
-// Variant b, "Margin": the study top bar stays, and the editor comes in under
-// it. From 1024 px it is a panel down the right, with the Card itself on the
-// left as it will read once saved, changing as you type: you fix what you see.
-// Below 1024 px it is a sheet that rises from the dock to just under the top
-// bar. Edit is a pencil beside close, on the left, away from Undo. Reset
-// progress is its own bordered row that turns to the accent when ticked and
-// says, in the dock's terms, what the Card goes back to.
+// Variant d, "Glide": Margin (b) with Sheet's (a) Edit pill beside Undo, and
+// in motion. From 1024 px the Card slides aside to become the preview as the
+// panel slides in from the right, and slides back to the middle as it leaves;
+// the dock sinks away while editing. Below 1024 px the sheet rises from the
+// bottom and sinks back. The Reset progress row, the reset chip and a reset
+// Card's Intervals animate as they change. Without motion, all of it is
+// instant.
+
+type Outcome = { edited?: Card; reset?: boolean; deleted?: boolean };
+
+/** How long the editor takes to leave, as in `index.css`'s `glide-*-out`. */
+const LEAVE_MS = 260;
+
+const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 export function EditButton({ disabled, onClick }: { disabled: boolean; onClick: () => void }) {
   return (
     <Button
       variant="ghost"
-      size="icon"
-      className="size-11 rounded-full text-foreground lg:size-9"
+      className="group h-11 min-w-11 gap-1.5 rounded-full px-3 lg:h-9 lg:min-w-9"
       disabled={disabled}
       onClick={onClick}
       onMouseDown={(event) => event.preventDefault()}
       title="Edit card (E)"
       aria-label="Edit card"
     >
-      <Pencil aria-hidden className="size-[1.1rem]" />
+      <Pencil
+        aria-hidden
+        className="size-4 transition-transform duration-200 group-hover:-rotate-12 motion-reduce:transition-none"
+      />
+      <span className="hidden sm:inline">Edit</span>
     </Button>
   );
 }
 
-/** Under a reset Card, in the dock: a quiet accent chip. */
+/** Under a reset Card, in the dock: a quiet accent chip that pops in. */
 export function ResetNote() {
   return (
-    <p className="mx-auto flex w-fit items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-      <RotateCcw aria-hidden className="size-3.5" />
+    <p className="mx-auto flex w-fit items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-90 motion-safe:duration-300">
+      <RotateCcw
+        aria-hidden
+        className="size-3.5 motion-safe:animate-[glide-spin-back_600ms_ease-out]"
+      />
       Back to New: these are a new card's intervals
     </p>
   );
@@ -59,17 +73,23 @@ export function ResetProgress({
     <div className={cn("sm:pl-22", className)}>
       <label
         className={cn(
-          "flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 transition-colors motion-reduce:transition-none",
+          "flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 transition-colors duration-300 motion-reduce:transition-none",
           checked ? "border-primary/60 bg-primary/8" : "bg-muted/50 hover:bg-muted",
         )}
       >
         <RotateCcw
           aria-hidden
-          className={cn("size-4 shrink-0", checked ? "text-primary" : "text-muted-foreground")}
+          className={cn(
+            "size-4 shrink-0 transition-[transform,color] duration-500 ease-out motion-reduce:transition-none",
+            checked ? "-rotate-360 text-primary" : "text-muted-foreground",
+          )}
         />
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="text-sm font-medium">Reset progress</span>
-          <span className="text-[0.8rem] leading-snug text-muted-foreground">
+          <span
+            key={String(checked)}
+            className="text-[0.8rem] leading-snug text-muted-foreground motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-1 motion-safe:duration-300"
+          >
             {checked
               ? "On save, this card goes back to New and you rate it again from the start."
               : "Keeps its reviews, starts its schedule over."}
@@ -97,15 +117,31 @@ export function StudyEditorHost({
   card: Card;
   revealed: boolean;
   session: StudySession;
-  onClose: (outcome: { edited?: Card; reset?: boolean; deleted?: boolean }) => void;
+  onClose: (outcome: Outcome) => void;
 }) {
-  const editor = useStudyEditor({ card, session, onClose });
+  // Leaving plays the way out, then closes: the Card under it is the same one.
+  const [leaving, setLeaving] = useState(false);
+  const left = useRef(false);
+  const leave = (outcome: Outcome) => {
+    if (left.current) return;
+    left.current = true;
+    if (reducedMotion()) {
+      onClose(outcome);
+      return;
+    }
+    setLeaving(true);
+    setTimeout(() => onClose(outcome), LEAVE_MS);
+  };
+  const editor = useStudyEditor({ card, session, onClose: leave });
   return (
-    <div className="fixed inset-x-0 top-[calc(3.5rem+env(safe-area-inset-top))] bottom-0 z-30 flex">
-      {/* The Card as it will read, from 1024 px. */}
-      <div className="hidden min-w-0 flex-1 flex-col overflow-y-auto bg-background lg:flex">
-        <div className="mx-auto flex w-full max-w-2xl flex-col px-10 pt-12 pb-10">
-          <p className="mb-6 text-xs font-semibold tracking-[0.08em] text-muted-foreground uppercase">
+    <div
+      data-leaving={leaving || undefined}
+      className="glide fixed inset-x-0 top-[calc(3.5rem+env(safe-area-inset-top))] bottom-0 z-30 flex"
+    >
+      {/* The Card as it will read, from 1024 px: Focus's Card, slid aside. */}
+      <div className="hidden min-w-0 flex-1 flex-col overflow-y-auto lg:flex">
+        <div className="glide-preview relative mx-auto flex w-full max-w-2xl flex-col px-10 pt-12 pb-10">
+          <p className="glide-label absolute top-5 left-10 text-xs font-semibold tracking-[0.08em] text-muted-foreground uppercase">
             Preview
           </p>
           <CardText
@@ -125,7 +161,7 @@ export function StudyEditorHost({
         role="dialog"
         aria-modal="true"
         aria-label="Edit card"
-        className="flex w-full flex-col overflow-y-auto rounded-t-[1.5rem] border-t bg-card shadow-[0_-18px_40px_-20px_rgb(48_28_10/0.35)] motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-8 lg:w-[34rem] lg:shrink-0 lg:rounded-none lg:border-t-0 lg:border-l lg:shadow-none lg:motion-safe:slide-in-from-right-8 lg:motion-safe:slide-in-from-bottom-0"
+        className="glide-panel flex w-full flex-col overflow-y-auto rounded-t-[1.5rem] border-t bg-card shadow-[0_-18px_40px_-20px_rgb(48_28_10/0.35)] lg:w-[34rem] lg:shrink-0 lg:rounded-none lg:border-t-0 lg:border-l lg:shadow-[-24px_0_48px_-32px_rgb(48_28_10/0.35)]"
       >
         <header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b bg-card/95 px-4 py-2 backdrop-blur sm:px-6">
           <div
@@ -145,7 +181,7 @@ export function StudyEditorHost({
             <X aria-hidden className="size-5" />
           </Button>
         </header>
-        <div className="stacked-editor flex-1 pb-[env(safe-area-inset-bottom)]">
+        <div className="glide-body stacked-editor flex-1 pb-[env(safe-area-inset-bottom)]">
           <CardEditor
             bare
             deck={deck}

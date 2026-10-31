@@ -1,7 +1,7 @@
-# b: Margin
+# d: Glide
 
-The study top bar stays and the editor comes in under it: from 1024 px a panel down the right with the Card on the left as it will read, changing as you type; below 1024 px a sheet up to the top bar. Edit is a pencil beside close; Reset progress is a bordered row that takes the accent when ticked and says what happens on save.
+Margin (b), with Sheet's (a) Edit pill beside Undo, in motion: from 1024 px the Card slides aside to become the preview as the panel slides in from the right, the dock sinks away, and on close it all slides back; below 1024 px the sheet rises over the Card and sinks back. The Reset progress row turns its arrow and swaps its line when ticked, and after a reset the accent chip pops in and the new Intervals come in one by one. Built on `dkomeza/ban-27-…-proto-b`.
 
 States: editing, editing-front, editing-new, reset, edited, discard (on `/decks/$deckId/study`); studied (on `/cards/$cardId`)
 
-Prototype only: the API has no `studied` or `resetProgress` yet, so on the study screen every Card counts as studied except on `?state=editing-new`, the edit page shows the tick on `?state=studied`, and a Save with the tick saves the edit alone.
+Prototype only: the API has no `studied` or `resetProgress` yet, so on the study screen every Card counts as studied except on `?state=editing-new`, the edit page shows the tick on `?state=studied`, and a Save with the tick saves the edit alone. The motion plays when you open and close the editor yourself (Edit, E, Cancel, Esc, Save).
