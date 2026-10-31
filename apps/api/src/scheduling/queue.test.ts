@@ -4,6 +4,8 @@ import { predictedRecall } from "./fsrs";
 import { type QueueCard, type QueueLimits, type QueueProgress, nextInQueue } from "./queue";
 
 const NOW = new Date("2026-05-20T12:00:00Z");
+/** The next Day start after NOW. */
+const TOMORROW = new Date("2026-05-21T04:00:00Z");
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
 const ago = (ms: number) => new Date(NOW.getTime() - ms);
@@ -68,7 +70,7 @@ const news = (count: number) =>
 
 /** The Card the Queue shows next, or null, under `limits`. */
 const pick = (cards: readonly QueueCard[], progress: QueueProgress, limits = LOOSE) =>
-  nextInQueue(cards, progress, limits, NOW).next;
+  nextInQueue(cards, progress, limits, NOW, TOMORROW).next;
 
 /**
  * Walks the Queue as a Session would, without Ratings: each Card shown leaves
@@ -157,10 +159,17 @@ describe("nextInQueue", () => {
       expect(walk(cards)).toEqual(["b", "a", "c"]);
     });
 
-    test("leave out reviews not yet due", () => {
-      const cards = [review("later", { stability: 1, dueAt: from(MINUTE) }), review("now")];
+    test("leave out reviews due from the next Day start", () => {
+      const cards = [review("tomorrow", { stability: 1, dueAt: TOMORROW }), review("now")];
 
       expect(walk(cards)).toEqual(["now"]);
+    });
+
+    test("count a review due later today, before the next Day start (ADR-0024)", () => {
+      // Where a change of Day start or Timezone since its Review leaves it.
+      const later = new Date(TOMORROW.getTime() - MINUTE);
+
+      expect(pick([review("r", { dueAt: later })], START)).toEqual({ id: "r", kind: "review" });
     });
 
     test("count a review due at this very moment", () => {
@@ -373,7 +382,7 @@ describe("nextInQueue", () => {
     });
 
     test("never empties the Queue: no New card is held when it answers none", () => {
-      expect(nextInQueue([...pile(5), fresh("n")], START, limits, NOW).newHeld).toBe(0);
+      expect(nextInQueue([...pile(5), fresh("n")], START, limits, NOW, TOMORROW).newHeld).toBe(0);
     });
   });
 
@@ -402,15 +411,17 @@ describe("nextInQueue", () => {
     });
 
     test("once reached, answers no Card with the New cards it held", () => {
-      const answer = nextInQueue(news(37), { ...START, newShown: 5 }, limits, NOW);
+      const answer = nextInQueue(news(37), { ...START, newShown: 5 }, limits, NOW, TOMORROW);
 
       expect(answer).toEqual({ next: null, newHeld: 37 });
     });
 
     test("holds none back while it shows a Card, or when no New card is left", () => {
-      expect(nextInQueue(news(8), START, limits, NOW).newHeld).toBe(0);
-      expect(nextInQueue([review("r")], { ...START, newShown: 5 }, limits, NOW).newHeld).toBe(0);
-      expect(nextInQueue([], { ...START, newShown: 5 }, limits, NOW)).toEqual({
+      expect(nextInQueue(news(8), START, limits, NOW, TOMORROW).newHeld).toBe(0);
+      expect(
+        nextInQueue([review("r")], { ...START, newShown: 5 }, limits, NOW, TOMORROW).newHeld,
+      ).toBe(0);
+      expect(nextInQueue([], { ...START, newShown: 5 }, limits, NOW, TOMORROW)).toEqual({
         next: null,
         newHeld: 0,
       });
@@ -421,14 +432,16 @@ describe("nextInQueue", () => {
       const second = { ...START, newShown: 5, batches: 2 };
 
       expect(pick(cards, second, limits)).toEqual({ id: "n005", kind: "new" });
-      expect(nextInQueue(cards.slice(5), { ...second, newShown: 10 }, limits, NOW)).toEqual({
+      expect(
+        nextInQueue(cards.slice(5), { ...second, newShown: 10 }, limits, NOW, TOMORROW),
+      ).toEqual({
         next: null,
         newHeld: 2,
       });
     });
 
     test("counts what the Session has shown, even past a batch made smaller meanwhile", () => {
-      const answer = nextInQueue(news(3), { ...START, newShown: 12 }, limits, NOW);
+      const answer = nextInQueue(news(3), { ...START, newShown: 12 }, limits, NOW, TOMORROW);
 
       expect(answer).toEqual({ next: null, newHeld: 3 });
     });

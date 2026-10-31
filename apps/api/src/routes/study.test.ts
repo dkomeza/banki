@@ -336,13 +336,18 @@ describe("GET /api/decks/:deckId/study/next", () => {
   });
 });
 
-/** Puts the Card in `state`, due at `dueAt`, straight in the database. */
-function setCard(cardId: string, state: "learning" | "review" | "relearning", dueAt: string) {
+/** Puts the Card in `state`, due at `dueAt`, last reviewed at `lastReviewAt`, straight in the database. */
+function setCard(
+  cardId: string,
+  state: "learning" | "review" | "relearning",
+  dueAt: string,
+  lastReviewAt = new Date(0),
+) {
   const opened = openDatabase(dataDir());
   try {
     opened.db
       .update(cardTable)
-      .set({ state, dueAt: new Date(dueAt), stability: 5, lastReviewAt: new Date(0) })
+      .set({ state, dueAt: new Date(dueAt), stability: 5, difficulty: 5, reps: 1, lastReviewAt })
       .where(eq(cardTable.id, cardId))
       .run();
   } finally {
@@ -395,6 +400,21 @@ describe("GET /api/decks/:deckId/study/overview", () => {
     expect(overview.due).toBe(5);
     // Learning Cards count at the review rate: 5 × 10 s with no Reviews yet.
     expect(overview.estimateMs).toBe(5 * 10_000);
+  });
+
+  test("counts only what study/next then serves, when a moved Day start leaves a review due later today", async () => {
+    // Scheduled for 1 May with Day start 4:00 UTC; at 03:00 with Day start 2:00 it's still due today.
+    setSystemTime(new Date("2026-05-01T03:00:00Z"));
+    const { app, cookie, deckId } = await signedIn();
+    await patchSettings(app, cookie, { timezone: "UTC", dayStartHour: 2 });
+    const [card] = await createCards(app, cookie, deckId, 1);
+    setCard(card?.id ?? "", "review", "2026-05-01T04:00:00Z", new Date("2026-04-26T10:00:00Z"));
+
+    expect((await overviewOf(app, cookie, deckId)).due).toBe(1);
+    expect(await nextOf(app, cookie, deckId)).toMatchObject({
+      card: { id: card?.id },
+      kind: "review",
+    });
   });
 
   test("caps new by the New-card batch, read on every call, and leaves newTotal uncapped", async () => {

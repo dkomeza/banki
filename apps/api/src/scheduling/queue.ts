@@ -68,6 +68,10 @@ function earliestDue(learning: QueueCard[], after: string | undefined): QueueCar
  * 1. A learning Card whose step is over goes first, the one due longest ago
  *    first, but never the Card just shown (`after`) while any other Card is
  *    left.
+ * A review Card is due once its due moment is before `nextDayStart`, the next
+ * Day start after `now` (ADR-0024); a learning Card once its step is over at
+ * `now`.
+ *
  * 2. Otherwise a due review or a new Card: due reviews lowest Predicted recall
  *    first (then the earlier due, then the ID), with the new Cards, in the
  *    order they were written, at evenly spaced, centered positions among
@@ -83,10 +87,11 @@ export function nextInQueue(
   { reviewsShown, newShown, batches, after }: QueueProgress,
   { newCardBatch, learningLimit }: QueueLimits,
   now: Date,
+  nextDayStart: Date,
 ): QueueAnswer {
   const learning = cards.filter((c) => isLearning(c.state) && c.dueAt !== null);
   const reviews = cards.filter(
-    (c) => c.state === "review" && c.dueAt !== null && c.dueAt.getTime() <= now.getTime(),
+    (c) => c.state === "review" && c.dueAt !== null && c.dueAt.getTime() < nextDayStart.getTime(),
   );
   const fresh = cards.filter((c) => c.state === "new");
   // The New cards the batch still allows, of which none while the Learning limit is reached.

@@ -8,7 +8,7 @@ import {
   studyDayBounds,
   studyDayOf,
 } from "@banki/shared";
-import { and, eq, gte, isNull, lte, ne, or, sql } from "drizzle-orm";
+import { and, eq, gte, isNull, lt, ne, or, sql } from "drizzle-orm";
 import type { Queryable } from "../db/database";
 import { card, review, user_settings } from "../db/schema";
 import { ESTIMATE_WINDOW_DAYS, cardDayAverages, estimateMs } from "../scheduling/estimate";
@@ -63,6 +63,8 @@ export function createStudyRepository(db: Queryable) {
     ): StudyNextResponse | "not_found" {
       return db.transaction((tx) => {
         if (!isLiveDeck(tx, userId, deckId)) return "not_found";
+        const { studyDay } = schedulingSettingsOf(tx, userId);
+        const tomorrow = studyDayBounds(studyDayOf(now, studyDay), studyDay).end;
         // Reviews not yet due never count, so they stay in the database.
         const cards = tx
           .select({ id: card.id, createdAt: card.createdAt, ...MEMORY_COLUMNS })
@@ -72,7 +74,7 @@ export function createStudyRepository(db: Queryable) {
               eq(card.userId, userId),
               eq(card.deckId, deckId),
               isNull(card.deletedAt),
-              or(ne(card.state, "review"), lte(card.dueAt, now)),
+              or(ne(card.state, "review"), lt(card.dueAt, tomorrow)),
             ),
           )
           .all();
@@ -81,6 +83,7 @@ export function createStudyRepository(db: Queryable) {
           progress,
           queueLimitsOf(tx, userId),
           now,
+          tomorrow,
         );
         if (picked === null) return { next: null, newHeld };
         const row = cards.find((c) => c.id === picked.id);
@@ -90,7 +93,7 @@ export function createStudyRepository(db: Queryable) {
         const intervals = previewIntervals(id, memory, {
           now,
           desiredRetention: deckRetentionOf(tx, userId, deckId),
-          studyDay: schedulingSettingsOf(tx, userId).studyDay,
+          studyDay,
         });
         return {
           next: {
