@@ -5,9 +5,11 @@ import {
   RATINGS,
   RateCardResponse,
   StudyNextResponse,
+  StudyOverviewResponse,
 } from "@banki/shared";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { openDatabase } from "../db/database";
+import { card as cardTable } from "../db/schema";
 import { createDeckRepository } from "../repositories/decks";
 import { type App, bootApps, codeOf, get, send, setUp } from "../testing/app";
 
@@ -331,5 +333,213 @@ describe("GET /api/decks/:deckId/study/next", () => {
     const res = await get(app, `/api/decks/${deckId}/study/next`);
 
     expect(res.status).toBe(401);
+  });
+});
+
+/** Puts the Card in `state`, due at `dueAt`, last reviewed at `lastReviewAt`, straight in the database. */
+function setCard(
+  cardId: string,
+  state: "learning" | "review" | "relearning",
+  dueAt: string,
+  lastReviewAt = new Date(0),
+) {
+  const opened = openDatabase(dataDir());
+  try {
+    opened.db
+      .update(cardTable)
+      .set({ state, dueAt: new Date(dueAt), stability: 5, difficulty: 5, reps: 1, lastReviewAt })
+      .where(eq(cardTable.id, cardId))
+      .run();
+  } finally {
+    opened.close();
+  }
+}
+
+const overviewOf = async (app: App, cookie: string, deckId: string) => {
+  const res = await get(app, `/api/decks/${deckId}/study/overview`, cookie);
+  expect(res.status).toBe(200);
+  return StudyOverviewResponse.parse(await res.json());
+};
+
+describe("GET /api/decks/:deckId/study/overview", () => {
+  afterEach(() => setSystemTime());
+
+  test("answers nothing to study for an empty Deck", async () => {
+    const { app, cookie, deckId } = await signedIn();
+
+    expect(await overviewOf(app, cookie, deckId)).toEqual({
+      due: 0,
+      new: 0,
+      newTotal: 0,
+      estimateMs: 0,
+      nextDue: null,
+    });
+  });
+
+  test("counts review Cards due before the next Day start and every Card in its learning steps, not reviews due later", async () => {
+    // 10:00 UTC on 1 May; with Day start 4:00 UTC, today ends at 2 May 04:00.
+    setSystemTime(new Date("2026-05-01T10:00:00Z"));
+    const { app, cookie, deckId } = await signedIn();
+    await patchSettings(app, cookie, { timezone: "UTC", dayStartHour: 4 });
+    const [overdue, today, tomorrow, learning, relearning, learningLater] = await createCards(
+      app,
+      cookie,
+      deckId,
+      6,
+    );
+    setCard(overdue?.id ?? "", "review", "2026-04-20T04:00:00Z");
+    setCard(today?.id ?? "", "review", "2026-05-01T04:00:00Z");
+    setCard(tomorrow?.id ?? "", "review", "2026-05-02T04:00:00Z");
+    setCard(learning?.id ?? "", "learning", "2026-05-01T09:55:00Z");
+    setCard(relearning?.id ?? "", "relearning", "2026-05-01T10:05:00Z");
+    // A learning step that ends after the Day start still counts.
+    setCard(learningLater?.id ?? "", "learning", "2026-05-02T05:00:00Z");
+
+    const overview = await overviewOf(app, cookie, deckId);
+
+    expect(overview.due).toBe(5);
+    // Learning Cards count at the review rate: 5 × 10 s with no Reviews yet.
+    expect(overview.estimateMs).toBe(5 * 10_000);
+  });
+
+  test("counts only what study/next then serves, when a moved Day start leaves a review due later today", async () => {
+    // Scheduled for 1 May with Day start 4:00 UTC; at 03:00 with Day start 2:00 it's still due today.
+    setSystemTime(new Date("2026-05-01T03:00:00Z"));
+    const { app, cookie, deckId } = await signedIn();
+    await patchSettings(app, cookie, { timezone: "UTC", dayStartHour: 2 });
+    const [card] = await createCards(app, cookie, deckId, 1);
+    setCard(card?.id ?? "", "review", "2026-05-01T04:00:00Z", new Date("2026-04-26T10:00:00Z"));
+
+    expect((await overviewOf(app, cookie, deckId)).due).toBe(1);
+    expect(await nextOf(app, cookie, deckId)).toMatchObject({
+      card: { id: card?.id },
+      kind: "review",
+    });
+  });
+
+  test("caps new by the New-card batch, read on every call, and leaves newTotal uncapped", async () => {
+    const { app, cookie, deckId } = await signedIn();
+    await createCards(app, cookie, deckId, 7);
+    await patchSettings(app, cookie, { newCardBatch: 5 });
+
+    expect(await overviewOf(app, cookie, deckId)).toMatchObject({
+      new: 5,
+      newTotal: 7,
+      estimateMs: 5 * 60_000,
+    });
+
+    await patchSettings(app, cookie, { newCardBatch: 20 });
+    expect(await overviewOf(app, cookie, deckId)).toMatchObject({ new: 7, newTotal: 7 });
+  });
+
+  test("estimates from the User's own Reviews once there are 20 Card-days", async () => {
+    setSystemTime(new Date("2026-05-01T10:00:00Z"));
+    const { app, cookie, deckId } = await signedIn();
+    const cards = await createCards(app, cookie, deckId, 21);
+    // 20 New cards rated today, 30 s each; one left New.
+    for (const card of cards.slice(0, 20)) {
+      const res = await send(
+        app,
+        "POST",
+        `/api/cards/${card.id}/reviews`,
+        { rating: "easy", durationMs: 30_000 },
+        cookie,
+      );
+      expect(res.status).toBe(201);
+    }
+
+    expect(await overviewOf(app, cookie, deckId)).toMatchObject({
+      due: 0,
+      new: 1,
+      estimateMs: 30_000,
+    });
+  });
+
+  test("answers the first Study day after today with review Cards due, and how many", async () => {
+    setSystemTime(new Date("2026-05-01T10:00:00Z"));
+    const { app, cookie, deckId } = await signedIn();
+    await patchSettings(app, cookie, { timezone: "UTC", dayStartHour: 4 });
+    const [a, b, c, learning] = await createCards(app, cookie, deckId, 4);
+    setCard(a?.id ?? "", "review", "2026-05-04T04:00:00Z");
+    setCard(b?.id ?? "", "review", "2026-05-04T04:00:00Z");
+    setCard(c?.id ?? "", "review", "2026-05-09T04:00:00Z");
+    // A learning Card is due today, whenever its step ends.
+    setCard(learning?.id ?? "", "learning", "2026-05-03T05:00:00Z");
+
+    expect((await overviewOf(app, cookie, deckId)).nextDue).toEqual({
+      day: "2026-05-04",
+      count: 2,
+    });
+  });
+
+  test("names the next due day in the User's Timezone and Day start", async () => {
+    // 23:00 UTC on 1 May is 08:00 on 2 May in Tokyo.
+    setSystemTime(new Date("2026-05-01T23:00:00Z"));
+    const { app, cookie, deckId } = await signedIn();
+    const [card] = await createCards(app, cookie, deckId, 1);
+    // 3 May 06:00 in Tokyo.
+    setCard(card?.id ?? "", "review", "2026-05-02T21:00:00Z");
+
+    await patchSettings(app, cookie, { timezone: "UTC", dayStartHour: 4 });
+    expect((await overviewOf(app, cookie, deckId)).nextDue).toEqual({
+      day: "2026-05-02",
+      count: 1,
+    });
+
+    await patchSettings(app, cookie, { timezone: "Asia/Tokyo", dayStartHour: 4 });
+    expect((await overviewOf(app, cookie, deckId)).nextDue).toEqual({
+      day: "2026-05-03",
+      count: 1,
+    });
+
+    // With Day start 7:00 in Tokyo, 3 May 06:00 belongs to 2 May: today, so due.
+    await patchSettings(app, cookie, { dayStartHour: 7 });
+    expect(await overviewOf(app, cookie, deckId)).toMatchObject({ due: 1, nextDue: null });
+  });
+
+  test("answers nextDue: null when no review Card is ever due", async () => {
+    const { app, cookie, deckId } = await signedIn();
+    const [learning] = await createCards(app, cookie, deckId, 2);
+    setCard(learning?.id ?? "", "learning", "2026-05-01T10:00:00Z");
+
+    expect((await overviewOf(app, cookie, deckId)).nextDue).toBeNull();
+  });
+
+  test("leaves out deleted Cards", async () => {
+    setSystemTime(new Date("2026-05-01T10:00:00Z"));
+    const { app, cookie, deckId } = await signedIn();
+    const [fresh, due, later] = await createCards(app, cookie, deckId, 3);
+    setCard(due?.id ?? "", "review", "2026-04-30T04:00:00Z");
+    setCard(later?.id ?? "", "review", "2026-05-05T04:00:00Z");
+    for (const card of [fresh, due, later]) {
+      await send(app, "DELETE", `/api/cards/${card?.id}`, undefined, cookie);
+    }
+
+    expect(await overviewOf(app, cookie, deckId)).toEqual({
+      due: 0,
+      new: 0,
+      newTotal: 0,
+      estimateMs: 0,
+      nextDue: null,
+    });
+  });
+
+  test("answers 404 not_found for a deleted, missing or other User's Deck", async () => {
+    const { app, cookie, deckId } = await signedIn();
+    await createCard(app, cookie, deckId);
+    await send(app, "DELETE", `/api/decks/${deckId}`, undefined, cookie);
+    const theirs = othersDeck();
+
+    for (const id of [deckId, "missing", theirs]) {
+      const res = await get(app, `/api/decks/${id}/study/overview`, cookie);
+      expect(res.status).toBe(404);
+      expect(await codeOf(res)).toBe("not_found");
+    }
+  });
+
+  test("answers 401 when signed out", async () => {
+    const { app, deckId } = await signedIn();
+
+    expect((await get(app, `/api/decks/${deckId}/study/overview`)).status).toBe(401);
   });
 });
