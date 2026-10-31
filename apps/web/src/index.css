@@ -245,3 +245,79 @@
     margin-top: 0;
   }
 }
+
+/* Prototype (BAN-27, Variant e): the View Transitions of opening and closing
+   the editor. The Card's parts glide by themselves (the browser's default);
+   these give the panel, the dock and a reset Card's Intervals their way in. */
+::view-transition-group(*) {
+  animation-duration: 460ms;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+::view-transition-new(edit-panel):only-child {
+  animation: morph-up 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+::view-transition-old(edit-panel):only-child {
+  animation: morph-down 260ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+::view-transition-old(study-dock):only-child {
+  animation: morph-down 260ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+::view-transition-new(study-dock):only-child {
+  animation: morph-up 380ms 120ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+::view-transition-new(*.interval):only-child {
+  animation: morph-turn 420ms 380ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+::view-transition-new(interval-hard):only-child {
+  animation-delay: 450ms;
+}
+::view-transition-new(interval-good):only-child {
+  animation-delay: 520ms;
+}
+::view-transition-new(interval-easy):only-child {
+  animation-delay: 590ms;
+}
+::view-transition-new(reset-note):only-child {
+  animation: morph-pop 360ms 360ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+@media (min-width: 64rem) {
+  ::view-transition-new(edit-panel):only-child {
+    animation-name: morph-in;
+    animation-duration: 480ms;
+  }
+  ::view-transition-old(edit-panel):only-child {
+    animation-name: morph-out;
+  }
+}
+@keyframes morph-up {
+  from {
+    transform: translateY(100%);
+  }
+}
+@keyframes morph-down {
+  to {
+    transform: translateY(100%);
+  }
+}
+@keyframes morph-in {
+  from {
+    transform: translateX(100%);
+  }
+}
+@keyframes morph-out {
+  to {
+    transform: translateX(100%);
+  }
+}
+@keyframes morph-turn {
+  from {
+    opacity: 0;
+    transform: perspective(20rem) rotateX(-80deg);
+  }
+}
+@keyframes morph-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+}

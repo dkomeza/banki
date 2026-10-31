@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { deleteWithUndo } from "@/components/cards/card-toasts";
 import { useCardForm } from "@/components/cards/card-editor";
 import { DiscardDialog } from "@/components/cards/discard-guard";
@@ -19,6 +20,29 @@ import { tagsChanged } from "@/lib/tags";
 export function protoState(): string | null {
   if (typeof window === "undefined") return null;
   return new URLSearchParams(window.location.search).get("state");
+}
+
+/**
+ * Variant e: runs `update` as a View Transition, so what it changes moves
+ * between the two screens; at once without motion or the API. The new frame
+ * waits, a second at most, for `settled`: the editor mounts a beat late the
+ * first time it opens.
+ */
+export function morph(update: () => void, settled: () => boolean = () => true) {
+  if (
+    typeof document.startViewTransition !== "function" ||
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  ) {
+    update();
+    return;
+  }
+  document.startViewTransition(async () => {
+    flushSync(update);
+    const until = performance.now() + 1000;
+    while (!settled() && performance.now() < until) {
+      await new Promise((resolve) => setTimeout(resolve, 16));
+    }
+  });
 }
 
 /** Whether the Card counts as studied, so the Reset progress tick shows. */
@@ -139,16 +163,21 @@ export function useStudyEditing(session: StudySession, phase: string, cardId: st
   const openEditor = () => {
     if (open) return;
     resume.current = session.pause();
-    setOpen(true);
+    morph(
+      () => setOpen(true),
+      () => document.querySelector("[role=dialog] .cm-content") !== null,
+    );
   };
   const close = ({ edited, reset }: { edited?: Card; reset?: boolean; deleted?: boolean }) => {
     resume.current?.();
     resume.current = undefined;
-    setOpen(false);
-    if (edited !== undefined) {
-      session.replace(edited, reset ? session.getState().shown?.intervals : undefined);
-      setResetCard(reset === true ? edited.id : undefined);
-    }
+    morph(() => {
+      setOpen(false);
+      if (edited !== undefined) {
+        session.replace(edited, reset ? session.getState().shown?.intervals : undefined);
+        setResetCard(reset === true ? edited.id : undefined);
+      }
+    });
   };
 
   // The `?state=` names, once the first Card shows. In development the

@@ -10,27 +10,27 @@ import type { StudySession } from "@/lib/study";
 import { cn } from "@/lib/utils";
 import { type StudyEditor, useStudyEditor } from "./study-edit";
 
-// Variant b, "Margin": the study top bar stays, and the editor comes in under
-// it. From 1024 px it is a panel down the right, with the Card itself on the
-// left as it will read once saved, changing as you type: you fix what you see.
-// Below 1024 px it is a sheet that rises from the dock to just under the top
-// bar. Edit is a pencil beside close, on the left, away from Undo. Reset
-// progress is its own bordered row that turns to the accent when ticked and
-// says, in the dock's terms, what the Card goes back to.
+// Variant e, "Morph": Margin (b) with Sheet's (a) Edit pill beside Undo, where
+// the Card itself travels. Opening and closing the editor are View
+// Transitions: from 1024 px the Card's Front and Back glide from Focus to the
+// preview beside the panel and back, the panel unrolls from the right edge and
+// the dock sinks away; below 1024 px the sheet rises over the Card. After a
+// reset, the dock comes back with the new Intervals turning over one by one.
+// Without motion, or without View Transitions, it all happens at once.
 
 export function EditButton({ disabled, onClick }: { disabled: boolean; onClick: () => void }) {
   return (
     <Button
       variant="ghost"
-      size="icon"
-      className="size-11 rounded-full text-foreground lg:size-9"
+      className="h-11 min-w-11 gap-1.5 rounded-full px-3 lg:h-9 lg:min-w-9"
       disabled={disabled}
       onClick={onClick}
       onMouseDown={(event) => event.preventDefault()}
       title="Edit card (E)"
       aria-label="Edit card"
     >
-      <Pencil aria-hidden className="size-[1.1rem]" />
+      <Pencil aria-hidden className="size-4" />
+      <span className="hidden sm:inline">Edit</span>
     </Button>
   );
 }
@@ -38,7 +38,7 @@ export function EditButton({ disabled, onClick }: { disabled: boolean; onClick: 
 /** Under a reset Card, in the dock: a quiet accent chip. */
 export function ResetNote() {
   return (
-    <p className="mx-auto flex w-fit items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+    <p className="mx-auto flex w-fit items-center gap-1.5 rounded-full bg-primary/10 [view-transition-name:reset-note] px-3 py-1 text-xs font-medium text-primary">
       <RotateCcw aria-hidden className="size-3.5" />
       Back to New: these are a new card's intervals
     </p>
@@ -65,11 +65,17 @@ export function ResetProgress({
       >
         <RotateCcw
           aria-hidden
-          className={cn("size-4 shrink-0", checked ? "text-primary" : "text-muted-foreground")}
+          className={cn(
+            "size-4 shrink-0 transition-[transform,color] duration-500 ease-out motion-reduce:transition-none",
+            checked ? "-rotate-360 text-primary" : "text-muted-foreground",
+          )}
         />
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="text-sm font-medium">Reset progress</span>
-          <span className="text-[0.8rem] leading-snug text-muted-foreground">
+          <span
+            key={String(checked)}
+            className="text-[0.8rem] leading-snug text-muted-foreground motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-1 motion-safe:duration-300"
+          >
             {checked
               ? "On save, this card goes back to New and you rate it again from the start."
               : "Keeps its reviews, starts its schedule over."}
@@ -104,28 +110,31 @@ export function StudyEditorHost({
     <div className="fixed inset-x-0 top-[calc(3.5rem+env(safe-area-inset-top))] bottom-0 z-30 flex">
       {/* The Card as it will read, from 1024 px. */}
       <div className="hidden min-w-0 flex-1 flex-col overflow-y-auto bg-background lg:flex">
-        <div className="mx-auto flex w-full max-w-2xl flex-col px-10 pt-12 pb-10">
-          <p className="mb-6 text-xs font-semibold tracking-[0.08em] text-muted-foreground uppercase">
+        <div className="relative mx-auto flex w-full max-w-2xl flex-col px-10 pt-12 pb-10">
+          <p className="absolute top-5 left-10 text-xs font-semibold tracking-[0.08em] text-muted-foreground uppercase">
             Preview
           </p>
           <CardText
             text={editor.form.fields.front}
             className={cn(
-              "font-medium tracking-[-0.015em]",
+              "font-medium tracking-[-0.015em] [view-transition-name:card-front]",
               revealed
                 ? "text-2xl leading-snug text-muted-foreground"
                 : "text-[2.6rem] leading-tight",
             )}
           />
-          <div aria-hidden className="my-8 h-px w-16 bg-border" />
-          <CardText text={editor.form.fields.back} className="text-xl leading-relaxed" />
+          <div aria-hidden className="my-8 h-px w-16 bg-border [view-transition-name:card-rule]" />
+          <CardText
+            text={editor.form.fields.back}
+            className="text-xl leading-relaxed [view-transition-name:card-back]"
+          />
         </div>
       </div>
       <section
         role="dialog"
         aria-modal="true"
         aria-label="Edit card"
-        className="flex w-full flex-col overflow-y-auto rounded-t-[1.5rem] border-t bg-card shadow-[0_-18px_40px_-20px_rgb(48_28_10/0.35)] motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-8 lg:w-[34rem] lg:shrink-0 lg:rounded-none lg:border-t-0 lg:border-l lg:shadow-none lg:motion-safe:slide-in-from-right-8 lg:motion-safe:slide-in-from-bottom-0"
+        className="flex w-full flex-col overflow-y-auto rounded-t-[1.5rem] border-t bg-card shadow-[0_-18px_40px_-20px_rgb(48_28_10/0.35)] [view-transition-name:edit-panel] lg:w-[34rem] lg:shrink-0 lg:rounded-none lg:border-t-0 lg:border-l lg:shadow-[-24px_0_48px_-32px_rgb(48_28_10/0.35)]"
       >
         <header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b bg-card/95 px-4 py-2 backdrop-blur sm:px-6">
           <div

@@ -54,6 +54,15 @@ export function StudyScreen({ deck }: { deck: Deck }) {
     void queryClient.prefetchQuery(cardsQueryOptions(deck.id));
   }, [queryClient, deck.id]);
   const editing = useStudyEditing(session, state.phase, state.shown?.card.id);
+  // The editor suspends until the Deck's Cards are in, which would leave it out
+  // of the View Transition's new frame: it opens once they are.
+  const openEditor = () => {
+    void queryClient
+      .ensureQueryData(cardsQueryOptions(deck.id))
+      .then(editing.openEditor, editing.openEditor);
+  };
+  const openEditorRef = useRef(openEditor);
+  openEditorRef.current = openEditor;
   const canEdit = state.phase === "card" && state.saving === undefined && !state.undoing;
   const editingRef = useRef(editing);
   editingRef.current = editing;
@@ -77,7 +86,7 @@ export function StudyScreen({ deck }: { deck: Deck }) {
         canEditRef.current
       ) {
         event.preventDefault();
-        editingRef.current.openEditor();
+        openEditorRef.current();
         return;
       }
       const action = keyAction(event, {
@@ -121,17 +130,22 @@ export function StudyScreen({ deck }: { deck: Deck }) {
         deck={deck}
         state={state}
         onUndo={() => void session.undo()}
-        edit={<EditButton disabled={!canEdit} onClick={editing.openEditor} />}
+        edit={<EditButton disabled={!canEdit} onClick={openEditor} />}
       />
       <main className="flex flex-1 flex-col">
         {state.phase === "card" ? (
-          <CardView session={session} state={state} />
+          <CardView session={session} state={state} editing={editing.open} />
         ) : state.phase === "loading" ? null : (
           <End deck={deck} state={state} onRetry={() => session.retry()} />
         )}
       </main>
       {state.phase === "card" && session !== undefined && (
-        <Dock session={session} state={state} justReset={editing.justReset} />
+        <Dock
+          session={session}
+          state={state}
+          justReset={editing.justReset}
+          editing={editing.open}
+        />
       )}
       {editing.open && state.shown !== undefined && (
         <StudyEditorHost
@@ -160,7 +174,7 @@ function TopBar({
 }) {
   return (
     <header className="sticky top-0 z-10 grid h-14 grid-cols-[1fr_auto_1fr] items-center gap-2 bg-background/95 px-2 backdrop-blur sm:px-4">
-      <div className="flex items-center gap-1">
+      <div className="flex items-center">
         <Button
           variant="ghost"
           size="icon"
@@ -172,12 +186,12 @@ function TopBar({
         >
           <X aria-hidden className="size-5" />
         </Button>
-        {edit}
       </div>
       <span className="max-w-[50vw] truncate text-center text-sm font-medium text-muted-foreground">
         {deck.name}
       </span>
       <div className="flex items-center justify-end gap-1 sm:gap-2">
+        {edit}
         {state.rated > 0 && (
           <span className="hidden text-sm text-muted-foreground tabular-nums sm:inline">
             {state.rated} rated
@@ -205,7 +219,15 @@ function TopBar({
   );
 }
 
-function CardView({ session, state }: { session: StudySession; state: StudyState }) {
+function CardView({
+  session,
+  state,
+  editing,
+}: {
+  session: StudySession;
+  state: StudyState;
+  editing: boolean;
+}) {
   const card = state.shown?.card;
   if (card === undefined) return null;
   const onClick = (event: MouseEvent) => {
@@ -226,6 +248,8 @@ function CardView({ session, state }: { session: StudySession; state: StudyState
       className={cn(
         "mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 pt-6 pb-10 sm:px-10 lg:pt-12",
         !state.revealed && "cursor-pointer",
+        // From 1024 px the preview beside the editor is the Card, moved there.
+        editing && "lg:invisible lg:**:[view-transition-name:none]!",
         // A Formula shows it can be copied: the pointer, and a dashed outline on hover.
         state.revealed &&
           "[&_[data-formula]]:cursor-pointer [&_[data-formula]]:rounded-md [&_[data-formula]]:outline-offset-2 [&_[data-formula]:hover]:outline-1 [&_[data-formula]:hover]:outline-primary/60 [&_[data-formula]:hover]:outline-dashed",
@@ -236,7 +260,7 @@ function CardView({ session, state }: { session: StudySession; state: StudyState
         text={card.front}
         interactive={state.revealed}
         className={cn(
-          "font-medium tracking-[-0.015em]",
+          "font-medium tracking-[-0.015em] [view-transition-name:card-front]",
           state.revealed
             ? "text-xl leading-snug text-muted-foreground lg:text-2xl"
             : "text-[1.85rem] leading-tight lg:text-[2.6rem]",
@@ -244,12 +268,15 @@ function CardView({ session, state }: { session: StudySession; state: StudyState
       />
       {state.revealed ? (
         <>
-          <div aria-hidden className="my-6 h-px w-16 bg-border lg:my-8" />
+          <div
+            aria-hidden
+            className="my-6 h-px w-16 bg-border [view-transition-name:card-rule] lg:my-8"
+          />
           <CardText
             key={`${card.id}-back`}
             text={card.back}
             interactive
-            className="text-lg leading-relaxed lg:text-xl"
+            className="text-lg leading-relaxed [view-transition-name:card-back] lg:text-xl"
           />
         </>
       ) : (
@@ -263,14 +290,21 @@ function Dock({
   session,
   state,
   justReset,
+  editing,
 }: {
   session: StudySession;
   state: StudyState;
   justReset: boolean;
+  editing: boolean;
 }) {
   const intervals = state.shown?.intervals;
   return (
-    <div className="sticky bottom-0 z-10 border-t bg-background/95 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur">
+    <div
+      className={cn(
+        "sticky bottom-0 z-10 border-t bg-background/95 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur [view-transition-name:study-dock]",
+        editing && "lg:hidden",
+      )}
+    >
       <div className="mx-auto flex w-full max-w-2xl flex-col gap-2 px-3 pt-3 sm:px-6">
         {/* In the dock, not above the Front, so the Card doesn't move when it comes back. */}
         {justReset && state.failure === undefined && <ResetNote />}
@@ -308,7 +342,11 @@ function Dock({
                   i > 0 && "border-l",
                 )}
               >
-                <span className="flex h-7 items-center text-lg font-semibold tabular-nums">
+                <span
+                  // A reset Card's Intervals turn over one by one as the dock comes back.
+                  style={justReset ? { viewTransitionName: `interval-${rating}` } : undefined}
+                  className="flex h-7 items-center text-lg font-semibold tabular-nums [view-transition-class:interval]"
+                >
                   {state.saving === rating ? (
                     <LoaderCircle aria-hidden className="size-5 animate-spin" />
                   ) : (
