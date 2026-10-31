@@ -15,8 +15,9 @@ import type { Card } from "./cards";
 // batch): it walks a Deck's Queue Card by Card, asking the API for each next
 // Card, and keeps the Ratings it gave so Undo can take them back, newest
 // first. Where the Queue ends with New cards held back, it can take another
-// batch and carry on. Nothing here
-// touches the page, so it is tested without one.
+// batch and carry on. Left early, or at the end of the Queue, it sums up the
+// Ratings still standing (the summary). Nothing here touches the page, so it
+// is tested without one.
 
 export const RATING_LABELS: Record<Rating, string> = {
   again: "Again",
@@ -136,10 +137,68 @@ export const MORE_FAILED = "Couldn't load more cards. Check your connection.";
 
 /**
  * Where the Session is: loading its first Card, showing one, done after
- * studying, with nothing to study from the start, or unable to load its first
- * Card.
+ * studying, left early with a Rating standing (until Keep studying), with
+ * nothing to study from the start, or unable to load its first Card.
  */
-export type Phase = "loading" | "card" | "done" | "nothing" | "unreachable";
+export type Phase = "loading" | "card" | "done" | "left" | "nothing" | "unreachable";
+
+/**
+ * What the Session's standing Ratings add up to: the Cards studied (each
+ * once) and how many of them were New, the Recall rate's count over the
+ * review-kind Cards (null with none), and the time spent on them.
+ */
+export type SessionSummary = {
+  studied: number;
+  newStudied: number;
+  /** Review-kind Cards whose first standing Rating wasn't Again (`kept`), of all of them (`of`). */
+  recall: { kept: number; of: number } | null;
+  /** The sum of the standing Reviews' durations. */
+  timeMs: number;
+};
+
+/** A standing Rating, as the summary counts it. */
+export type StandingRating = {
+  cardId: string;
+  kind: QueueKind;
+  rating: Rating;
+  durationMs: number;
+};
+
+/**
+ * The summary of `ratings`, the Session's standing Ratings, oldest first.
+ * Each Card counts once, by its first standing Rating: New when it was shown
+ * New; for the Recall rate, review-kind and kept when that Rating wasn't
+ * Again. Time sums every standing Rating's duration.
+ */
+export function summaryOf(ratings: readonly StandingRating[]): SessionSummary {
+  const first = new Map<string, StandingRating>();
+  let timeMs = 0;
+  for (const rating of ratings) {
+    if (!first.has(rating.cardId)) first.set(rating.cardId, rating);
+    timeMs += rating.durationMs;
+  }
+  const firsts = [...first.values()];
+  const reviews = firsts.filter((r) => r.kind === "review");
+  return {
+    studied: firsts.length,
+    newStudied: firsts.filter((r) => r.kind === "new").length,
+    recall:
+      reviews.length === 0
+        ? null
+        : { kept: reviews.filter((r) => r.rating !== "again").length, of: reviews.length },
+    timeMs,
+  };
+}
+
+/** The Recall rate as a whole percentage: 22 of 25 → 88. */
+export const recallPercent = ({ kept, of }: { kept: number; of: number }) =>
+  Math.round((kept / of) * 100);
+
+/** Time spent as the summary shows it: "14 min", or "45 s" under a minute. */
+export function spentLabel(ms: number): string {
+  if (ms < 59_500) return `${Math.round(ms / 1000)} s`;
+  return `${Math.round(ms / 60_000)} min`;
+}
 
 export type StudyState = {
   phase: Phase;
@@ -162,12 +221,22 @@ export type StudyState = {
   undone: boolean;
   /** In the `done` phase, how many New cards the New-card batch held back; else 0. */
   newHeld: number;
+  /** What the standing Ratings add up to. */
+  summary: SessionSummary;
   /** Set while another batch's first Card is on its way, from the `done` phase. */
   loadingMore: boolean;
 };
 
 /** A Rating the Session gave and can take back. */
-type Given = { reviewId: string; shown: NextCard; durationMs: number };
+type Given = { reviewId: string; shown: NextCard; rating: Rating; durationMs: number };
+
+const standing = (given: readonly Given[]): StandingRating[] =>
+  given.map(({ shown, rating, durationMs }) => ({
+    cardId: shown.card.id,
+    kind: shown.kind,
+    rating,
+    durationMs,
+  }));
 
 /**
  * One Session over a Deck's Queue. `start` loads the first Card; then
@@ -175,8 +244,9 @@ type Given = { reviewId: string; shown: NextCard; durationMs: number };
  * `more` takes another New-card batch once the Queue ends with some held.
  * Each Card is timed from when it shows (`now`) to its Rating, a hidden tab
  * included. A Card back from an Undo carries on from the undone Review's
- * time, and the counters stay as they were. `notify` shows a passing message
- * (a toast).
+ * time, and the counters stay as they were. `leave` steps out to the summary
+ * with a Rating standing, and `resume` comes back to the Card shown, its time
+ * paused meanwhile. `notify` shows a passing message (a toast).
  */
 export function createStudySession({
   studyApi: client,
@@ -200,6 +270,7 @@ export function createStudySession({
     undone: false,
     newHeld: 0,
     loadingMore: false,
+    summary: summaryOf([]),
   };
   const listeners = new Set<() => void>();
   const given: Given[] = [];
@@ -209,6 +280,8 @@ export function createStudySession({
   let newShown = 0;
   let batches = 1;
   let shownAt = 0;
+  // While left, the time the shown Card had been on screen.
+  let pausedFor = 0;
   // What Try again does: save the Rating again, or load the next Card again.
   let failed:
     | { kind: "rate"; rating: Rating; durationMs: number }
@@ -219,13 +292,14 @@ export function createStudySession({
   let stopped = false;
   let starts = 0;
 
-  const set = (patch: Partial<Omit<StudyState, "rated" | "ratable">>) => {
+  const set = (patch: Partial<Omit<StudyState, "rated" | "ratable" | "summary">>) => {
     if (stopped) return;
     const next = { ...state, ...patch };
     state = {
       ...next,
       newHeld: next.phase === "done" ? next.newHeld : 0,
       rated: given.length,
+      summary: summaryOf(standing(given)),
       // A Rating that failed can be given again, or another one instead; a
       // Card whose Rating saved, waiting for the next one, can't.
       ratable:
@@ -241,7 +315,7 @@ export function createStudySession({
   const busy = () =>
     state.saving !== undefined || state.undoing || state.loadingMore || state.phase === "loading";
 
-  /** Shows the next Card, or the end of the Queue. */
+  /** Shows the next Card, or the end of the Queue; while left, keeps it for Keep studying. */
   const show = ({ next, newHeld }: NextAnswer) => {
     failed = undefined;
     if (next === null) {
@@ -264,8 +338,9 @@ export function createStudySession({
       if (next.kind === "review") reviewsShown += 1;
     }
     shownAt = now();
+    pausedFor = 0;
     set({
-      phase: "card",
+      phase: state.phase === "left" ? "left" : "card",
       shown: next,
       previewedAt: shownAt,
       revealed: false,
@@ -332,7 +407,7 @@ export function createStudySession({
       return;
     }
     if (saved === "gone") notify(CARD_GONE);
-    else given.push({ reviewId: saved.reviewId, shown, durationMs });
+    else given.push({ reviewId: saved.reviewId, shown, rating, durationMs });
     await loadNext(shown.card.id);
   };
 
@@ -419,6 +494,23 @@ export function createStudySession({
         failure: undefined,
         undone: true,
       });
+    },
+    /**
+     * Leaving the study screen (Esc, or ×): with a Rating standing, while a
+     * Card is shown, the summary shows instead ("summary"), the Card's time
+     * paused; otherwise the screen goes ("away").
+     */
+    leave(): "summary" | "away" {
+      if (state.phase !== "card" || given.length === 0) return "away";
+      pausedFor = now() - shownAt;
+      set({ phase: "left" });
+      return "summary";
+    },
+    /** Keep studying: back from the summary to the Card shown when it was left, its time going on. */
+    resume() {
+      if (state.phase !== "left") return;
+      shownAt = now() - pausedFor;
+      set({ phase: "card" });
     },
     /** Stops it: answers still on their way change nothing, until it starts again. */
     stop() {
