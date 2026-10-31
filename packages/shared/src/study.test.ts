@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { StudyNextQuery, StudyNextResponse, UndoReviewResponse } from "./study";
+import {
+  StudyNextQuery,
+  StudyNextResponse,
+  StudyOverviewResponse,
+  UndoReviewResponse,
+} from "./study";
 
 describe("StudyNextQuery", () => {
   test("counts nothing shown when the counters are left out", () => {
@@ -121,5 +126,34 @@ describe("StudyNextResponse", () => {
   test("an Undo answers the Card, its schedule and its Interval previews", () => {
     expect(UndoReviewResponse.safeParse({ card, schedule, intervals }).success).toBe(true);
     expect(UndoReviewResponse.safeParse({ card, schedule }).success).toBe(false);
+  });
+});
+
+describe("StudyOverviewResponse", () => {
+  const overview = {
+    due: 12,
+    new: 20,
+    newTotal: 57,
+    estimateMs: 540_000,
+    nextDue: { day: "2026-05-02", count: 14 },
+  };
+
+  test("takes the counts, the estimate and the next due day", () => {
+    expect(StudyOverviewResponse.parse(overview)).toEqual(overview);
+  });
+
+  test("takes no next due day", () => {
+    expect(StudyOverviewResponse.parse({ ...overview, nextDue: null }).nextDue).toBeNull();
+  });
+
+  test.each([
+    { due: -1 },
+    { new: 1.5 },
+    { newTotal: -1 },
+    { estimateMs: 0.5 },
+    { nextDue: { day: "2026-05-02T00:00:00Z", count: 1 } },
+    { nextDue: { day: "2026-05-02", count: 0 } },
+  ])("refuses %j", (patch) => {
+    expect(StudyOverviewResponse.safeParse({ ...overview, ...patch }).success).toBe(false);
   });
 });
