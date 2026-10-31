@@ -2,6 +2,7 @@ import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { Check } from "lucide-react";
 import { useRef, useState } from "react";
+import { DeckMacros } from "@/components/cards/deck-macros";
 import { FormError } from "@/components/auth-card";
 import { CardEditor, SaveHint, useCardForm } from "@/components/cards/card-editor";
 import { CardLine } from "@/components/cards/card-text";
@@ -46,11 +47,13 @@ function NewCardPage() {
       <DeckNotFound />
     </Page>
   ) : (
-    <NewCard key={deck.id} deck={deck} />
+    <DeckMacros own={deck.macros}>
+      <NewCard key={deck.id} deck={deck} />
+    </DeckMacros>
   );
 }
 
-const BLANK = { front: "", back: "" };
+const BLANK = { front: "", back: "", gradingNotes: "" };
 
 function NewCard({ deck }: { deck: Deck }) {
   const queryClient = useQueryClient();

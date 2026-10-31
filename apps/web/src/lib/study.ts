@@ -11,9 +11,11 @@ import {
 import { type ApiClient, api } from "./api";
 import type { Card } from "./cards";
 
-// The study screen's Session (CONTEXT.md: Session, Queue, Interval): it walks
-// a Deck's Queue Card by Card, asking the API for each next Card, and keeps
-// the Ratings it gave so Undo can take them back, newest first. Nothing here
+// The study screen's Session (CONTEXT.md: Session, Queue, Interval, New-card
+// batch): it walks a Deck's Queue Card by Card, asking the API for each next
+// Card, and keeps the Ratings it gave so Undo can take them back, newest
+// first. Where the Queue ends with New cards held back, it can take another
+// batch and carry on. Nothing here
 // touches the page, so it is tested without one.
 
 export const RATING_LABELS: Record<Rating, string> = {
@@ -62,12 +64,20 @@ export function formatInterval(preview: IntervalPreview, now: number): string {
 /** A Card the Queue shows, with why and each Rating's Interval preview. */
 export type NextCard = { card: Card; kind: QueueKind; intervals: IntervalPreviews };
 
-/** How the Session counts what it has shown, as `study/next` takes it. */
-export type Progress = { reviewsShown: number; newShown: number; after: string | undefined };
+/** How the Session counts what it has shown and the batches it has been given, as `study/next` takes it. */
+export type Progress = {
+  reviewsShown: number;
+  newShown: number;
+  batches: number;
+  after: string | undefined;
+};
+
+/** The next Card, or null at the end of the Queue with the New cards the batch held back. */
+export type NextAnswer = { next: NextCard | null; newHeld: number };
 
 /** What the Session needs from the API. Each call throws when Banki can't be reached. */
 export type StudyApi = {
-  next: (progress: Progress) => Promise<NextCard | null>;
+  next: (progress: Progress) => Promise<NextAnswer>;
   /** Saves a Rating: its Review's ID, or "gone" when the Card was deleted meanwhile. */
   rate: (
     cardId: string,
@@ -81,17 +91,19 @@ export type StudyApi = {
 /** The study API over HTTP. */
 export function studyApi(deckId: string, client: ApiClient = api): StudyApi {
   return {
-    next: async ({ reviewsShown, newShown, after }) => {
+    next: async ({ reviewsShown, newShown, batches, after }) => {
       const res = await client.api.decks[":deckId"].study.next.$get({
         param: { deckId },
         query: {
           reviewsShown: String(reviewsShown),
           newShown: String(newShown),
+          batches: String(batches),
           after: after ?? "",
         },
       });
       if (!res.ok) throw new Error(`study/next answered ${res.status}`);
-      return StudyNextResponse.parse(await res.json()).next;
+      const { next, newHeld } = StudyNextResponse.parse(await res.json());
+      return { next, newHeld };
     },
     rate: async (cardId, rating, durationMs) => {
       const res = await client.api.cards[":id"].reviews.$post({
@@ -120,6 +132,7 @@ export const NEXT_FAILED = "Couldn't load the next card. Check your connection."
 export const CARD_GONE = "That card was deleted elsewhere, so it was skipped.";
 export const UNDO_GONE = "That rating can't be undone anymore.";
 export const UNDO_FAILED = "Couldn't undo. Check your connection.";
+export const MORE_FAILED = "Couldn't load more cards. Check your connection.";
 
 /**
  * Where the Session is: loading its first Card, showing one, done after
@@ -147,6 +160,10 @@ export type StudyState = {
   ratable: boolean;
   /** Set when the shown Card is back from an Undo, until it is rated. */
   undone: boolean;
+  /** In the `done` phase, how many New cards the New-card batch held back; else 0. */
+  newHeld: number;
+  /** Set while another batch's first Card is on its way, from the `done` phase. */
+  loadingMore: boolean;
 };
 
 /** A Rating the Session gave and can take back. */
@@ -154,7 +171,8 @@ type Given = { reviewId: string; shown: NextCard; durationMs: number };
 
 /**
  * One Session over a Deck's Queue. `start` loads the first Card; then
- * `reveal`, `rate` and `undo` walk it, and `retry` tries again what failed.
+ * `reveal`, `rate` and `undo` walk it, `retry` tries again what failed, and
+ * `more` takes another New-card batch once the Queue ends with some held.
  * Each Card is timed from when it shows (`now`) to its Rating, a hidden tab
  * included. A Card back from an Undo carries on from the undone Review's
  * time, and the counters stay as they were. `notify` shows a passing message
@@ -180,6 +198,8 @@ export function createStudySession({
     rated: 0,
     ratable: false,
     undone: false,
+    newHeld: 0,
+    loadingMore: false,
   };
   const listeners = new Set<() => void>();
   const given: Given[] = [];
@@ -187,6 +207,7 @@ export function createStudySession({
   const seen = new Set<string>();
   let reviewsShown = 0;
   let newShown = 0;
+  let batches = 1;
   let shownAt = 0;
   // What Try again does: save the Rating again, or load the next Card again.
   let failed:
@@ -203,6 +224,7 @@ export function createStudySession({
     const next = { ...state, ...patch };
     state = {
       ...next,
+      newHeld: next.phase === "done" ? next.newHeld : 0,
       rated: given.length,
       // A Rating that failed can be given again, or another one instead; a
       // Card whose Rating saved, waiting for the next one, can't.
@@ -216,10 +238,11 @@ export function createStudySession({
     for (const listener of listeners) listener();
   };
 
-  const busy = () => state.saving !== undefined || state.undoing || state.phase === "loading";
+  const busy = () =>
+    state.saving !== undefined || state.undoing || state.loadingMore || state.phase === "loading";
 
-  /** Shows `next`, or the end of the Queue. */
-  const show = (next: NextCard | null) => {
+  /** Shows the next Card, or the end of the Queue. */
+  const show = ({ next, newHeld }: NextAnswer) => {
     failed = undefined;
     if (next === null) {
       const studied = seen.size > 0;
@@ -230,6 +253,8 @@ export function createStudySession({
         saving: undefined,
         failure: undefined,
         undone: false,
+        newHeld,
+        loadingMore: false,
       });
       return;
     }
@@ -247,26 +272,46 @@ export function createStudySession({
       saving: undefined,
       failure: undefined,
       undone: false,
+      loadingMore: false,
     });
   };
 
   /** Loads and shows the Card after `after`; on failure, says so on the Card still shown. */
   const loadNext = async (after: string | undefined) => {
     try {
-      show(await client.next({ reviewsShown, newShown, after }));
+      show(await client.next({ reviewsShown, newShown, batches, after }));
     } catch {
       failed = { kind: "next", after };
       set({ saving: undefined, failure: NEXT_FAILED });
     }
   };
 
+  /** Loads another batch's first Card; on failure, says so and keeps the batches as they were. */
+  const loadMore = async () => {
+    let answer: NextAnswer;
+    try {
+      answer = await client.next({
+        reviewsShown,
+        newShown,
+        batches: batches + 1,
+        after: undefined,
+      });
+    } catch {
+      notify(MORE_FAILED);
+      set({ loadingMore: false });
+      return;
+    }
+    batches += 1;
+    show(answer);
+  };
+
   async function start() {
     stopped = false;
     starts += 1;
     const mine = starts;
-    let first: NextCard | null;
+    let first: NextAnswer;
     try {
-      first = await client.next({ reviewsShown, newShown, after: undefined });
+      first = await client.next({ reviewsShown, newShown, batches, after: undefined });
     } catch {
       if (mine === starts) set({ phase: "unreachable" });
       return;
@@ -324,6 +369,17 @@ export function createStudySession({
         set({ failure: undefined });
         void loadNext(what.after);
       }
+    },
+    /**
+     * At the end of a Queue that held New cards back, takes another batch of
+     * them and shows the next Card, the counters and Undo as they were; with
+     * none back, the end shows again. One that can't load says so and leaves
+     * the batch as it was.
+     */
+    more() {
+      if (state.phase !== "done" || state.newHeld === 0 || busy()) return;
+      set({ loadingMore: true });
+      void loadMore();
     },
     /** Whether a Rating of this Session is still standing to take back. */
     canUndo: () => given.length > 0,

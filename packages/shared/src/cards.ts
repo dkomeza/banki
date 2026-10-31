@@ -16,9 +16,25 @@ export const CardSide = z
     `Keep it to ${CARD_SIDE_MAX_LENGTH.toLocaleString("en-GB")} characters`,
   );
 
+/** The longest a Card's Grading notes may be. */
+export const GRADING_NOTES_MAX_LENGTH = 2_000;
+
+/**
+ * A Card's Grading notes: Markdown with LaTeX up to 2,000 characters, kept
+ * exactly as typed (never trimmed), or `null` for none. Blank reads as none.
+ */
+export const GradingNotes = z
+  .string()
+  .refine(
+    (notes) => notes.trim() === "" || notes.length <= GRADING_NOTES_MAX_LENGTH,
+    `Keep grading notes to ${GRADING_NOTES_MAX_LENGTH.toLocaleString("en-GB")} characters`,
+  )
+  .nullable()
+  .transform((notes) => (notes === null || notes.trim() === "" ? null : notes));
+
 /**
  * A Card as the API answers it: its Deck, its Front and Back as typed, its Tags
- * A–Z, and when it was created and last changed, as ISO 8601 times.
+ * A–Z, its Grading notes or null, and when it was created and last changed, as ISO 8601 times.
  */
 export const CardResponse = z.object({
   id: z.string(),
@@ -26,6 +42,7 @@ export const CardResponse = z.object({
   front: z.string(),
   back: z.string(),
   tags: z.array(z.string()),
+  gradingNotes: z.string().nullable(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 });
@@ -35,27 +52,37 @@ export type CardResponse = z.infer<typeof CardResponse>;
 export const CardListResponse = z.array(CardResponse);
 export type CardListResponse = z.infer<typeof CardListResponse>;
 
-/** The body of `POST /api/decks/:deckId/cards`: the new Card's Front and Back, and its Tags (none unless given). */
+/**
+ * The body of `POST /api/decks/:deckId/cards`: the new Card's Front and Back,
+ * its Tags and its Grading notes (none of either unless given).
+ */
 export const CreateCardRequest = z.strictObject({
   front: CardSide,
   back: CardSide,
   tags: CardTags.default([]),
+  gradingNotes: GradingNotes.default(null),
 });
 export type CreateCardRequest = z.input<typeof CreateCardRequest>;
 
 /**
  * The body of `PATCH /api/cards/:id`: a new Front, a new Back, Tags that
- * replace the Card's, or any of them together.
+ * replace the Card's, new Grading notes (null or blank clearing them), or any
+ * of them together.
  */
 export const UpdateCardRequest = z
   .strictObject({
     front: CardSide.optional(),
     back: CardSide.optional(),
     tags: CardTags.optional(),
+    gradingNotes: GradingNotes.optional(),
   })
   .refine(
-    (patch) => patch.front !== undefined || patch.back !== undefined || patch.tags !== undefined,
-    "Expected a front, a back or tags",
+    (patch) =>
+      patch.front !== undefined ||
+      patch.back !== undefined ||
+      patch.tags !== undefined ||
+      patch.gradingNotes !== undefined,
+    "Expected a front, a back, tags or grading notes",
   );
 export type UpdateCardRequest = z.input<typeof UpdateCardRequest>;
 

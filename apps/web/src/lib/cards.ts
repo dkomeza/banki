@@ -3,6 +3,7 @@ import {
   CardListResponse,
   CardResponse,
   DeleteCardsResponse,
+  GRADING_NOTES_MAX_LENGTH,
   MoveCardsResponse,
   frontKey,
 } from "@banki/shared";
@@ -41,11 +42,25 @@ export const cardQueryOptions = (id: string, client: ApiClient = api) =>
     },
   });
 
-/** A Card's two sides, as typed. */
-export type Sides = { front: string; back: string };
+/** A Card's two sides and its Grading notes, as typed: blank notes are none. */
+export type CardFields = { front: string; back: string; gradingNotes: string };
 
-/** What each side's field says is wrong with it. */
-export type SideErrors = { front?: string; back?: string };
+/** What each field says is wrong with it. */
+export type FieldErrors = { front?: string; back?: string; gradingNotes?: string };
+
+/** A Card's fields as it was saved, to write it again from: none for notes is blank. */
+export const fieldsOf = (card: Card): CardFields => ({
+  front: card.front,
+  back: card.back,
+  gradingNotes: card.gradingNotes ?? "",
+});
+
+/** The fields as the API takes them: blank Grading notes are none. */
+const bodyOf = ({ front, back, gradingNotes }: CardFields) => ({
+  front,
+  back,
+  gradingNotes: gradingNotes.trim() === "" ? null : gradingNotes,
+});
 
 /** Each Card's Front key, worked out once per Card the cache holds. */
 const frontKeys = new WeakMap<Card, string>();
@@ -80,34 +95,46 @@ export function sideProblem(side: string, name: "Front" | "Back"): string | unde
   return undefined;
 }
 
-/** What's wrong with each side, empty when both may be sent. */
-export function sideErrors({ front, back }: Sides): SideErrors {
-  const errors: SideErrors = {};
+/** What's wrong with Grading notes, if anything, before they are sent: none are fine. */
+export function gradingNotesProblem(notes: string): string | undefined {
+  if (notes.trim() !== "" && notes.length > GRADING_NOTES_MAX_LENGTH) {
+    return `Keep grading notes to ${GRADING_NOTES_MAX_LENGTH.toLocaleString("en-GB")} characters.`;
+  }
+  return undefined;
+}
+
+/** What's wrong with each field, empty when they may be sent. */
+export function fieldErrors({ front, back, gradingNotes }: CardFields): FieldErrors {
+  const errors: FieldErrors = {};
   const onFront = sideProblem(front, "Front");
   const onBack = sideProblem(back, "Back");
+  const onNotes = gradingNotesProblem(gradingNotes);
   if (onFront !== undefined) errors.front = onFront;
   if (onBack !== undefined) errors.back = onBack;
+  if (onNotes !== undefined) errors.gradingNotes = onNotes;
   return errors;
 }
 
 /** Whether the fields hold anything not saved: a change from `saved`, as typed. */
-export const hasUnsavedChanges = (fields: Sides, saved: Sides) =>
-  fields.front !== saved.front || fields.back !== saved.back;
+export const hasUnsavedChanges = (fields: CardFields, saved: CardFields) =>
+  fields.front !== saved.front ||
+  fields.back !== saved.back ||
+  fields.gradingNotes !== saved.gradingNotes;
 
 export type CardOutcome =
   | { ok: true; card: Card }
-  | { ok: false; errors: SideErrors }
+  | { ok: false; errors: FieldErrors }
   | { ok: false; notFound: true }
   | { ok: false; message: string };
 
-/** How a create or a change went, checking the sides before anything is sent. */
+/** How a create or a change went, checking the fields before anything is sent. */
 async function outcomeOf(
-  sides: Sides,
+  fields: CardFields,
   send: () => Promise<Response>,
   failed: string,
 ): Promise<CardOutcome> {
-  const errors = sideErrors(sides);
-  if (errors.front !== undefined || errors.back !== undefined) return { ok: false, errors };
+  const errors = fieldErrors(fields);
+  if (Object.keys(errors).length > 0) return { ok: false, errors };
   let res: Response;
   try {
     res = await send();
@@ -130,22 +157,22 @@ async function refreshDeck(queryClient: QueryClient, deckId: string) {
 }
 
 /**
- * Creates a Card in a Deck, with its Tags, with `POST /api/decks/:deckId/cards`,
- * and says how it went.
+ * Creates a Card in a Deck, with its Tags and Grading notes, with
+ * `POST /api/decks/:deckId/cards`, and says how it went.
  */
 export async function createCard(
   queryClient: QueryClient,
   deckId: string,
-  sides: Sides,
+  fields: CardFields,
   tags: readonly string[],
   client: ApiClient = api,
 ): Promise<CardOutcome> {
   const outcome = await outcomeOf(
-    sides,
+    fields,
     () =>
       client.api.decks[":deckId"].cards.$post({
         param: { deckId },
-        json: { ...sides, tags: [...tags] },
+        json: { ...bodyOf(fields), tags: [...tags] },
       }),
     "Banki couldn't save the card. Try again.",
   );
@@ -156,17 +183,24 @@ export async function createCard(
   return outcome;
 }
 
-/** Changes a Card's sides and Tags with `PATCH /api/cards/:id`, and says how it went. */
+/**
+ * Changes a Card's sides, Tags and Grading notes with `PATCH /api/cards/:id`,
+ * and says how it went.
+ */
 export async function updateCard(
   queryClient: QueryClient,
   id: string,
-  sides: Sides,
+  fields: CardFields,
   tags: readonly string[],
   client: ApiClient = api,
 ): Promise<CardOutcome> {
   const outcome = await outcomeOf(
-    sides,
-    () => client.api.cards[":id"].$patch({ param: { id }, json: { ...sides, tags: [...tags] } }),
+    fields,
+    () =>
+      client.api.cards[":id"].$patch({
+        param: { id },
+        json: { ...bodyOf(fields), tags: [...tags] },
+      }),
     "Banki couldn't save the card. Try again.",
   );
   if (outcome.ok) {

@@ -1,4 +1,4 @@
-import type { AutoClose } from "@banki/shared";
+import type { AutoClose, Macro } from "@banki/shared";
 import {
   defaultKeymap,
   history,
@@ -13,6 +13,7 @@ import { EditorView, keymap, placeholder } from "@codemirror/view";
 import { autoCloseExtension } from "./auto-close";
 import { autoCloseChoice, formattingKeymap, previewCore, submitAction } from "./core";
 import { FORMATTING, type Format, INLINE_FORMATS } from "./formatting";
+import { formulaMacros } from "./formula-macros";
 import { blockAt, livePreviewDecorations } from "./decorations";
 import { continueInGrid, enterGrid, focusFirstCell, TableWidget } from "./table-grid";
 
@@ -69,27 +70,41 @@ const followIntoGrid = EditorView.updateListener.of((update) => {
   requestAnimationFrame(() => continueInGrid(view, head));
 });
 
-/** What the editor does for an auto-close choice, and the choice, for its tables. */
-const settings = (choice: AutoClose) => [autoCloseChoice.of(choice), autoCloseExtension(choice)];
+/**
+ * What the editor does for an auto-close choice, and the choice, for its
+ * tables; and the Macros its Formulas are typeset with.
+ */
+const settings = (choice: AutoClose, macros: readonly Macro[]) => [
+  autoCloseChoice.of(choice),
+  autoCloseExtension(choice),
+  formulaMacros.of(macros),
+];
 
 /**
- * The editor's extension. `autoClose` and `readOnly` sit in compartments,
+ * The editor's extension. `autoClose`, `macros` and `readOnly` sit in compartments,
  * so {@link reconfigure} changes them as the Setting and the form do.
  */
 export function livePreview({
   placeholder: hint,
   onSubmit,
   autoClose,
+  macros,
   readOnly,
 }: {
   placeholder: string;
   /** What Ctrl/Cmd+Enter does. */
   onSubmit: () => void;
   autoClose: AutoClose;
+  /** The Deck's effective Macros. */
+  macros: readonly Macro[];
   readOnly: boolean;
 }): {
   extension: Extension;
-  reconfigure: (to: { autoClose: AutoClose; readOnly: boolean }) => StateEffect<unknown>[];
+  reconfigure: (to: {
+    autoClose: AutoClose;
+    macros: readonly Macro[];
+    readOnly: boolean;
+  }) => StateEffect<unknown>[];
 } {
   const closing = new Compartment();
   const editable = new Compartment();
@@ -104,7 +119,7 @@ export function livePreview({
       placeholder(hint),
       EditorView.contentAttributes.of({ "aria-multiline": "true" }),
       submitAction.of(onSubmit),
-      closing.of(settings(autoClose)),
+      closing.of(settings(autoClose, macros)),
       editable.of(EditorState.readOnly.of(readOnly)),
       keymap.of([
         ...formattingKeymap,
@@ -121,7 +136,7 @@ export function livePreview({
       ]),
     ],
     reconfigure: (to) => [
-      closing.reconfigure(settings(to.autoClose)),
+      closing.reconfigure(settings(to.autoClose, to.macros)),
       editable.reconfigure(EditorState.readOnly.of(to.readOnly)),
     ],
   };

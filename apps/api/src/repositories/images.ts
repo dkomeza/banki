@@ -110,7 +110,8 @@ export function createImageRepository(db: Queryable, uploadsDir: string) {
 
     /**
      * Deletes, row and file, every Image, any User's, uploaded 24 hours or more
-     * before `now` that no Card of its User's refers to, live or deleted (a
+     * before `now` that no Card of its User's refers to, on a side or in its
+     * Grading notes, live or deleted (a
      * Removed Card has no row left); then every file in `uploadsDir` with no
      * Image row, last changed 24 hours or more before `now`. The rows go in one
      * transaction with the reading of the Cards, so a Card saved meanwhile
@@ -128,12 +129,17 @@ export function createImageRepository(db: Queryable, uploadsDir: string) {
           if (old.length === 0) return [];
           const referred = new Set<string>();
           const sides = tx
-            .select({ userId: card.userId, front: card.front, back: card.back })
+            .select({
+              userId: card.userId,
+              front: card.front,
+              back: card.back,
+              gradingNotes: card.gradingNotes,
+            })
             .from(card)
             .where(inArray(card.userId, [...new Set(old.map((row) => row.userId))]))
             .all();
-          for (const { userId, front, back } of sides) {
-            for (const match of `${front}\n${back}`.matchAll(REFERRED)) {
+          for (const { userId, front, back, gradingNotes } of sides) {
+            for (const match of `${front}\n${back}\n${gradingNotes ?? ""}`.matchAll(REFERRED)) {
               referred.add(`${userId}/${match[1]}`);
             }
           }

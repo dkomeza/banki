@@ -85,6 +85,27 @@
       "when": 1793282952653,
       "tag": "0011_scheduling",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1793366097159,
+      "tag": "0012_soft_cap",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1793372786559,
+      "tag": "0013_macros",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1793374563717,
+      "tag": "0014_grading_notes",
+      "breakpoints": true
     }
   ]
 }

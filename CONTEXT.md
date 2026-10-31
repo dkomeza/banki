@@ -17,7 +17,7 @@ A named place that holds Decks and other Folders, nested to any depth, for organ
 _Avoid_: directory, group, category
 
 **Card**:
-One thing to remember, written as a Front and a Back in Markdown with LaTeX, in exactly one Deck. A Deck's delete deletes its Cards with it, together.
+One thing to remember, written as a Front and a Back in Markdown with LaTeX, in exactly one Deck, optionally with Grading notes. A Deck's delete deletes its Cards with it, together.
 _Avoid_: note, flashcard, item
 
 **Move**:
@@ -32,6 +32,10 @@ _Avoid_: question, prompt
 The side of a Card that holds what the User should recall: what self-rating reveals, and the reference the Grader compares a written answer with. Never the User's own written answer.
 _Avoid_: answer, solution
 
+**Grading notes**:
+Text on a Card, in Markdown with LaTeX, that tells the Grader what an answer must include or may vary in, such as "must mention both conditions". A Card has them or not. They are never shown while studying, and never hold Images.
+_Avoid_: hint, rubric, answer key, notes (alone)
+
 **Tag**:
 A one-word label on Cards, such as `irregular-verb`, for finding them again: it has no effect on study or scheduling. A Card carries any number of Tags, and the same Tag on Cards in different Decks is one Tag. A Tag exists only while some Card carries it; it has no name or life of its own to rename or delete.
 _Avoid_: label, category, keyword
@@ -43,6 +47,10 @@ _Avoid_: attachment, upload, asset, media, picture
 **Formula**:
 One piece of math in a Card, written in LaTeX: inline between `$…$`, or on its own as display math between `$$…$$`. A `\$` is a dollar sign, never the start of a Formula.
 _Avoid_: equation, expression, math block
+
+**Macro**:
+A short name for LaTeX the User writes often, such as `\R` for `\mathbb{R}`, that Formulas can use, with up to nine arguments. Settings hold Macros for every Deck, and a Deck may have its own, which win over Settings' of the same name for its Cards only. A Card's Formulas use the Macros of the Deck it is in now, so a Move can change how they read.
+_Avoid_: shortcut, alias, command (a command is KaTeX's own, such as `\frac`)
 
 **Duplicate**:
 A Card whose Front reads the same as another live Card's in the same Deck, ignoring case, spacing and Markdown formatting, but not what is inside a Formula. Banki warns about a Duplicate as it is written and still saves it; an import skips it.
@@ -95,6 +103,18 @@ _Avoid_: gap, delay, ivl
 **Queue**:
 The order in which a Session shows a Deck's Cards: due Cards most at risk first, new Cards mixed in among them in the order they were written, and a Card in its learning steps back when its step is over. Banki answers the next Card one at a time, from the Cards' state and the Session's progress, not as a list fixed at the start.
 _Avoid_: playlist, deck order, schedule
+
+**New card**:
+A Card with no Review: never rated, or every Rating of it undone. A Session introduces New cards a New-card batch at a time.
+_Avoid_: unseen card, fresh card
+
+**New-card batch**:
+How many New cards a Session introduces before it stops introducing them and offers another batch of the same size. Due Cards and Cards in their learning steps go on regardless. A Setting, 20 unless the User changes it.
+_Avoid_: new-card limit, daily new cards, new cards per session
+
+**Learning limit**:
+How many of a Deck's Cards may be in their learning steps, first ones or after a lapse, before a Session stops introducing New cards. It introduces them again once fewer are. A Setting, 10 unless the User changes it.
+_Avoid_: learning pile, learn-ahead limit
 
 **Predicted recall**:
 How likely the User is to recall a Card right now, from FSRS's forgetting curve over its memory state and the time since its last Review. The lower it is, the more at risk the Card is, and the sooner the Queue shows it.

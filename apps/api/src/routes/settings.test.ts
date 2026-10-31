@@ -2,12 +2,15 @@ import { describe, expect, test } from "bun:test";
 import { ApiError, SettingsResponse } from "@banki/shared";
 import { type App, bootApps, get, ORIGIN, setUp } from "../testing/app";
 
-/** What a User who hasn't touched the Grading or Editor cards has. */
+/** What a User who hasn't touched the Grading, Editor, Study or Advanced cards has. */
 const UNTOUCHED_DEFAULTS = {
   model: "anthropic/claude-haiku-5.5",
   apiKey: { state: "unset" },
   autoClose: "brackets",
   desiredRetention: 90,
+  newCardBatch: 20,
+  learningLimit: 10,
+  macros: [] as { name: string; definition: string }[],
 } as const;
 
 const { boot } = bootApps();
@@ -121,6 +124,38 @@ describe("PATCH /api/settings", () => {
     });
   });
 
+  test.each([
+    ["newCardBatch", [5, 37, 100]],
+    ["learningLimit", [5, 23, 50]],
+  ] as const)(
+    "stores %s from its lowest to its highest, and reads it back",
+    async (field, values) => {
+      const { app, cookie } = await signedIn();
+
+      for (const value of values) {
+        const res = await send(app, "PATCH", "/api/settings", { [field]: value }, cookie);
+        expect(res.status).toBe(200);
+        expect((await settingsOf(res))[field]).toBe(value);
+        expect((await settingsOf(await get(app, "/api/settings", cookie)))[field]).toBe(value);
+      }
+    },
+  );
+
+  test("keeps the New-card batch and the Learning limit when another Setting changes", async () => {
+    const { app, cookie } = await signedIn();
+    await send(app, "PATCH", "/api/settings", { newCardBatch: 40, learningLimit: 15 }, cookie);
+
+    const res = await send(app, "PATCH", "/api/settings", { dayStartHour: 6 }, cookie);
+
+    expect(await settingsOf(res)).toEqual({
+      timezone: null,
+      dayStartHour: 6,
+      ...UNTOUCHED_DEFAULTS,
+      newCardBatch: 40,
+      learningLimit: 15,
+    });
+  });
+
   test("accepts an alias Intl accepts, such as Europe/Kiev", async () => {
     const { app, cookie } = await signedIn();
 
@@ -139,6 +174,14 @@ describe("PATCH /api/settings", () => {
     ["a part of an hour", { dayStartHour: 4.5 }],
     ["an auto-close Banki doesn't know", { autoClose: "always" }],
     ["an auto-close that isn't a string", { autoClose: true }],
+    ["a New-card batch under 5", { newCardBatch: 4 }],
+    ["a New-card batch over 100", { newCardBatch: 101 }],
+    ["a part of a New-card batch", { newCardBatch: 12.5 }],
+    ["a New-card batch that isn't a number", { newCardBatch: "20" }],
+    ["a Learning limit under 5", { learningLimit: 4 }],
+    ["a Learning limit over 50", { learningLimit: 51 }],
+    ["a part of a Learning limit", { learningLimit: 7.5 }],
+    ["a Learning limit that is null", { learningLimit: null }],
     ["something that isn't a Setting", { theme: "dark" }],
   ])("refuses %s with 400, changing nothing", async (_, body) => {
     const { app, cookie } = await signedIn();
@@ -261,5 +304,69 @@ describe("PUT /api/settings/timezone/initial", () => {
     });
 
     expect(res.status).toBe(401);
+  });
+});
+
+describe("Settings' Macros", () => {
+  const norm = { name: "\\norm", definition: "\\left\\| #1 \\right\\|" };
+  const eps = { name: "\\eps", definition: "\\varepsilon" };
+
+  test("replaces the whole list as given, and reads it back", async () => {
+    const { app, cookie } = await signedIn();
+
+    const res = await send(app, "PATCH", "/api/settings", { macros: [norm, eps] }, cookie);
+    expect(res.status).toBe(200);
+    expect((await settingsOf(res)).macros).toEqual([norm, eps]);
+
+    await send(app, "PATCH", "/api/settings", { macros: [eps] }, cookie);
+    expect((await settingsOf(await get(app, "/api/settings", cookie))).macros).toEqual([eps]);
+  });
+
+  test("keeps the Macros when another Setting changes", async () => {
+    const { app, cookie } = await signedIn();
+    await send(app, "PATCH", "/api/settings", { macros: [norm] }, cookie);
+
+    const res = await send(app, "PATCH", "/api/settings", { dayStartHour: 5 }, cookie);
+
+    expect((await settingsOf(res)).macros).toEqual([norm]);
+  });
+
+  test("takes a name KaTeX already knows", async () => {
+    const { app, cookie } = await signedIn();
+    const frac = { name: "\\frac", definition: "#1/#2" };
+
+    const res = await send(app, "PATCH", "/api/settings", { macros: [frac] }, cookie);
+
+    expect((await settingsOf(res)).macros).toEqual([frac]);
+  });
+
+  test("refuses with a 400 naming the problem, and keeps the list it had", async () => {
+    const { app, cookie } = await signedIn();
+    await send(app, "PATCH", "/api/settings", { macros: [norm] }, cookie);
+    const refused: [unknown, string][] = [
+      [[{ name: "norm", definition: "x" }], "A macro's name is \\ and letters"],
+      [[{ name: "\\R", definition: "  " }], "Write what the macro stands for"],
+      [
+        [{ name: "\\R", definition: "x".repeat(1001) }],
+        "Keep \\R's definition to 1,000 characters",
+      ],
+      [[norm, { ...norm, definition: "y" }], "\\norm is in the list twice"],
+      [
+        Array.from({ length: 101 }, (_, i) => ({
+          name: `\\m${"a".repeat(i + 1)}`,
+          definition: "x",
+        })),
+        "Keep to 100 macros",
+      ],
+    ];
+
+    for (const [macros, message] of refused) {
+      const res = await send(app, "PATCH", "/api/settings", { macros }, cookie);
+      expect(res.status).toBe(400);
+      const { error } = ApiError.parse(await res.json());
+      expect(error.code).toBe("invalid_request");
+      expect(error.message).toContain(message);
+    }
+    expect((await settingsOf(await get(app, "/api/settings", cookie))).macros).toEqual([norm]);
   });
 });

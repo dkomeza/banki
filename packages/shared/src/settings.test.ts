@@ -41,6 +41,26 @@ describe("SettingsPatch's Desired retention", () => {
   });
 });
 
+describe("SettingsPatch's New-card batch", () => {
+  test.each([5, 20, 100])("takes %d", (newCardBatch) => {
+    expect(SettingsPatch.parse({ newCardBatch })).toEqual({ newCardBatch });
+  });
+
+  test.each([4, 101, 0, 12.5, "20", null])("refuses %j", (newCardBatch) => {
+    expect(SettingsPatch.safeParse({ newCardBatch }).success).toBe(false);
+  });
+});
+
+describe("SettingsPatch's Learning limit", () => {
+  test.each([5, 10, 50])("takes %d", (learningLimit) => {
+    expect(SettingsPatch.parse({ learningLimit })).toEqual({ learningLimit });
+  });
+
+  test.each([4, 51, 0, 7.5, "10", null])("refuses %j", (learningLimit) => {
+    expect(SettingsPatch.safeParse({ learningLimit }).success).toBe(false);
+  });
+});
+
 describe("SettingsPatch's model", () => {
   test("takes a Model on the list", () => {
     expect(SettingsPatch.parse({ model: "openai/gpt-6-luna" })).toEqual({

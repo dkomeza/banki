@@ -1,6 +1,7 @@
 import {
   type AutoClose,
   DEFAULT_DAY_START_HOUR,
+  type Macro,
   type SettingsResponse,
   studyDayBounds,
   studyDayOf,
@@ -155,7 +156,10 @@ export type FailedSave =
   | StudyDayFailedSave
   | { field: "model"; attempted: string }
   | { field: "autoClose"; attempted: AutoClose }
-  | { field: "desiredRetention"; attempted: number };
+  | { field: "desiredRetention"; attempted: number }
+  | { field: "newCardBatch"; attempted: number }
+  | { field: "learningLimit"; attempted: number }
+  | { field: "macros"; attempted: Macro[] };
 
 /** What a failed save says: what didn't change, and what is kept instead. */
 export function saveErrorText(failed: StudyDayFailedSave, kept: SettingsResponse): string {

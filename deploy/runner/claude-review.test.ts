@@ -36,4 +36,12 @@ describe("claude-review", () => {
   test("allows the Runner's App, and no other bot", () => {
     expect(reviewStep().allowed_bots).toBe("banki-runner");
   });
+
+  // An approval from the workflow's token would count as the merge guard's
+  // one required approval, which is the Maintainer's alone.
+  test("requests changes, and never approves", () => {
+    const source = readFileSync(WORKFLOW_PATH, "utf8");
+    expect(source).toContain("event=REQUEST_CHANGES");
+    expect(source).not.toMatch(/event=APPROVE/);
+  });
 });

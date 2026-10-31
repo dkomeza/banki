@@ -2,12 +2,14 @@ import { type CardNode, cardParser } from "@banki/shared";
 import { type ReactNode, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { typeset } from "@/lib/formula";
 import { imageSrc } from "@/lib/images";
+import { useMacros } from "@/lib/macros";
 import { highlight } from "@/lib/tags";
 import { cn } from "@/lib/utils";
 import "katex/dist/katex.min.css";
 
 // Renders a Card side read-only: the Card parser's tree (ADR-0020) to React,
-// with its Formulas typeset by KaTeX. Raw HTML in a Card shows as typed, never
+// with its Formulas typeset by KaTeX, with the Macros of the `MacrosContext`
+// it renders in (its Deck's). Raw HTML in a Card shows as typed, never
 // as HTML: the only markup set from a string is KaTeX's own output. Every
 // newline is a line break and a blank line a new paragraph.
 //
@@ -115,7 +117,7 @@ function Formula({
   /** The Formula as written, carried as `data-formula` for a click to copy; none when it can't be. */
   written?: string | undefined;
 }) {
-  const result = typeset(source, display);
+  const result = typeset(source, display, useMacros());
   if ("error" in result) {
     // On a one-line name there is no room for the message: the red source
     // shows, cut by the ellipsis like text, with the message on hover.

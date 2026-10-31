@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  ApiError,
   DeckListResponse,
   DeckResponse,
   DeleteResponse,
@@ -174,6 +175,17 @@ describe("PATCH /api/decks/:id", () => {
     }
   });
 
+  test("answers its own message for a 400, not a rule's", async () => {
+    const { app, cookie } = await signedIn();
+    const created = await createDeck(app, cookie, { name: "Spanish" });
+
+    const res = await send(app, "PATCH", `/api/decks/${created.id}`, {}, cookie);
+
+    expect(await res.json()).toEqual({
+      error: { code: "invalid_request", message: "Invalid deck" },
+    });
+  });
+
   test("answers 404 not_found for an unknown or deleted Deck", async () => {
     const { app, cookie } = await signedIn();
     const gone = await createDeck(app, cookie, { name: "Gone" });
@@ -326,5 +338,75 @@ describe("Decks in Folders", () => {
 
     expect(res.status).toBe(400);
     expect(await codeOf(res)).toBe("invalid_request");
+  });
+});
+
+describe("A Deck's own Macros", () => {
+  const d = { name: "\\d", definition: "\\mathrm{d}" };
+  const eps = { name: "\\eps", definition: "\\epsilon" };
+
+  test("are [] for a new Deck", async () => {
+    const { app, cookie } = await signedIn();
+
+    expect((await createDeck(app, cookie, { name: "Calculus 2" })).macros).toEqual([]);
+  });
+
+  test("PATCH replaces the whole list as given, and the Deck reads it back", async () => {
+    const { app, cookie } = await signedIn();
+    const created = await createDeck(app, cookie, { name: "Calculus 2" });
+
+    const res = await send(app, "PATCH", `/api/decks/${created.id}`, { macros: [d, eps] }, cookie);
+    expect(res.status).toBe(200);
+    expect(DeckResponse.parse(await res.json())).toEqual({ ...created, macros: [d, eps] });
+
+    await send(app, "PATCH", `/api/decks/${created.id}`, { macros: [eps] }, cookie);
+    const read = DeckResponse.parse(
+      await (await get(app, `/api/decks/${created.id}`, cookie)).json(),
+    );
+    expect(read.macros).toEqual([eps]);
+    const listed = DeckListResponse.parse(await (await get(app, "/api/decks", cookie)).json());
+    expect(listed.find((deck) => deck.id === created.id)?.macros).toEqual([eps]);
+  });
+
+  test("are one Deck's own: another Deck's stay as they are", async () => {
+    const { app, cookie } = await signedIn();
+    const one = await createDeck(app, cookie, { name: "One" });
+    const other = await createDeck(app, cookie, { name: "Other" });
+
+    await send(app, "PATCH", `/api/decks/${one.id}`, { macros: [d] }, cookie);
+
+    const read = DeckResponse.parse(
+      await (await get(app, `/api/decks/${other.id}`, cookie)).json(),
+    );
+    expect(read.macros).toEqual([]);
+  });
+
+  test("refuses with a 400 naming the problem", async () => {
+    const { app, cookie } = await signedIn();
+    const created = await createDeck(app, cookie, { name: "Calculus 2" });
+    const refused: [unknown, string][] = [
+      [[{ name: "\\1a", definition: "x" }], "A macro's name is \\ and letters"],
+      [[{ name: "\\R", definition: "" }], "Write what the macro stands for"],
+      [
+        [{ name: "\\R", definition: "x".repeat(1001) }],
+        "Keep \\R's definition to 1,000 characters",
+      ],
+      [[d, d], "\\d is in the list twice"],
+      [
+        Array.from({ length: 101 }, (_, i) => ({
+          name: `\\m${"a".repeat(i + 1)}`,
+          definition: "x",
+        })),
+        "Keep to 100 macros",
+      ],
+    ];
+
+    for (const [macros, message] of refused) {
+      const res = await send(app, "PATCH", `/api/decks/${created.id}`, { macros }, cookie);
+      expect(res.status).toBe(400);
+      const { error } = ApiError.parse(await res.json());
+      expect(error.code).toBe("invalid_request");
+      expect(error.message).toContain(message);
+    }
   });
 });

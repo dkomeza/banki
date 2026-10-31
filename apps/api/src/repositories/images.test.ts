@@ -214,6 +214,28 @@ describe("sweep", () => {
     expect(kept(file)).toBe(false);
   });
 
+  test("keeps an Image only a Card's Grading notes refer to, until that Card is Removed", () => {
+    const { reference, file } = upload(48);
+    const created = cards.create(USER, deckId, {
+      front: "f",
+      back: "b",
+      gradingNotes: `Like ![](${reference})`,
+    });
+    if (typeof created === "string") throw new Error(created);
+
+    images.sweep(NOW);
+    expect(kept(file)).toBe(true);
+
+    const deletionId = cards.softDelete(USER, created.id);
+    if (deletionId === undefined) throw new Error("not deleted");
+    images.sweep(NOW);
+    expect(kept(file)).toBe(true);
+
+    deletions.remove(USER, deletionId);
+    images.sweep(NOW);
+    expect(kept(file)).toBe(false);
+  });
+
   test("doesn't count another User's Card as referring to the User's Image", () => {
     const { reference, file } = upload(48);
     const theirs = createDeckRepository(opened.db).create(OTHER, {

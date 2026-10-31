@@ -5,7 +5,7 @@ import { createDeckRepository } from "../repositories/decks";
 import { createFolderRepository } from "../repositories/folders";
 import { createImageRepository, hasImages } from "../repositories/images";
 import { hasReviews } from "../repositories/reviews";
-import { setInitialTimezone } from "../repositories/settings";
+import { setInitialMacros, setInitialTimezone } from "../repositories/settings";
 
 import { SEED_IDS, SEED_TIMEZONE } from "./seed-ids";
 
@@ -91,6 +91,20 @@ const DECKS = [
 const { spanish, calculus2, kanji, chemistry } = SEED_IDS.cards;
 
 /**
+ * Settings' Macros, which every Deck's Cards use, and Calculus 2's own: `\d`,
+ * and an `\eps` that takes the place of Settings' in that Deck.
+ */
+const SETTINGS_MACROS = [
+  { name: "\\norm", definition: "\\left\\| #1 \\right\\|" },
+  { name: "\\abs", definition: "\\left| #1 \\right|" },
+  { name: "\\eps", definition: "\\varepsilon" },
+];
+const CALCULUS_2_MACROS = [
+  { name: "\\d", definition: "\\mathrm{d}" },
+  { name: "\\eps", definition: "\\epsilon" },
+];
+
+/**
  * The one Image, a plot of ln(1 + x), stored at its fixed ID through the
  * same code path as an upload, and the reference to it the edit-card page's
  * Card (`SEED_IDS.card`) has.
@@ -111,7 +125,8 @@ const IMAGE = {
  * (`SEED_IDS.card`), with `align`, `cases`, a matrix and one broken Formula
  * (`\fracc`); a few in Japanese kanji and Organic chemistry, one of them very
  * long, and mhchem reactions (`\ce`, `\pu`). Calculus 10 stays empty, for the
- * empty state.
+ * empty state. Three have Grading notes, two of them with a Formula, the
+ * edit-card page's Card among them, so its editor opens with them.
  */
 const CARDS: readonly {
   id: string;
@@ -119,6 +134,7 @@ const CARDS: readonly {
   hoursAgo: number;
   front: string;
   back: string;
+  gradingNotes?: string;
 }[] = [
   {
     id: spanish[0],
@@ -133,6 +149,7 @@ const CARDS: readonly {
     hoursAgo: 960,
     front: "la cuenta",
     back: "the bill, the check\n¿Nos trae la cuenta, por favor?",
+    gradingNotes: "Accept *the bill* or *the check*; the example sentence isn't needed.",
   },
   {
     id: spanish[2],
@@ -234,6 +251,8 @@ const CARDS: readonly {
       "$$\\ln(1+x) = x - \\frac{x^2}{2} + \\frac{x^3}{3} - \\frac{x^4}{4} + \\cdots$$",
       "It converges for $-1 < x \\le 1$: at $x = 1$ by the alternating series test (giving $\\ln 2$), and it diverges at $x = -1$ (the harmonic series).",
     ].join("\n"),
+    gradingNotes:
+      "Must start from the geometric series and integrate it.\n\nMust give the interval $-1 < x \\le 1$, saying why $x = 1$ is in it and $x = -1$ isn't.",
   },
   {
     id: calculus2[2],
@@ -301,6 +320,29 @@ const CARDS: readonly {
       "It is concave everywhere, and goes through $(1, \\ln 2)$.",
       "It is defined for $x > -1$, with a vertical asymptote at $x = -1$.",
     ].join("\n"),
+    gradingNotes:
+      "Must give the domain $x > -1$ and the slope $1$ at the origin. The sketch may be described in words.",
+  },
+  {
+    id: calculus2[10],
+    deckId: SEED_IDS.decks.calculus2,
+    hoursAgo: 8,
+    front: "The triangle inequality for $\\norm{\\cdot}$",
+    back: "$\\norm{x + y} \\le \\norm{x} + \\norm{y}$, and for numbers $\\abs{a + b} \\le \\abs{a} + \\abs{b}$.",
+  },
+  {
+    id: calculus2[11],
+    deckId: SEED_IDS.decks.calculus2,
+    hoursAgo: 6,
+    front: "What does $a_n \\to a$ mean?",
+    back: "For every $\\eps > 0$ there is an $N$ with $\\abs{a_n - a} < \\eps$ for every $n \\ge N$.",
+  },
+  {
+    id: calculus2[12],
+    deckId: SEED_IDS.decks.calculus2,
+    hoursAgo: 4,
+    front: "$\\int 2x \\cos(x^2) \\d x$",
+    back: "With $u = x^2$, $\\d u = 2x \\d x$:\n$$\\int \\cos u \\d u = \\sin(x^2) + C$$",
   },
   {
     id: kanji[0],
@@ -411,6 +453,9 @@ const TAGS: Readonly<Record<string, readonly string[]>> = {
   [calculus2[6]]: ["jacobian", "multivariable"],
   [calculus2[7]]: ["derivatives"],
   [calculus2[8]]: ["convergence", "series"],
+  [calculus2[10]]: ["norms"],
+  [calculus2[11]]: ["exam", "sequences"],
+  [calculus2[12]]: ["integrals", "technique"],
   [kanji[0]]: ["n4", "place"],
   [kanji[1]]: ["n4", "on-yomi"],
   [kanji[2]]: ["n4", "verb", "動詞"],
@@ -545,6 +590,7 @@ export function writeSeedData({
   // have chosen one. The Day start stays the default.
   // It stores no API key: a Preview starts with none, and the default Model.
   setInitialTimezone(db, userId, SEED_TIMEZONE);
+  setInitialMacros(db, userId, SETTINGS_MACROS);
 
   const folders = createFolderRepository(db);
   for (const { id, daysAgo, name, parentId } of FOLDERS) {
@@ -568,6 +614,7 @@ export function writeSeedData({
     );
     if (typeof created === "string") throw new Error(`The seed Deck ${name} is ${created}`);
   }
+  decks.update(userId, SEED_IDS.decks.calculus2, { macros: CALCULUS_2_MACROS });
 
   const stored = createImageRepository(db, uploadsDir).store(userId, readFileSync(IMAGE.file), {
     id: IMAGE.id,
@@ -578,11 +625,11 @@ export function writeSeedData({
   }
 
   const cards = createCardRepository(db);
-  for (const { id, deckId, hoursAgo, front, back } of CARDS) {
+  for (const { id, deckId, hoursAgo, front, back, gradingNotes = null } of CARDS) {
     const created = cards.create(
       userId,
       deckId,
-      { front, back, tags: TAGS[id] ?? [] },
+      { front, back, tags: TAGS[id] ?? [], gradingNotes },
       { id, now: new Date(now.getTime() - hoursAgo * HOUR_MS) },
     );
     if (typeof created === "string") throw new Error(`The seed Card ${id} is ${created}`);

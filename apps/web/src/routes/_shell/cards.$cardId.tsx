@@ -2,6 +2,7 @@ import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Trash2 } from "lucide-react";
 import { useRef, useState } from "react";
+import { DeckMacros } from "@/components/cards/deck-macros";
 import { FormError } from "@/components/auth-card";
 import { CardEditor, useCardForm } from "@/components/cards/card-editor";
 import { deleteWithUndo } from "@/components/cards/card-toasts";
@@ -12,14 +13,14 @@ import { Page } from "@/components/page";
 import { OUTLINE_PILL, PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
 import { dayLabel, timeLabel } from "@/lib/card-days";
-import { type Card, cardQueryOptions, cardsQueryOptions, updateCard } from "@/lib/cards";
+import { type Card, cardQueryOptions, cardsQueryOptions, fieldsOf, updateCard } from "@/lib/cards";
 import { type Deck, deckQueryOptions } from "@/lib/decks";
 import { ensureLibrary } from "@/lib/folders";
 import { rememberedDeckSearch, tagsChanged, tagsQueryOptions } from "@/lib/tags";
 import { cn } from "@/lib/utils";
 
 // The edit-card page, at a URL that doesn't name the Deck, so it outlasts a
-// move. Save writes both sides and the Tags and goes back to the Deck, to the
+// move. Save writes both sides, the Grading notes and the Tags and goes back to the Deck, to the
 // list as it was last filtered there; Cancel goes back without writing; Delete deletes at once and goes back, with the Undo toast
 // there. An unknown or deleted Card, or one whose Deck is deleted, shows
 // "Card not found".
@@ -61,7 +62,9 @@ function CardInDeck({ card }: { card: Card }) {
       <CardNotFound />
     </Page>
   ) : (
-    <EditCard key={card.id} deck={deck} card={card} />
+    <DeckMacros own={deck.macros}>
+      <EditCard key={card.id} deck={deck} card={card} />
+    </DeckMacros>
   );
 }
 
@@ -74,7 +77,7 @@ const writtenLabel = (createdAt: string) => {
 function EditCard({ deck, card }: { deck: Deck; card: Card }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const form = useCardForm({ front: card.front, back: card.back });
+  const form = useCardForm(fieldsOf(card));
   const tags = useTagInput(card.tags);
   const guard = useDiscardGuard(
     form.unsaved || tagsChanged(tags.tags, card.tags) || tags.draft.trim() !== "",

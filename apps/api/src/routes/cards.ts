@@ -30,7 +30,7 @@ export function deckCardRoutes({ cards }: { cards: CardRepository }) {
       if (listed === "not_found") return c.json(DECK_NOT_FOUND, 404);
       return c.json(listed, 200);
     })
-    .post("/:deckId/cards", json(CreateCardRequest, "Invalid card"), (c) => {
+    .post("/:deckId/cards", json(CreateCardRequest, "Invalid card", { named: true }), (c) => {
       const created = cards.create(c.var.user.id, c.req.param("deckId"), c.req.valid("json"));
       if (created === "not_found") return c.json(DECK_NOT_FOUND, 404);
       return c.json(created, 201);
@@ -87,7 +87,7 @@ export function cardRoutes({
       if (found === undefined) return c.json(NOT_FOUND, 404);
       return c.json(found, 200);
     })
-    .patch("/:id", json(UpdateCardRequest, "Invalid card"), (c) => {
+    .patch("/:id", json(UpdateCardRequest, "Invalid card", { named: true }), (c) => {
       const updated = cards.update(c.var.user.id, c.req.param("id"), c.req.valid("json"));
       if (updated === "not_found") return c.json(NOT_FOUND, 404);
       return c.json(updated, 200);

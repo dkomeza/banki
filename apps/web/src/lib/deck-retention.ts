@@ -1,100 +1,17 @@
 import type { QueryClient } from "@tanstack/react-query";
+import { createDeckSettingSaver, type DeckSettingState } from "./deck-setting-saver";
 import { updateDeck } from "./decks";
 
-// Saving a Deck's own Desired retention as it changes (null to follow
-// Settings): one PATCH at a time, in the order the changes were made, so the
-// Deck ends up with the last one. Each change shows at once; one that fails
-// is reported with its value, for Try again, until it is tried again or a
-// newer change replaces it.
+// A Deck's own Desired retention, saved as it changes (null to follow
+// Settings) by a Deck setting saver (deck-setting-saver.ts).
 
-export type DeckRetentionState = {
-  /** Changes not answered yet, in order; the first is being sent. */
-  queue: readonly (number | null)[];
-  /** Whether the last change saved a moment ago. */
-  saved: boolean;
-  /** The last change that didn't save, until it is tried again or replaced. */
-  failed: { attempted: number | null } | undefined;
-};
-
-const SAVED_MS = 2000;
+export type DeckRetentionState = DeckSettingState<number | null>;
 
 /** What the Deck shows: the change not answered yet, if any, or what is stored. */
 export const shownRetention = (state: DeckRetentionState, stored: number | null) =>
   state.queue.length === 0 ? stored : (state.queue.at(-1) ?? null);
 
-export function createDeckRetentionSaver({
-  save,
-  afterSaved = (clear) => {
-    const timer = globalThis.setTimeout(clear, SAVED_MS);
-    return () => globalThis.clearTimeout(timer);
-  },
-}: {
-  /** Stores the value, throwing when that fails. */
-  save: (value: number | null) => Promise<void>;
-  /** Schedules clearing "Saved"; returns a cancel. */
-  afterSaved?: (clear: () => void) => () => void;
-}) {
-  let state: DeckRetentionState = { queue: [], saved: false, failed: undefined };
-  const listeners = new Set<() => void>();
-  let cancelSaved: (() => void) | undefined;
-  let disposed = false;
-
-  const update = (next: Partial<DeckRetentionState>) => {
-    state = { ...state, ...next };
-    for (const listener of listeners) listener();
-  };
-
-  const sendNext = async () => {
-    const value = state.queue[0];
-    if (value === undefined) return;
-    let ok = true;
-    try {
-      await save(value);
-    } catch {
-      ok = false;
-    }
-    if (disposed) return;
-    const rest = state.queue.slice(1);
-    if (!ok) {
-      // A newer change is already queued: this one is moot.
-      update({ queue: rest, failed: rest.length > 0 ? state.failed : { attempted: value } });
-    } else {
-      update({ queue: rest, failed: rest.length > 0 ? state.failed : undefined });
-      if (rest.length === 0) {
-        cancelSaved?.();
-        cancelSaved = afterSaved(() => update({ saved: false }));
-        update({ saved: true });
-      }
-    }
-    void sendNext();
-  };
-
-  const change = (value: number | null) => {
-    const idle = state.queue.length === 0;
-    update({ queue: [...state.queue, value], saved: false, failed: undefined });
-    if (idle) void sendNext();
-  };
-
-  return {
-    getState: () => state,
-    subscribe: (listener: () => void) => {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
-    change,
-    /** Sends the failed change again. */
-    retry() {
-      if (state.failed !== undefined) change(state.failed.attempted);
-    },
-    dispose() {
-      disposed = true;
-      cancelSaved?.();
-      listeners.clear();
-    },
-  };
-}
+export const createDeckRetentionSaver = createDeckSettingSaver<number | null>;
 
 export type DeckRetentionSaver = ReturnType<typeof createDeckRetentionSaver>;
 

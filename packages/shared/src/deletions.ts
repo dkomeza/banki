@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CARD_BATCH_MAX } from "./cards";
+import { Macro } from "./macros";
 
 /** How long a Deletion waits in Recently deleted before its Removal: 30 × 24 h. */
 export const DELETION_KEPT_MS = 30 * 24 * 60 * 60 * 1000;
@@ -12,8 +13,9 @@ export type DeletionKind = z.infer<typeof DeletionKind>;
  * One Deletion in Recently deleted, as `GET /api/deletions` answers it: when it
  * was deleted and will be removed, its top item (a Card's `name` is its
  * Front), where that was (`path`, the Folder names from the Root, for a Deck or
- * Folder; `deck`, for a Card; the other null), and how many folders, decks
- * and cards went with it, the top item not counted.
+ * Folder; `deck`, for a Card, with its own Macros for its Front to render
+ * with, even once that Deck is deleted; the other null), and how many folders,
+ * decks and cards went with it, the top item not counted.
  */
 export const DeletionResponse = z.object({
   id: z.string(),
@@ -21,7 +23,7 @@ export const DeletionResponse = z.object({
   removesAt: z.iso.datetime(),
   top: z.object({ kind: DeletionKind, id: z.string(), name: z.string() }),
   path: z.array(z.string()).nullable(),
-  deck: z.object({ id: z.string(), name: z.string() }).nullable(),
+  deck: z.object({ id: z.string(), name: z.string(), macros: z.array(Macro) }).nullable(),
   counts: z.object({
     folders: z.number().int().nonnegative(),
     decks: z.number().int().nonnegative(),
