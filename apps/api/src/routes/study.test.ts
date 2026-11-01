@@ -238,6 +238,8 @@ describe("GET /api/decks/:deckId/study/next", () => {
   });
 
   describe("the New-card batch", () => {
+    afterEach(() => setSystemTime());
+
     test("is 20 New cards to begin with, then holds the rest back, saying how many", async () => {
       const { app, cookie, deckId } = await signedIn();
       await createCards(app, cookie, deckId, 22);
@@ -255,7 +257,13 @@ describe("GET /api/decks/:deckId/study/next", () => {
     test("takes batches as 1 when left out, and allows another batch's New cards for each", async () => {
       const { app, cookie, deckId } = await signedIn();
       await patchSettings(app, cookie, { newCardBatch: 5 });
-      const cards = await createCards(app, cookie, deckId, 7);
+      // A millisecond apart: New cards come oldest first, and a tie goes by their random IDs.
+      const start = Date.now();
+      const cards = [];
+      for (let i = 0; i < 7; i++) {
+        setSystemTime(new Date(start + i));
+        cards.push(await createCard(app, cookie, deckId, `card ${i}`));
+      }
 
       expect((await answerOf(app, cookie, deckId, "?newShown=5")).newHeld).toBe(7);
       expect((await answerOf(app, cookie, deckId, "?newShown=5&batches=1")).newHeld).toBe(7);
