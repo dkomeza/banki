@@ -195,6 +195,10 @@ export function TagField({
               if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
                 event.preventDefault();
                 onSave();
+              } else if (readOnly) {
+                // Read-only while a Save is on its way: no key changes the Tags,
+                // and Enter still never submits the form by itself.
+                if (event.key === "Enter") event.preventDefault();
               } else input.keyDown(event);
             }}
             onBlur={input.blur}

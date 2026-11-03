@@ -95,7 +95,9 @@ export function EditCard({ deck, card }: { deck: Deck; card: Card }) {
     else setFormError(outcome.message);
   };
 
-  // Deletes first, so a delete that fails leaves the page, and what's typed, as it was.
+  // Cancel and Delete wait for a Save on its way too, so neither leaves while
+  // its answer can still land. Deletes first, so a delete that fails leaves the page, and what's typed, as it was.
+  const busy = savingFrom !== undefined;
   const remove = () =>
     deleteWithUndo(queryClient, card, async () => {
       guard.release();
@@ -111,14 +113,14 @@ export function EditCard({ deck, card }: { deck: Deck; card: Card }) {
         dateline={writtenLabel(card.createdAt)}
         form={form}
         tags={tags}
-        saving={savingFrom !== undefined}
+        saving={busy}
         onSave={() => void save()}
         beforeFoot={
           <ResetProgress
             card={savingFrom ?? card}
             checked={reset}
             onChange={setReset}
-            disabled={savingFrom !== undefined}
+            disabled={busy}
           />
         }
         foot={
@@ -128,6 +130,7 @@ export function EditCard({ deck, card }: { deck: Deck; card: Card }) {
                 type="button"
                 variant="ghost"
                 className={cn(PILL, "-ml-3 h-11 text-destructive hover:text-destructive lg:h-10")}
+                disabled={busy}
                 onClick={() => void remove()}
               >
                 <Trash2 aria-hidden />
@@ -140,6 +143,7 @@ export function EditCard({ deck, card }: { deck: Deck; card: Card }) {
                 type="button"
                 variant="outline"
                 className={cn(OUTLINE_PILL, "h-11 lg:h-10")}
+                disabled={busy}
                 onClick={() => void toDeck()}
               >
                 Cancel

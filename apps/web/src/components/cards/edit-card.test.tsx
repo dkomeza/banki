@@ -182,7 +182,7 @@ describe("The edit page's Reset progress", () => {
     expect(sent[0]?.body).not.toHaveProperty("resetProgress");
   });
 
-  test("can't change while the Save that carries it is on its way", async () => {
+  test("can't change, nor can the Tags, Cancel or Delete, while the Save that carries it is on its way", async () => {
     let answer: ((res: Response) => void) | undefined;
     const answered = new Promise<Response>((resolve) => {
       answer = resolve;
@@ -197,6 +197,10 @@ describe("The edit page's Reset progress", () => {
     // Nor can the sides, so nothing typed meanwhile is lost when the page goes.
     for (const side of document.querySelectorAll<HTMLElement>(".cm-content"))
       expect(EditorView.findFromDOM(side)?.state.readOnly).toBe(true);
+    fireEvent.keyDown(screen.getByRole("combobox"), { key: "Backspace" });
+    expect(screen.getByText("food")).toBeTruthy();
+    expect(button("Cancel").hasAttribute("disabled")).toBe(true);
+    expect(button("Delete").hasAttribute("disabled")).toBe(true);
     answer?.(json({ ...card(true), studied: false }));
     await onDeck();
   });
