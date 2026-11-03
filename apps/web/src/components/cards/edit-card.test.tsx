@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import {
   RouterProvider,
   createMemoryHistory,
@@ -7,10 +7,10 @@ import {
   createRoute,
   createRouter,
 } from "@tanstack/react-router";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { SettingsResponse } from "@banki/shared";
-import { type Card, cardsQueryOptions } from "@/lib/cards";
+import { type Card, cardQueryOptions, cardsQueryOptions } from "@/lib/cards";
 import { type Deck, decksQueryOptions } from "@/lib/decks";
 import { foldersQueryOptions } from "@/lib/folders";
 import { settingsQueryOptions } from "@/lib/settings";
@@ -75,6 +75,12 @@ function stubApi(answer: (method: string, path: string) => Response | Promise<Re
   return sent;
 }
 
+/** The edit page on the Card as cached, as the route reads it, never fetched again unless a test says so. */
+function CachedCard({ id }: { id: string }) {
+  const { data } = useQuery({ ...cardQueryOptions(id), staleTime: Infinity });
+  return data ? <EditCard deck={DECK} card={data} /> : null;
+}
+
 /** The edit page on `shown`, in a router that has its Deck's page to go back to. */
 async function renderPage(shown: Card) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -83,13 +89,14 @@ async function renderPage(shown: Card) {
   queryClient.setQueryData(decksQueryOptions().queryKey, [DECK]);
   queryClient.setQueryData(settingsQueryOptions().queryKey, { settings: SETTINGS, issuedAt: 0 });
   queryClient.setQueryData(cardsQueryOptions(DECK.id).queryKey, [shown]);
+  queryClient.setQueryData(cardQueryOptions(shown.id).queryKey, shown);
   const root = createRootRoute();
   const router = createRouter({
     routeTree: root.addChildren([
       createRoute({
         getParentRoute: () => root,
         path: "/cards/$cardId",
-        component: () => <EditCard deck={DECK} card={shown} />,
+        component: () => <CachedCard id={shown.id} />,
       }),
       createRoute({
         getParentRoute: () => root,
@@ -106,7 +113,7 @@ async function renderPage(shown: Card) {
     </QueryClientProvider>,
   );
   await screen.findByRole("heading", { name: "Edit card" });
-  return router;
+  return { router, queryClient };
 }
 
 /** The Reset progress checkbox. */
@@ -148,7 +155,7 @@ describe("The edit page's Reset progress", () => {
     const sent = stubApi((method) =>
       method === "PATCH" ? json({ ...card(true), studied: false }) : json([]),
     );
-    const router = await renderPage(card(true));
+    const { router } = await renderPage(card(true));
     fireEvent.click(resetBox());
 
     fireEvent.click(button("Save"));
@@ -189,6 +196,52 @@ describe("The edit page's Reset progress", () => {
     answer?.(json({ ...card(true), studied: false }));
     await onDeck();
   });
+
+  test("stays as it was while the Save finishes, though its answer is a Card back to New", async () => {
+    // The Deck's Cards, fetched again once the Card is saved, answer when the test says.
+    let refreshed: ((res: Response) => void) | undefined;
+    const refetch = new Promise<Response>((resolve) => {
+      refreshed = resolve;
+    });
+    const sent = stubApi((method, path) =>
+      method === "PATCH"
+        ? json({ ...card(true), studied: false })
+        : path === "/api/decks/d1/cards"
+          ? refetch
+          : json([]),
+    );
+    const { queryClient } = await renderPage(card(true));
+    fireEvent.click(resetBox());
+
+    fireEvent.click(button("Save"));
+
+    await waitFor(() => expect(sent).toHaveLength(1));
+    await waitFor(() =>
+      expect(queryClient.getQueryData(cardQueryOptions("c1").queryKey)).toMatchObject({
+        studied: false,
+      }),
+    );
+    expect(resetBox().checked).toBe(true);
+    expect(resetBox().disabled).toBe(true);
+    refreshed?.(json([]));
+    await onDeck();
+  });
+
+  test("goes, tick and all, when a refetch finds the Card New, and comes back unticked", async () => {
+    const { queryClient } = await renderPage(card(true));
+    fireEvent.click(resetBox());
+
+    await act(async () => {
+      queryClient.setQueryData(cardQueryOptions("c1").queryKey, card(false));
+    });
+    await waitFor(() => expect(screen.queryByRole("checkbox")).toBeNull());
+
+    await act(async () => {
+      queryClient.setQueryData(cardQueryOptions("c1").queryKey, card(true));
+    });
+    await waitFor(() => expect(screen.queryByRole("checkbox")).not.toBeNull());
+    expect(resetBox().checked).toBe(false);
+  });
 });
 
 describe("The edit page's discard guard", () => {
@@ -202,7 +255,7 @@ describe("The edit page's discard guard", () => {
   });
 
   test("a ticked Reset progress alone counts as unsaved: Keep editing stays, Discard leaves", async () => {
-    const router = await renderPage(card(true));
+    const { router } = await renderPage(card(true));
     fireEvent.click(resetBox());
 
     fireEvent.click(button("Cancel"));

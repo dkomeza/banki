@@ -13,6 +13,7 @@ import {
   EditButton,
   ResetNote,
   StudyEditor,
+  leaveOrCancelEdit,
   type StudyEditorHandle,
 } from "@/components/study/study-editor";
 import { Summary } from "@/components/study/summary";
@@ -144,14 +145,7 @@ export function StudyScreen({ deck }: { deck: Deck }) {
         state={state}
         onUndo={() => void session.undo()}
         onEdit={openEditor}
-        onLeave={() => {
-          // While editing, × closes the editor, as Cancel does.
-          if (session.getState().editing) {
-            editor.current?.cancel();
-            return "summary";
-          }
-          return session.leave();
-        }}
+        onLeave={() => leaveOrCancelEdit(session, editor.current)}
       />
       <main className="flex flex-1 flex-col">
         {state.phase === "card" ? (

@@ -13,7 +13,13 @@ import { OUTLINE_PILL, PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
 import { type Card, editUnsaved, fieldsOf, updateCard } from "@/lib/cards";
 import type { Deck } from "@/lib/decks";
-import { type StudySession, editorCloseAction, editorEscAction, saveStudyEdit } from "@/lib/study";
+import {
+  type StudySession,
+  type StudyState,
+  editorCloseAction,
+  editorEscAction,
+  saveStudyEdit,
+} from "@/lib/study";
 import { cn } from "@/lib/utils";
 
 // Editing the shown Card over the study screen ("Morph"): Edit sits beside
@@ -53,7 +59,7 @@ export function ResetNote({ turning = false }: { turning?: boolean }) {
       )}
     >
       <RotateCcw aria-hidden className="size-3.5" />
-      Back to New: these are a new card's intervals
+      Back to New: these are a New card's intervals
     </p>
   );
 }
@@ -63,6 +69,20 @@ const MODIFIER_KEYS = new Set(["Shift", "Control", "Alt", "Meta"]);
 
 /** What the study screen asks of the open editor: closing it as Cancel would, from ×. */
 export type StudyEditorHandle = { cancel: () => void };
+
+/**
+ * The top bar's ×: while editing, it closes the editor (`editor`) as Cancel
+ * does, through the discard guard, and stays ("stay"); otherwise it leaves
+ * the study screen as the Session says (`StudySession.leave`).
+ */
+export function leaveOrCancelEdit(
+  session: { getState: () => Pick<StudyState, "editing">; leave: StudySession["leave"] },
+  editor: StudyEditorHandle | null,
+): "summary" | "away" | "stay" {
+  if (!session.getState().editing) return session.leave();
+  editor?.cancel();
+  return "stay";
+}
 
 /**
  * The open editor over the shown Card `card`, revealed or not (`revealed`).
@@ -166,6 +186,8 @@ export function StudyEditor({
         if (!MODIFIER_KEYS.has(event.key)) escArmed.current = null;
         return;
       }
+      // A held Esc is one press: its repeats neither close nor ask.
+      if (event.repeat) return;
       if (event.defaultPrevented || asking) {
         escArmed.current = null;
         return;

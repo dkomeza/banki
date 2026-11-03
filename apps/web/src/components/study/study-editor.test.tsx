@@ -7,11 +7,12 @@ import {
   createRouter,
 } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { createRef } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { type Card, cardsQueryOptions } from "@/lib/cards";
 import type { Deck } from "@/lib/decks";
 import { createStudySession } from "@/lib/study";
-import { StudyEditor } from "./study-editor";
+import { StudyEditor, type StudyEditorHandle, leaveOrCancelEdit } from "./study-editor";
 
 vi.mock("@/components/folders/drag", () => ({ useFinePointer: () => false }));
 
@@ -81,8 +82,8 @@ function stubApi(answer: (method: string, path: string) => Response) {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
-/** The open editor over `shown`, on a Session that records what it is asked. */
-function renderEditor(shown: Card) {
+/** The open editor over `shown`, on a Session that records what it is asked, its handle in `ref`. */
+function renderEditor(shown: Card, ref = createRef<StudyEditorHandle>()) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   queryClient.setQueryData(cardsQueryOptions(DECK.id).queryKey, [shown]);
   const router = createRouter({ routeTree: createRootRoute(), history: createMemoryHistory() });
@@ -90,7 +91,7 @@ function renderEditor(shown: Card) {
   render(
     <QueryClientProvider client={queryClient}>
       <RouterContextProvider router={router}>
-        <StudyEditor deck={DECK} card={shown} revealed session={recording.session} />
+        <StudyEditor deck={DECK} card={shown} revealed session={recording.session} ref={ref} />
       </RouterContextProvider>
     </QueryClientProvider>,
   );
@@ -106,7 +107,8 @@ function resetBox(): HTMLInputElement {
   return box;
 }
 const discardAsked = () => screen.queryByText("Discard changes?");
-const press = (target: Element, key: string) => fireEvent.keyDown(target, { key });
+const press = (target: Element, key: string, repeat = false) =>
+  fireEvent.keyDown(target, { key, repeat });
 
 // Nothing reaches a real API: what a test doesn't stub answers 404.
 beforeEach(() => {
@@ -172,7 +174,7 @@ describe("StudyEditor", () => {
       expect(session.cancelEdit).toHaveBeenCalledTimes(1);
     });
 
-    test("the top bar's × goes the same way", async () => {
+    test("the panel's × goes the same way", async () => {
       const session = renderEditor(card(true));
       fireEvent.click(resetBox());
 
@@ -180,6 +182,42 @@ describe("StudyEditor", () => {
 
       await waitFor(() => expect(discardAsked()).not.toBeNull());
       expect(session.cancelEdit).not.toHaveBeenCalled();
+    });
+
+    test("the top bar's × goes the same way, and stays in the Session", async () => {
+      const editor = createRef<StudyEditorHandle>();
+      const recording = renderEditor(card(true), editor);
+      const leave = vi.spyOn(recording.session, "leave");
+      const editing = { getState: () => ({ editing: true }), leave };
+      fireEvent.click(resetBox());
+
+      expect(leaveOrCancelEdit(editing, editor.current)).toBe("stay");
+
+      await waitFor(() => expect(discardAsked()).not.toBeNull());
+      expect(recording.cancelEdit).not.toHaveBeenCalled();
+      expect(leave).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+      expect(recording.cancelEdit).toHaveBeenCalledTimes(1);
+    });
+
+    test("the top bar's ×, with nothing unsaved, closes the editor at once", () => {
+      const editor = createRef<StudyEditorHandle>();
+      const recording = renderEditor(card(true), editor);
+      const editing = { getState: () => ({ editing: true }), leave: () => "away" as const };
+
+      expect(leaveOrCancelEdit(editing, editor.current)).toBe("stay");
+
+      expect(recording.cancelEdit).toHaveBeenCalledTimes(1);
+    });
+
+    test("the top bar's ×, with the editor closed, leaves as the Session says", () => {
+      const editor = createRef<StudyEditorHandle>();
+      const recording = renderEditor(card(true), editor);
+      const closed = { getState: () => ({ editing: false }), leave: () => "summary" as const };
+
+      expect(leaveOrCancelEdit(closed, editor.current)).toBe("summary");
+
+      expect(recording.cancelEdit).not.toHaveBeenCalled();
     });
   });
 
@@ -201,6 +239,17 @@ describe("StudyEditor", () => {
 
       press(front, "Escape");
       expect(session.cancelEdit).toHaveBeenCalledTimes(1);
+    });
+
+    test("held in Front only leaves the field: its repeats don't close", () => {
+      const session = renderEditor(card(true));
+      const front = document.querySelector(".cm-content")!;
+
+      press(front, "Escape");
+      press(front, "Escape", true);
+      press(front, "Escape", true);
+
+      expect(session.cancelEdit).not.toHaveBeenCalled();
     });
 
     test("in Front, a key between the two Escs starts over", () => {

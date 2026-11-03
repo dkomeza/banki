@@ -89,12 +89,12 @@ export type StudyApi = {
   ) => Promise<{ reviewId: string } | "gone">;
   /**
    * Undoes a Review: the Card and its fresh previews; "gone" when the Review
-   * is gone (deleted elsewhere, or its Card), or "kept" when it stands but
+   * is gone (deleted elsewhere, or its Card), or "settled" when it stands but
    * can't be undone anymore (a newer Review, or a Progress reset since).
    */
   undo: (
     reviewId: string,
-  ) => Promise<{ card: Card; intervals: IntervalPreviews } | "gone" | "kept">;
+  ) => Promise<{ card: Card; intervals: IntervalPreviews } | "gone" | "settled">;
   /** A Card's previews as it is now, or "gone" when it was deleted meanwhile. */
   intervals: (cardId: string) => Promise<IntervalPreviews | "gone">;
 };
@@ -131,7 +131,7 @@ export function studyApi(deckId: string, client: ApiClient = api): StudyApi {
       const res = await client.api.reviews[":id"].$delete({ param: { id: reviewId } });
       const status: number = res.status;
       if (status === 404) return "gone";
-      if (status === 409) return "kept";
+      if (status === 409) return "settled";
       if (status !== 200) throw new Error(`Undo answered ${status}`);
       const { card, intervals } = UndoReviewResponse.parse(await res.json());
       return { card, intervals };
@@ -255,7 +255,10 @@ export type StudyState = {
   progressReset: boolean;
   /** Set on the close that follows a Progress reset alone, so its Intervals turn over once. */
   turning: boolean;
-  /** Set while the Card after one deleted from the editor is on its way. */
+  /**
+   * Set while the next Card is on its way in place of the one shown, which is
+   * done with: deleted from the editor, or rated when Try again loads the next.
+   */
   skipping: boolean;
   /** Set while a reset Card's previews load again (Try again). */
   refreshing: boolean;
@@ -263,14 +266,14 @@ export type StudyState = {
 
 /**
  * A Rating the Session gave and can take back, until the API says it stands
- * for good (`kept`: a newer Review of its Card, or a Progress reset since).
+ * for good (`settled`: a newer Review of its Card, or a Progress reset since).
  */
 type Given = {
   reviewId: string;
   shown: NextCard;
   rating: Rating;
   durationMs: number;
-  kept?: boolean;
+  settled?: boolean;
 };
 
 const standing = (given: readonly Given[]): StandingRating[] =>
@@ -365,7 +368,7 @@ export function createStudySession({
       ...next,
       newHeld: next.phase === "done" ? next.newHeld : 0,
       rated: given.length,
-      undoable: given.some((g) => !g.kept),
+      undoable: given.some((g) => !g.settled),
       summary: summaryOf(standing(given)),
       // A Rating that failed can be given again, or another one instead; a
       // Card whose Rating saved, waiting for the next one, can't.
@@ -524,6 +527,7 @@ export function createStudySession({
       previewedAt: now(),
       failure: undefined,
       refreshing: false,
+      turning: false,
     });
   };
 
@@ -587,7 +591,8 @@ export function createStudySession({
       const what = failed;
       if (what?.kind === "rate") void save(what.rating, what.durationMs);
       if (what?.kind === "next") {
-        set({ failure: undefined });
+        // Its answer replaces the Card shown, so nothing else may change it meanwhile.
+        set({ failure: undefined, skipping: true });
         void loadNext(what.after);
       }
       if (what?.kind === "intervals") void refresh(what.cardId);
@@ -613,7 +618,7 @@ export function createStudySession({
      * next Undo goes on to the Rating before it.
      */
     async undo() {
-      const at = given.findLastIndex((g) => !g.kept);
+      const at = given.findLastIndex((g) => !g.settled);
       const last = given[at];
       if (last === undefined || busy()) return;
       set({ undoing: true });
@@ -625,9 +630,9 @@ export function createStudySession({
         set({ undoing: false });
         return;
       }
-      if (back === "gone" || back === "kept") {
+      if (back === "gone" || back === "settled") {
         if (back === "gone") given.splice(at, 1);
-        else last.kept = true;
+        else last.settled = true;
         say(UNDO_GONE);
         set({ undoing: false });
         return;
@@ -680,7 +685,7 @@ export function createStudySession({
         closeEditor({ shown: { ...state.shown, card } });
         return;
       }
-      for (const g of given) if (g.shown.card.id === card.id) g.kept = true;
+      for (const g of given) if (g.shown.card.id === card.id) g.settled = true;
       let fresh: Awaited<ReturnType<StudyApi["intervals"]>> | undefined;
       try {
         fresh = await client.intervals(card.id);
@@ -703,7 +708,8 @@ export function createStudySession({
         revealed: true,
         undone: false,
         progressReset: true,
-        turning: true,
+        // Only fresh previews turn over: those that failed are the old ones.
+        turning: fresh !== undefined,
         failure: fresh === undefined ? INTERVALS_FAILED : undefined,
       });
     },

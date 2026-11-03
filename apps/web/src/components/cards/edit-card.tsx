@@ -45,8 +45,13 @@ export function EditCard({ deck, card }: { deck: Deck; card: Card }) {
   );
   const [formError, setFormError] = useState<string>();
   const saving = useRef(false);
-  // So Reset progress can't change while the Save that carries it is on its way.
-  const [savingShown, setSavingShown] = useState(false);
+  // The Card as a Save on its way found it. Meanwhile Reset progress can't
+  // change, and its row stays as it was, though the Save's answer (a Card back
+  // to New) is cached before the page is left.
+  const [savingFrom, setSavingFrom] = useState<Card>();
+  // A refetch that finds the Card New takes the row away, and its tick with it,
+  // so it never comes back ticked.
+  if (reset && !card.studied && savingFrom === undefined) setReset(false);
   const toDeck = () =>
     navigate({
       to: "/decks/$deckId",
@@ -59,7 +64,7 @@ export function EditCard({ deck, card }: { deck: Deck; card: Card }) {
     const nextTags = tags.commit();
     if (nextTags === false) return;
     saving.current = true;
-    setSavingShown(true);
+    setSavingFrom(card);
     setFormError(undefined);
     const outcome = await saveCardEdit(
       card,
@@ -71,7 +76,7 @@ export function EditCard({ deck, card }: { deck: Deck; card: Card }) {
       },
     );
     saving.current = false;
-    setSavingShown(false);
+    setSavingFrom(undefined);
     if (outcome.ok) return;
     if ("errors" in outcome) form.setErrors(outcome.errors);
     else if ("notFound" in outcome) setFormError("This card, or its deck, was deleted meanwhile.");
@@ -96,7 +101,12 @@ export function EditCard({ deck, card }: { deck: Deck; card: Card }) {
         tags={tags}
         onSave={() => void save()}
         beforeFoot={
-          <ResetProgress card={card} checked={reset} onChange={setReset} disabled={savingShown} />
+          <ResetProgress
+            card={savingFrom ?? card}
+            checked={reset}
+            onChange={setReset}
+            disabled={savingFrom !== undefined}
+          />
         }
         foot={
           <>
