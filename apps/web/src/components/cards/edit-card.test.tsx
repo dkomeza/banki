@@ -2,7 +2,7 @@
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import {
   RouterProvider,
-  createMemoryHistory,
+  createBrowserHistory,
   createRootRoute,
   createRoute,
   createRouter,
@@ -82,7 +82,7 @@ function CachedCard({ id }: { id: string }) {
   return data ? <EditCard deck={DECK} card={data} /> : null;
 }
 
-/** The edit page on `shown`, in a router that has its Deck's page to go back to. */
+/** The edit page on `shown`, in a router that has its Deck's page to go back to, by a link or Back. */
 async function renderPage(shown: Card) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   // What the page reads as it opens: the Library, the Settings, the Deck's Cards.
@@ -110,8 +110,9 @@ async function renderPage(shown: Card) {
         component: () => <p>The sign-in page</p>,
       }),
     ]),
-    history: createMemoryHistory({ initialEntries: [`/cards/${shown.id}`] }),
+    history: openedFromDeck(shown.id),
   });
+  destroyHistory = () => router.history.destroy();
   await router.load();
   render(
     <QueryClientProvider client={queryClient}>
@@ -121,6 +122,18 @@ async function renderPage(shown: Card) {
   await screen.findByRole("heading", { name: "Edit card" });
   return { router, queryClient };
 }
+
+/**
+ * The browser's history, opened on the Card from its Deck, so Back goes to
+ * the Deck. A memory history wouldn't do: it asks the blockers about a link,
+ * never about Back, which the browser's does on popstate.
+ */
+function openedFromDeck(cardId: string) {
+  window.history.replaceState(null, "", `/decks/${DECK.id}`);
+  window.history.pushState(null, "", `/cards/${cardId}`);
+  return createBrowserHistory();
+}
+let destroyHistory = () => {};
 
 /** The Reset progress checkbox. */
 function resetBox(): HTMLInputElement {
@@ -139,6 +152,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  destroyHistory();
   vi.unstubAllGlobals();
 });
 
@@ -344,14 +358,50 @@ describe("The edit page's discard guard", () => {
     await onDeck();
   });
 
-  test("lets the sign-in redirect through while a Save is on its way, as a 401 sends it", async () => {
+  test("asks before the sign-in redirect a 401 sends while a Save is on its way: Keep editing stays, Discard goes", async () => {
     stubApi((method) => (method === "PATCH" ? new Promise<Response>(() => {}) : json([])));
     const { router } = await renderPage(card(true));
     fireEvent.click(resetBox());
     fireEvent.click(button("Save"));
     await waitFor(() => expect(button("Cancel").hasAttribute("disabled")).toBe(true));
-
     // As goToSignIn does, while the PATCH that answered 401 is still on its way.
+    const toSignIn = () =>
+      act(async () => {
+        void router.navigate({ href: "/login?redirect=%2Fcards%2Fc1" });
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+
+    await toSignIn();
+    await waitFor(() => expect(discardAsked()).not.toBeNull());
+    fireEvent.click(button("Keep editing"));
+    await waitFor(() => expect(discardAsked()).toBeNull());
+    expect(router.state.location.pathname).toBe("/cards/c1");
+    expect(resetBox().checked).toBe(true);
+
+    await toSignIn();
+    await waitFor(() => expect(discardAsked()).not.toBeNull());
+    fireEvent.click(button("Discard"));
+    await screen.findByText("The sign-in page");
+  });
+
+  test("with nothing unsaved, holds the page while a Delete is on its way, but for the sign-in redirect", async () => {
+    stubApi((method) => (method === "DELETE" ? new Promise<Response>(() => {}) : json([])));
+    const { router } = await renderPage(card(true));
+    fireEvent.click(button("Delete"));
+    await waitFor(() => expect(button("Cancel").hasAttribute("disabled")).toBe(true));
+
+    await act(async () => {
+      void router.navigate({ to: "/decks/$deckId", params: { deckId: "d1" } });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(router.state.location.pathname).toBe("/cards/c1");
+    await act(async () => {
+      router.history.back();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(router.state.location.pathname).toBe("/cards/c1");
+    expect(discardAsked()).toBeNull();
+
     await act(async () => {
       void router.navigate({ href: "/login?redirect=%2Fcards%2Fc1" });
     });
@@ -417,7 +467,6 @@ describe("The edit page's discard guard", () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
     });
     expect(sent).toEqual([{ method: "DELETE", path: "/api/cards/c1", body: undefined }]);
-
     answer?.(json({ code: "internal" }, 500));
     await waitFor(() => expect(button("Delete").hasAttribute("disabled")).toBe(false));
     expect(router.state.location.pathname).toBe("/cards/c1");

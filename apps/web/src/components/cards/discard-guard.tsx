@@ -5,6 +5,9 @@ import { OUTLINE_PILL, PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
+/** Where a 401 sends the User (`goToSignIn`). */
+const SIGN_IN = "/login";
+
 /**
  * Asks "Discard changes?" before leaving a card editor while `unsaved`: by a
  * link, the breadcrumb, Cancel or back. Closing or reloading the tab gets the
@@ -13,7 +16,8 @@ import { cn } from "@/lib/utils";
  * for a save or a delete that leaves on purpose. While `holding` (a save or a
  * delete on its way, whose answer can still land), nothing leaves, unasked,
  * but the sign-in page: a 401 sends the User there, and signed out, nothing
- * on its way can land.
+ * on its way can land, so it goes as it would with nothing on its way, asking
+ * first while something is unsaved.
  */
 export function useDiscardGuard(unsaved: boolean, holding = false) {
   // Refs, so a save that navigates straight after can let itself through
@@ -25,11 +29,11 @@ export function useDiscardGuard(unsaved: boolean, holding = false) {
     held.current = holding;
   }, [unsaved, holding]);
   const blocker = useBlocker({
-    shouldBlockFn: ({ next }) => (held.current ? next.pathname !== "/login" : guarded.current),
+    shouldBlockFn: ({ next }) => (held.current && next.pathname !== SIGN_IN) || guarded.current,
     enableBeforeUnload: () => guarded.current || held.current,
     withResolver: true,
   });
-  const staying = blocker.status === "blocked" && holding;
+  const staying = blocker.status === "blocked" && holding && blocker.next?.pathname !== SIGN_IN;
   useEffect(() => {
     if (staying) blocker.reset?.();
   }, [staying, blocker]);
@@ -37,7 +41,7 @@ export function useDiscardGuard(unsaved: boolean, holding = false) {
   return {
     dialog: (
       <DiscardDialog
-        open={blocker.status === "blocked" && !holding}
+        open={blocker.status === "blocked" && !staying}
         onKeep={() => blocker.reset?.()}
         onDiscard={() => blocker.proceed?.()}
       />
