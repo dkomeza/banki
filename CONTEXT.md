@@ -73,7 +73,7 @@ Bringing a Deletion back where it was. A Deck or Folder whose place is gone come
 _Avoid_: undelete, recover
 
 **Removal**:
-The permanent end of a Deletion: 30 days after it, or sooner when the User deletes it permanently. What it took is gone for good, but the Reviews of its Cards still count.
+The permanent end of a Deletion: 30 days after it, or sooner when the User deletes it permanently. What it took is gone for good, but the Reviews of its Cards still count, and their Progress resets stay logged.
 _Avoid_: purge, hard delete
 
 **Root**:
@@ -129,7 +129,7 @@ The share of its Cards the User wants to still remember when they come due, from
 _Avoid_: target retention (except for a Plan's), retention rate, success rate
 
 **Recall rate**:
-The share of the review Cards a Session showed that the User recalled the first time: their first Rating in it wasn't Again. New Cards and Cards in their learning steps don't count, so it measures what Desired retention aims at. A Session with no review Card has none.
+The share of the review Cards a Session showed that the User recalled the first time: their first Rating in it wasn't Again. New Cards and Cards in their learning steps don't count, so it measures what Desired retention aims at. A Card counts by how it first came in the Session, so a review Card the User then puts back to New (Progress reset) and rates still counts. A Session with no review Card has none.
 _Avoid_: accuracy, score, retention (alone)
 
 **Email**:
