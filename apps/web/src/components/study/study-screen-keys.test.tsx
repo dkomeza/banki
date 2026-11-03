@@ -124,3 +124,20 @@ describe("the study screen's E", () => {
     expect(fireEvent.keyDown(front, { key: "e", repeat: true })).toBe(true);
   });
 });
+
+describe("the study screen's ×", () => {
+  test("while editing, reaches the open editor: it closes, and the Session stays", async () => {
+    renderScreen();
+    await screen.findByText("el desayuno");
+    fireEvent.keyDown(document.body, { key: "e" });
+    await waitFor(() =>
+      expect(document.querySelector("[data-study-editor] .cm-content")).not.toBeNull(),
+    );
+
+    fireEvent.click(screen.getByLabelText("Back to deck"));
+
+    await waitFor(() => expect(document.querySelector("[data-study-editor]")).toBeNull());
+    expect(screen.getByText("el desayuno")).toBeTruthy();
+    expect(screen.queryByText("Discard changes?")).toBeNull();
+  });
+});
