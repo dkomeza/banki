@@ -419,6 +419,29 @@ describe("Removal", () => {
     expect(reviewsOf(alone)).toHaveLength(1);
     expect(reviewsOf(withDeck)).toMatchObject([{ deckId, rating: "hard" }]);
   });
+
+  test("of a Card, or of its Deck, leaves its Progress resets logged (ADR-0026)", () => {
+    const deckId = deckNamed("Spanish");
+    const alone = write(deckId, "alone");
+    const withDeck = write(deckId, "with deck");
+    give(alone, "good", START);
+    give(withDeck, "hard", START);
+    resetProgress(opened.db, USER, alone, START);
+    resetProgress(opened.db, USER, withDeck, START);
+    const cardDeletion = cards.softDelete(USER, alone);
+    if (cardDeletion === undefined) throw new Error("not deleted");
+    deletions.remove(USER, cardDeletion);
+    const deckDeletion = decks.softDelete(USER, deckId);
+    if (deckDeletion === undefined) throw new Error("not deleted");
+    deletions.remove(USER, deckDeletion);
+    const resetsOf = (cardId: string) =>
+      opened.db.select().from(progress_reset).where(eq(progress_reset.cardId, cardId)).all();
+
+    expect(rowOf(alone)).toBeUndefined();
+    expect(rowOf(withDeck)).toBeUndefined();
+    expect(resetsOf(alone)).toMatchObject([{ userId: USER, cardId: alone }]);
+    expect(resetsOf(withDeck)).toMatchObject([{ userId: USER, cardId: withDeck }]);
+  });
 });
 
 describe("the write order", () => {
