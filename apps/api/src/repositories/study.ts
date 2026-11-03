@@ -218,11 +218,7 @@ export function createStudyRepository(db: Queryable) {
       return db.transaction(
         (tx) => {
           const undone = tx
-            .select({
-              cardId: review.cardId,
-              reviewedAt: review.reviewedAt,
-              before: review.cardBefore,
-            })
+            .select({ cardId: review.cardId, before: review.cardBefore })
             .from(review)
             .where(and(eq(review.userId, userId), eq(review.id, reviewId)))
             .get();
