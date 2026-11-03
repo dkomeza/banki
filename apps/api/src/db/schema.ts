@@ -294,3 +294,27 @@ export const image = sqliteTable(
     index("image_uploaded_at").on(table.uploadedAt),
   ],
 );
+
+/**
+ * The User's Progress resets (CONTEXT.md, ADR-0026): one row each time one of
+ * their Cards was put back to New while being edited. A reset leaves the
+ * Card's Reviews in place; whatever learns from them starts from its Card's
+ * newest one, and a Review from before it can't be undone. `cardId` carries no
+ * foreign key: like a Review, a Progress reset outlives its Card's Removal
+ * (ADR-0018).
+ */
+export const progress_reset = sqliteTable(
+  "progress_reset",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    cardId: text("card_id").notNull(),
+    resetAt: integer("reset_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    index("progress_reset_user_id").on(table.userId),
+    index("progress_reset_card_id_reset_at").on(table.cardId, table.resetAt),
+  ],
+);

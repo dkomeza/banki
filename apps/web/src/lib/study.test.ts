@@ -98,6 +98,7 @@ const card = (id: string): Card => ({
   gradingNotes: null,
   createdAt: "2026-05-01T09:00:00.000Z",
   updatedAt: "2026-05-01T09:00:00.000Z",
+  studied: false,
 });
 
 const next = (id: string, kind: QueueKind = "new"): NextCard => ({

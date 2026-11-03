@@ -34,7 +34,9 @@ export const GradingNotes = z
 
 /**
  * A Card as the API answers it: its Deck, its Front and Back as typed, its Tags
- * A–Z, its Grading notes or null, and when it was created and last changed, as ISO 8601 times.
+ * A–Z, its Grading notes or null, when it was created and last changed, as ISO
+ * 8601 times, and whether it is studied: its state isn't New, so it has a
+ * Review since its newest Progress reset, and can be reset.
  */
 export const CardResponse = z.object({
   id: z.string(),
@@ -45,6 +47,7 @@ export const CardResponse = z.object({
   gradingNotes: z.string().nullable(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
+  studied: z.boolean(),
 });
 export type CardResponse = z.infer<typeof CardResponse>;
 
@@ -66,8 +69,8 @@ export type CreateCardRequest = z.input<typeof CreateCardRequest>;
 
 /**
  * The body of `PATCH /api/cards/:id`: a new Front, a new Back, Tags that
- * replace the Card's, new Grading notes (null or blank clearing them), or any
- * of them together.
+ * replace the Card's, new Grading notes (null or blank clearing them),
+ * `resetProgress: true` for a Progress reset, or any of them together.
  */
 export const UpdateCardRequest = z
   .strictObject({
@@ -75,14 +78,16 @@ export const UpdateCardRequest = z
     back: CardSide.optional(),
     tags: CardTags.optional(),
     gradingNotes: GradingNotes.optional(),
+    resetProgress: z.literal(true).optional(),
   })
   .refine(
     (patch) =>
       patch.front !== undefined ||
       patch.back !== undefined ||
       patch.tags !== undefined ||
-      patch.gradingNotes !== undefined,
-    "Expected a front, a back, tags or grading notes",
+      patch.gradingNotes !== undefined ||
+      patch.resetProgress !== undefined,
+    "Expected a front, a back, tags, grading notes or a progress reset",
   );
 export type UpdateCardRequest = z.input<typeof UpdateCardRequest>;
 

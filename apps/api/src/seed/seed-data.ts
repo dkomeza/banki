@@ -4,6 +4,7 @@ import { createCardRepository } from "../repositories/cards";
 import { createDeckRepository } from "../repositories/decks";
 import { createFolderRepository } from "../repositories/folders";
 import { createImageRepository, hasImages } from "../repositories/images";
+import { hasProgressResets } from "../repositories/progress-resets";
 import { hasReviews } from "../repositories/reviews";
 import { setInitialMacros, setInitialTimezone } from "../repositories/settings";
 
@@ -639,7 +640,8 @@ export function writeSeedData({
 }
 
 /**
- * Whether the User owns any content (folders, decks, cards, images, reviews), in which
+ * Whether the User owns any content (folders, decks, cards, images, reviews,
+ * Progress resets), in which
  * case `banki seed` refuses. Deleted Folders, Decks and Cards count too: they
  * are still the User's until they are purged. Settings aren't content: seeding leaves a
  * stored choice alone instead.
@@ -650,6 +652,7 @@ export function userHasContent(db: Queryable, userId: string): boolean {
     createFolderRepository(db).any(userId) ||
     createCardRepository(db).any(userId) ||
     hasImages(db, userId) ||
-    hasReviews(db, userId)
+    hasReviews(db, userId) ||
+    hasProgressResets(db, userId)
   );
 }

@@ -5,13 +5,18 @@ import type { StudyRepository } from "../repositories/study";
 
 const NOT_FOUND = apiError("not_found", "Review not found");
 const NOT_NEWEST = apiError("review_not_newest", "Only a Card's newest Review can be undone");
+const BEFORE_RESET = apiError(
+  "review_before_reset",
+  "A Review from before its Card's newest Progress reset can't be undone",
+);
 
 /**
  * The User's Reviews, under `/api/reviews`. `DELETE /:id` undoes one
  * (ADR-0025): it deletes the Review, puts its Card's memory state back to the
  * one from before it, and answers 200 with the Card, its schedule and its
  * Interval previews. A Review that isn't its Card's newest answers 409
- * `review_not_newest`; a missing one, another User's, and one whose Card is
+ * `review_not_newest`, and one given before its Card's newest Progress reset
+ * 409 `review_before_reset` (ADR-0026); a missing one, another User's, and one whose Card is
  * deleted all answer 404 `not_found`.
  */
 export function reviewRoutes({ study }: { study: StudyRepository }) {
@@ -19,6 +24,7 @@ export function reviewRoutes({ study }: { study: StudyRepository }) {
     const undone = study.undo(c.var.user.id, c.req.param("id"));
     if (undone === "not_found") return c.json(NOT_FOUND, 404);
     if (undone === "not_newest") return c.json(NOT_NEWEST, 409);
+    if (undone === "before_reset") return c.json(BEFORE_RESET, 409);
     return c.json(undone, 200);
   });
 }

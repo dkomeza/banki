@@ -30,6 +30,7 @@ const card = (id: string, front = "f", back = "b", tags: string[] = []): Card =>
   gradingNotes: null,
   createdAt: "2026-10-01T10:00:00.000Z",
   updatedAt: "2026-10-01T10:00:00.000Z",
+  studied: false,
 });
 
 /** A client answering every request with `res()`, recording the URL and body of each. */

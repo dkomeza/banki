@@ -50,6 +50,7 @@ const COMMITTED = [
   "0012_soft_cap",
   "0013_macros",
   "0014_grading_notes",
+  "0015_progress_resets",
 ];
 
 /** The tables the committed migrations create. */
@@ -62,6 +63,7 @@ const COMMITTED_TABLES = [
   "deck",
   "folder",
   "image",
+  "progress_reset",
   "review",
   "user",
   "user_settings",
@@ -288,4 +290,41 @@ test("0014_grading_notes keeps every Card, with no Grading notes", () => {
   expect(opened.db.values(sql`SELECT id, front, back, grading_notes FROM card`)).toEqual([
     ["c", "f", "b", null],
   ]);
+});
+
+test("0015_progress_resets keeps every Card and Review, with no Progress reset", () => {
+  const journalPath = join(folder, "meta", "_journal.json");
+  const full = readFileSync(journalPath, "utf8");
+  const journal = z
+    .looseObject({ entries: z.array(z.looseObject({ tag: z.string() })) })
+    .parse(JSON.parse(full));
+  writeFileSync(
+    journalPath,
+    JSON.stringify({
+      ...journal,
+      entries: journal.entries.filter((entry) => entry.tag < "0015_progress_resets"),
+    }),
+  );
+  applyMigrations(opened.db, folder);
+  opened.db.run(
+    sql`INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES ('u', 'n', 'u@x.y', 1, 0, 0)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO deck (id, user_id, name, name_key, created_at, updated_at) VALUES ('d', 'u', 'D', 'd', 0, 0)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO card (id, user_id, deck_id, front, back, created_at, updated_at, state) VALUES ('c', 'u', 'd', 'f', 'b', 0, 0, 'review')`,
+  );
+  opened.db.run(
+    sql`INSERT INTO review (id, user_id, card_id, deck_id, reviewed_at, rating, kind, duration_ms, card_before) VALUES ('r', 'u', 'c', 'd', 0, 'good', 'self-rated', 0, '{}')`,
+  );
+
+  writeFileSync(journalPath, full);
+  expect(applyMigrations(opened.db, folder)).toEqual(
+    COMMITTED.slice(COMMITTED.indexOf("0015_progress_resets")),
+  );
+
+  expect(opened.db.values(sql`SELECT id, state FROM card`)).toEqual([["c", "review"]]);
+  expect(opened.db.values(sql`SELECT id FROM review`)).toEqual([["r"]]);
+  expect(opened.db.values(sql`SELECT id FROM progress_reset`)).toEqual([]);
 });
