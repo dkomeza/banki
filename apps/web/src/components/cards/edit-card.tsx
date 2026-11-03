@@ -163,7 +163,11 @@ export function EditCard({ deck, card }: { deck: Deck; card: Card }) {
               >
                 Cancel
               </Button>
-              <Button type="submit" className={cn(PILL, "h-11 lg:h-10")} disabled={form.uploading}>
+              <Button
+                type="submit"
+                className={cn(PILL, "h-11 lg:h-10")}
+                disabled={form.uploading || busy}
+              >
                 Save
               </Button>
             </div>

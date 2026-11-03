@@ -104,6 +104,11 @@ async function renderPage(shown: Card) {
         path: "/decks/$deckId",
         component: () => <p>The Deck's page</p>,
       }),
+      createRoute({
+        getParentRoute: () => root,
+        path: "/login",
+        component: () => <p>The sign-in page</p>,
+      }),
     ]),
     history: createMemoryHistory({ initialEntries: [`/cards/${shown.id}`] }),
   });
@@ -201,6 +206,7 @@ describe("The edit page's Reset progress", () => {
     expect(screen.getByText("food")).toBeTruthy();
     expect(button("Cancel").hasAttribute("disabled")).toBe(true);
     expect(button("Delete").hasAttribute("disabled")).toBe(true);
+    expect(button("Save").hasAttribute("disabled")).toBe(true);
     answer?.(json({ ...card(true), studied: false }));
     await onDeck();
   });
@@ -338,6 +344,22 @@ describe("The edit page's discard guard", () => {
     await onDeck();
   });
 
+  test("lets the sign-in redirect through while a Save is on its way, as a 401 sends it", async () => {
+    stubApi((method) => (method === "PATCH" ? new Promise<Response>(() => {}) : json([])));
+    const { router } = await renderPage(card(true));
+    fireEvent.click(resetBox());
+    fireEvent.click(button("Save"));
+    await waitFor(() => expect(button("Cancel").hasAttribute("disabled")).toBe(true));
+
+    // As goToSignIn does, while the PATCH that answered 401 is still on its way.
+    await act(async () => {
+      void router.navigate({ href: "/login?redirect=%2Fcards%2Fc1" });
+    });
+
+    await screen.findByText("The sign-in page");
+    expect(discardAsked()).toBeNull();
+  });
+
   test("a ticked Reset progress alone counts as unsaved: Keep editing stays, Discard leaves", async () => {
     const { router } = await renderPage(card(true));
     fireEvent.click(resetBox());
@@ -387,6 +409,7 @@ describe("The edit page's discard guard", () => {
 
     expect(button("Delete").hasAttribute("disabled")).toBe(true);
     expect(button("Cancel").hasAttribute("disabled")).toBe(true);
+    expect(button("Save").hasAttribute("disabled")).toBe(true);
     expect(resetBox().disabled).toBe(true);
     fireEvent.click(button("Save"));
     fireEvent.keyDown(document.querySelector(".cm-content")!, { key: "Enter", ctrlKey: true });

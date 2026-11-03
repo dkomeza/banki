@@ -11,7 +11,9 @@ import { cn } from "@/lib/utils";
  * browser's own prompt instead. With nothing unsaved it leaves without asking.
  * Renders the dialog in `dialog`; `release` lets the next navigation through,
  * for a save or a delete that leaves on purpose. While `holding` (a save or a
- * delete on its way, whose answer can still land), nothing leaves, unasked.
+ * delete on its way, whose answer can still land), nothing leaves, unasked,
+ * but the sign-in page: a 401 sends the User there, and signed out, nothing
+ * on its way can land.
  */
 export function useDiscardGuard(unsaved: boolean, holding = false) {
   // Refs, so a save that navigates straight after can let itself through
@@ -23,7 +25,7 @@ export function useDiscardGuard(unsaved: boolean, holding = false) {
     held.current = holding;
   }, [unsaved, holding]);
   const blocker = useBlocker({
-    shouldBlockFn: () => guarded.current || held.current,
+    shouldBlockFn: ({ next }) => (held.current ? next.pathname !== "/login" : guarded.current),
     enableBeforeUnload: () => guarded.current || held.current,
     withResolver: true,
   });
