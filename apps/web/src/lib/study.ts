@@ -334,6 +334,9 @@ export function createStudySession({
   const given: Given[] = [];
   // Every Card the Session has shown, so each counts once, by its first kind.
   const seen = new Set<string>();
+  // The kind each Card put back to New here came with: served again by the
+  // Queue (after an Undo took its place), it still counts as that kind.
+  const resetKinds = new Map<string, QueueKind>();
   let reviewsShown = 0;
   let newShown = 0;
   let batches = 1;
@@ -405,8 +408,10 @@ export function createStudySession({
     state.phase === "loading";
 
   /** Shows the next Card, or the end of the Queue; while left, keeps it for Keep studying. */
-  const show = ({ next, newHeld }: NextAnswer) => {
+  const show = ({ next: served, newHeld }: NextAnswer) => {
     failed = undefined;
+    const kind = served === null ? undefined : resetKinds.get(served.card.id);
+    const next = served === null || kind === undefined ? served : { ...served, kind };
     if (next === null) {
       const studied = seen.size > 0;
       set({
@@ -499,7 +504,7 @@ export function createStudySession({
     try {
       first = await client.next({ reviewsShown, newShown, batches, after: undefined });
     } catch {
-      if (mine === starts) set({ phase: "unreachable" });
+      if (mine === starts) set({ phase: "unreachable", editing: false });
       return;
     }
     if (mine === starts) show(first);
@@ -687,11 +692,13 @@ export function createStudySession({
       // The Intervals turned over on the last close: done, before this
       // transition sees the screen, or they'd move apart from the dock.
       if (state.turning) set({ turning: false });
+      const mine = starts;
       transition(() => {
         // Stopped before this frame, the editor never opened: a start that
-        // follows mustn't wait for it to close.
+        // follows mustn't wait for it to close. Started again since, the
+        // start closed it already, and it doesn't open on the new Card.
         if (stopped) editorOpen = false;
-        else set({ editing: true });
+        else if (mine === starts && editorOpen) set({ editing: true });
       });
       return true;
     },
@@ -715,6 +722,7 @@ export function createStudySession({
         return;
       }
       for (const g of given) if (g.shown.card.id === card.id) g.settled = true;
+      resetKinds.set(card.id, state.shown.kind);
       const mine = starts;
       let fresh: Awaited<ReturnType<StudyApi["intervals"]>> | undefined;
       try {

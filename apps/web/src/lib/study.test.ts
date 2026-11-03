@@ -1326,6 +1326,27 @@ describe("editing the shown Card", () => {
     expect(t.state()).toMatchObject({ undoable: false, rated: 1 });
   });
 
+  test("a reset Card an Undo took the place of still counts by its first kind when the Queue serves it again", async () => {
+    // The Queue serves a again as New: the API has it New since the reset.
+    const t = setUp([next("b", "review"), next("a", "review"), next("a", "new")]);
+    await t.session.start();
+    await revealAndRate(t, "good");
+    t.session.edit();
+    await t.session.saveEdit(edited("a", "a", false), { progressReset: true });
+
+    await t.session.undo();
+    expect(t.shownId()).toBe("b");
+    await revealAndRate(t, "good");
+    expect(t.state().shown?.kind).toBe("review");
+    await revealAndRate(t, "good");
+
+    expect(t.state().summary).toMatchObject({
+      studied: 2,
+      newStudied: 0,
+      recall: { kept: 2, of: 2 },
+    });
+  });
+
   test("a Card back from Undo, then reset, is no longer marked as back from Undo", async () => {
     const t = setUp([next("a"), next("b")]);
     await t.session.start();
@@ -1424,6 +1445,39 @@ describe("editing the shown Card", () => {
     for (const update of later.splice(0)) update();
     expect(session.getState()).toMatchObject({ editing: true, revealed: true });
     expect(session.getState().shown?.card.id).toBe("a");
+  });
+
+  test("started again before the editor's frame, it doesn't open on the new first Card", async () => {
+    const later: (() => void)[] = [];
+    const server = fakeApi([next("a"), next("b")]);
+    const session = createStudySession({
+      studyApi: server.api,
+      notify: () => {},
+      now: () => NOW,
+      transition: (update) => later.push(update),
+    });
+    await session.start();
+    expect(session.edit()).toBe(true);
+    session.stop();
+    await session.start();
+    expect(session.getState().shown?.card.id).toBe("b");
+    for (const update of later.splice(0)) update();
+
+    expect(session.getState()).toMatchObject({ editing: false, editable: true });
+    session.reveal();
+    expect(session.getState().ratable).toBe(true);
+  });
+
+  test("started again with the editor open, a first Card that can't load closes it", async () => {
+    const t = setUp([next("a")]);
+    await t.session.start();
+    t.session.edit();
+    expect(t.state().editing).toBe(true);
+    t.session.stop();
+    t.fail.next = true;
+    await t.session.start();
+
+    expect(t.state()).toMatchObject({ phase: "unreachable", editing: false });
   });
 
   test("stopped before the editor's frame, it never opens, and a start that follows isn't held up", async () => {
