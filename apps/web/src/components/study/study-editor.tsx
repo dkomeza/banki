@@ -252,7 +252,7 @@ export function StudyEditor({
         role="dialog"
         aria-label="Edit card"
         data-study-editor
-        className="flex w-full flex-col overflow-y-auto rounded-t-[1.5rem] border-t bg-card pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] lg:pl-0 shadow-[0_-18px_40px_-20px_rgb(48_28_10/0.35)] [view-transition-name:edit-panel] lg:w-[34rem] lg:shrink-0 lg:rounded-none lg:border-t-0 lg:border-l lg:shadow-[-24px_0_48px_-32px_rgb(48_28_10/0.35)]"
+        className="flex w-full flex-col overflow-y-auto overscroll-contain rounded-t-[1.5rem] border-t bg-card pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] lg:pl-0 shadow-[0_-18px_40px_-20px_rgb(48_28_10/0.35)] [view-transition-name:edit-panel] lg:w-[34rem] lg:shrink-0 lg:rounded-none lg:border-t-0 lg:border-l lg:shadow-[-24px_0_48px_-32px_rgb(48_28_10/0.35)]"
       >
         <header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b bg-card/95 px-4 py-2 backdrop-blur sm:px-6">
           <div

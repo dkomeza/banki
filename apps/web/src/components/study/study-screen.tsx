@@ -156,7 +156,7 @@ export function StudyScreen({ deck }: { deck: Deck }) {
   }, [session, navigate, deck.id, openEditor]);
 
   return (
-    <div className="flex min-h-svh flex-col pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] [--toast-bottom:calc(7.5rem+env(safe-area-inset-bottom))]">
+    <div className="flex min-h-svh flex-col pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] [--toast-bottom:calc(7.5rem+env(safe-area-inset-bottom))]">
       <TopBar
         deck={deck}
         state={state}
@@ -219,7 +219,8 @@ function TopBar({
 }) {
   return (
     // Named, it stays above the Card's text that slides under it while the editor opens or closes.
-    <header className="sticky top-0 z-10 grid h-14 grid-cols-[1fr_auto_1fr] items-center gap-2 bg-background/95 px-2 backdrop-blur [view-transition-name:study-top] sm:px-4">
+    // It holds the top safe-area inset itself, so it ends 3.5 rem below it however far the page has scrolled.
+    <header className="sticky top-0 z-10 grid h-[calc(3.5rem+env(safe-area-inset-top))] grid-cols-[1fr_auto_1fr] items-center gap-2 bg-background/95 px-2 pt-[env(safe-area-inset-top)] backdrop-blur [view-transition-name:study-top] sm:px-4">
       <Button
         variant="ghost"
         size="icon"
