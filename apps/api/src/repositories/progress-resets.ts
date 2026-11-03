@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { Queryable } from "../db/database";
 import { card, progress_reset } from "../db/schema";
 import { NEW_MEMORY_STATE } from "../scheduling/fsrs";
@@ -32,17 +32,6 @@ export function resetProgress(
     .run();
   db.insert(progress_reset).values({ id, userId, cardId, resetAt: now }).run();
   return true;
-}
-
-/** When the User's Card `cardId` was last reset, or undefined when it never was. */
-export function newestResetOf(db: Queryable, userId: string, cardId: string): Date | undefined {
-  return db
-    .select({ resetAt: progress_reset.resetAt })
-    .from(progress_reset)
-    .where(and(eq(progress_reset.userId, userId), eq(progress_reset.cardId, cardId)))
-    .orderBy(desc(progress_reset.resetAt))
-    .limit(1)
-    .get()?.resetAt;
 }
 
 /** Whether the User has any Progress reset at all, of a Card that is gone too. */

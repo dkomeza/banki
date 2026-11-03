@@ -184,6 +184,18 @@ describe("PATCH /api/cards/:id with resetProgress", () => {
     expect(resetsOf(cardId)).toEqual([]);
   });
 
+  test("alone on a New Card changes nothing, its updatedAt included", async () => {
+    setSystemTime(new Date("2026-05-01T10:00:00.000Z"));
+    const { app, cookie, cardId } = await signedIn();
+    setSystemTime(new Date("2026-05-01T11:00:00.000Z"));
+
+    const res = await patch(app, cookie, cardId, { resetProgress: true });
+
+    expect(res.status).toBe(200);
+    expect(CardResponse.parse(await res.json()).updatedAt).toBe("2026-05-01T10:00:00.000Z");
+    expect(resetsOf(cardId)).toEqual([]);
+  });
+
   test("without it the schedule stays as it was", async () => {
     const { app, cookie, cardId } = await signedIn();
     await rate(app, cookie, cardId);
@@ -338,7 +350,7 @@ describe("GET /api/cards/:id/intervals", () => {
 });
 
 describe("DELETE /api/reviews/:id after a Progress reset", () => {
-  test("answers 409 review_before_reset for a Review from before it, and keeps it", async () => {
+  test("answers 409 review_before_progress_reset for a Review from before it, and keeps it", async () => {
     const { app, cookie, cardId } = await signedIn();
     const before = await rate(app, cookie, cardId);
     await patch(app, cookie, cardId, { resetProgress: true });
@@ -346,7 +358,7 @@ describe("DELETE /api/reviews/:id after a Progress reset", () => {
     const res = await send(app, "DELETE", `/api/reviews/${before.review.id}`, undefined, cookie);
 
     expect(res.status).toBe(409);
-    expect(await codeOf(res)).toBe("review_before_reset");
+    expect(await codeOf(res)).toBe("review_before_progress_reset");
     expect(reviewsOf(cardId)).toHaveLength(1);
     expect(memoryOf(cardId)?.state).toBe("new");
   });
@@ -363,5 +375,46 @@ describe("DELETE /api/reviews/:id after a Progress reset", () => {
     const back = UndoReviewResponse.parse(await res.json());
     expect(back.schedule).toMatchObject({ state: "new", reps: 0 });
     expect(back.card.studied).toBe(false);
+  });
+
+  test("goes by the newest reset: a Rating between two resets can't be undone", async () => {
+    const { app, cookie, cardId } = await signedIn();
+    await rate(app, cookie, cardId);
+    await patch(app, cookie, cardId, { resetProgress: true });
+    const between = await rate(app, cookie, cardId);
+    await patch(app, cookie, cardId, { resetProgress: true });
+
+    const res = await send(app, "DELETE", `/api/reviews/${between.review.id}`, undefined, cookie);
+
+    expect(res.status).toBe(409);
+    expect(await codeOf(res)).toBe("review_before_progress_reset");
+    expect(reviewsOf(cardId)).toHaveLength(2);
+    expect(memoryOf(cardId)?.state).toBe("new");
+  });
+
+  test("orders by what happened, not by the clock: a same-moment Rating after a reset undoes", async () => {
+    setSystemTime(new Date("2026-05-01T10:00:00.000Z"));
+    const { app, cookie, cardId } = await signedIn();
+    await rate(app, cookie, cardId);
+    await patch(app, cookie, cardId, { resetProgress: true });
+    const after = await rate(app, cookie, cardId);
+
+    const res = await send(app, "DELETE", `/api/reviews/${after.review.id}`, undefined, cookie);
+
+    expect(res.status).toBe(200);
+  });
+
+  test("orders by what happened, not by the clock: a reset logged at an earlier moment still holds", async () => {
+    setSystemTime(new Date("2026-05-01T10:00:00.000Z"));
+    const { app, cookie, cardId } = await signedIn();
+    const before = await rate(app, cookie, cardId);
+    // The server's clock steps back between the Rating and the reset.
+    setSystemTime(new Date("2026-05-01T09:00:00.000Z"));
+    await patch(app, cookie, cardId, { resetProgress: true });
+
+    const res = await send(app, "DELETE", `/api/reviews/${before.review.id}`, undefined, cookie);
+
+    expect(res.status).toBe(409);
+    expect(memoryOf(cardId)?.state).toBe("new");
   });
 });

@@ -210,12 +210,21 @@ export function createCardRepository(db: Queryable) {
      * given replacing all of its own; "not_found" for no such Card. With
      * `resetProgress`, in the same transaction, a studied Card goes back to New
      * and the Progress reset is logged (`resetProgress`); its Reviews stay. On
-     * a New Card it does nothing.
+     * a New Card it does nothing: asked alone, the Card stays as it was, its
+     * `updatedAt` too.
      */
     update(userId: string, id: string, changes: CardChanges, now = new Date()): Card | "not_found" {
       return db.transaction(
         (tx) => {
-          if (findIn(tx, userId, id) === undefined) return "not_found";
+          const found = findIn(tx, userId, id);
+          if (found === undefined) return "not_found";
+          const edited =
+            changes.front !== undefined ||
+            changes.back !== undefined ||
+            changes.gradingNotes !== undefined ||
+            changes.tags !== undefined;
+          const reset = changes.resetProgress === true && resetProgress(tx, userId, id, now);
+          if (!edited && !reset) return found;
           tx.update(card)
             .set({
               ...(changes.front === undefined ? {} : { front: changes.front }),
@@ -226,7 +235,6 @@ export function createCardRepository(db: Queryable) {
             .where(and(eq(card.userId, userId), eq(card.id, id)))
             .run();
           if (changes.tags !== undefined) writeTags(tx, userId, id, changes.tags);
-          if (changes.resetProgress === true) resetProgress(tx, userId, id, now);
           return findIn(tx, userId, id) ?? "not_found";
         },
         { behavior: "immediate" },
