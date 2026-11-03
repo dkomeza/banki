@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import type { Queryable } from "../db/database";
 import { card, progress_reset } from "../db/schema";
 import { NEW_MEMORY_STATE } from "../scheduling/fsrs";
+import { nextSeq } from "./write-order";
 
 // Progress resets (CONTEXT.md, ADR-0026): a studied Card put back to New while
 // it is edited, its Reviews left in place and the reset logged.
@@ -30,7 +31,9 @@ export function resetProgress(
     .set(NEW_MEMORY_STATE)
     .where(and(eq(card.userId, userId), eq(card.id, cardId)))
     .run();
-  db.insert(progress_reset).values({ id, userId, cardId, resetAt: now }).run();
+  db.insert(progress_reset)
+    .values({ id, userId, cardId, resetAt: now, seq: nextSeq(db, userId) })
+    .run();
   return true;
 }
 

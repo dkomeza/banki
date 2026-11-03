@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "147ec6f7-8455-4f85-828f-94e0477ee070",
+  "id": "e7decdb5-6607-4056-9d67-abd988a9e394",
   "prevId": "ff663423-9dcf-4ba6-88e8-9a70f5115f37",
   "tables": {
     "card": {
@@ -694,6 +694,13 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "seq": {
+          "name": "seq",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -704,13 +711,21 @@
           ],
           "isUnique": false
         },
-        "progress_reset_card_id_reset_at": {
-          "name": "progress_reset_card_id_reset_at",
+        "progress_reset_card_id_seq": {
+          "name": "progress_reset_card_id_seq",
           "columns": [
             "card_id",
-            "reset_at"
+            "seq"
           ],
           "isUnique": false
+        },
+        "progress_reset_user_id_seq": {
+          "name": "progress_reset_user_id_seq",
+          "columns": [
+            "user_id",
+            "seq"
+          ],
+          "isUnique": true
         }
       },
       "foreignKeys": {
@@ -797,6 +812,14 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "seq": {
+          "name": "seq",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
         }
       },
       "indexes": {
@@ -821,6 +844,14 @@
             "deck_id"
           ],
           "isUnique": false
+        },
+        "review_user_id_seq": {
+          "name": "review_user_id_seq",
+          "columns": [
+            "user_id",
+            "seq"
+          ],
+          "isUnique": true
         }
       },
       "foreignKeys": {

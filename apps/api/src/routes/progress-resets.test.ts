@@ -417,4 +417,44 @@ describe("DELETE /api/reviews/:id after a Progress reset", () => {
     expect(res.status).toBe(409);
     expect(memoryOf(cardId)?.state).toBe("new");
   });
+
+  test("orders by what happened, not by the clock: a Rating after a reset, at an earlier moment, is the newest", async () => {
+    setSystemTime(new Date("2026-05-01T10:00:00.000Z"));
+    const { app, cookie, cardId } = await signedIn();
+    const before = await rate(app, cookie, cardId);
+    await patch(app, cookie, cardId, { resetProgress: true });
+    // The server's clock steps back before the Card is rated again.
+    setSystemTime(new Date("2026-05-01T09:00:00.000Z"));
+    const after = await rate(app, cookie, cardId);
+
+    const old = await send(app, "DELETE", `/api/reviews/${before.review.id}`, undefined, cookie);
+    expect(old.status).toBe(409);
+    expect(reviewsOf(cardId)).toHaveLength(2);
+
+    const res = await send(app, "DELETE", `/api/reviews/${after.review.id}`, undefined, cookie);
+    expect(res.status).toBe(200);
+    expect(UndoReviewResponse.parse(await res.json()).schedule).toMatchObject({ state: "new" });
+    expect(reviewsOf(cardId)).toHaveLength(1);
+  });
+});
+
+describe("the write order", () => {
+  test("numbers a User's Reviews and Progress resets together, one after another", async () => {
+    const { app, cookie, cardId, deckId } = await signedIn();
+    const other = await createCard(app, cookie, deckId);
+    const first = await rate(app, cookie, cardId);
+    await patch(app, cookie, cardId, { resetProgress: true });
+    const second = await rate(app, cookie, other.id);
+
+    const order = inDatabase((db) =>
+      db.all<{ id: string; seq: number }>(
+        sql`SELECT id, seq FROM review UNION ALL SELECT 'reset', seq FROM progress_reset ORDER BY seq`,
+      ),
+    );
+    expect(order).toEqual([
+      { id: first.review.id, seq: 1 },
+      { id: "reset", seq: 2 },
+      { id: second.review.id, seq: 3 },
+    ]);
+  });
 });

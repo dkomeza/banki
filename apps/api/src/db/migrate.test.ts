@@ -292,7 +292,7 @@ test("0014_grading_notes keeps every Card, with no Grading notes", () => {
   ]);
 });
 
-test("0015_progress_resets keeps every Card and Review, with no Progress reset", () => {
+test("0015_progress_resets keeps every Card and Review, numbered in order, with no Progress reset", () => {
   const journalPath = join(folder, "meta", "_journal.json");
   const full = readFileSync(journalPath, "utf8");
   const journal = z
@@ -318,6 +318,13 @@ test("0015_progress_resets keeps every Card and Review, with no Progress reset",
   opened.db.run(
     sql`INSERT INTO review (id, user_id, card_id, deck_id, reviewed_at, rating, kind, duration_ms, card_before) VALUES ('r', 'u', 'c', 'd', 0, 'good', 'self-rated', 0, '{}')`,
   );
+  // Written later at an earlier moment, and at the same moment, as far as rowid tells.
+  opened.db.run(
+    sql`INSERT INTO review (id, user_id, card_id, deck_id, reviewed_at, rating, kind, duration_ms, card_before) VALUES ('r0', 'u', 'c', 'd', -1, 'good', 'self-rated', 0, '{}')`,
+  );
+  opened.db.run(
+    sql`INSERT INTO review (id, user_id, card_id, deck_id, reviewed_at, rating, kind, duration_ms, card_before) VALUES ('r1', 'u', 'c', 'd', 0, 'good', 'self-rated', 0, '{}')`,
+  );
 
   writeFileSync(journalPath, full);
   expect(applyMigrations(opened.db, folder)).toEqual(
@@ -325,6 +332,10 @@ test("0015_progress_resets keeps every Card and Review, with no Progress reset",
   );
 
   expect(opened.db.values(sql`SELECT id, state FROM card`)).toEqual([["c", "review"]]);
-  expect(opened.db.values(sql`SELECT id FROM review`)).toEqual([["r"]]);
+  expect(opened.db.values(sql`SELECT id, seq FROM review ORDER BY seq`)).toEqual([
+    ["r0", 1],
+    ["r", 2],
+    ["r1", 3],
+  ]);
   expect(opened.db.values(sql`SELECT id FROM progress_reset`)).toEqual([]);
 });

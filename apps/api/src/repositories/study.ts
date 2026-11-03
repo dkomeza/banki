@@ -9,9 +9,9 @@ import {
   studyDayBounds,
   studyDayOf,
 } from "@banki/shared";
-import { and, eq, gte, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { and, eq, gt, gte, isNull, lt, ne, or, sql } from "drizzle-orm";
 import type { Queryable } from "../db/database";
-import { card, review, user_settings } from "../db/schema";
+import { card, progress_reset, review, user_settings } from "../db/schema";
 import { ESTIMATE_WINDOW_DAYS, cardDayAverages, estimateMs } from "../scheduling/estimate";
 import { previewIntervals, restore, scheduleOf } from "../scheduling/fsrs";
 import { type QueueLimits, type QueueProgress, nextInQueue } from "../scheduling/queue";
@@ -205,9 +205,11 @@ export function createStudyRepository(db: Queryable) {
      * when the Deck's Desired retention changed since (`restore`). Answers the
      * Card, its restored schedule and each Rating's Interval preview at `now`.
      * "not_newest" when the Card has a newer Review;
-     * "before_progress_reset" when, its newest, it was given before the Card's newest
-     * Progress reset (ADR-0026), whose state restoring it would undo too; "not_found" for a missing Review,
-     * another User's, or one whose Card is deleted or in a deleted Deck.
+     * "before_progress_reset" when, its newest, it was given before the Card's
+     * newest Progress reset (ADR-0026), whose state restoring it would undo
+     * too. Both go by the User's write order (`seq`), never by clocks, which
+     * can tie or step back. "not_found" for a missing Review, another User's,
+     * or one whose Card is deleted or in a deleted Deck.
      * `now` is for tests.
      */
     undo(
@@ -225,11 +227,21 @@ export function createStudyRepository(db: Queryable) {
           if (undone === undefined) return "not_found";
           const found = findIn(tx, userId, undone.cardId);
           if (found === undefined) return "not_found";
-          if (lastReviewOf(tx, userId, undone.cardId)?.id !== reviewId) return "not_newest";
-          // A Rating never leaves a Card New, so a Card New after its newest
-          // Review was put back by a Progress reset since: read from its
-          // state, not from clocks, which can tie or step back.
-          if (!found.studied) return "before_progress_reset";
+          const newest = lastReviewOf(tx, userId, undone.cardId);
+          if (newest?.id !== reviewId) return "not_newest";
+          const resetSince = tx
+            .select({ id: progress_reset.id })
+            .from(progress_reset)
+            .where(
+              and(
+                eq(progress_reset.userId, userId),
+                eq(progress_reset.cardId, undone.cardId),
+                gt(progress_reset.seq, newest.seq),
+              ),
+            )
+            .limit(1)
+            .get();
+          if (resetSince !== undefined) return "before_progress_reset";
 
           tx.delete(review)
             .where(and(eq(review.userId, userId), eq(review.id, reviewId)))
