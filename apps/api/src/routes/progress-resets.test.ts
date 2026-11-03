@@ -310,6 +310,29 @@ describe("GET /api/cards/:id/intervals", () => {
     }
   });
 
+  test("goes by the Deck's own Desired retention, not the one in Settings", async () => {
+    setSystemTime(new Date("2026-05-01T10:00:00Z"));
+    const { app, cookie, deckId, cardId } = await signedIn();
+    const learning = await rate(app, cookie, cardId);
+    setSystemTime(new Date(learning.schedule.due ?? ""));
+    await rate(app, cookie, cardId);
+    const following = IntervalPreviews.parse(await (await intervals(app, cookie, cardId)).json());
+    await send(app, "PATCH", `/api/decks/${deckId}`, { desiredRetention: 70 }, cookie);
+
+    const res = await intervals(app, cookie, cardId);
+    const own = IntervalPreviews.parse(await res.json());
+
+    expect(own.good.scheduledDays).toBeGreaterThan(following.good.scheduledDays);
+    for (const rating of RATINGS) {
+      const given = await rate(app, cookie, cardId, rating);
+      expect(given.schedule).toMatchObject({
+        state: own[rating].state,
+        scheduledDays: own[rating].scheduledDays,
+      });
+      await send(app, "DELETE", `/api/reviews/${given.review.id}`, undefined, cookie);
+    }
+  });
+
   test("after a reset, answers a New Card's previews, as study/next shows them", async () => {
     setSystemTime(new Date("2026-05-01T10:00:00Z"));
     const { app, cookie, deckId, cardId } = await signedIn();

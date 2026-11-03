@@ -817,21 +817,6 @@
         }
       },
       "indexes": {
-        "review_user_id": {
-          "name": "review_user_id",
-          "columns": [
-            "user_id"
-          ],
-          "isUnique": false
-        },
-        "review_card_id_reviewed_at": {
-          "name": "review_card_id_reviewed_at",
-          "columns": [
-            "card_id",
-            "reviewed_at"
-          ],
-          "isUnique": false
-        },
         "review_card_id_user_id_seq": {
           "name": "review_card_id_user_id_seq",
           "columns": [

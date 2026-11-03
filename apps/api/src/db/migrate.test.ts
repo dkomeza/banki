@@ -382,3 +382,13 @@ test("a Card's newest Review and its Progress resets since are found through the
     "SEARCH progress_reset USING INDEX progress_reset_card_id_user_id_seq (card_id=? AND user_id=? AND seq>?)",
   ]);
 });
+
+test("0015 leaves the review table only the indexes a query uses", () => {
+  applyMigrations(opened.db, folder);
+
+  expect(
+    opened.db.values(
+      sql`SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'review' AND sql IS NOT NULL ORDER BY name`,
+    ),
+  ).toEqual([["review_card_id_user_id_seq"], ["review_deck_id"], ["review_user_id_seq"]]);
+});

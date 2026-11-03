@@ -247,8 +247,6 @@ export const review = sqliteTable(
   },
   (table) => [
     check("review_duration_ms", sql`${table.durationMs} >= 0`),
-    index("review_user_id").on(table.userId),
-    index("review_card_id_reviewed_at").on(table.cardId, table.reviewedAt),
     index("review_card_id_user_id_seq").on(table.cardId, table.userId, table.seq),
     index("review_deck_id").on(table.deckId),
     uniqueIndex("review_user_id_seq").on(table.userId, table.seq),
