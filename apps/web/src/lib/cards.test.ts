@@ -3,6 +3,7 @@ import { describe, expect, test, vi } from "vitest";
 import { createApiClient } from "./api";
 import {
   type Card,
+  type CardOutcome,
   cardCountLabel,
   cardQueryOptions,
   cardsQueryOptions,
@@ -16,7 +17,9 @@ import {
   hasUnsavedChanges,
   moveCards,
   sideProblem,
+  editUnsaved,
   resetOnSave,
+  saveCardEdit,
   updateCard,
 } from "./cards";
 import { CANT_REACH } from "./decks";
@@ -250,6 +253,83 @@ describe("resetOnSave", () => {
     expect(resetOnSave(studied, true)).toBe(true);
     expect(resetOnSave(studied, false)).toBe(false);
     expect(resetOnSave(card("c1"), true)).toBe(false);
+  });
+});
+
+describe("editUnsaved", () => {
+  const studied = { ...card("c1", "f", "b", ["food"]), studied: true };
+  const as = (changes: Partial<Parameters<typeof editUnsaved>[1]>) =>
+    editUnsaved(studied, {
+      fieldsUnsaved: false,
+      tags: ["food"],
+      draft: "",
+      ticked: false,
+      ...changes,
+    });
+
+  test("nothing changed is nothing unsaved", () => {
+    expect(as({})).toBe(false);
+    expect(as({ draft: "  " })).toBe(false);
+  });
+
+  test("a changed field, Tag or Tag being typed is unsaved", () => {
+    expect(as({ fieldsUnsaved: true })).toBe(true);
+    expect(as({ tags: ["food", "verbs"] })).toBe(true);
+    expect(as({ draft: "verbs" })).toBe(true);
+  });
+
+  test("a ticked Reset progress is unsaved on a studied Card only", () => {
+    expect(as({ ticked: true })).toBe(true);
+    expect(
+      editUnsaved(card("c1"), { fieldsUnsaved: false, tags: [], draft: "", ticked: true }),
+    ).toBe(false);
+  });
+});
+
+function cardSaving(outcome: CardOutcome) {
+  const sent: { resetProgress: boolean }[] = [];
+  const saved: [string, boolean][] = [];
+  return {
+    sent,
+    saved,
+    update: async (options: { resetProgress: boolean }) => {
+      sent.push(options);
+      return outcome;
+    },
+    onSaved: async (savedCard: Card, progressReset: boolean) => {
+      saved.push([savedCard.front, progressReset]);
+    },
+  };
+}
+
+describe("saveCardEdit", () => {
+  const studied = { ...card("c1"), studied: true };
+
+  test("sends a Progress reset when ticked on a studied Card, and says so once saved", async () => {
+    const s = cardSaving({ ok: true, card: card("c1", "f2") });
+    await saveCardEdit(studied, true, s.update, s.onSaved);
+    expect(s.sent).toEqual([{ resetProgress: true }]);
+    expect(s.saved).toEqual([["f2", true]]);
+  });
+
+  test("sends none unticked, or on a New Card", async () => {
+    const unticked = cardSaving({ ok: true, card: studied });
+    await saveCardEdit(studied, false, unticked.update, unticked.onSaved);
+    expect(unticked.sent).toEqual([{ resetProgress: false }]);
+    expect(unticked.saved).toEqual([["f", false]]);
+
+    const fresh = cardSaving({ ok: true, card: card("c1") });
+    await saveCardEdit(card("c1"), true, fresh.update, fresh.onSaved);
+    expect(fresh.sent).toEqual([{ resetProgress: false }]);
+  });
+
+  test("one that didn't save answers why, and goes nowhere", async () => {
+    const s = cardSaving({ ok: false, message: "offline" });
+    expect(await saveCardEdit(studied, true, s.update, s.onSaved)).toEqual({
+      ok: false,
+      message: "offline",
+    });
+    expect(s.saved).toEqual([]);
   });
 });
 

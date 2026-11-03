@@ -1,7 +1,7 @@
 import type { IntervalPreviews, QueueKind, Rating } from "@banki/shared";
 import { describe, expect, test, vi } from "vitest";
 import { createApiClient } from "./api";
-import type { Card } from "./cards";
+import type { Card, CardOutcome } from "./cards";
 import {
   CARD_GONE,
   EDITOR_FAILED,
@@ -23,6 +23,7 @@ import {
   formatInterval,
   keyAction,
   recallPercent,
+  saveStudyEdit,
   spentLabel,
   studyApi,
   summaryOf,
@@ -1370,11 +1371,189 @@ describe("editing the shown Card", () => {
     expect(session.edit()).toBe(false);
     for (const update of later.splice(0)) update();
 
-    // The next Card comes before the closing frame does.
+    // The next Card comes before the closing frame does, and the editor doesn't open on it.
     await session.closeGone();
     expect(session.getState().shown?.card.id).toBe("b");
+    expect(session.getState().editing).toBe(false);
     for (const update of later.splice(0)) update();
     expect(session.getState()).toMatchObject({ editing: false, skipping: false, editable: true });
+  });
+});
+
+/** A Session showing `a` just reset, its fresh previews failed. */
+async function resetFailed(queue: NextCard[]) {
+  const t = setUp(queue);
+  await t.session.start();
+  t.session.edit();
+  t.fail.intervals = true;
+  await t.session.saveEdit(edited("a", "a"), { progressReset: true });
+  expect(t.state().failure).toBe(INTERVALS_FAILED);
+  return t;
+}
+
+describe("after a Progress reset", () => {
+  test("Try again finding the Card deleted meanwhile skips it with a message, and loads the one after it", async () => {
+    const t = await resetFailed([next("a"), next("b")]);
+    t.fail.intervals = "gone";
+    t.session.retry();
+    expect(t.state()).toMatchObject({ refreshing: true });
+    await flush();
+
+    expect(t.messages).toEqual([CARD_GONE]);
+    expect(t.shownId()).toBe("b");
+    expect(t.calls.next.at(-1)).toEqual({ reviewsShown: 0, newShown: 1, batches: 1, after: "a" });
+    expect(t.state()).toMatchObject({ refreshing: false, skipping: false, failure: undefined });
+  });
+
+  test("Try again's answer changes nothing once another Card shows (started again)", async () => {
+    const t = await resetFailed([next("a"), next("b")]);
+    const answer = deferred<IntervalPreviews>();
+    t.api.intervals = () => answer.promise;
+    t.session.retry();
+    t.session.stop();
+    await t.session.start();
+    expect(t.shownId()).toBe("b");
+
+    answer.resolve(intervals("a-fresh"));
+    await flush();
+    expect(t.shownId()).toBe("b");
+    expect(t.state().shown?.intervals).toEqual(intervals("b"));
+    expect(t.state()).toMatchObject({ refreshing: false, progressReset: false });
+  });
+
+  test("turns the Intervals over on the close that follows it only", async () => {
+    const t = setUp([next("a", "review"), next("b")]);
+    await t.session.start();
+    t.session.edit();
+    await t.session.saveEdit(edited("a", "a"), { progressReset: true });
+    expect(t.state()).toMatchObject({ progressReset: true, turning: true });
+
+    t.session.edit();
+    expect(t.state().turning).toBe(false);
+    t.session.cancelEdit();
+    expect(t.state()).toMatchObject({ progressReset: true, turning: false });
+  });
+});
+
+describe("editing while a Rating didn't save", () => {
+  test("a Save keeps it, and Try again sends it as it was", async () => {
+    const t = setUp([next("a"), next("b")]);
+    await t.session.start();
+    t.session.reveal();
+    t.wait(3000);
+    t.fail.rate = true;
+    t.session.rate("good");
+    await flush();
+    expect(t.state()).toMatchObject({ failure: RATE_FAILED, editable: true });
+
+    t.session.edit();
+    await t.session.saveEdit(edited("a", "a2"), { progressReset: false });
+    expect(t.state()).toMatchObject({ failure: RATE_FAILED, ratable: true });
+
+    t.fail.rate = false;
+    t.session.retry();
+    await flush();
+    expect(t.calls.rate).toEqual([
+      { cardId: "a", rating: "good", durationMs: 3000 },
+      { cardId: "a", rating: "good", durationMs: 3000 },
+    ]);
+    expect(t.shownId()).toBe("b");
+  });
+
+  test("a Progress reset drops it: Try again sends nothing, and the Card is rated afresh", async () => {
+    const t = setUp([next("a", "review"), next("b")]);
+    await t.session.start();
+    t.session.reveal();
+    t.fail.rate = true;
+    t.session.rate("good");
+    await flush();
+
+    t.session.edit();
+    await t.session.saveEdit(edited("a", "a"), { progressReset: true });
+    expect(t.state()).toMatchObject({ failure: undefined, ratable: true, progressReset: true });
+
+    t.fail.rate = false;
+    t.session.retry();
+    await flush();
+    expect(t.calls.rate).toHaveLength(1);
+    t.session.rate("again");
+    await flush();
+    expect(t.calls.rate.at(-1)).toMatchObject({ cardId: "a", rating: "again" });
+  });
+});
+
+describe("a stopped Session", () => {
+  test("loads no next Card for one gone from the editor", async () => {
+    const t = setUp([next("a"), next("b")]);
+    await t.session.start();
+    t.session.edit();
+    t.session.stop();
+    await t.session.closeGone();
+
+    expect(t.calls.next).toHaveLength(1);
+    expect(t.shownId()).toBe("a");
+  });
+
+  test("shows no next Card that answers after it stopped", async () => {
+    const t = setUp([next("a"), next("b")]);
+    await t.session.start();
+    const answer = deferred<{ next: NextCard; newHeld: number }>();
+    t.api.next = () => answer.promise;
+    t.session.edit();
+    const gone = t.session.closeGone();
+    t.session.stop();
+    answer.resolve({ next: next("b"), newHeld: 0 });
+    await gone;
+
+    expect(t.shownId()).toBe("a");
+  });
+});
+
+function studySaving(outcome: CardOutcome) {
+  const steps: string[] = [];
+  const sent: { resetProgress: boolean }[] = [];
+  const session = {
+    saveEdit: vi.fn(async (savedCard: Card, options: { progressReset: boolean }) => {
+      steps.push(`saveEdit ${savedCard.front} ${options.progressReset}`);
+    }),
+  };
+  const update = async (options: { resetProgress: boolean }) => {
+    sent.push(options);
+    return outcome;
+  };
+  return { steps, sent, session, update, saved: () => steps.push("saved") };
+}
+
+describe("saveStudyEdit", () => {
+  const studied = edited("a", "a", true);
+
+  test("a ticked Reset progress on a studied Card resets it, and closes the editor on it reset", async () => {
+    const s = studySaving({ ok: true, card: edited("a", "a2") });
+    await saveStudyEdit(s.session, studied, true, s.update, s.saved);
+
+    expect(s.sent).toEqual([{ resetProgress: true }]);
+    expect(s.steps).toEqual(["saved", "saveEdit a2 true"]);
+  });
+
+  test("unticked, or on a New Card, it only saves the edit", async () => {
+    const unticked = studySaving({ ok: true, card: studied });
+    await saveStudyEdit(unticked.session, studied, false, unticked.update, unticked.saved);
+    expect(unticked.sent).toEqual([{ resetProgress: false }]);
+    expect(unticked.steps).toEqual(["saved", "saveEdit a false"]);
+
+    const fresh = studySaving({ ok: true, card: edited("a", "a") });
+    await saveStudyEdit(fresh.session, edited("a", "a"), true, fresh.update, fresh.saved);
+    expect(fresh.sent).toEqual([{ resetProgress: false }]);
+    expect(fresh.steps).toEqual(["saved", "saveEdit a false"]);
+  });
+
+  test("one that didn't save leaves the editor open and answers why", async () => {
+    const s = studySaving({ ok: false, notFound: true });
+    expect(await saveStudyEdit(s.session, studied, true, s.update, s.saved)).toEqual({
+      ok: false,
+      notFound: true,
+    });
+    expect(s.steps).toEqual([]);
   });
 });
 
@@ -1492,6 +1671,18 @@ describe("opening the editor once the Deck's Cards are in", () => {
     t.opener.open();
     await flush();
     expect(t.failures).toEqual([]);
+  });
+
+  test("mounted again after the screen went, opens as before", async () => {
+    const t = opening([next("a")]);
+    await t.session.start();
+    t.opener.stop();
+    t.opener.start();
+    t.cached();
+    t.opener.open();
+    await flush();
+
+    expect(t.state().editing).toBe(true);
   });
 
   test("a stopped Session doesn't open the editor", async () => {

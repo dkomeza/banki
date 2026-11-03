@@ -340,7 +340,9 @@ export function Dock({ session, state }: { session: StudySession; state: StudySt
     >
       <div className="mx-auto flex w-full max-w-2xl flex-col gap-2 px-3 pt-3 sm:px-6">
         {/* In the dock, not above the Front, so the Card doesn't move when it comes back. */}
-        {state.progressReset && state.failure === undefined && !state.refreshing && <ResetNote />}
+        {state.progressReset && state.failure === undefined && !state.refreshing && (
+          <ResetNote turning={state.turning} />
+        )}
         {state.undone && state.failure === undefined && (
           <p className="text-center text-xs font-medium text-muted-foreground">
             Back from Undo: rate it again
@@ -376,10 +378,8 @@ export function Dock({ session, state }: { session: StudySession; state: StudySt
                 )}
               >
                 <span
-                  // A reset Card's Intervals turn over one by one as the dock comes back.
-                  style={
-                    state.progressReset ? { viewTransitionName: `interval-${rating}` } : undefined
-                  }
+                  // A reset Card's Intervals turn over one by one as the dock comes back, once.
+                  style={state.turning ? { viewTransitionName: `interval-${rating}` } : undefined}
                   className="flex h-7 items-center text-lg font-semibold tabular-nums [view-transition-class:interval]"
                 >
                   {state.saving === rating ? (

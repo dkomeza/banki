@@ -11,10 +11,9 @@ import { useTagInput } from "@/components/cards/tag-field";
 import { useFinePointer } from "@/components/folders/drag";
 import { OUTLINE_PILL, PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
-import { type Card, fieldsOf, resetOnSave, updateCard } from "@/lib/cards";
+import { type Card, editUnsaved, fieldsOf, updateCard } from "@/lib/cards";
 import type { Deck } from "@/lib/decks";
-import { type StudySession, editorCloseAction, editorEscAction } from "@/lib/study";
-import { tagsChanged } from "@/lib/tags";
+import { type StudySession, editorCloseAction, editorEscAction, saveStudyEdit } from "@/lib/study";
 import { cn } from "@/lib/utils";
 
 // Editing the shown Card over the study screen ("Morph"): Edit sits beside
@@ -44,10 +43,15 @@ export function EditButton({ disabled, onClick }: { disabled: boolean; onClick: 
   );
 }
 
-/** In the dock, over a Card just put back to New: a quiet accent chip. */
-export function ResetNote() {
+/** In the dock, over a Card just put back to New: a quiet accent chip, popping in as it first shows (`turning`). */
+export function ResetNote({ turning = false }: { turning?: boolean }) {
   return (
-    <p className="mx-auto flex w-fit items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary [view-transition-name:reset-note]">
+    <p
+      className={cn(
+        "mx-auto flex w-fit items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary",
+        turning && "[view-transition-name:reset-note]",
+      )}
+    >
       <RotateCcw aria-hidden className="size-3.5" />
       Back to New: these are a new card's intervals
     </p>
@@ -96,10 +100,12 @@ export function StudyEditor({
   // A ticked Reset progress is unsaved too.
   const unsaved =
     !gone &&
-    (form.unsaved ||
-      tagsChanged(tags.tags, card.tags) ||
-      tags.draft.trim() !== "" ||
-      resetOnSave(card, reset));
+    editUnsaved(card, {
+      fieldsUnsaved: form.unsaved,
+      tags: tags.tags,
+      draft: tags.draft,
+      ticked: reset,
+    });
   // Leaving the study screen with something unsaved asks too.
   const guard = useDiscardGuard(unsaved);
   const busy = useRef(false);
@@ -121,15 +127,14 @@ export function StudyEditor({
     busy.current = true;
     setSaving(true);
     setFormError(undefined);
-    const resetProgress = resetOnSave(card, reset);
-    const outcome = await updateCard(queryClient, card.id, form.fields, nextTags, {
-      resetProgress,
-    });
-    if (outcome.ok) {
-      guard.release();
-      await session.saveEdit(outcome.card, { progressReset: resetProgress });
-      return;
-    }
+    const outcome = await saveStudyEdit(
+      session,
+      card,
+      reset,
+      (options) => updateCard(queryClient, card.id, form.fields, nextTags, options),
+      guard.release,
+    );
+    if (outcome.ok) return;
     busy.current = false;
     setSaving(false);
     if ("errors" in outcome) form.setErrors(outcome.errors);
@@ -245,9 +250,13 @@ export function StudyEditor({
             onSave={() => void save()}
             className="rounded-none border-0 bg-transparent px-4 shadow-none sm:px-6"
             beforeFoot={
-              card.studied ? (
-                <ResetProgress stacked checked={reset} onChange={setReset} disabled={saving} />
-              ) : undefined
+              <ResetProgress
+                stacked
+                card={card}
+                checked={reset}
+                onChange={setReset}
+                disabled={saving}
+              />
             }
             foot={
               <>

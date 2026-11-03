@@ -18,13 +18,14 @@ import {
   type Card,
   cardQueryOptions,
   cardsQueryOptions,
+  editUnsaved,
   fieldsOf,
-  resetOnSave,
+  saveCardEdit,
   updateCard,
 } from "@/lib/cards";
 import { type Deck, deckQueryOptions } from "@/lib/decks";
 import { ensureLibrary } from "@/lib/folders";
-import { rememberedDeckSearch, tagsChanged, tagsQueryOptions } from "@/lib/tags";
+import { rememberedDeckSearch, tagsQueryOptions } from "@/lib/tags";
 import { cn } from "@/lib/utils";
 
 // The edit-card page, at a URL that doesn't name the Deck, so it outlasts a
@@ -91,13 +92,17 @@ function EditCard({ deck, card }: { deck: Deck; card: Card }) {
   const [reset, setReset] = useState(false);
   // A ticked Reset progress is unsaved too.
   const guard = useDiscardGuard(
-    form.unsaved ||
-      tagsChanged(tags.tags, card.tags) ||
-      tags.draft.trim() !== "" ||
-      resetOnSave(card, reset),
+    editUnsaved(card, {
+      fieldsUnsaved: form.unsaved,
+      tags: tags.tags,
+      draft: tags.draft,
+      ticked: reset,
+    }),
   );
   const [formError, setFormError] = useState<string>();
   const saving = useRef(false);
+  // So Reset progress can't change while the Save that carries it is on its way.
+  const [savingShown, setSavingShown] = useState(false);
   const toDeck = () =>
     navigate({
       to: "/decks/$deckId",
@@ -110,16 +115,20 @@ function EditCard({ deck, card }: { deck: Deck; card: Card }) {
     const nextTags = tags.commit();
     if (nextTags === false) return;
     saving.current = true;
+    setSavingShown(true);
     setFormError(undefined);
-    const outcome = await updateCard(queryClient, card.id, form.fields, nextTags, {
-      resetProgress: resetOnSave(card, reset),
-    });
+    const outcome = await saveCardEdit(
+      card,
+      reset,
+      (options) => updateCard(queryClient, card.id, form.fields, nextTags, options),
+      async () => {
+        guard.release();
+        await toDeck();
+      },
+    );
     saving.current = false;
-    if (outcome.ok) {
-      guard.release();
-      await toDeck();
-      return;
-    }
+    setSavingShown(false);
+    if (outcome.ok) return;
     if ("errors" in outcome) form.setErrors(outcome.errors);
     else if ("notFound" in outcome) setFormError("This card, or its deck, was deleted meanwhile.");
     else setFormError(outcome.message);
@@ -143,7 +152,7 @@ function EditCard({ deck, card }: { deck: Deck; card: Card }) {
         tags={tags}
         onSave={() => void save()}
         beforeFoot={
-          card.studied ? <ResetProgress checked={reset} onChange={setReset} /> : undefined
+          <ResetProgress card={card} checked={reset} onChange={setReset} disabled={savingShown} />
         }
         foot={
           <>

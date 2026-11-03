@@ -13,6 +13,7 @@ import { CANT_REACH, deckQueryOptions, decksQueryOptions } from "./decks";
 import { deletionIdOf, deletionsQueryOptions } from "./deletions";
 import { ApiRequestError } from "./query";
 import { studyOverviewQueryOptions } from "./study-overview";
+import { tagsChanged } from "./tags";
 
 export type Card = CardResponse;
 
@@ -127,6 +128,40 @@ export const hasUnsavedChanges = (fields: CardFields, saved: CardFields) =>
  * on a studied Card. A New Card never shows the tick, so it never resets.
  */
 export const resetOnSave = (card: Card, ticked: boolean) => card.studied && ticked;
+
+/**
+ * Whether an editor of `card` holds something unsaved: its fields
+ * (`fieldsUnsaved`), its Tags or a Tag still being typed (`draft`), or a
+ * Reset progress ticked on it (`ticked`) that Save would carry out.
+ */
+export const editUnsaved = (
+  card: Card,
+  {
+    fieldsUnsaved,
+    tags,
+    draft,
+    ticked,
+  }: { fieldsUnsaved: boolean; tags: readonly string[]; draft: string; ticked: boolean },
+) =>
+  fieldsUnsaved || tagsChanged(tags, card.tags) || draft.trim() !== "" || resetOnSave(card, ticked);
+
+/**
+ * Save in an editor of `card`: `update` writes it, with a Progress reset
+ * when Reset progress is ticked on a studied Card (`resetOnSave`); once it
+ * saved, `saved` gets the Card as saved and whether it was reset. Answers how
+ * it went.
+ */
+export async function saveCardEdit(
+  card: Card,
+  ticked: boolean,
+  update: (options: { resetProgress: boolean }) => Promise<CardOutcome>,
+  saved: (card: Card, progressReset: boolean) => Promise<unknown>,
+): Promise<CardOutcome> {
+  const resetProgress = resetOnSave(card, ticked);
+  const outcome = await update({ resetProgress });
+  if (outcome.ok) await saved(outcome.card, resetProgress);
+  return outcome;
+}
 
 export type CardOutcome =
   | { ok: true; card: Card }

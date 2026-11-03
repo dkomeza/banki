@@ -10,7 +10,7 @@ import {
   UndoReviewResponse,
 } from "@banki/shared";
 import { type ApiClient, api } from "./api";
-import type { Card } from "./cards";
+import { type Card, type CardOutcome, saveCardEdit } from "./cards";
 
 // The study screen's Session (CONTEXT.md: Session, Queue, Interval, New-card
 // batch): it walks a Deck's Queue Card by Card, asking the API for each next
@@ -253,6 +253,8 @@ export type StudyState = {
   editable: boolean;
   /** Set when the shown Card was just put back to New from the editor, until it is rated. */
   progressReset: boolean;
+  /** Set on the close that follows a Progress reset alone, so its Intervals turn over once. */
+  turning: boolean;
   /** Set while the Card after one deleted from the editor is on its way. */
   skipping: boolean;
   /** Set while a reset Card's previews load again (Try again). */
@@ -321,6 +323,7 @@ export function createStudySession({
     editing: false,
     editable: false,
     progressReset: false,
+    turning: false,
     skipping: false,
     refreshing: false,
   };
@@ -413,7 +416,10 @@ export function createStudySession({
         newHeld,
         loadingMore: false,
         progressReset: false,
+        turning: false,
         skipping: false,
+        // Closed a frame ago (closeEditor), it doesn't open on what follows.
+        editing: state.editing && editorOpen,
       });
       return;
     }
@@ -434,18 +440,28 @@ export function createStudySession({
       undone: false,
       loadingMore: false,
       progressReset: false,
+      turning: false,
       skipping: false,
+      // Closed a frame ago (closeEditor), it doesn't open on the next Card.
+      editing: state.editing && editorOpen,
     });
   };
 
   /** Loads and shows the Card after `after`; on failure, says so on the Card still shown. */
   const loadNext = async (after: string | undefined) => {
+    // Gone from the screen, or started again since: nothing is left to show it on.
+    if (stopped) return;
+    const mine = starts;
+    let answer: NextAnswer;
     try {
-      show(await client.next({ reviewsShown, newShown, batches, after }));
+      answer = await client.next({ reviewsShown, newShown, batches, after });
     } catch {
+      if (stopped || mine !== starts) return;
       failed = { kind: "next", after };
       set({ saving: undefined, skipping: false, failure: NEXT_FAILED });
+      return;
     }
+    if (!stopped && mine === starts) show(answer);
   };
 
   /** Loads another batch's first Card; on failure, says so and keeps the batches as they were. */
@@ -521,7 +537,7 @@ export function createStudySession({
     editorOpen = false;
     shownAt += now() - editedAt;
     // Gone from the screen, nothing is left to move.
-    if (!stopped) transition(() => set({ ...patch, editing: false }));
+    if (!stopped) transition(() => set({ turning: false, ...patch, editing: false }));
   };
 
   const save = async (rating: Rating, durationMs: number) => {
@@ -630,6 +646,7 @@ export function createStudySession({
         failure: undefined,
         undone: true,
         progressReset: false,
+        turning: false,
       });
     },
     /**
@@ -641,7 +658,7 @@ export function createStudySession({
       if (stopped || !state.editable || editorOpen) return false;
       editorOpen = true;
       editedAt = now();
-      transition(() => set({ editing: true }));
+      transition(() => set({ editing: true, turning: false }));
       return true;
     },
     /** Closes the editor, the Card shown as it was. */
@@ -686,6 +703,7 @@ export function createStudySession({
         revealed: true,
         undone: false,
         progressReset: true,
+        turning: true,
         failure: fresh === undefined ? INTERVALS_FAILED : undefined,
       });
     },
@@ -727,6 +745,25 @@ export function createStudySession({
 }
 
 export type StudySession = ReturnType<typeof createStudySession>;
+
+/**
+ * Save in the study editor: writes the shown Card `card` (`saveCardEdit`,
+ * with a Progress reset when ticked on a studied one), then, once `saved`
+ * has run (the discard guard letting go), closes the editor on it as saved,
+ * reset or not (`saveEdit`). Answers how it went; one that didn't save
+ * leaves the editor open.
+ */
+export const saveStudyEdit = (
+  session: Pick<StudySession, "saveEdit">,
+  card: Card,
+  ticked: boolean,
+  update: (options: { resetProgress: boolean }) => Promise<CardOutcome>,
+  saved: () => void,
+): Promise<CardOutcome> =>
+  saveCardEdit(card, ticked, update, async (savedCard, progressReset) => {
+    saved();
+    await session.saveEdit(savedCard, { progressReset });
+  });
 
 /**
  * Opens the editor on the shown Card once `ready` (the Deck's Cards the

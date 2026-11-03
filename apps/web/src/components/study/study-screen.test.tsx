@@ -54,6 +54,7 @@ const DONE: StudyState = {
   editing: false,
   editable: false,
   progressReset: false,
+  turning: false,
   skipping: false,
   refreshing: false,
 };
@@ -141,6 +142,11 @@ describe("Dock", () => {
       },
     },
   };
+  /** The `view-transition-name`s the Dock gives out over `state`. */
+  const names = (state: Partial<StudyState>) =>
+    renderToStaticMarkup(<Dock session={IDLE} state={{ ...DONE, ...state }} />).match(
+      /view-transition-name:[a-z-]+/g,
+    ) ?? [];
   const dock = (state: Partial<StudyState>) =>
     text(renderToStaticMarkup(<Dock session={IDLE} state={{ ...DONE, ...state }} />));
 
@@ -150,5 +156,21 @@ describe("Dock", () => {
 
   test("not while Try again loads them, as the old ones still show", () => {
     expect(dock({ ...RESET, refreshing: true })).not.toContain("Back to New");
+  });
+
+  test("the Intervals and the note turn over on the close after the reset only", () => {
+    expect(names({ ...RESET, turning: true })).toEqual(
+      expect.arrayContaining([
+        "view-transition-name:interval-again",
+        "view-transition-name:interval-easy",
+        "view-transition-name:reset-note",
+      ]),
+    );
+    expect(names({ ...RESET, turning: false })).not.toEqual(
+      expect.arrayContaining(["view-transition-name:interval-again"]),
+    );
+    expect(names({ ...RESET, turning: false })).not.toEqual(
+      expect.arrayContaining(["view-transition-name:reset-note"]),
+    );
   });
 });

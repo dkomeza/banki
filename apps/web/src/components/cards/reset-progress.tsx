@@ -1,25 +1,29 @@
 import { RotateCcw } from "lucide-react";
 import { marginIndent } from "@/components/cards/stacked";
+import type { Card } from "@/lib/cards";
 import { cn } from "@/lib/utils";
 
 /**
  * The Reset progress row under a studied Card's Tags (CONTEXT.md: Progress
  * reset): a bordered box, with a line on what a reset does, that takes the
  * accent when ticked, its arrow turning and its line saying what Save will do.
- * Never ticked by default.
+ * Never ticked by default, and not there at all on a New Card.
  */
 export function ResetProgress({
+  card,
   checked,
   onChange,
   disabled = false,
   stacked = false,
 }: {
+  card: Card;
   checked: boolean;
   onChange: (checked: boolean) => void;
   disabled?: boolean;
   /** In a narrow form, lined up with the fields as they are (`STACKED_ROW`). */
   stacked?: boolean;
 }) {
+  if (!card.studied) return null;
   return (
     <div className={marginIndent(stacked)}>
       <label
@@ -31,7 +35,7 @@ export function ResetProgress({
         <RotateCcw
           aria-hidden
           className={cn(
-            "size-4 shrink-0 transition-[transform,color] duration-500 ease-out motion-reduce:transition-none",
+            "size-4 shrink-0 transition-[rotate,color] duration-500 ease-out motion-reduce:transition-none",
             checked ? "-rotate-360 text-primary" : "text-muted-foreground",
           )}
         />
