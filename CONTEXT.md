@@ -89,7 +89,7 @@ How well the User recalled a Card: Again, Hard, Good or Easy. The User always gi
 _Avoid_: grade, score, ease
 
 **Review**:
-One Rating of one Card at one moment, with the time the User spent on it and whether it was self-rated or graded. Reviews are the Card's history: they are what FSRS learns from, and they outlive the Card. Undoing a Rating takes its Review back as if it had never been given.
+One Rating of one Card at one moment, with the time the User spent on it and whether it was self-rated or graded. Reviews are the Card's history: they are what FSRS learns from (since the Card's newest Progress reset), and they outlive the Card. Undoing a Rating takes its Review back as if it had never been given.
 _Avoid_: answer, attempt, repetition
 
 **Progress reset**:
@@ -109,7 +109,7 @@ The order in which a Session shows a Deck's Cards: due Cards most at risk first,
 _Avoid_: playlist, deck order, schedule
 
 **New card**:
-A Card with no Review: never rated, or every Rating of it undone. A Session introduces New cards a New-card batch at a time.
+A Card with no Review since its newest Progress reset: never rated, every Rating of it undone, or put back to New by a Progress reset. A Session introduces New cards a New-card batch at a time.
 _Avoid_: unseen card, fresh card
 
 **New-card batch**:

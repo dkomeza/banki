@@ -1,5 +1,7 @@
 # A Progress reset keeps the Reviews and is logged
 
+This amends ADR-0025: a Card's newest Review can be undone only when it was given after the Card's newest Progress reset.
+
 Editing a studied Card may put it back to New. That leaves its Reviews where they are, since they still count in statistics and Reviews never go but by Undo (ADR-0018, ADR-0025), and instead records the Progress reset itself, one row per reset with its Card and moment. Whatever learns from a Card's Reviews (FSRS tuning, a Card's memory state) starts from its newest Progress reset, and a Card's history shows each one in its place among the Reviews.
 
 ## Considered Options
@@ -10,5 +12,5 @@ Editing a studied Card may put it back to New. That leaves its Reviews where the
 
 ## Consequences
 
-- A Review given before its Card's newest Progress reset can't be undone: restoring the state it kept would undo the reset too.
+- A Review given before its Card's newest Progress reset can't be undone: restoring the state it kept would undo the Progress reset too.
 - FSRS tuning (M9) and per-card history (BAN-52) read the reset log alongside the Reviews.
