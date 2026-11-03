@@ -205,9 +205,9 @@ describe("updateCard", () => {
     const changed = card("c1", "new", "new back", ["noun"]);
     const { client, sent } = answering(() => Response.json(changed));
 
-    expect(await updateCard(queryClient, "c1", sides("new", "new back"), ["noun"], client)).toEqual(
-      { ok: true, card: changed },
-    );
+    expect(
+      await updateCard(queryClient, "c1", sides("new", "new back"), ["noun"], {}, client),
+    ).toEqual({ ok: true, card: changed });
     expect(sent[0]?.body).toEqual({
       front: "new",
       back: "new back",
@@ -225,10 +225,21 @@ describe("updateCard", () => {
       "c1",
       { ...sides("f", "b"), gradingNotes: " \n" },
       [],
+      {},
       client,
     );
 
     expect(sent[0]?.body).toMatchObject({ gradingNotes: null });
+  });
+
+  test("sends resetProgress only when asked", async () => {
+    const { client, sent } = answering(() => Response.json(card("c1")));
+
+    await updateCard(new QueryClient(), "c1", sides("f", "b"), [], { resetProgress: true }, client);
+    await updateCard(new QueryClient(), "c1", sides("f", "b"), [], {}, client);
+
+    expect(sent[0]?.body).toMatchObject({ resetProgress: true });
+    expect(sent[1]?.body).not.toHaveProperty("resetProgress");
   });
 });
 

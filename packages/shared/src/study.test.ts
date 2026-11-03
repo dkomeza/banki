@@ -69,6 +69,7 @@ describe("StudyNextResponse", () => {
     gradingNotes: null,
     createdAt: "2026-05-01T10:00:00.000Z",
     updatedAt: "2026-05-01T10:00:00.000Z",
+    studied: false,
   };
   const schedule = {
     state: "new",

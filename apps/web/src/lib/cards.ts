@@ -190,13 +190,15 @@ export async function createCard(
 
 /**
  * Changes a Card's sides, Tags and Grading notes with `PATCH /api/cards/:id`,
- * and says how it went.
+ * and says how it went. With `resetProgress`, the same change puts a studied
+ * Card back to New (a Progress reset).
  */
 export async function updateCard(
   queryClient: QueryClient,
   id: string,
   fields: CardFields,
   tags: readonly string[],
+  { resetProgress = false }: { resetProgress?: boolean } = {},
   client: ApiClient = api,
 ): Promise<CardOutcome> {
   const outcome = await outcomeOf(
@@ -204,7 +206,11 @@ export async function updateCard(
     () =>
       client.api.cards[":id"].$patch({
         param: { id },
-        json: { ...bodyOf(fields), tags: [...tags] },
+        json: {
+          ...bodyOf(fields),
+          tags: [...tags],
+          ...(resetProgress ? { resetProgress: true as const } : {}),
+        },
       }),
     "Banki couldn't save the card. Try again.",
   );

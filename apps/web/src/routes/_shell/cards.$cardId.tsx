@@ -7,6 +7,7 @@ import { FormError } from "@/components/auth-card";
 import { CardEditor, useCardForm } from "@/components/cards/card-editor";
 import { deleteWithUndo } from "@/components/cards/card-toasts";
 import { useDiscardGuard } from "@/components/cards/discard-guard";
+import { ResetProgress } from "@/components/cards/reset-progress";
 import { useTagInput } from "@/components/cards/tag-field";
 import { CardNotFound } from "@/components/not-found";
 import { Page } from "@/components/page";
@@ -21,7 +22,8 @@ import { cn } from "@/lib/utils";
 
 // The edit-card page, at a URL that doesn't name the Deck, so it outlasts a
 // move. Save writes both sides, the Grading notes and the Tags and goes back to the Deck, to the
-// list as it was last filtered there; Cancel goes back without writing; Delete deletes at once and goes back, with the Undo toast
+// list as it was last filtered there, putting a studied Card back to New too
+// when Reset progress is ticked (never by default); Cancel goes back without writing; Delete deletes at once and goes back, with the Undo toast
 // there. An unknown or deleted Card, or one whose Deck is deleted, shows
 // "Card not found".
 
@@ -83,6 +85,7 @@ function EditCard({ deck, card }: { deck: Deck; card: Card }) {
     form.unsaved || tagsChanged(tags.tags, card.tags) || tags.draft.trim() !== "",
   );
   const [formError, setFormError] = useState<string>();
+  const [reset, setReset] = useState(false);
   const saving = useRef(false);
   const toDeck = () =>
     navigate({
@@ -97,7 +100,9 @@ function EditCard({ deck, card }: { deck: Deck; card: Card }) {
     if (nextTags === false) return;
     saving.current = true;
     setFormError(undefined);
-    const outcome = await updateCard(queryClient, card.id, form.fields, nextTags);
+    const outcome = await updateCard(queryClient, card.id, form.fields, nextTags, {
+      resetProgress: card.studied && reset,
+    });
     saving.current = false;
     if (outcome.ok) {
       guard.release();
@@ -126,6 +131,9 @@ function EditCard({ deck, card }: { deck: Deck; card: Card }) {
         form={form}
         tags={tags}
         onSave={() => void save()}
+        beforeFoot={
+          card.studied ? <ResetProgress checked={reset} onChange={setReset} /> : undefined
+        }
         foot={
           <>
             <div className="flex min-w-0 flex-1 flex-col items-start gap-1">
@@ -150,7 +158,7 @@ function EditCard({ deck, card }: { deck: Deck; card: Card }) {
                 Cancel
               </Button>
               <Button type="submit" className={cn(PILL, "h-11 lg:h-10")} disabled={form.uploading}>
-                Save
+                {card.studied && reset ? "Save and reset" : "Save"}
               </Button>
             </div>
           </>

@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import type { Card } from "./cards";
 import {
   CARD_GONE,
+  INTERVALS_FAILED,
   MORE_FAILED,
   NEXT_FAILED,
   type NextCard,
@@ -119,9 +120,15 @@ function fakeApi(queue: NextCard[]) {
     next: [] as Progress[],
     rate: [] as { cardId: string; rating: Rating; durationMs: number }[],
     undo: [] as string[],
+    intervals: [] as string[],
   };
   let reviews = 0;
-  const fail = { next: false, rate: false as boolean | "gone", undo: false as boolean | "gone" };
+  const fail = {
+    next: false,
+    rate: false as boolean | "gone",
+    undo: false as boolean | "gone",
+    intervals: false as boolean | "gone",
+  };
   const held = { count: 0 };
   const api: StudyApi = {
     next: async (progress) => {
@@ -145,6 +152,12 @@ function fakeApi(queue: NextCard[]) {
       if (fail.undo) throw new Error("offline");
       const cardId = calls.rate.find((_, i) => `r${i + 1}` === reviewId)?.cardId ?? "?";
       return { card: card(cardId), intervals: intervals(`${cardId}-undone`) };
+    },
+    intervals: async (cardId) => {
+      calls.intervals.push(cardId);
+      if (fail.intervals === "gone") return "gone";
+      if (fail.intervals) throw new Error("offline");
+      return intervals(`${cardId}-fresh`);
     },
   };
   return { api, calls, fail, held, queue };
@@ -616,6 +629,26 @@ describe("keyAction", () => {
     }
   });
 
+  test("E edits a shown Card, revealed or not, and nothing else", () => {
+    for (const key of ["e", "E"]) {
+      for (const revealed of [false, true]) {
+        expect(keyAction(press(key), { showing: true, revealed, focus: undefined })).toEqual({
+          type: "edit",
+        });
+      }
+      expect(keyAction(press(key), { showing: false, revealed: false, focus: undefined })).toEqual({
+        type: "none",
+      });
+      expect(
+        keyAction(press(key, { ctrlKey: true }), {
+          showing: true,
+          revealed: true,
+          focus: undefined,
+        }),
+      ).toEqual({ type: "none" });
+    }
+  });
+
   test("Esc leaves", () => {
     expect(
       keyAction(press("Escape"), { showing: true, revealed: false, focus: undefined }),
@@ -873,5 +906,259 @@ describe("leaving the Session", () => {
     t.session.resume();
     expect(t.state().phase).toBe("card");
     expect(t.shownId()).toBe("c");
+  });
+});
+
+/** A Card as the editor saves it: `front` changed, studied or not. */
+const edited = (id: string, front: string, studied = false): Card => ({
+  ...card(id),
+  front,
+  studied,
+});
+
+describe("editing the shown Card", () => {
+  test("opens before or after the reveal, and turns the study actions off while open", async () => {
+    const t = setUp([next("a"), next("b")]);
+    await t.session.start();
+    expect(t.state()).toMatchObject({ editable: true, editing: false });
+
+    expect(t.session.edit()).toBe(true);
+    expect(t.state()).toMatchObject({ editing: true, editable: false, revealed: false });
+    t.session.cancelEdit();
+
+    t.session.reveal();
+    expect(t.session.edit()).toBe(true);
+    expect(t.state()).toMatchObject({ editing: true, ratable: false, revealed: true });
+
+    // Ratings and Undo wait while it is open.
+    t.session.rate("good");
+    await t.session.undo();
+    await flush();
+    expect(t.calls.rate).toEqual([]);
+    expect(t.calls.undo).toEqual([]);
+    expect(t.session.edit()).toBe(false);
+  });
+
+  test("can't open while a Rating or an Undo saves, or with no Card shown", async () => {
+    const t = setUp([next("a"), next("b")]);
+    t.fail.rate = true;
+    expect(t.session.edit()).toBe(false);
+    await t.session.start();
+    t.session.reveal();
+    t.session.rate("good");
+    expect(t.state().saving).toBe("good");
+    expect(t.session.edit()).toBe(false);
+    await flush();
+    t.fail.rate = false;
+    await revealAndRate(t, "good");
+
+    const undoing = t.session.undo();
+    expect(t.state().undoing).toBe(true);
+    expect(t.session.edit()).toBe(false);
+    await undoing;
+    expect(t.session.edit()).toBe(true);
+  });
+
+  test("keeps the counters, `after` and the Undo history: rate a Card, edit the next, undo the first", async () => {
+    const t = setUp([next("a", "review"), next("b"), next("c")]);
+    await t.session.start();
+    await revealAndRate(t, "good");
+    expect(t.shownId()).toBe("b");
+
+    t.session.edit();
+    await t.session.saveEdit(edited("b", "b edited"), { reset: false });
+    expect(t.state().shown?.card.front).toBe("b edited");
+    await revealAndRate(t, "easy");
+    expect(t.calls.next.at(-1)).toEqual({ reviewsShown: 1, newShown: 1, batches: 1, after: "b" });
+
+    await t.session.undo();
+    await t.session.undo();
+    expect(t.calls.undo).toEqual(["r2", "r1"]);
+    expect(t.shownId()).toBe("a");
+  });
+
+  test("Save shows the edited Card revealed or not as it was, its previews unchanged; Cancel shows it unchanged", async () => {
+    const t = setUp([next("a"), next("b")]);
+    await t.session.start();
+    t.session.edit();
+    await t.session.saveEdit(edited("a", "new front"), { reset: false });
+    expect(t.state()).toMatchObject({ editing: false, revealed: false, progressReset: false });
+    expect(t.state().shown).toEqual({
+      card: edited("a", "new front"),
+      kind: "new",
+      intervals: intervals("a"),
+    });
+
+    t.session.reveal();
+    t.session.edit();
+    t.session.cancelEdit();
+    expect(t.state()).toMatchObject({ editing: false, revealed: true, ratable: true });
+    expect(t.state().shown?.card.front).toBe("new front");
+    expect(t.calls.intervals).toEqual([]);
+  });
+
+  test("Save with a Progress reset shows the Card revealed with fresh previews, still counting by its first kind", async () => {
+    const t = setUp([next("a", "review"), next("b")]);
+    await t.session.start();
+    t.session.edit();
+    const saving = t.session.saveEdit(edited("a", "a", false), { reset: true });
+    // Open until the fresh previews are in.
+    expect(t.state().editing).toBe(true);
+    await saving;
+
+    expect(t.calls.intervals).toEqual(["a"]);
+    expect(t.state()).toMatchObject({
+      editing: false,
+      revealed: true,
+      ratable: true,
+      progressReset: true,
+    });
+    expect(t.state().shown).toEqual({
+      card: edited("a", "a", false),
+      kind: "review",
+      intervals: intervals("a-fresh"),
+    });
+
+    await revealAndRate(t, "good");
+    expect(t.calls.rate).toEqual([{ cardId: "a", rating: "good", durationMs: 0 }]);
+    expect(t.state().progressReset).toBe(false);
+    expect(t.state().summary).toMatchObject({
+      studied: 1,
+      newStudied: 0,
+      recall: { kept: 1, of: 1 },
+    });
+  });
+
+  test("fresh previews that don't load leave the reset Card unratable until Try again", async () => {
+    const t = setUp([next("a"), next("b")]);
+    await t.session.start();
+    t.session.edit();
+    t.fail.intervals = true;
+    await t.session.saveEdit(edited("a", "a"), { reset: true });
+
+    expect(t.state()).toMatchObject({ editing: false, ratable: false, failure: INTERVALS_FAILED });
+    t.session.rate("good");
+    await flush();
+    expect(t.calls.rate).toEqual([]);
+
+    t.fail.intervals = false;
+    t.session.retry();
+    await flush();
+    expect(t.state()).toMatchObject({ ratable: true, failure: undefined });
+    expect(t.state().shown?.intervals).toEqual(intervals("a-fresh"));
+  });
+
+  test("a reset Card deleted meanwhile is skipped with a message", async () => {
+    const t = setUp([next("a"), next("b")]);
+    await t.session.start();
+    t.session.edit();
+    t.fail.intervals = "gone";
+    await t.session.saveEdit(edited("a", "a"), { reset: true });
+
+    expect(t.messages).toEqual([CARD_GONE]);
+    expect(t.shownId()).toBe("b");
+    expect(t.calls.next.at(-1)).toMatchObject({ after: "a" });
+  });
+
+  test("a Card gone from the editor (deleted there or elsewhere) closes it and loads the next", async () => {
+    const t = setUp([next("a"), next("b")]);
+    await t.session.start();
+    t.session.reveal();
+    t.session.edit();
+    const gone = t.session.closeGone();
+    expect(t.state()).toMatchObject({
+      editing: false,
+      skipping: true,
+      ratable: false,
+      editable: false,
+    });
+    await gone;
+
+    expect(t.shownId()).toBe("b");
+    expect(t.state()).toMatchObject({ skipping: false, revealed: false, editable: true });
+    expect(t.calls.next.at(-1)).toEqual({ reviewsShown: 0, newShown: 1, batches: 1, after: "a" });
+  });
+
+  test("a next Card that doesn't load after a delete says so, and Try again loads it", async () => {
+    const t = setUp([next("a"), next("b")]);
+    await t.session.start();
+    t.session.edit();
+    t.fail.next = true;
+    await t.session.closeGone();
+    expect(t.state()).toMatchObject({ skipping: false, failure: NEXT_FAILED, ratable: false });
+
+    t.fail.next = false;
+    t.session.retry();
+    await flush();
+    expect(t.shownId()).toBe("b");
+  });
+
+  test("leaves the time with the editor open out of the Card's durationMs", async () => {
+    const t = setUp([next("a"), next("b")]);
+    await t.session.start();
+    t.wait(2000);
+    t.session.edit();
+    t.wait(60_000);
+    t.session.cancelEdit();
+    t.wait(1000);
+    t.session.reveal();
+    t.session.edit();
+    t.wait(30_000);
+    await t.session.saveEdit(edited("a", "a2"), { reset: false });
+    t.wait(500);
+    t.session.rate("good");
+    await flush();
+
+    expect(t.calls.rate).toEqual([{ cardId: "a", rating: "good", durationMs: 3500 }]);
+  });
+
+  test("a Card back from Undo, then reset, is no longer marked as back from Undo", async () => {
+    const t = setUp([next("a"), next("b")]);
+    await t.session.start();
+    await revealAndRate(t, "good");
+    await t.session.undo();
+    expect(t.state().undone).toBe(true);
+
+    t.session.edit();
+    await t.session.saveEdit(edited("a", "a"), { reset: true });
+
+    expect(t.state()).toMatchObject({ undone: false, progressReset: true });
+  });
+
+  test("runs opening and closing the editor through `transition`", async () => {
+    const transitions: boolean[] = [];
+    const session = createStudySession({
+      studyApi: fakeApi([next("a")]).api,
+      notify: () => {},
+      transition: (update) => {
+        update();
+        transitions.push(session.getState().editing);
+      },
+    });
+    await session.start();
+    session.edit();
+    session.cancelEdit();
+
+    expect(transitions).toEqual([true, false]);
+  });
+
+  test("a transition that shows a frame later still opens the editor once, and loses no next Card", async () => {
+    const later: (() => void)[] = [];
+    const server = fakeApi([next("a"), next("b")]);
+    const session = createStudySession({
+      studyApi: server.api,
+      notify: () => {},
+      transition: (update) => later.push(update),
+    });
+    await session.start();
+    expect(session.edit()).toBe(true);
+    expect(session.edit()).toBe(false);
+    for (const update of later.splice(0)) update();
+
+    // The next Card comes before the closing frame does.
+    await session.closeGone();
+    expect(session.getState().shown?.card.id).toBe("b");
+    for (const update of later.splice(0)) update();
+    expect(session.getState()).toMatchObject({ editing: false, skipping: false, editable: true });
   });
 });

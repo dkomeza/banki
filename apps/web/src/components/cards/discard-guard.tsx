@@ -39,7 +39,8 @@ export function useDiscardGuard(unsaved: boolean) {
   };
 }
 
-function DiscardDialog({
+/** "Discard changes?", with Keep editing and Discard. */
+export function DiscardDialog({
   open,
   onKeep,
   onDiscard,

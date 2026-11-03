@@ -1,17 +1,33 @@
 import { RATINGS } from "@banki/shared";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { AlertCircle, LoaderCircle, Undo2, X } from "lucide-react";
-import { type MouseEvent, useEffect, useState, useSyncExternalStore } from "react";
+import {
+  type MouseEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { toast } from "sonner";
 import { CardText } from "@/components/cards/card-text";
 import { OUTLINE_PILL, PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
+import { morph } from "@/components/study/morph";
+import {
+  EditButton,
+  ResetNote,
+  StudyEditor,
+  type StudyEditorHandle,
+} from "@/components/study/study-editor";
 import { Summary } from "@/components/study/summary";
+import { cardsQueryOptions } from "@/lib/cards";
 import type { Deck } from "@/lib/decks";
 import { moreOffer } from "@/lib/new-cards";
 import { settingsQueryOptions } from "@/lib/settings";
+import { tagsQueryOptions } from "@/lib/tags";
 import {
   RATING_KEYS,
   RATING_LABELS,
@@ -28,17 +44,19 @@ import { cn } from "@/lib/utils";
 
 // The study screen ("Focus"): it leaves the shell and takes the whole window,
 // with nothing but the Card on plain paper. A thin top bar holds close (×),
-// the Deck's name and Undo; the actions dock to the bottom, in thumb reach:
+// the Deck's name, Edit and Undo; the actions dock to the bottom, in thumb reach:
 // Show answer, then four equal ratings led by their Interval. Going from Card
 // to Card, nothing moves: the Front always starts at the top, in the same
 // place. Revealed, it steps back (smaller, muted) and the Back opens below it.
 // At the end of the Queue, or on leaving with a Rating standing, the summary
 // (Summary) takes the Card's place; Esc or × from there goes to the deck page.
+// Edit opens the editor over the Card (StudyEditor) without leaving the
+// Session.
 
 /** A Session over the Deck's Queue, started on mount and stopped on unmount. */
 function useStudySession(deckId: string): [StudySession, StudyState] {
   const [session] = useState(() =>
-    createStudySession({ studyApi: studyApi(deckId), notify: (m) => toast(m) }),
+    createStudySession({ studyApi: studyApi(deckId), notify: (m) => toast(m), transition: morph }),
   );
   useEffect(() => {
     void session.start();
@@ -50,11 +68,29 @@ function useStudySession(deckId: string): [StudySession, StudyState] {
 export function StudyScreen({ deck }: { deck: Deck }) {
   const navigate = useNavigate();
   const [session, state] = useStudySession(deck.id);
+  const queryClient = useQueryClient();
+  const editor = useRef<StudyEditorHandle>(null);
+  // The editor's Duplicate warning and Tag suggestions read these: fetched
+  // ahead, so opening it doesn't wait.
+  useEffect(() => {
+    void queryClient.prefetchQuery(cardsQueryOptions(deck.id));
+    void queryClient.prefetchQuery(tagsQueryOptions());
+  }, [queryClient, deck.id]);
+  // The editor suspends until the Deck's Cards are in, which would leave it
+  // out of the View Transition's new frame: it opens once they are.
+  const openEditor = useCallback(() => {
+    void queryClient.ensureQueryData(cardsQueryOptions(deck.id)).then(
+      () => session.edit(),
+      () => session.edit(),
+    );
+  }, [queryClient, deck.id, session]);
 
-  // Desktop keys: Space / Enter reveal, 1–4 rate, Ctrl/⌘+Z undoes, Esc leaves.
+  // Desktop keys: Space / Enter reveal, 1–4 rate, E edits, Ctrl/⌘+Z undoes,
+  // Esc leaves. While the editor is open, they are its own.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.repeat) return;
+      if (session.getState().editing) return;
       const target = event.target instanceof Element ? event.target : null;
       if (target?.closest("input, textarea, select, [contenteditable]")) return;
       const { phase, revealed } = session.getState();
@@ -82,6 +118,10 @@ export function StudyScreen({ deck }: { deck: Deck }) {
           event.preventDefault();
           void session.undo();
           break;
+        case "edit":
+          event.preventDefault();
+          if (session.getState().editable) openEditor();
+          break;
         case "leave":
           if (session.leave() === "away") {
             void navigate({ to: "/decks/$deckId", params: { deckId: deck.id } });
@@ -93,7 +133,7 @@ export function StudyScreen({ deck }: { deck: Deck }) {
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [session, navigate, deck.id]);
+  }, [session, navigate, deck.id, openEditor]);
 
   return (
     <div className="flex min-h-svh flex-col pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] [--toast-bottom:calc(7.5rem+env(safe-area-inset-bottom))]">
@@ -101,7 +141,15 @@ export function StudyScreen({ deck }: { deck: Deck }) {
         deck={deck}
         state={state}
         onUndo={() => void session.undo()}
-        onLeave={() => session.leave()}
+        onEdit={openEditor}
+        onLeave={() => {
+          // While editing, × closes the editor, as Cancel does.
+          if (session.getState().editing) {
+            editor.current?.cancel();
+            return "summary";
+          }
+          return session.leave();
+        }}
       />
       <main className="flex flex-1 flex-col">
         {state.phase === "card" ? (
@@ -127,6 +175,16 @@ export function StudyScreen({ deck }: { deck: Deck }) {
         )}
       </main>
       {state.phase === "card" && session !== undefined && <Dock session={session} state={state} />}
+      {state.editing && state.shown !== undefined && (
+        <StudyEditor
+          ref={editor}
+          key={state.shown.card.id}
+          deck={deck}
+          card={state.shown.card}
+          revealed={state.revealed}
+          session={session}
+        />
+      )}
       <Toaster />
     </div>
   );
@@ -136,12 +194,14 @@ function TopBar({
   deck,
   state,
   onUndo,
+  onEdit,
   onLeave,
 }: {
   deck: Deck;
   state: StudyState;
   onUndo: () => void;
-  /** Leaving: "summary" when the summary shows instead of the deck page. */
+  onEdit: () => void;
+  /** Leaving: "summary" when something else shows instead of the deck page. */
   onLeave: () => "summary" | "away";
 }) {
   return (
@@ -168,7 +228,11 @@ function TopBar({
       <span className="max-w-[50vw] truncate text-center text-sm font-medium text-muted-foreground">
         {deck.name}
       </span>
-      <div className="flex items-center justify-end gap-2">
+      <div className="flex items-center justify-end gap-1 sm:gap-2">
+        {state.phase === "card" && (
+          // Open, it stays as it was: the editor it opened is in front.
+          <EditButton disabled={!state.editable && !state.editing} onClick={onEdit} />
+        )}
         {state.rated > 0 && (
           <span className="hidden text-sm text-muted-foreground tabular-nums sm:inline">
             {state.rated} rated
@@ -177,7 +241,13 @@ function TopBar({
         <Button
           variant="ghost"
           className="h-11 min-w-11 gap-1.5 rounded-full px-3 lg:h-9 lg:min-w-9"
-          disabled={state.rated === 0 || state.undoing || state.saving !== undefined}
+          disabled={
+            state.rated === 0 ||
+            state.undoing ||
+            state.saving !== undefined ||
+            state.editing ||
+            state.skipping
+          }
           onClick={onUndo}
           // A click leaves no focus behind, so Space still reveals the next Card.
           onMouseDown={(event) => event.preventDefault()}
@@ -217,6 +287,8 @@ function CardView({ session, state }: { session: StudySession; state: StudyState
       className={cn(
         "mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 pt-6 pb-10 sm:px-10 lg:pt-12",
         !state.revealed && "cursor-pointer",
+        // From 1024 px the preview beside the editor is the Card, moved there.
+        state.editing && "lg:invisible lg:**:[view-transition-name:none]!",
         // A Formula shows it can be copied: the pointer, and a dashed outline on hover.
         state.revealed &&
           "[&_[data-formula]]:cursor-pointer [&_[data-formula]]:rounded-md [&_[data-formula]]:outline-offset-2 [&_[data-formula]:hover]:outline-1 [&_[data-formula]:hover]:outline-primary/60 [&_[data-formula]:hover]:outline-dashed",
@@ -227,7 +299,7 @@ function CardView({ session, state }: { session: StudySession; state: StudyState
         text={card.front}
         interactive={state.revealed}
         className={cn(
-          "font-medium tracking-[-0.015em]",
+          "font-medium tracking-[-0.015em] [view-transition-name:card-front]",
           state.revealed
             ? "text-xl leading-snug text-muted-foreground lg:text-2xl"
             : "text-[1.85rem] leading-tight lg:text-[2.6rem]",
@@ -235,12 +307,15 @@ function CardView({ session, state }: { session: StudySession; state: StudyState
       />
       {state.revealed ? (
         <>
-          <div aria-hidden className="my-6 h-px w-16 bg-border lg:my-8" />
+          <div
+            aria-hidden
+            className="my-6 h-px w-16 bg-border [view-transition-name:card-rule] lg:my-8"
+          />
           <CardText
             key={`${card.id}-back`}
             text={card.back}
             interactive
-            className="text-lg leading-relaxed lg:text-xl"
+            className="text-lg leading-relaxed [view-transition-name:card-back] lg:text-xl"
           />
         </>
       ) : (
@@ -253,9 +328,16 @@ function CardView({ session, state }: { session: StudySession; state: StudyState
 function Dock({ session, state }: { session: StudySession; state: StudyState }) {
   const intervals = state.shown?.intervals;
   return (
-    <div className="sticky bottom-0 z-10 border-t bg-background/95 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur">
+    <div
+      className={cn(
+        "sticky bottom-0 z-10 border-t bg-background/95 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur [view-transition-name:study-dock]",
+        // From 1024 px it sinks away while the editor is open beside the Card.
+        state.editing && "lg:hidden",
+      )}
+    >
       <div className="mx-auto flex w-full max-w-2xl flex-col gap-2 px-3 pt-3 sm:px-6">
         {/* In the dock, not above the Front, so the Card doesn't move when it comes back. */}
+        {state.progressReset && state.failure === undefined && <ResetNote />}
         {state.undone && state.failure === undefined && (
           <p className="text-center text-xs font-medium text-muted-foreground">
             Back from Undo: rate it again
@@ -290,7 +372,13 @@ function Dock({ session, state }: { session: StudySession; state: StudyState }) 
                   i > 0 && "border-l",
                 )}
               >
-                <span className="flex h-7 items-center text-lg font-semibold tabular-nums">
+                <span
+                  // A reset Card's Intervals turn over one by one as the dock comes back.
+                  style={
+                    state.progressReset ? { viewTransitionName: `interval-${rating}` } : undefined
+                  }
+                  className="flex h-7 items-center text-lg font-semibold tabular-nums [view-transition-class:interval]"
+                >
                   {state.saving === rating ? (
                     <LoaderCircle aria-hidden className="size-5 animate-spin" />
                   ) : (

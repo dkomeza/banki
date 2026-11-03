@@ -50,6 +50,10 @@ const DONE: StudyState = {
   newHeld: 0,
   loadingMore: false,
   summary: { studied: 0, newStudied: 0, recall: null, timeMs: 0 },
+  editing: false,
+  editable: false,
+  progressReset: false,
+  skipping: false,
 };
 
 /** The end screen's markup for `state`, with the Settings' New-card batch at `batch` (none loaded when null). */
