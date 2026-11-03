@@ -421,6 +421,7 @@ export function createStudySession({
         progressReset: false,
         turning: false,
         skipping: false,
+        refreshing: false,
         // Closed a frame ago (closeEditor), it doesn't open on what follows.
         editing: state.editing && editorOpen,
       });
@@ -445,6 +446,7 @@ export function createStudySession({
       progressReset: false,
       turning: false,
       skipping: false,
+      refreshing: false,
       // Closed a frame ago (closeEditor), it doesn't open on the next Card.
       editing: state.editing && editorOpen,
     });
@@ -510,16 +512,22 @@ export function createStudySession({
     return { skipping: true, failure: undefined, undone: false, progressReset: false };
   };
 
-  /** Try again for a reset Card's previews: shows them as it is now; one deleted meanwhile is skipped. */
+  /**
+   * Try again for a reset Card's previews: shows them as it is now; one
+   * deleted meanwhile is skipped. Started again since, the answer is for a
+   * Card no longer shown, and changes nothing.
+   */
   const refresh = async (cardId: string) => {
+    const mine = starts;
     set({ refreshing: true, failure: undefined });
     let fresh: Awaited<ReturnType<StudyApi["intervals"]>>;
     try {
       fresh = await client.intervals(cardId);
     } catch {
-      set({ refreshing: false, failure: INTERVALS_FAILED });
+      if (mine === starts) set({ refreshing: false, failure: INTERVALS_FAILED });
       return;
     }
+    if (mine !== starts) return;
     if (fresh === "gone") {
       say(CARD_GONE);
       set({ refreshing: false, ...skipGone() });
@@ -676,7 +684,12 @@ export function createStudySession({
       // The Intervals turned over on the last close: done, before this
       // transition sees the screen, or they'd move apart from the dock.
       if (state.turning) set({ turning: false });
-      transition(() => set({ editing: true }));
+      transition(() => {
+        // Stopped before this frame, the editor never opened: a start that
+        // follows mustn't wait for it to close.
+        if (stopped) editorOpen = false;
+        else set({ editing: true });
+      });
       return true;
     },
     /** Closes the editor, the Card shown as it was. */

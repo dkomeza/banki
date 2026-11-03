@@ -1400,6 +1400,54 @@ describe("editing the shown Card", () => {
     expect(transitions).toEqual([true, false]);
   });
 
+  test("in the frame before the editor shows, a press of Space or of a Rating does nothing", async () => {
+    const later: (() => void)[] = [];
+    const server = fakeApi([next("a"), next("b")]);
+    const session = createStudySession({
+      studyApi: server.api,
+      notify: () => {},
+      transition: (update) => later.push(update),
+    });
+    await session.start();
+    expect(session.edit()).toBe(true);
+    session.reveal();
+    expect(session.getState().revealed).toBe(false);
+    for (const update of later.splice(0)) update();
+    session.cancelEdit();
+    for (const update of later.splice(0)) update();
+
+    session.reveal();
+    expect(session.edit()).toBe(true);
+    session.rate("good");
+    await flush();
+    expect(server.calls.rate).toEqual([]);
+    for (const update of later.splice(0)) update();
+    expect(session.getState()).toMatchObject({ editing: true, revealed: true });
+    expect(session.getState().shown?.card.id).toBe("a");
+  });
+
+  test("stopped before the editor's frame, it never opens, and a start that follows isn't held up", async () => {
+    const later: (() => void)[] = [];
+    const server = fakeApi([next("a"), next("b"), next("c")]);
+    const session = createStudySession({
+      studyApi: server.api,
+      notify: () => {},
+      transition: (update) => later.push(update),
+    });
+    await session.start();
+    expect(session.edit()).toBe(true);
+    session.stop();
+    for (const update of later.splice(0)) update();
+    await session.start();
+
+    expect(session.getState()).toMatchObject({ editing: false, editable: true });
+    expect(session.leave()).toBe("away");
+    session.reveal();
+    session.rate("good");
+    await flush();
+    expect(server.calls.rate).toEqual([{ cardId: "b", rating: "good", durationMs: 0 }]);
+  });
+
   test("a transition that shows a frame later still opens the editor once, and loses no next Card", async () => {
     const later: (() => void)[] = [];
     const server = fakeApi([next("a"), next("b")]);
@@ -1495,6 +1543,31 @@ describe("after a Progress reset", () => {
     expect(t.shownId()).toBe("b");
     expect(t.state().shown?.intervals).toEqual(intervals("b"));
     expect(t.state()).toMatchObject({ refreshing: false, progressReset: false });
+  });
+
+  test("Try again's failure or 404 changes nothing once another Card shows (started again)", async () => {
+    for (const answer of ["failed", "gone"] as const) {
+      const t = await resetFailed([next("a"), next("b"), next("c")]);
+      const pending = deferred<"gone">();
+      t.api.intervals = async () => {
+        const gone = await pending.promise;
+        if (answer === "failed") throw new Error("offline");
+        return gone;
+      };
+      t.session.retry();
+      t.session.stop();
+      await t.session.start();
+      expect(t.shownId()).toBe("b");
+      expect(t.state()).toMatchObject({ refreshing: false, ratable: false });
+
+      pending.resolve("gone");
+      await flush();
+      expect(t.shownId()).toBe("b");
+      expect(t.state()).toMatchObject({ failure: undefined, skipping: false, editable: true });
+      expect(t.messages).toEqual([]);
+      t.session.reveal();
+      expect(t.state().ratable).toBe(true);
+    }
   });
 
   test("turns the Intervals over on the close that follows it only", async () => {
