@@ -82,7 +82,10 @@ function stubApi(answer: (method: string, path: string) => Response | Promise<Re
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
-/** The open editor over `shown`, on a Session that records what it is asked, its handle in `ref`. */
+/**
+ * The open editor over `shown`, on a Session that records what it is asked,
+ * its handle in `ref`, with the router it sits in.
+ */
 function renderEditor(shown: Card, ref = createRef<StudyEditorHandle>()) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   queryClient.setQueryData(cardsQueryOptions(DECK.id).queryKey, [shown]);
@@ -95,7 +98,7 @@ function renderEditor(shown: Card, ref = createRef<StudyEditorHandle>()) {
       </RouterContextProvider>
     </QueryClientProvider>,
   );
-  return recording;
+  return { ...recording, router };
 }
 
 /** The foot's Cancel, not the top bar's ×, which is named Cancel too. */
@@ -286,6 +289,21 @@ describe("StudyEditor", () => {
       press(screen.getByRole("alertdialog"), "Escape");
       await waitFor(() => expect(discardAsked()).toBeNull());
       expect(session.cancelEdit).not.toHaveBeenCalled();
+    });
+
+    test("while the route's own Discard dialog asks, only closes that dialog, and keeps editing", async () => {
+      const session = renderEditor(card(true));
+      fireEvent.click(resetBox());
+
+      session.router.history.push("/elsewhere");
+      await waitFor(() => expect(discardAsked()).not.toBeNull());
+
+      // From outside the dialog: one inside it never reaches the editor, as
+      // the dialog takes it first.
+      press(document.body, "Escape");
+      await waitFor(() => expect(discardAsked()).toBeNull());
+      expect(session.cancelEdit).not.toHaveBeenCalled();
+      expect(session.router.history.location.pathname).toBe("/");
     });
   });
 
