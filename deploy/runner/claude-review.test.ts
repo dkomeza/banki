@@ -29,12 +29,20 @@ function reviewStep(): Record<string, unknown> {
       candidate.uses.startsWith("anthropics/claude-code-action@"),
   );
   if (!isRecord(step) || !isRecord(step.with)) throw new Error("no claude-code-action step");
-  return step.with;
+  return step;
 }
 
 describe("claude-review", () => {
   test("allows the Runner's App, and no other bot", () => {
-    expect(reviewStep().allowed_bots).toBe("banki-runner");
+    const inputs = reviewStep().with;
+    expect(isRecord(inputs) && inputs.allowed_bots).toBe("banki-runner");
+  });
+
+  // Background subagents are still hunting when a headless run ends, so the
+  // review would report no files read.
+  test("waits for its subagents", () => {
+    const env = reviewStep().env;
+    expect(isRecord(env) && env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS).toBe("1");
   });
 
   // An approval from the workflow's token would count as the merge guard's
