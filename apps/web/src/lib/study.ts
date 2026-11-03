@@ -337,6 +337,9 @@ export function createStudySession({
   // The kind each Card put back to New here came with: served again by the
   // Queue (after an Undo took its place), it still counts as that kind.
   const resetKinds = new Map<string, QueueKind>();
+  // The Cards seen deleted: their Reviews stand (ADR-0018), so an Undo of one
+  // that answers 404 keeps its Rating counting.
+  const gone = new Set<string>();
   let reviewsShown = 0;
   let newShown = 0;
   let batches = 1;
@@ -504,18 +507,22 @@ export function createStudySession({
     try {
       first = await client.next({ reviewsShown, newShown, batches, after: undefined });
     } catch {
-      if (mine === starts) set({ phase: "unreachable", editing: false });
+      // What was on its way before the restart can't clear itself, so Try again isn't held.
+      if (mine === starts) {
+        set({ phase: "unreachable", editing: false, skipping: false, refreshing: false });
+      }
       return;
     }
     if (mine === starts) show(first);
   }
 
   /**
-   * Skipping the shown Card, gone: what was said about it (a failure and its
+   * Skipping the shown Card `cardId`, gone: what was said about it (a failure and its
    * Try again, "rate it again", "Back to New") goes with it while the next
    * one loads.
    */
-  const skipGone = (): Partial<StudyState> => {
+  const skipGone = (cardId: string): Partial<StudyState> => {
+    gone.add(cardId);
     failed = undefined;
     return { skipping: true, failure: undefined, undone: false, progressReset: false };
   };
@@ -538,7 +545,7 @@ export function createStudySession({
     if (mine !== starts) return;
     if (fresh === "gone") {
       say(CARD_GONE);
-      set({ refreshing: false, ...skipGone() });
+      set({ refreshing: false, ...skipGone(cardId) });
       await loadNext(cardId);
       return;
     }
@@ -574,16 +581,22 @@ export function createStudySession({
     const shown = state.shown;
     if (shown === undefined) return;
     set({ saving: rating, failure: undefined });
+    const mine = starts;
     let saved: Awaited<ReturnType<StudyApi["rate"]>>;
     try {
       saved = await client.rate(shown.card.id, rating, durationMs);
     } catch {
+      // Started again since, the Rating was another Session's.
+      if (mine !== starts) return;
       failed = { kind: "rate", rating, durationMs };
       set({ saving: undefined, failure: RATE_FAILED });
       return;
     }
-    if (saved === "gone") say(CARD_GONE);
-    else given.push({ reviewId: saved.reviewId, shown, rating, durationMs });
+    if (mine !== starts) return;
+    if (saved === "gone") {
+      gone.add(shown.card.id);
+      say(CARD_GONE);
+    } else given.push({ reviewId: saved.reviewId, shown, rating, durationMs });
     await loadNext(shown.card.id);
   };
 
@@ -640,8 +653,9 @@ export function createStudySession({
      * Takes back the newest Rating still standing: its Review is deleted and
      * its Card comes back revealed, with fresh previews. One that can't be
      * undone anymore says so: gone elsewhere, it is dropped; still standing
-     * (a newer Review, or a Progress reset since), it keeps counting, and the
-     * next Undo goes on to the Rating before it.
+     * (its Card deleted, or a newer Review or a Progress reset since), it
+     * keeps counting, as do its Card's earlier Ratings, and the next Undo goes
+     * on to the Rating before them.
      */
     async undo() {
       const at = given.findLastIndex((g) => !g.settled);
@@ -657,8 +671,12 @@ export function createStudySession({
         return;
       }
       if (back === "gone" || back === "settled") {
-        if (back === "gone") given.splice(at, 1);
-        else last.settled = true;
+        const cardId = last.shown.card.id;
+        // Its Review gone (undone elsewhere), it no longer counts. Still
+        // standing, under a deleted Card or a newer Review or Progress reset,
+        // none of the Card's Ratings can be undone, and they keep counting.
+        if (back === "gone" && !gone.has(cardId)) given.splice(at, 1);
+        else for (const g of given) if (g.shown.card.id === cardId) g.settled = true;
         say(UNDO_GONE);
         set({ undoing: false });
         return;
@@ -735,7 +753,7 @@ export function createStudySession({
       if (!editorOpen || mine !== starts || shown?.card.id !== card.id) return;
       if (fresh === "gone") {
         say(CARD_GONE);
-        set(skipGone());
+        set(skipGone(card.id));
         closeEditor({});
         await loadNext(card.id);
         return;
@@ -759,7 +777,7 @@ export function createStudySession({
     async closeGone() {
       const shown = state.shown;
       if (!editorOpen || shown === undefined) return;
-      set(skipGone());
+      set(skipGone(shown.card.id));
       closeEditor({});
       await loadNext(shown.card.id);
     },
@@ -853,6 +871,15 @@ export function editorOpener({
   };
 }
 
+/**
+ * Whether a key is E, the editor's: the letter e, or, on a layout whose key
+ * there types no Latin letter (Russian, Greek), the key where E is.
+ */
+export function isEditKey({ key, code }: { key: string; code?: string }): boolean {
+  if (key.toLowerCase() === "e") return true;
+  return code === "KeyE" && /^\p{L}$/u.test(key) && !/^[a-z]$/i.test(key);
+}
+
 /** What a key press on the study screen does. */
 export type KeyAction =
   | { type: "reveal" }
@@ -872,7 +899,7 @@ export type KeyAction =
  * on another focused control (a link, a button) they do what they do there.
  */
 export function keyAction(
-  key: { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean },
+  key: { key: string; code?: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean },
   {
     showing,
     revealed,
@@ -892,7 +919,7 @@ export function keyAction(
   }
   if (key.ctrlKey || key.metaKey || key.altKey) return { type: "none" };
   if (key.key === "Escape") return { type: "leave" };
-  if (key.key.toLowerCase() === "e") return showing ? { type: "edit" } : { type: "none" };
+  if (isEditKey(key)) return showing ? { type: "edit" } : { type: "none" };
   if (key.key === " " || key.key === "Enter") {
     if (focus === "rating") return { type: "block" };
     if (focus === "control" || !showing || revealed) return { type: "none" };

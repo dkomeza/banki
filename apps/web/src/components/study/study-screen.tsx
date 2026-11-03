@@ -33,6 +33,7 @@ import {
   createStudySession,
   editorOpener,
   formatInterval,
+  isEditKey,
   keyAction,
   studyApi,
 } from "@/lib/study";
@@ -96,10 +97,10 @@ export function StudyScreen({ deck }: { deck: Deck }) {
     // type into the field it focuses.
     let holdingE = false;
     const onKeyUp = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() === "e") holdingE = false;
+      if (isEditKey(event)) holdingE = false;
     };
     const onKey = (event: KeyboardEvent) => {
-      if (event.repeat && holdingE && event.key.toLowerCase() === "e") {
+      if (event.repeat && holdingE && isEditKey(event)) {
         event.preventDefault();
         return;
       }

@@ -22,6 +22,7 @@ import {
   editorEscAction,
   editorOpener,
   formatInterval,
+  isEditKey,
   keyAction,
   recallPercent,
   saveStudyEdit,
@@ -438,6 +439,50 @@ describe("a Session", () => {
     expect(t.shownId()).toBe("c");
   });
 
+  test("an Undo refused for good keeps every Rating of its Card standing: the next Undo goes on past them", async () => {
+    const t = setUp([next("a"), next("b"), next("a", "learning"), next("c")]);
+    await t.session.start();
+    await revealAndRate(t, "again");
+    await revealAndRate(t, "good");
+    await revealAndRate(t, "good");
+
+    t.fail.undo = "settled";
+    await t.session.undo();
+    t.fail.undo = false;
+    await t.session.undo();
+    expect(t.shownId()).toBe("b");
+    // a's first Rating can't be undone either: no doomed Undo, no second toast.
+    await t.session.undo();
+
+    expect(t.calls.undo).toEqual(["r3", "r2"]);
+    expect(t.messages).toEqual([UNDO_GONE]);
+    expect(t.state()).toMatchObject({ rated: 2, undoable: false });
+  });
+
+  test("an Undo of a Card deleted from the editor answers 404 and is skipped, its Ratings still counting", async () => {
+    const t = setUp([next("b"), next("a"), next("a", "learning"), next("c")]);
+    await t.session.start();
+    await revealAndRate(t, "good");
+    await revealAndRate(t, "again");
+    expect(t.shownId()).toBe("a");
+    t.session.edit();
+    await t.session.closeGone();
+    expect(t.shownId()).toBe("c");
+
+    t.fail.undo = "gone";
+    await t.session.undo();
+    expect(t.messages).toEqual([UNDO_GONE]);
+    // Its Review outlives the Card (ADR-0018): it still counts.
+    expect(t.state()).toMatchObject({ rated: 2, undoable: true });
+    expect(t.state().summary.studied).toBe(2);
+
+    t.fail.undo = false;
+    await t.session.undo();
+    expect(t.calls.undo).toEqual(["r2", "r1"]);
+    expect(t.shownId()).toBe("b");
+    expect(t.state()).toMatchObject({ rated: 1, undoable: false });
+  });
+
   test("an Undo refused for good (a Progress reset since) keeps its Rating standing, and the next goes on to the one before", async () => {
     const t = setUp([next("a"), next("b"), next("c")]);
     await t.session.start();
@@ -711,6 +756,19 @@ describe("keyAction", () => {
         }),
       ).toEqual({ type: "none" });
     }
+  });
+
+  test("E is the key where E is on a layout with no Latin letters, and only there", () => {
+    const shown = { showing: true, revealed: false, focus: undefined };
+    // Russian and Greek: the key where E is types у and ε.
+    for (const key of ["у", "ε"]) {
+      expect(keyAction({ ...press(key), code: "KeyE" }, shown)).toEqual({ type: "edit" });
+      expect(isEditKey({ key, code: "KeyE" })).toBe(true);
+    }
+    // Dvorak: the key where E is types a period, and e is elsewhere.
+    expect(keyAction({ ...press("."), code: "KeyE" }, shown)).toEqual({ type: "none" });
+    expect(keyAction({ ...press("e"), code: "KeyD" }, shown)).toEqual({ type: "edit" });
+    expect(keyAction({ ...press("у"), code: "KeyR" }, shown)).toEqual({ type: "none" });
   });
 
   test("while editing, every key is the editor's, Esc included", () => {
@@ -1761,6 +1819,48 @@ describe("editing while a Rating didn't save", () => {
 });
 
 describe("a stopped Session", () => {
+  test("started again, its first Card failing, lets Try again run though a Try again was on its way", async () => {
+    const t = setUp([next("a"), next("b")]);
+    await t.session.start();
+    t.fail.next = true;
+    await revealAndRate(t, "good");
+    expect(t.state().failure).toBe(NEXT_FAILED);
+    const pending = deferred<NextAnswer>();
+    const serve = t.api.next;
+    t.api.next = () => pending.promise;
+    t.session.retry();
+    expect(t.state().skipping).toBe(true);
+
+    t.session.stop();
+    t.api.next = serve;
+    await t.session.start();
+    expect(t.state()).toMatchObject({ phase: "unreachable", skipping: false, refreshing: false });
+
+    t.fail.next = false;
+    t.session.retry();
+    await flush();
+    expect(t.shownId()).toBe("b");
+  });
+
+  test("started again while a Rating saves, takes nothing from it: no Rating to undo, no Card loaded after it", async () => {
+    const t = setUp([next("a"), next("b")]);
+    await t.session.start();
+    const saved = deferred<{ reviewId: string }>();
+    t.api.rate = () => saved.promise;
+    t.session.reveal();
+    t.session.rate("good");
+
+    t.session.stop();
+    await t.session.start();
+    expect(t.shownId()).toBe("b");
+    saved.resolve({ reviewId: "r1" });
+    await flush();
+
+    expect(t.calls.next).toHaveLength(2);
+    expect(t.state()).toMatchObject({ rated: 0, undoable: false });
+    expect(t.shownId()).toBe("b");
+  });
+
   test("loads no next Card for one gone from the editor", async () => {
     const t = setUp([next("a"), next("b")]);
     await t.session.start();
