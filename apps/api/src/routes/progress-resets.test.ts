@@ -266,12 +266,17 @@ describe("PATCH /api/cards/:id with resetProgress", () => {
   test("answers 404 for another User's Card, and resets nothing of theirs", async () => {
     const { app, cookie } = await signedIn();
     const theirs = othersCard();
+    // Studied, so a reset that reached it would put it back to New and log a row.
+    inDatabase((db) =>
+      db.run(sql`UPDATE card SET state = 'review', reps = 1, stability = 3 WHERE id = ${theirs}`),
+    );
 
     const res = await patch(app, cookie, theirs, { resetProgress: true });
 
     expect(res.status).toBe(404);
     expect(await codeOf(res)).toBe("not_found");
     expect(resetsOf(theirs)).toEqual([]);
+    expect(memoryOf(theirs)).toMatchObject({ state: "review", reps: 1, stability: 3 });
   });
 
   test("the reset Card comes in its learning steps once rated again", async () => {
