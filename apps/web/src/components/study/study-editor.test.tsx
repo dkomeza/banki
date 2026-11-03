@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   RouterContextProvider,
@@ -5,8 +6,8 @@ import {
   createRootRoute,
   createRouter,
 } from "@tanstack/react-router";
-import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, test, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { type Card, cardsQueryOptions } from "@/lib/cards";
 import type { Deck } from "@/lib/decks";
 import { createStudySession } from "@/lib/study";
@@ -37,11 +38,8 @@ const card = (studied: boolean): Card => ({
   studied,
 });
 
-/** The open editor's markup over `shown`. */
-function renderEditor(shown: Card) {
-  const queryClient = new QueryClient();
-  queryClient.setQueryData(cardsQueryOptions(DECK.id).queryKey, [shown]);
-  const router = createRouter({ routeTree: createRootRoute(), history: createMemoryHistory() });
+/** A Session whose side of the editor only records what it is asked, with the spies that record it. */
+function recordingSession() {
   const session = createStudySession({
     studyApi: {
       next: async () => ({ next: null, newHeld: 0 }),
@@ -51,39 +49,256 @@ function renderEditor(shown: Card) {
     },
     notify: () => {},
   });
-  return renderToStaticMarkup(
+  return {
+    session,
+    cancelEdit: vi.spyOn(session, "cancelEdit").mockImplementation(() => {}),
+    closeGone: vi.spyOn(session, "closeGone").mockImplementation(async () => {}),
+    saveEdit: vi.spyOn(session, "saveEdit").mockImplementation(async () => {}),
+  };
+}
+
+/**
+ * The API, answering `answer` for each request it is sent, and recording those
+ * that write (the form's own reads, such as the Settings, go unrecorded).
+ */
+function stubApi(answer: (method: string, path: string) => Response) {
+  const sent: { method: string; path: string; body: unknown }[] = [];
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(
+      new URL(String(input instanceof Request ? input.url : input), "http://banki.test"),
+      init,
+    );
+    const path = new URL(request.url).pathname;
+    const text = await request.text();
+    if (request.method !== "GET") {
+      sent.push({ method: request.method, path, body: text === "" ? undefined : JSON.parse(text) });
+    }
+    return answer(request.method, path);
+  });
+  return sent;
+}
+
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+
+/** The open editor over `shown`, on a Session that records what it is asked. */
+function renderEditor(shown: Card) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  queryClient.setQueryData(cardsQueryOptions(DECK.id).queryKey, [shown]);
+  const router = createRouter({ routeTree: createRootRoute(), history: createMemoryHistory() });
+  const recording = recordingSession();
+  render(
     <QueryClientProvider client={queryClient}>
       <RouterContextProvider router={router}>
-        <StudyEditor deck={DECK} card={shown} revealed session={session} />
+        <StudyEditor deck={DECK} card={shown} revealed session={recording.session} />
       </RouterContextProvider>
     </QueryClientProvider>,
   );
+  return recording;
 }
+
+/** The foot's Cancel, not the top bar's ×, which is named Cancel too. */
+const footCancel = () => screen.getByText("Cancel", { selector: "button" });
+/** The Reset progress checkbox. */
+function resetBox(): HTMLInputElement {
+  const box = screen.getByRole("checkbox");
+  if (!(box instanceof HTMLInputElement)) throw new Error("Reset progress isn't an input");
+  return box;
+}
+const discardAsked = () => screen.queryByText("Discard changes?");
+const press = (target: Element, key: string) => fireEvent.keyDown(target, { key });
+
+// Nothing reaches a real API: what a test doesn't stub answers 404.
+beforeEach(() => {
+  stubApi(() => json({ code: "not_found" }, 404));
+});
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 describe("StudyEditor", () => {
   test("offers Reset progress on a studied Card, unticked", () => {
-    const out = renderEditor(card(true));
+    renderEditor(card(true));
 
-    expect(out).toContain("Reset progress");
-    expect(out).toContain("Keeps its reviews, starts its schedule over.");
-    expect(out).toMatch(/<input type="checkbox"(?![^>]*checked)[^>]*>/);
+    expect(screen.getByText("Reset progress")).toBeTruthy();
+    expect(resetBox().checked).toBe(false);
   });
 
   test("never offers it on a New Card", () => {
-    const out = renderEditor(card(false));
+    renderEditor(card(false));
 
-    expect(out).not.toContain("Reset progress");
-    expect(out).not.toContain('type="checkbox"');
+    expect(screen.queryByText("Reset progress")).toBeNull();
+    expect(screen.queryByRole("checkbox")).toBeNull();
   });
 
   test("is the edit page's form, with Delete, Cancel and Save along its foot", () => {
-    const out = renderEditor(card(true));
+    renderEditor(card(true));
 
-    expect(out).toContain('role="dialog"');
-    expect(out).toContain('aria-label="Front formatting"');
-    expect(out).toContain('aria-label="Back formatting"');
-    expect(out).toContain("Add grading notes");
-    expect(out).toContain("food");
-    for (const action of ["Delete", "Cancel", "Save"]) expect(out).toContain(`>${action}</button>`);
+    expect(screen.getByRole("dialog", { name: "Edit card" })).toBeTruthy();
+    expect(screen.getByRole("toolbar", { name: "Front formatting" })).toBeTruthy();
+    expect(screen.getByRole("toolbar", { name: "Back formatting" })).toBeTruthy();
+    for (const action of ["Delete", "Cancel", "Save"]) {
+      expect(screen.getByText(action, { selector: "button" })).toBeTruthy();
+    }
+  });
+
+  describe("Cancel", () => {
+    test("with nothing unsaved closes the editor at once", () => {
+      const session = renderEditor(card(true));
+
+      fireEvent.click(footCancel());
+
+      expect(session.cancelEdit).toHaveBeenCalledTimes(1);
+      expect(discardAsked()).toBeNull();
+    });
+
+    test("with Reset progress ticked asks first; Keep editing stays, Discard closes", async () => {
+      const session = renderEditor(card(true));
+      fireEvent.click(resetBox());
+
+      fireEvent.click(footCancel());
+      await waitFor(() => expect(discardAsked()).not.toBeNull());
+      expect(session.cancelEdit).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+      await waitFor(() => expect(discardAsked()).toBeNull());
+      expect(session.cancelEdit).not.toHaveBeenCalled();
+      expect(resetBox().checked).toBe(true);
+
+      fireEvent.click(footCancel());
+      fireEvent.click(await screen.findByRole("button", { name: "Discard" }));
+      expect(session.cancelEdit).toHaveBeenCalledTimes(1);
+    });
+
+    test("the top bar's × goes the same way", async () => {
+      const session = renderEditor(card(true));
+      fireEvent.click(resetBox());
+
+      fireEvent.click(screen.getByTitle("Cancel (Esc)"));
+
+      await waitFor(() => expect(discardAsked()).not.toBeNull());
+      expect(session.cancelEdit).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("Esc", () => {
+    test("outside Front and Back closes the editor at once", () => {
+      const session = renderEditor(card(true));
+
+      press(screen.getByRole("dialog", { name: "Edit card" }), "Escape");
+
+      expect(session.cancelEdit).toHaveBeenCalledTimes(1);
+    });
+
+    test("in Front first only leaves the field, and a second closes", () => {
+      const session = renderEditor(card(true));
+      const front = document.querySelector(".cm-content")!;
+
+      press(front, "Escape");
+      expect(session.cancelEdit).not.toHaveBeenCalled();
+
+      press(front, "Escape");
+      expect(session.cancelEdit).toHaveBeenCalledTimes(1);
+    });
+
+    test("in Front, a key between the two Escs starts over", () => {
+      const session = renderEditor(card(true));
+      const front = document.querySelector(".cm-content")!;
+
+      press(front, "Escape");
+      press(front, "a");
+      press(front, "Escape");
+
+      expect(session.cancelEdit).not.toHaveBeenCalled();
+    });
+
+    test("with something unsaved asks first, and Esc in the dialog keeps editing", async () => {
+      const session = renderEditor(card(true));
+      fireEvent.click(resetBox());
+
+      press(screen.getByRole("dialog", { name: "Edit card" }), "Escape");
+      await waitFor(() => expect(discardAsked()).not.toBeNull());
+
+      press(screen.getByRole("alertdialog"), "Escape");
+      await waitFor(() => expect(discardAsked()).toBeNull());
+      expect(session.cancelEdit).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("Save", () => {
+    const saved = { ...card(true), studied: false, back: "breakfast" };
+
+    test("with Reset progress ticked sends it, and hands the Session a Progress reset", async () => {
+      const sent = stubApi(() => json(saved));
+      const session = renderEditor(card(true));
+      fireEvent.click(resetBox());
+
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      await waitFor(() => expect(session.saveEdit).toHaveBeenCalledTimes(1));
+      expect(sent[0]).toMatchObject({
+        method: "PATCH",
+        path: "/api/cards/c1",
+        body: { resetProgress: true },
+      });
+      expect(session.saveEdit).toHaveBeenCalledWith(saved, { progressReset: true });
+    });
+
+    test("unticked sends no reset, and hands the Session a plain edit", async () => {
+      const sent = stubApi(() => json(card(true)));
+      const session = renderEditor(card(true));
+
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      await waitFor(() => expect(session.saveEdit).toHaveBeenCalledTimes(1));
+      expect(sent[0]?.body).not.toHaveProperty("resetProgress");
+      expect(session.saveEdit).toHaveBeenCalledWith(card(true), { progressReset: false });
+    });
+
+    test("on a Card deleted meanwhile says so, and closing then loads the next Card", async () => {
+      stubApi(() => json({ code: "not_found" }, 404));
+      const session = renderEditor(card(true));
+
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      expect(
+        await screen.findByText("This card, or its deck, was deleted meanwhile."),
+      ).toBeTruthy();
+      expect(session.saveEdit).not.toHaveBeenCalled();
+      fireEvent.click(footCancel());
+      expect(session.closeGone).toHaveBeenCalledTimes(1);
+      expect(session.cancelEdit).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("Delete", () => {
+    test("deletes the Card at once, unasked, and the next Card loads", async () => {
+      const sent = stubApi(() => json({ deletionId: "del1" }));
+      const session = renderEditor(card(true));
+      fireEvent.click(resetBox());
+
+      fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+
+      await waitFor(() => expect(session.closeGone).toHaveBeenCalledTimes(1));
+      expect(sent[0]).toMatchObject({ method: "DELETE", path: "/api/cards/c1" });
+      expect(discardAsked()).toBeNull();
+      expect(session.cancelEdit).not.toHaveBeenCalled();
+    });
+
+    test("that fails leaves the editor open, as it was", async () => {
+      stubApi(() => json({ code: "oops" }, 500));
+      const session = renderEditor(card(true));
+      fireEvent.click(resetBox());
+
+      fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Delete" }).hasAttribute("disabled")).toBe(false),
+      );
+      expect(session.closeGone).not.toHaveBeenCalled();
+      expect(resetBox().checked).toBe(true);
+    });
   });
 });
