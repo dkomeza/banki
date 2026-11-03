@@ -11,6 +11,6 @@ So there is one reader of Card files, on the server, a preview survives a refres
 
 ## Consequences
 
-- Every preview uploads the whole file, up to 20 MB, and the API must refuse a larger body, and a zip that unpacks to more, before reading it.
+- Every preview uploads the whole file, Images included, up to 500 MB, and the API must refuse a larger body, and a zip that unpacks to more, before reading it.
 - An Import has two states, and everything that lists Imports (BAN-33's history) shows only confirmed ones.
 - Edits made in the preview are lost on a refresh; the page asks before the User leaves with changes.
