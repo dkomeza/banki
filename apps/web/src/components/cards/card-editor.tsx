@@ -265,6 +265,8 @@ type CardFormProps = {
   beforeFoot?: ReactNode;
   /** A narrow form, its labels above the fields from 1024 px (`STACKED_ROW`). */
   stacked?: boolean;
+  /** Whether the Duplicate note links to its Card's edit page: not where leaving loses something, as a Session. */
+  linkDuplicate?: boolean;
   className?: string;
 };
 
@@ -293,6 +295,7 @@ export function CardForm({
   foot,
   beforeFoot,
   stacked = false,
+  linkDuplicate = true,
   className,
 }: CardFormProps) {
   const live = useSuspenseQuery(cardsQueryOptions(deck.id)).data;
@@ -342,7 +345,11 @@ export function CardForm({
       <Field
         label="Front"
         placeholder="What to be asked"
-        note={duplicates.length > 0 ? <DuplicateNote duplicates={duplicates} /> : null}
+        note={
+          duplicates.length > 0 ? (
+            <DuplicateNote duplicates={duplicates} linked={linkDuplicate} />
+          ) : null
+        }
         autoFocus={autoFocus}
         {...sideProps("front")}
       />
@@ -389,10 +396,16 @@ export function CardForm({
 
 /**
  * "Already in this deck: <the newest match's first line>", linking to its
- * edit page, with "and N more" for the other matches. A warning, not an
- * error: it never stops a save.
+ * edit page unless `linked` is false, with "and N more" for the other
+ * matches. A warning, not an error: it never stops a save.
  */
-function DuplicateNote({ duplicates }: { duplicates: readonly Card[] }) {
+export function DuplicateNote({
+  duplicates,
+  linked = true,
+}: {
+  duplicates: readonly Card[];
+  linked?: boolean;
+}) {
   const [newest] = duplicates;
   if (newest === undefined) return null;
   const more = duplicates.length - 1;
@@ -401,19 +414,26 @@ function DuplicateNote({ duplicates }: { duplicates: readonly Card[] }) {
       <Copy aria-hidden className="mt-3.5 size-4 shrink-0 text-muted-foreground lg:mt-0.5" />
       <span className="min-w-0 break-words">
         Already in this deck:{" "}
-        <Link
-          to="/cards/$cardId"
-          params={{ cardId: newest.id }}
-          // At least 44 px tall below 1024 px, as every control is there.
-          className="inline-flex max-w-full min-h-11 items-center font-medium lg:inline lg:min-h-0 hover:text-primary focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-        >
-          {/* A border, not an underline: an underline doesn't reach into an
-              inline-block, which the name and each Formula in it are. */}
+        {linked ? (
+          <Link
+            to="/cards/$cardId"
+            params={{ cardId: newest.id }}
+            // At least 44 px tall below 1024 px, as every control is there.
+            className="inline-flex max-w-full min-h-11 items-center font-medium lg:inline lg:min-h-0 hover:text-primary focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+          >
+            {/* A border, not an underline: an underline doesn't reach into an
+                inline-block, which the name and each Formula in it are. */}
+            <CardLine
+              text={newest.front}
+              className="inline-block max-w-full min-w-0 border-b border-current align-bottom leading-snug"
+            />
+          </Link>
+        ) : (
           <CardLine
             text={newest.front}
-            className="inline-block max-w-full min-w-0 border-b border-current align-bottom leading-snug"
+            className="inline-block max-w-full min-w-0 align-bottom leading-snug font-medium"
           />
-        </Link>
+        )}
         {more > 0 && ` and ${more} more`}
       </span>
     </p>

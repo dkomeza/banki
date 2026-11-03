@@ -10,8 +10,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
 import type { Deck } from "@/lib/decks";
 import { settingsQueryOptions } from "@/lib/settings";
-import type { StudyState } from "@/lib/study";
-import { End } from "./study-screen";
+import { type StudyState, createStudySession, studyApi } from "@/lib/study";
+import { Dock, End } from "./study-screen";
 
 const DECK: Deck = {
   id: "d1",
@@ -114,5 +114,41 @@ describe("End", () => {
     const out = renderEnd({ newHeld: 3, loadingMore: true });
 
     expect(out).toMatch(/<button[^>]* disabled=""[^>]*>.*Learn 20 more<\/button>/);
+  });
+});
+
+describe("Dock", () => {
+  // Never started: the Dock only reads `state` here.
+  const IDLE = createStudySession({ studyApi: studyApi("d1"), notify: () => {} });
+  const preview = { state: "learning" as const, scheduledDays: 0, due: "2026-05-01T10:10:00.000Z" };
+  const RESET: Partial<StudyState> = {
+    phase: "card",
+    revealed: true,
+    progressReset: true,
+    shown: {
+      kind: "review",
+      intervals: { again: preview, hard: preview, good: preview, easy: preview },
+      card: {
+        id: "a",
+        deckId: "d1",
+        front: "a front",
+        back: "a back",
+        tags: [],
+        gradingNotes: null,
+        createdAt: "2026-05-01T09:00:00.000Z",
+        updatedAt: "2026-05-01T09:00:00.000Z",
+        studied: false,
+      },
+    },
+  };
+  const dock = (state: Partial<StudyState>) =>
+    text(renderToStaticMarkup(<Dock session={IDLE} state={{ ...DONE, ...state }} />));
+
+  test("after a Progress reset, says the Intervals are a new card's", () => {
+    expect(dock(RESET)).toContain("Back to New");
+  });
+
+  test("not while Try again loads them, as the old ones still show", () => {
+    expect(dock({ ...RESET, refreshing: true })).not.toContain("Back to New");
   });
 });

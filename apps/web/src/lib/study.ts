@@ -638,7 +638,7 @@ export function createStudySession({
      * Card's. Answers whether it opened.
      */
     edit(): boolean {
-      if (!state.editable || editorOpen) return false;
+      if (stopped || !state.editable || editorOpen) return false;
       editorOpen = true;
       editedAt = now();
       transition(() => set({ editing: true }));
@@ -650,11 +650,12 @@ export function createStudySession({
     },
     /**
      * Closes the editor on the Card as saved, revealed or not as it was, with
-     * its previews unchanged. After a Progress reset (`reset`), the editor
-     * stays open until the Card's fresh previews are in from the API, and it
-     * shows revealed, as New, still counting as the kind it first came with;
-     * previews that don't load leave it unratable until Try again, and a Card
-     * deleted meanwhile is skipped. Answers once the editor is closed.
+     * its previews unchanged. After a Progress reset (`progressReset`), the
+     * editor stays open until the Card's fresh previews are in from the API,
+     * and it shows revealed, as New, still counting as the kind it first came
+     * with; previews that don't load leave it unratable until Try again, and a
+     * Card deleted meanwhile is skipped. The Card's earlier Ratings then stand
+     * for good, as the API won't undo them. Answers once the editor is closed.
      */
     async saveEdit(card: Card, { progressReset }: { progressReset: boolean }) {
       if (!editorOpen || state.shown === undefined) return;
@@ -662,6 +663,7 @@ export function createStudySession({
         closeEditor({ shown: { ...state.shown, card } });
         return;
       }
+      for (const g of given) if (g.shown.card.id === card.id) g.kept = true;
       let fresh: Awaited<ReturnType<StudyApi["intervals"]>> | undefined;
       try {
         fresh = await client.intervals(card.id);
@@ -725,6 +727,49 @@ export function createStudySession({
 }
 
 export type StudySession = ReturnType<typeof createStudySession>;
+
+/**
+ * Opens the editor on the shown Card once `ready` (the Deck's Cards the
+ * editor reads) is in, as it can't show without them. Not when, meanwhile,
+ * the Card shown changed (a Rating, an Undo), another press came, or the
+ * screen went (`stop`); Cards that don't load say so (`notify`) instead.
+ */
+export function editorOpener({
+  session,
+  ready,
+  notify,
+}: {
+  session: Pick<StudySession, "getState" | "edit">;
+  ready: () => Promise<unknown>;
+  notify: (message: string) => void;
+}) {
+  let presses = 0;
+  let live = true;
+  return {
+    open: () => {
+      presses += 1;
+      const mine = presses;
+      const asked = session.getState().shown;
+      const current = () => live && mine === presses;
+      void ready().then(
+        () => {
+          if (current() && session.getState().shown === asked) session.edit();
+        },
+        () => {
+          if (current()) notify(EDITOR_FAILED);
+        },
+      );
+    },
+    /** Mounted again (a remount): opens as before. */
+    start: () => {
+      live = true;
+    },
+    /** The screen went: answers on their way open nothing and say nothing. */
+    stop: () => {
+      live = false;
+    },
+  };
+}
 
 /** What a key press on the study screen does. */
 export type KeyAction =

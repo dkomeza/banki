@@ -2,14 +2,7 @@ import { RATINGS } from "@banki/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { AlertCircle, LoaderCircle, Undo2, X } from "lucide-react";
-import {
-  type MouseEvent,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { type MouseEvent, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import { CardText } from "@/components/cards/card-text";
 import { OUTLINE_PILL, PILL } from "@/components/settings/parts";
@@ -29,7 +22,6 @@ import { moreOffer } from "@/lib/new-cards";
 import { settingsQueryOptions } from "@/lib/settings";
 import { tagsQueryOptions } from "@/lib/tags";
 import {
-  EDITOR_FAILED,
   RATING_KEYS,
   RATING_LABELS,
   type StudySession,
@@ -37,6 +29,7 @@ import {
   cardClickAction,
   copyFormula,
   createStudySession,
+  editorOpener,
   formatInterval,
   keyAction,
   studyApi,
@@ -80,18 +73,19 @@ export function StudyScreen({ deck }: { deck: Deck }) {
     return () => queryClient.removeQueries({ queryKey: ["cards"] });
   }, [queryClient, deck.id]);
   // The editor suspends until the Deck's Cards are in, which would leave it
-  // out of the View Transition's new frame: it opens once they are, on the
-  // Card it was asked for. Cards that don't load leave it closed, with a
-  // message, as the editor can't show without them.
-  const openEditor = useCallback(() => {
-    const asked = session.getState().shown?.card.id;
-    void queryClient.ensureQueryData(cardsQueryOptions(deck.id)).then(
-      () => {
-        if (session.getState().shown?.card.id === asked) session.edit();
-      },
-      () => toast(EDITOR_FAILED),
-    );
-  }, [queryClient, deck.id, session]);
+  // out of the View Transition's new frame: it opens once they are.
+  const [opener] = useState(() =>
+    editorOpener({
+      session,
+      ready: () => queryClient.ensureQueryData(cardsQueryOptions(deck.id)),
+      notify: (m) => toast(m),
+    }),
+  );
+  useEffect(() => {
+    opener.start();
+    return () => opener.stop();
+  }, [opener]);
+  const openEditor = opener.open;
 
   // Desktop keys: Space / Enter reveal, 1–4 rate, E edits, Ctrl/⌘+Z undoes,
   // Esc leaves. While the editor is open, they are its own.
@@ -334,7 +328,7 @@ function CardView({ session, state }: { session: StudySession; state: StudyState
   );
 }
 
-function Dock({ session, state }: { session: StudySession; state: StudyState }) {
+export function Dock({ session, state }: { session: StudySession; state: StudyState }) {
   const intervals = state.shown?.intervals;
   return (
     <div
@@ -346,7 +340,7 @@ function Dock({ session, state }: { session: StudySession; state: StudyState }) 
     >
       <div className="mx-auto flex w-full max-w-2xl flex-col gap-2 px-3 pt-3 sm:px-6">
         {/* In the dock, not above the Front, so the Card doesn't move when it comes back. */}
-        {state.progressReset && state.failure === undefined && <ResetNote />}
+        {state.progressReset && state.failure === undefined && !state.refreshing && <ResetNote />}
         {state.undone && state.failure === undefined && (
           <p className="text-center text-xs font-medium text-muted-foreground">
             Back from Undo: rate it again

@@ -1,8 +1,10 @@
 import type { IntervalPreviews, QueueKind, Rating } from "@banki/shared";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
+import { createApiClient } from "./api";
 import type { Card } from "./cards";
 import {
   CARD_GONE,
+  EDITOR_FAILED,
   INTERVALS_FAILED,
   MORE_FAILED,
   NEXT_FAILED,
@@ -16,10 +18,12 @@ import {
   copyFormula,
   createStudySession,
   editorCloseAction,
+  editorOpener,
   formatInterval,
   keyAction,
   recallPercent,
   spentLabel,
+  studyApi,
   summaryOf,
 } from "./study";
 
@@ -1239,6 +1243,23 @@ describe("editing the shown Card", () => {
     expect(t.calls.rate).toEqual([{ cardId: "a", rating: "good", durationMs: 3500 }]);
   });
 
+  test("a Progress reset makes the Card's earlier Ratings stand for good: Undo goes on to the one before, or turns off", async () => {
+    const t = setUp([next("b"), next("a"), next("a", "learning"), next("c")]);
+    await t.session.start();
+    await revealAndRate(t, "good");
+    await revealAndRate(t, "again");
+    expect(t.shownId()).toBe("a");
+
+    t.session.edit();
+    await t.session.saveEdit(edited("a", "a", false), { progressReset: true });
+    await t.session.undo();
+
+    // b's Rating, not a's, which the API would refuse.
+    expect(t.calls.undo).toEqual(["r1"]);
+    expect(t.messages).toEqual([]);
+    expect(t.state()).toMatchObject({ undoable: false, rated: 1 });
+  });
+
   test("a Card back from Undo, then reset, is no longer marked as back from Undo", async () => {
     const t = setUp([next("a"), next("b")]);
     await t.session.start();
@@ -1331,5 +1352,172 @@ describe("editing the shown Card", () => {
     expect(session.getState().shown?.card.id).toBe("b");
     for (const update of later.splice(0)) update();
     expect(session.getState()).toMatchObject({ editing: false, skipping: false, editable: true });
+  });
+});
+
+/** A Session over `queue` with an editorOpener whose Deck's Cards arrive when the test says. */
+function opening(queue: NextCard[]) {
+  const t = setUp(queue);
+  let cards = deferred<void>();
+  const failures: string[] = [];
+  const opener = editorOpener({
+    session: t.session,
+    ready: () => cards.promise,
+    notify: (message) => failures.push(message),
+  });
+  return {
+    ...t,
+    opener,
+    failures,
+    /** The Cards arrive. */
+    load: async () => {
+      cards.resolve();
+      await flush();
+    },
+    /** The Cards fail to load, for the next press. */
+    failing: () => {
+      cards = { promise: Promise.reject(new Error("offline")), resolve: () => {} };
+      cards.promise.catch(() => {});
+    },
+    /** The Cards are in already, for the next press. */
+    cached: () => {
+      cards = { promise: Promise.resolve(), resolve: () => {} };
+    },
+  };
+}
+
+describe("opening the editor once the Deck's Cards are in", () => {
+  test("opens on the Card it was asked for once they arrive, not before", async () => {
+    const t = opening([next("a"), next("b")]);
+    await t.session.start();
+    t.opener.open();
+    expect(t.state().editing).toBe(false);
+
+    await t.load();
+    expect(t.state()).toMatchObject({ editing: true });
+    expect(t.shownId()).toBe("a");
+  });
+
+  test("with them cached, opens at once", async () => {
+    const t = opening([next("a")]);
+    await t.session.start();
+    t.cached();
+    t.opener.open();
+    await flush();
+
+    expect(t.state().editing).toBe(true);
+  });
+
+  test("Cards that don't load leave it closed, and say so", async () => {
+    const t = opening([next("a")]);
+    await t.session.start();
+    t.failing();
+    t.opener.open();
+    await flush();
+
+    expect(t.state().editing).toBe(false);
+    expect(t.failures).toEqual([EDITOR_FAILED]);
+  });
+
+  test("opens nothing when the Card shown changed meanwhile", async () => {
+    const t = opening([next("a"), next("b")]);
+    await t.session.start();
+    t.opener.open();
+    await revealAndRate(t, "good");
+    expect(t.shownId()).toBe("b");
+
+    await t.load();
+    expect(t.state().editing).toBe(false);
+  });
+
+  test("opens nothing when the same Card is back from a Rating and its Undo meanwhile", async () => {
+    const t = opening([next("a"), next("b")]);
+    await t.session.start();
+    t.opener.open();
+    await revealAndRate(t, "again");
+    await t.session.undo();
+    expect(t.shownId()).toBe("a");
+
+    await t.load();
+    expect(t.state().editing).toBe(false);
+  });
+
+  test("an earlier press opens nothing once another came", async () => {
+    const t = opening([next("a")]);
+    await t.session.start();
+    t.opener.open();
+    const first = t.load;
+    t.cached();
+    t.opener.open();
+    await flush();
+    expect(t.state().editing).toBe(true);
+    t.session.cancelEdit();
+
+    await first();
+    expect(t.state().editing).toBe(false);
+  });
+
+  test("once the screen went, opens nothing and says nothing", async () => {
+    const t = opening([next("a")]);
+    await t.session.start();
+    t.opener.open();
+    t.opener.stop();
+    await t.load();
+    expect(t.state().editing).toBe(false);
+
+    t.failing();
+    t.opener.open();
+    await flush();
+    expect(t.failures).toEqual([]);
+  });
+
+  test("a stopped Session doesn't open the editor", async () => {
+    const t = setUp([next("a")]);
+    await t.session.start();
+    t.session.stop();
+
+    expect(t.session.edit()).toBe(false);
+  });
+});
+
+/** The study API over HTTP, answered by `res`. */
+const answering = (res: () => Response) =>
+  studyApi("d1", createApiClient(vi.fn(async () => res())));
+
+describe("studyApi", () => {
+  test("an Undo answers the Card back with its previews, 404 as gone and 409 as kept", async () => {
+    const back = { card: card("a"), intervals: intervals("a") };
+    const schedule = {
+      state: "new",
+      due: null,
+      stability: 0,
+      difficulty: 0,
+      reps: 0,
+      lapses: 0,
+      scheduledDays: 0,
+      lastReview: null,
+    };
+    await expect(answering(() => Response.json({ ...back, schedule })).undo("r1")).resolves.toEqual(
+      back,
+    );
+    await expect(answering(() => new Response(null, { status: 404 })).undo("r1")).resolves.toBe(
+      "gone",
+    );
+    await expect(answering(() => new Response(null, { status: 409 })).undo("r1")).resolves.toBe(
+      "kept",
+    );
+    await expect(answering(() => new Response(null, { status: 500 })).undo("r1")).rejects.toThrow();
+  });
+
+  test("a Card's previews answer as they are, 404 as gone", async () => {
+    await expect(answering(() => Response.json(intervals("a"))).intervals("a")).resolves.toEqual(
+      intervals("a"),
+    );
+    await expect(answering(() => new Response(null, { status: 404 })).intervals("a")).resolves.toBe(
+      "gone",
+    );
+    await expect(
+      answering(() => new Response(null, { status: 500 })).intervals("a"),
+    ).rejects.toThrow();
   });
 });

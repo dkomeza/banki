@@ -218,6 +218,7 @@ export function StudyEditor({
             tags={tags}
             saving={saving}
             autoFocus={fine}
+            linkDuplicate={false}
             onSave={() => void save()}
             className="rounded-none border-0 bg-transparent px-4 shadow-none sm:px-6"
             beforeFoot={
