@@ -491,6 +491,9 @@ export function createStudySession({
   async function start() {
     stopped = false;
     starts += 1;
+    // Started again with the editor open (a restart, dev only): it closes on
+    // the first Card (`show`), and a Save on its way changes nothing.
+    editorOpen = false;
     const mine = starts;
     let first: NextAnswer;
     try {
@@ -712,6 +715,7 @@ export function createStudySession({
         return;
       }
       for (const g of given) if (g.shown.card.id === card.id) g.settled = true;
+      const mine = starts;
       let fresh: Awaited<ReturnType<StudyApi["intervals"]>> | undefined;
       try {
         fresh = await client.intervals(card.id);
@@ -719,7 +723,8 @@ export function createStudySession({
         fresh = undefined;
       }
       const shown = state.shown;
-      if (!editorOpen || shown === undefined) return;
+      // Started again since, the editor open now isn't this one.
+      if (!editorOpen || mine !== starts || shown?.card.id !== card.id) return;
       if (fresh === "gone") {
         say(CARD_GONE);
         set(skipGone());

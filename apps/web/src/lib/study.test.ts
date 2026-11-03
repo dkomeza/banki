@@ -1432,6 +1432,7 @@ describe("editing the shown Card", () => {
     const session = createStudySession({
       studyApi: server.api,
       notify: () => {},
+      now: () => NOW,
       transition: (update) => later.push(update),
     });
     await session.start();
@@ -1543,6 +1544,29 @@ describe("after a Progress reset", () => {
     expect(t.shownId()).toBe("b");
     expect(t.state().shown?.intervals).toEqual(intervals("b"));
     expect(t.state()).toMatchObject({ refreshing: false, progressReset: false });
+  });
+
+  test("started again with the editor open, closes it, and a Progress reset's answer for the old Card changes nothing", async () => {
+    const t = setUp([next("a", "review"), next("b"), next("c")]);
+    await t.session.start();
+    t.session.edit();
+    const answer = deferred<IntervalPreviews>();
+    t.api.intervals = () => answer.promise;
+    const saving = t.session.saveEdit(edited("a", "a"), { progressReset: true });
+    t.session.stop();
+    await t.session.start();
+    expect(t.shownId()).toBe("b");
+    expect(t.state()).toMatchObject({ editing: false, ratable: false });
+    // The editor opened again, on the new first Card.
+    expect(t.session.edit()).toBe(true);
+
+    answer.resolve(intervals("a-fresh"));
+    await saving;
+    expect(t.shownId()).toBe("b");
+    expect(t.state().shown?.intervals).toEqual(intervals("b"));
+    expect(t.state()).toMatchObject({ editing: true, progressReset: false, turning: false });
+    t.session.cancelEdit();
+    expect(t.state().editing).toBe(false);
   });
 
   test("Try again's failure or 404 changes nothing once another Card shows (started again)", async () => {
