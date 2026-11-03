@@ -37,6 +37,7 @@ async function settledSoon(promise: Promise<unknown>) {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   Reflect.deleteProperty(document, "startViewTransition");
   document.body.innerHTML = "";
@@ -98,11 +99,17 @@ describe("morph", () => {
     const editor = document.createElement("section");
     editor.setAttribute("data-study-editor", "");
 
+    // A fake clock, so a loaded machine can't stretch the second.
+    vi.useFakeTimers({ toFake: ["setTimeout", "performance"] });
     morph(() => document.body.append(editor));
-    const began = performance.now();
-    await updates[0]?.();
+    let settled = false;
+    void updates[0]?.().then(() => {
+      settled = true;
+    });
 
-    expect(performance.now() - began).toBeGreaterThanOrEqual(950);
-    expect(performance.now() - began).toBeLessThan(1500);
+    await vi.advanceTimersByTimeAsync(980);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(40);
+    expect(settled).toBe(true);
   });
 });
