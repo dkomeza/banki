@@ -41,15 +41,18 @@ export function EditCard({ deck, card }: { deck: Deck; card: Card }) {
   const form = useCardForm(fieldsOf(card));
   const tags = useTagInput(card.tags);
   const [reset, setReset] = useState(false);
-  const saving = useRef(false);
+  // A Save or a Delete on its way: the other waits for it.
+  const pending = useRef(false);
   // The Card as a Save on its way found it. Meanwhile Reset progress can't
   // change, and its row stays as it was, though the Save's answer (a Card back
   // to New) is cached before the page is left. A Save that went through keeps
   // it until the page is gone.
   const [savingFrom, setSavingFrom] = useState<Card>();
-  // Cancel, Delete, the breadcrumbs and Back all wait for a Save on its way,
-  // so nothing leaves while its answer can still land.
-  const busy = savingFrom !== undefined;
+  const [deleting, setDeleting] = useState(false);
+  // Save, Cancel, Delete, the breadcrumbs and Back all wait for a Save or a
+  // Delete on its way, so nothing leaves or writes while its answer can still
+  // land.
+  const busy = savingFrom !== undefined || deleting;
   // A ticked Reset progress is unsaved too.
   const guard = useDiscardGuard(
     editUnsaved(card, {
@@ -72,10 +75,10 @@ export function EditCard({ deck, card }: { deck: Deck; card: Card }) {
     });
 
   const save = async () => {
-    if (saving.current) return;
+    if (pending.current) return;
     const nextTags = tags.commit();
     if (nextTags === false) return;
-    saving.current = true;
+    pending.current = true;
     setSavingFrom(card);
     setFormError(undefined);
     let outcome: CardOutcome | undefined;
@@ -92,7 +95,7 @@ export function EditCard({ deck, card }: { deck: Deck; card: Card }) {
     } finally {
       // Unless it went through, Save and Reset progress work again.
       if (!outcome?.ok) {
-        saving.current = false;
+        pending.current = false;
         setSavingFrom(undefined);
       }
     }
@@ -102,11 +105,19 @@ export function EditCard({ deck, card }: { deck: Deck; card: Card }) {
     else setFormError(outcome.message);
   };
 
-  const remove = () =>
-    deleteWithUndo(queryClient, card, async () => {
+  // A Delete that fails leaves the page, and what's typed, as it was.
+  const remove = async () => {
+    if (pending.current) return;
+    pending.current = true;
+    setDeleting(true);
+    const deleted = await deleteWithUndo(queryClient, card, async () => {
       guard.release();
       await toDeck();
     });
+    if (deleted) return;
+    pending.current = false;
+    setDeleting(false);
+  };
 
   return (
     <>

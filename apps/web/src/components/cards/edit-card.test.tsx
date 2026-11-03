@@ -370,4 +370,35 @@ describe("The edit page's discard guard", () => {
     expect(sent).toEqual([{ method: "DELETE", path: "/api/cards/c1", body: undefined }]);
     expect(discardAsked()).toBeNull();
   });
+
+  test("holds the page while a Delete is on its way: Save sends nothing, and a failed Delete leaves it as it was", async () => {
+    let answer: ((res: Response) => void) | undefined;
+    const sent = stubApi((method) =>
+      method === "DELETE"
+        ? new Promise<Response>((resolve) => {
+            answer = resolve;
+          })
+        : json([]),
+    );
+    const { router } = await renderPage(card(true));
+    fireEvent.click(resetBox());
+    fireEvent.click(button("Delete"));
+    await waitFor(() => expect(answer).toBeDefined());
+
+    expect(button("Delete").hasAttribute("disabled")).toBe(true);
+    expect(button("Cancel").hasAttribute("disabled")).toBe(true);
+    expect(resetBox().disabled).toBe(true);
+    fireEvent.click(button("Save"));
+    fireEvent.keyDown(document.querySelector(".cm-content")!, { key: "Enter", ctrlKey: true });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(sent).toEqual([{ method: "DELETE", path: "/api/cards/c1", body: undefined }]);
+
+    answer?.(json({ code: "internal" }, 500));
+    await waitFor(() => expect(button("Delete").hasAttribute("disabled")).toBe(false));
+    expect(router.state.location.pathname).toBe("/cards/c1");
+    expect(resetBox().checked).toBe(true);
+    expect(resetBox().disabled).toBe(false);
+  });
 });
