@@ -1447,6 +1447,40 @@ describe("after a Progress reset", () => {
     expect(t.state()).toMatchObject({ refreshing: false, skipping: false, failure: undefined });
   });
 
+  test("Try again finding the Card deleted drops Back to New while the next one loads", async () => {
+    const t = await resetFailed([next("a"), next("b")]);
+    t.fail.intervals = "gone";
+    const answer = deferred<NextAnswer>();
+    t.api.next = () => answer.promise;
+    t.session.retry();
+    await flush();
+
+    expect(t.shownId()).toBe("a");
+    expect(t.state()).toMatchObject({ skipping: true, progressReset: false, failure: undefined });
+    answer.resolve({ next: next("b"), newHeld: 0 });
+    await flush();
+    expect(t.shownId()).toBe("b");
+  });
+
+  test("a reset Card found deleted on Save, after an Undo, drops rate it again while the next one loads", async () => {
+    const t = setUp([next("a"), next("b")]);
+    await t.session.start();
+    await revealAndRate(t, "good");
+    await t.session.undo();
+    expect(t.state()).toMatchObject({ undone: true });
+    t.session.edit();
+    t.fail.intervals = "gone";
+    const answer = deferred<NextAnswer>();
+    t.api.next = () => answer.promise;
+    const saving = t.session.saveEdit(edited("a", "a"), { progressReset: true });
+    await flush();
+
+    expect(t.state()).toMatchObject({ skipping: true, undone: false, progressReset: false });
+    answer.resolve({ next: next("b"), newHeld: 0 });
+    await saving;
+    expect(t.shownId()).toBe("b");
+  });
+
   test("Try again's answer changes nothing once another Card shows (started again)", async () => {
     const t = await resetFailed([next("a"), next("b")]);
     const answer = deferred<IntervalPreviews>();
@@ -1530,6 +1564,26 @@ describe("editing while a Rating didn't save", () => {
       { cardId: "a", rating: "good", durationMs: 3000 },
       { cardId: "a", rating: "good", durationMs: 3000 },
     ]);
+    expect(t.shownId()).toBe("b");
+  });
+
+  test("a Card gone from the editor takes its failure and Try again with it while the next one loads", async () => {
+    const t = setUp([next("a"), next("b")]);
+    await t.session.start();
+    t.session.reveal();
+    t.fail.rate = true;
+    t.session.rate("good");
+    await flush();
+    t.session.edit();
+    const answer = deferred<NextAnswer>();
+    t.api.next = () => answer.promise;
+    const gone = t.session.closeGone();
+
+    expect(t.state()).toMatchObject({ skipping: true, failure: undefined, undone: false });
+    t.session.retry();
+    expect(t.calls.rate).toHaveLength(1);
+    answer.resolve({ next: next("b"), newHeld: 0 });
+    await gone;
     expect(t.shownId()).toBe("b");
   });
 

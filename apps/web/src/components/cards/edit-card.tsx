@@ -111,6 +111,7 @@ export function EditCard({ deck, card }: { deck: Deck; card: Card }) {
         dateline={writtenLabel(card.createdAt)}
         form={form}
         tags={tags}
+        saving={savingFrom !== undefined}
         onSave={() => void save()}
         beforeFoot={
           <ResetProgress

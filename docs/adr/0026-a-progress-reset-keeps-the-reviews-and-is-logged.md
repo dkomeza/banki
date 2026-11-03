@@ -16,5 +16,6 @@ Editing a studied Card may put it back to New. That leaves its Reviews where the
 - A Review given before its Card's newest Progress reset can't be undone: restoring the state it kept would undo the Progress reset too.
 - FSRS tuning (M9) and per-card history (BAN-52) read the Progress reset log alongside the Reviews, in the write order.
 - Reviews given before the write order existed take their places in it by their moments, as well as the database can tell.
-- Like a Card's Reviews, its Progress resets outlive its Removal (ADR-0018): the log has no foreign key to the Card, so it may name Cards that are gone.
+- Like a Card's Reviews, its Progress resets outlive its Removal (ADR-0018): the log has no foreign key to the Card, so it may name Cards that are gone. Unlike a Review, a Progress reset keeps no Deck (ADR-0021): it is a fact about its Card alone, and nothing counts Progress resets by Deck. Deck-level history that needs one places it by the Reviews around it.
+- A place in the write order isn't permanent, as a Review isn't (ADR-0025): an Undo of the User's newest Review frees its `seq`, and the next Review or Progress reset takes it again. Whatever reads the log in steps (M9 tuning) goes by the rows as they are, not by a remembered `seq`.
 - In a Session, a Card still counts as the kind it first came with after a Progress reset there: a review Card reset and rated again still counts toward the Recall rate.

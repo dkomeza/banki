@@ -500,6 +500,16 @@ export function createStudySession({
     if (mine === starts) show(first);
   }
 
+  /**
+   * Skipping the shown Card, gone: what was said about it (a failure and its
+   * Try again, "rate it again", "Back to New") goes with it while the next
+   * one loads.
+   */
+  const skipGone = (): Partial<StudyState> => {
+    failed = undefined;
+    return { skipping: true, failure: undefined, undone: false, progressReset: false };
+  };
+
   /** Try again for a reset Card's previews: shows them as it is now; one deleted meanwhile is skipped. */
   const refresh = async (cardId: string) => {
     set({ refreshing: true, failure: undefined });
@@ -512,7 +522,7 @@ export function createStudySession({
     }
     if (fresh === "gone") {
       say(CARD_GONE);
-      set({ refreshing: false, skipping: true });
+      set({ refreshing: false, ...skipGone() });
       await loadNext(cardId);
       return;
     }
@@ -699,7 +709,7 @@ export function createStudySession({
       if (!editorOpen || shown === undefined) return;
       if (fresh === "gone") {
         say(CARD_GONE);
-        set({ skipping: true });
+        set(skipGone());
         closeEditor({});
         await loadNext(card.id);
         return;
@@ -723,7 +733,7 @@ export function createStudySession({
     async closeGone() {
       const shown = state.shown;
       if (!editorOpen || shown === undefined) return;
-      set({ skipping: true });
+      set(skipGone());
       closeEditor({});
       await loadNext(shown.card.id);
     },

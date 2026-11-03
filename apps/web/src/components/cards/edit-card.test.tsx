@@ -7,6 +7,7 @@ import {
   createRoute,
   createRouter,
 } from "@tanstack/react-router";
+import { EditorView } from "@codemirror/view";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { SettingsResponse } from "@banki/shared";
@@ -193,6 +194,9 @@ describe("The edit page's Reset progress", () => {
     fireEvent.click(button("Save"));
 
     await waitFor(() => expect(resetBox().disabled).toBe(true));
+    // Nor can the sides, so nothing typed meanwhile is lost when the page goes.
+    for (const side of document.querySelectorAll<HTMLElement>(".cm-content"))
+      expect(EditorView.findFromDOM(side)?.state.readOnly).toBe(true);
     answer?.(json({ ...card(true), studied: false }));
     await onDeck();
   });
@@ -207,6 +211,11 @@ describe("The edit page's Reset progress", () => {
       "the answer drops while it comes in",
       () => new Response("{", { headers: { "content-type": "application/json" } }),
       "Can't reach Banki. Check your connection and try again.",
+    ],
+    [
+      "the answer isn't a Card",
+      () => json({ id: "c1" }),
+      "Banki couldn't save the card. Try again.",
     ],
   ])(
     "comes back ticked and can change again when %s, with the error shown",
@@ -289,6 +298,8 @@ describe("The edit page's discard guard", () => {
 
     fireEvent.click(button("Cancel"));
     await waitFor(() => expect(discardAsked()).not.toBeNull());
+    // Nothing was written: it says changes, not writing.
+    expect(screen.getByText("Your changes to this card haven't been saved.")).not.toBeNull();
 
     fireEvent.click(button("Keep editing"));
     await waitFor(() => expect(discardAsked()).toBeNull());

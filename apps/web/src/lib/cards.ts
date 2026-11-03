@@ -186,7 +186,11 @@ async function outcomeOf(
   } catch {
     return { ok: false, message: CANT_REACH };
   }
-  if (res.ok) return { ok: true, card: CardResponse.parse(body) };
+  if (res.ok) {
+    // An answer that isn't a Card (an old client, a proxy) says so, as a failure does.
+    const parsed = CardResponse.safeParse(body);
+    return parsed.success ? { ok: true, card: parsed.data } : { ok: false, message: failed };
+  }
   if (res.status === 404) return { ok: false, notFound: true };
   return { ok: false, message: failed };
 }

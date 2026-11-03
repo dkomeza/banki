@@ -63,7 +63,7 @@ export function DiscardDialog({
             Discard changes?
           </AlertDialog.Title>
           <AlertDialog.Description className="text-[0.95rem] text-muted-foreground">
-            What you've written on this card hasn't been saved.
+            Your changes to this card haven't been saved.
           </AlertDialog.Description>
           <div className="mt-2 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <AlertDialog.Close render={<Button variant="outline" className={OUTLINE_PILL} />}>

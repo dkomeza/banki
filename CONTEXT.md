@@ -93,7 +93,7 @@ One Rating of one Card at one moment, with the time the User spent on it and whe
 _Avoid_: answer, attempt, repetition
 
 **Progress reset**:
-Putting a studied Card back to New, which the User may choose only while editing it, and never by default. Its Reviews stay and still count in statistics, but FSRS learns about the Card again from its newest Progress reset, and a Rating given before it can't be undone. Each one is kept, so a Card's history shows every Progress reset in its place.
+Putting a studied Card back to New, which the User may choose only while editing it, and never by default. Its Reviews stay and still count in statistics, but FSRS learns about the Card again from its newest Progress reset, and a Rating given before it can't be undone. Each one is kept, so a Card's history shows every Progress reset in its place. "Before" and "newest" go by the order the User's Reviews and Progress resets were written in, not by their moments, which a clock can tie or step back.
 _Avoid_: forget, reset (alone, which is Edge's), relearn
 
 **Due**:
