@@ -97,7 +97,7 @@ Putting a studied Card back to New, which the User may choose only while editing
 _Avoid_: forget, reset (alone, which is Edge's), relearn
 
 **Write order**:
-The order in which the User's Reviews and Progress resets were written, one place each, shared by both. "Before", "newest" and a Card's history go by it rather than by moments, which a clock can tie or step back. An Undo takes its Review out of the Write order, which can leave a place in it unused.
+The order in which the User's Reviews and Progress resets were written, one place each, shared by both. "Before", "newest" and a Card's history go by it rather than by moments, which a clock can tie or step back. An Undo takes its Review out of the Write order, which can leave a place in it unused. Reviews given before it existed took their places in it by their moments, as well as Banki could tell.
 _Avoid_: timeline, sequence, seq (outside the code)
 
 **Due**:
