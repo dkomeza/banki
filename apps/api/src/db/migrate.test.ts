@@ -360,3 +360,25 @@ test("0015_progress_resets keeps every Card and Review, numbered in order for ea
   ]);
   expect(opened.db.values(sql`SELECT id FROM progress_reset`)).toEqual([]);
 });
+
+test("a Card's newest Review and its Progress resets since are found through the Card, not the User's whole history", () => {
+  applyMigrations(opened.db, folder);
+  const plan = (query: ReturnType<typeof sql>) =>
+    opened.db
+      .values<[number, number, number, string]>(sql`EXPLAIN QUERY PLAN ${query}`)
+      .map(([, , , detail]) => detail);
+
+  // `lastReviewOf`, and Undo's check for a Progress reset since.
+  expect(
+    plan(
+      sql`SELECT id FROM review WHERE user_id = 'u' AND card_id = 'c' ORDER BY seq DESC LIMIT 1`,
+    ),
+  ).toEqual(["SEARCH review USING INDEX review_card_id_user_id_seq (card_id=? AND user_id=?)"]);
+  expect(
+    plan(
+      sql`SELECT id FROM progress_reset WHERE user_id = 'u' AND card_id = 'c' AND seq > 1 LIMIT 1`,
+    ),
+  ).toEqual([
+    "SEARCH progress_reset USING INDEX progress_reset_card_id_user_id_seq (card_id=? AND user_id=? AND seq>?)",
+  ]);
+});

@@ -704,17 +704,11 @@
         }
       },
       "indexes": {
-        "progress_reset_user_id": {
-          "name": "progress_reset_user_id",
-          "columns": [
-            "user_id"
-          ],
-          "isUnique": false
-        },
-        "progress_reset_card_id_seq": {
-          "name": "progress_reset_card_id_seq",
+        "progress_reset_card_id_user_id_seq": {
+          "name": "progress_reset_card_id_user_id_seq",
           "columns": [
             "card_id",
+            "user_id",
             "seq"
           ],
           "isUnique": false
@@ -835,6 +829,15 @@
           "columns": [
             "card_id",
             "reviewed_at"
+          ],
+          "isUnique": false
+        },
+        "review_card_id_user_id_seq": {
+          "name": "review_card_id_user_id_seq",
+          "columns": [
+            "card_id",
+            "user_id",
+            "seq"
           ],
           "isUnique": false
         },
