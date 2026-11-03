@@ -7,12 +7,13 @@ import { eq, sql } from "drizzle-orm";
 import { createApiKeyCipher } from "../crypto/api-key-cipher";
 import { type OpenedDatabase, openDatabase } from "../db/database";
 import { applyMigrations } from "../db/migrate";
-import { card, review } from "../db/schema";
+import { card, progress_reset, review } from "../db/schema";
 import { dueOnStudyDay } from "../scheduling/fsrs";
 import { userHasContent } from "../seed/seed-data";
 import { type CardRepository, createCardRepository } from "./cards";
 import { type DeckRepository, createDeckRepository } from "./decks";
 import { type DeletionRepository, createDeletionRepository } from "./deletions";
+import { resetProgress } from "./progress-resets";
 import { type ReviewRepository, createReviewRepository } from "./reviews";
 import { type SettingsRepository, createSettingsRepository } from "./settings";
 import { createUserRepository } from "./user";
@@ -35,7 +36,12 @@ beforeEach(() => {
   opened = openDatabase(tempDir);
   applyMigrations(opened.db);
   const users = createUserRepository(opened.db);
-  users.createWithPassword({ userId: USER, accountId: "a1", email: "u@x.y", passwordHash: "h" });
+  users.createWithPassword({
+    userId: USER,
+    accountId: "a1",
+    email: "u@x.y",
+    passwordHash: "h",
+  });
   opened.db.run(
     sql`INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES (${OTHER}, 'n', 'o@x.y', 1, 0, 0)`,
   );
@@ -56,7 +62,11 @@ const START = at("2026-05-01T10:00:00Z");
 const UTC4 = { timezone: "UTC", dayStartHour: 4 };
 
 const deckNamed = (name: string, userId = USER) => {
-  const created = decks.create(userId, { name, description: null, folderId: null });
+  const created = decks.create(userId, {
+    name,
+    description: null,
+    folderId: null,
+  });
   if (typeof created === "string") throw new Error(`${name}: ${created}`);
   return created.id;
 };
@@ -135,7 +145,13 @@ describe("rate", () => {
       rating: "good",
       kind: "self-rated",
       durationMs: 5300,
-      cardBefore: { state: "new", dueAt: null, reps: 0, stability: 0, lastReviewAt: null },
+      cardBefore: {
+        state: "new",
+        dueAt: null,
+        reps: 0,
+        stability: 0,
+        lastReviewAt: null,
+      },
     });
     expect(rowOf(cardId)).toMatchObject({
       state: "learning",
@@ -402,5 +418,36 @@ describe("Removal", () => {
     expect(rowOf(withDeck)).toBeUndefined();
     expect(reviewsOf(alone)).toHaveLength(1);
     expect(reviewsOf(withDeck)).toMatchObject([{ deckId, rating: "hard" }]);
+  });
+});
+
+describe("the write order", () => {
+  test("numbers each User's Reviews and Progress resets on their own, never from another User's", () => {
+    const mine = write(deckNamed("Spanish"));
+    const theirs = write(deckNamed("Theirs", OTHER), "theirs", OTHER);
+    const giveAs = (userId: string, cardId: string) => {
+      const rated = reviews.rate(
+        userId,
+        cardId,
+        { rating: "good", durationMs: 4000 },
+        { now: START },
+      );
+      if (rated === "not_found") throw new Error(`${cardId}: not_found`);
+      return rated.review.id;
+    };
+    const seqOf = (id: string) =>
+      opened.db.select({ seq: review.seq }).from(review).where(eq(review.id, id)).get()?.seq;
+
+    const myFirst = giveAs(USER, mine);
+    const theirFirst = giveAs(OTHER, theirs);
+    resetProgress(opened.db, USER, mine, START);
+    const theirSecond = giveAs(OTHER, theirs);
+    const mySecond = giveAs(USER, mine);
+
+    expect([myFirst, mySecond].map(seqOf)).toEqual([1, 3]);
+    expect([theirFirst, theirSecond].map(seqOf)).toEqual([1, 2]);
+    expect(opened.db.select({ seq: progress_reset.seq }).from(progress_reset).all()).toEqual([
+      { seq: 2 },
+    ]);
   });
 });

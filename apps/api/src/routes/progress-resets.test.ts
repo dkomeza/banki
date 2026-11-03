@@ -85,13 +85,25 @@ const resetsOf = (cardId: string) =>
   );
 const reviewsOf = (cardId: string) =>
   inDatabase((db) => db.all<{ id: string }>(sql`SELECT id FROM review WHERE card_id = ${cardId}`));
+/** The Card's whole memory state, as stored. */
 const memoryOf = (cardId: string) =>
   inDatabase(
     (db) =>
-      db.all<{ state: string; due_at: number | null; reps: number; last_review_at: number | null }>(
-        sql`SELECT state, due_at, reps, last_review_at FROM card WHERE id = ${cardId}`,
+      db.all<Record<string, string | number | null>>(
+        sql`SELECT state, due_at, stability, difficulty, reps, lapses, scheduled_days, learning_step, last_review_at FROM card WHERE id = ${cardId}`,
       )[0],
   );
+const NEW_MEMORY = {
+  state: "new",
+  due_at: null,
+  stability: 0,
+  difficulty: 0,
+  reps: 0,
+  lapses: 0,
+  scheduled_days: 0,
+  learning_step: 0,
+  last_review_at: null,
+};
 
 /** Another User's Card, made straight in the database; answers its ID. */
 function othersCard() {
@@ -105,7 +117,10 @@ function othersCard() {
       folderId: null,
     });
     if (typeof deck === "string") throw new Error(`Their deck: ${deck}`);
-    const card = createCardRepository(db).create("other", deck.id, { front: "f", back: "b" });
+    const card = createCardRepository(db).create("other", deck.id, {
+      front: "f",
+      back: "b",
+    });
     if (typeof card === "string") throw new Error(`Their card: ${card}`);
     return card.id;
   });
@@ -116,16 +131,26 @@ const studiedIn = async (res: Response) => CardResponse.parse(await res.json()).
 afterEach(() => setSystemTime());
 
 describe("PATCH /api/cards/:id with resetProgress", () => {
-  test("puts a studied Card back to New and logs one reset, with the edit, its Reviews untouched", async () => {
+  test("puts a studied Card's whole memory state back to New and logs one reset, with the edit, its Reviews untouched", async () => {
     setSystemTime(new Date("2026-05-01T10:00:00Z"));
     const { app, cookie, cardId } = await signedIn();
     const first = await rate(app, cookie, cardId);
     setSystemTime(new Date(first.schedule.due ?? ""));
     const second = await rate(app, cookie, cardId);
     expect(second.schedule.state).toBe("review");
+    // Lapses and a learning step too, so every part of its memory state is off New's.
+    inDatabase((db) =>
+      db.run(sql`UPDATE card SET lapses = 2, learning_step = 1 WHERE id = ${cardId}`),
+    );
+    const studied = memoryOf(cardId);
+    for (const [column, value] of Object.entries(NEW_MEMORY))
+      expect(studied?.[column]).not.toBe(value);
     setSystemTime(new Date("2026-05-02T08:00:00Z"));
 
-    const res = await patch(app, cookie, cardId, { back: "b2", resetProgress: true });
+    const res = await patch(app, cookie, cardId, {
+      back: "b2",
+      resetProgress: true,
+    });
 
     expect(res.status).toBe(200);
     expect(CardResponse.parse(await res.json())).toMatchObject({
@@ -133,7 +158,7 @@ describe("PATCH /api/cards/:id with resetProgress", () => {
       tags: ["verb"],
       studied: false,
     });
-    expect(memoryOf(cardId)).toEqual({ state: "new", due_at: null, reps: 0, last_review_at: null });
+    expect(memoryOf(cardId)).toEqual(NEW_MEMORY);
     expect(resetsOf(cardId)).toEqual([
       {
         card_id: cardId,
@@ -177,10 +202,16 @@ describe("PATCH /api/cards/:id with resetProgress", () => {
   test("on a New Card is a no-op that logs nothing", async () => {
     const { app, cookie, cardId } = await signedIn();
 
-    const res = await patch(app, cookie, cardId, { front: "f2", resetProgress: true });
+    const res = await patch(app, cookie, cardId, {
+      front: "f2",
+      resetProgress: true,
+    });
 
     expect(res.status).toBe(200);
-    expect(CardResponse.parse(await res.json())).toMatchObject({ front: "f2", studied: false });
+    expect(CardResponse.parse(await res.json())).toMatchObject({
+      front: "f2",
+      studied: false,
+    });
     expect(resetsOf(cardId)).toEqual([]);
   });
 
@@ -203,7 +234,10 @@ describe("PATCH /api/cards/:id with resetProgress", () => {
 
     const res = await patch(app, cookie, cardId, { front: "f2" });
 
-    expect(CardResponse.parse(await res.json())).toMatchObject({ front: "f2", studied: true });
+    expect(CardResponse.parse(await res.json())).toMatchObject({
+      front: "f2",
+      studied: true,
+    });
     expect(memoryOf(cardId)).toEqual(before);
     expect(resetsOf(cardId)).toEqual([]);
   });
@@ -212,7 +246,10 @@ describe("PATCH /api/cards/:id with resetProgress", () => {
     const { app, cookie, cardId } = await signedIn();
     await rate(app, cookie, cardId);
 
-    const refused = await patch(app, cookie, cardId, { front: " ", resetProgress: true });
+    const refused = await patch(app, cookie, cardId, {
+      front: " ",
+      resetProgress: true,
+    });
     expect(refused.status).toBe(400);
     for (const body of [{ resetProgress: false }, { resetProgress: "yes" }]) {
       expect((await patch(app, cookie, cardId, body)).status).toBe(400);
@@ -244,7 +281,11 @@ describe("PATCH /api/cards/:id with resetProgress", () => {
 
     const again = await rate(app, cookie, cardId, "good");
 
-    expect(again.schedule).toMatchObject({ state: "learning", reps: 1, lapses: 0 });
+    expect(again.schedule).toMatchObject({
+      state: "learning",
+      reps: 1,
+      lapses: 0,
+    });
   });
 });
 
@@ -470,7 +511,9 @@ describe("DELETE /api/reviews/:id after a Progress reset", () => {
 
     const res = await send(app, "DELETE", `/api/reviews/${after.review.id}`, undefined, cookie);
     expect(res.status).toBe(200);
-    expect(UndoReviewResponse.parse(await res.json()).schedule).toMatchObject({ state: "new" });
+    expect(UndoReviewResponse.parse(await res.json()).schedule).toMatchObject({
+      state: "new",
+    });
     expect(reviewsOf(cardId)).toHaveLength(1);
   });
 });
