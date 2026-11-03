@@ -11,7 +11,14 @@ import { useTagInput } from "@/components/cards/tag-field";
 import { OUTLINE_PILL, PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
 import { dayLabel, timeLabel } from "@/lib/card-days";
-import { type Card, editUnsaved, fieldsOf, saveCardEdit, updateCard } from "@/lib/cards";
+import {
+  type Card,
+  type CardOutcome,
+  editUnsaved,
+  fieldsOf,
+  saveCardEdit,
+  updateCard,
+} from "@/lib/cards";
 import type { Deck } from "@/lib/decks";
 import { rememberedDeckSearch } from "@/lib/tags";
 import { cn } from "@/lib/utils";
@@ -66,17 +73,22 @@ export function EditCard({ deck, card }: { deck: Deck; card: Card }) {
     saving.current = true;
     setSavingFrom(card);
     setFormError(undefined);
-    const outcome = await saveCardEdit(
-      card,
-      reset,
-      (options) => updateCard(queryClient, card.id, form.fields, nextTags, options),
-      async () => {
-        guard.release();
-        await toDeck();
-      },
-    );
-    saving.current = false;
-    setSavingFrom(undefined);
+    let outcome: CardOutcome;
+    try {
+      outcome = await saveCardEdit(
+        card,
+        reset,
+        (options) => updateCard(queryClient, card.id, form.fields, nextTags, options),
+        async () => {
+          guard.release();
+          await toDeck();
+        },
+      );
+    } finally {
+      // However it went, Save and Reset progress work again.
+      saving.current = false;
+      setSavingFrom(undefined);
+    }
     if (outcome.ok) return;
     if ("errors" in outcome) form.setErrors(outcome.errors);
     else if ("notFound" in outcome) setFormError("This card, or its deck, was deleted meanwhile.");

@@ -26,7 +26,7 @@ describe("ResetProgress", () => {
     expect(row(false, { checked: true })).toBe("");
   });
 
-  test("on a studied Card, shows as it is ticked, and can be turned off while a Save is on its way", () => {
+  test("on a studied Card, shows as it is ticked, and can't change while a Save is on its way", () => {
     const unticked = row(true);
     expect(unticked).toContain("Reset progress");
     expect(unticked).toMatch(/<input type="checkbox"(?![^>]*checked)/);

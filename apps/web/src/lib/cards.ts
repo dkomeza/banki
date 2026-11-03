@@ -178,12 +178,15 @@ async function outcomeOf(
   const errors = fieldErrors(fields);
   if (Object.keys(errors).length > 0) return { ok: false, errors };
   let res: Response;
+  let body: unknown;
   try {
     res = await send();
+    // The answer read too: the connection can drop while it comes in.
+    if (res.ok) body = await res.json();
   } catch {
     return { ok: false, message: CANT_REACH };
   }
-  if (res.ok) return { ok: true, card: CardResponse.parse(await res.json()) };
+  if (res.ok) return { ok: true, card: CardResponse.parse(body) };
   if (res.status === 404) return { ok: false, notFound: true };
   return { ok: false, message: failed };
 }

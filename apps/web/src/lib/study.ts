@@ -663,7 +663,10 @@ export function createStudySession({
       if (stopped || !state.editable || editorOpen) return false;
       editorOpen = true;
       editedAt = now();
-      transition(() => set({ editing: true, turning: false }));
+      // The Intervals turned over on the last close: done, before this
+      // transition sees the screen, or they'd move apart from the dock.
+      if (state.turning) set({ turning: false });
+      transition(() => set({ editing: true }));
       return true;
     },
     /** Closes the editor, the Card shown as it was. */

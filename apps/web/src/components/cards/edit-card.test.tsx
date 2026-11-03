@@ -197,6 +197,35 @@ describe("The edit page's Reset progress", () => {
     await onDeck();
   });
 
+  test.each([
+    [
+      "the API fails",
+      () => json({ code: "internal" }, 500),
+      "Banki couldn't save the card. Try again.",
+    ],
+    [
+      "the answer drops while it comes in",
+      () => new Response("{", { headers: { "content-type": "application/json" } }),
+      "Can't reach Banki. Check your connection and try again.",
+    ],
+  ])(
+    "comes back ticked and can change again when %s, with the error shown",
+    async (_, failed, error) => {
+      stubApi((method) => (method === "PATCH" ? failed() : json([])));
+      await renderPage(card(true));
+      fireEvent.click(resetBox());
+
+      fireEvent.click(button("Save"));
+
+      await screen.findByText(error);
+      expect(resetBox().checked).toBe(true);
+      expect(resetBox().disabled).toBe(false);
+      fireEvent.click(resetBox());
+      expect(resetBox().checked).toBe(false);
+      expect(screen.queryByText("The Deck's page")).toBeNull();
+    },
+  );
+
   test("stays as it was while the Save finishes, though its answer is a Card back to New", async () => {
     // The Deck's Cards, fetched again once the Card is saved, answer when the test says.
     let refreshed: ((res: Response) => void) | undefined;

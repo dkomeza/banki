@@ -236,6 +236,24 @@ describe("updateCard", () => {
     expect(sent[0]?.body).toMatchObject({ gradingNotes: null });
   });
 
+  test("answers that Banki can't be reached when the answer drops while it comes in", async () => {
+    const { client } = answering(
+      () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.error(new TypeError("network error"));
+            },
+          }),
+        ),
+    );
+
+    expect(await updateCard(new QueryClient(), "c1", sides("f", "b"), [], {}, client)).toEqual({
+      ok: false,
+      message: CANT_REACH,
+    });
+  });
+
   test("sends resetProgress only when asked", async () => {
     const { client, sent } = answering(() => Response.json(card("c1")));
 

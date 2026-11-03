@@ -410,8 +410,20 @@ export function DuplicateNote({
   if (newest === undefined) return null;
   const more = duplicates.length - 1;
   return (
-    <p className="flex items-start gap-2 rounded-md bg-muted px-3 text-sm text-foreground lg:py-2">
-      <Copy aria-hidden className="mt-3.5 size-4 shrink-0 text-muted-foreground lg:mt-0.5" />
+    // Below 1024 px the link's own 44 px height pads the note; without it, the note pads itself.
+    <p
+      className={cn(
+        "flex items-start gap-2 rounded-md bg-muted px-3 text-sm text-foreground lg:py-2",
+        !linked && "py-2",
+      )}
+    >
+      <Copy
+        aria-hidden
+        className={cn(
+          "size-4 shrink-0 text-muted-foreground lg:mt-0.5",
+          linked ? "mt-3.5" : "mt-0.5",
+        )}
+      />
       <span className="min-w-0 break-words">
         Already in this deck:{" "}
         {linked ? (

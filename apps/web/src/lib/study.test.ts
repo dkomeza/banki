@@ -1476,6 +1476,26 @@ describe("after a Progress reset", () => {
     expect(t.state()).toMatchObject({ progressReset: true, turning: false });
   });
 
+  test("is over before the next open's transition starts, so the Intervals leave with the dock", async () => {
+    // What each transition starts from: the screen as it stands before its update.
+    const before: boolean[] = [];
+    const session = createStudySession({
+      studyApi: fakeApi([next("a", "review"), next("b")]).api,
+      notify: () => {},
+      transition: (update) => {
+        before.push(session.getState().turning);
+        update();
+      },
+    });
+    await session.start();
+    session.edit();
+    await session.saveEdit(edited("a", "a"), { progressReset: true });
+    expect(session.getState().turning).toBe(true);
+
+    session.edit();
+    expect(before).toEqual([false, false, false]);
+  });
+
   test("turns nothing over when its fresh previews failed, nor once Try again loads them", async () => {
     const t = await resetFailed([next("a"), next("b")]);
     expect(t.state()).toMatchObject({ progressReset: true, turning: false });
