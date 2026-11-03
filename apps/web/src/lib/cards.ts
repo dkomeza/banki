@@ -122,6 +122,12 @@ export const hasUnsavedChanges = (fields: CardFields, saved: CardFields) =>
   fields.back !== saved.back ||
   fields.gradingNotes !== saved.gradingNotes;
 
+/**
+ * Whether a Save puts the Card back to New: Reset progress ticked (`ticked`)
+ * on a studied Card. A New Card never shows the tick, so it never resets.
+ */
+export const resetOnSave = (card: Card, ticked: boolean) => card.studied && ticked;
+
 export type CardOutcome =
   | { ok: true; card: Card }
   | { ok: false; errors: FieldErrors }

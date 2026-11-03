@@ -11,9 +11,9 @@ import { useTagInput } from "@/components/cards/tag-field";
 import { useFinePointer } from "@/components/folders/drag";
 import { OUTLINE_PILL, PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
-import { type Card, fieldsOf, updateCard } from "@/lib/cards";
+import { type Card, fieldsOf, resetOnSave, updateCard } from "@/lib/cards";
 import type { Deck } from "@/lib/decks";
-import type { StudySession } from "@/lib/study";
+import { type StudySession, editorCloseAction } from "@/lib/study";
 import { tagsChanged } from "@/lib/tags";
 import { cn } from "@/lib/utils";
 
@@ -89,16 +89,22 @@ export function StudyEditor({
   // The Card was deleted elsewhere: nothing is left to save, or to ask about.
   const [gone, setGone] = useState(false);
   const [asking, setAsking] = useState(false);
+  // A ticked Reset progress is unsaved too.
   const unsaved =
-    !gone && (form.unsaved || tagsChanged(tags.tags, card.tags) || tags.draft.trim() !== "");
+    !gone &&
+    (form.unsaved ||
+      tagsChanged(tags.tags, card.tags) ||
+      tags.draft.trim() !== "" ||
+      resetOnSave(card, reset));
   // Leaving the study screen with something unsaved asks too.
   const guard = useDiscardGuard(unsaved);
   const busy = useRef(false);
 
   const cancel = () => {
     if (busy.current) return;
-    if (gone) void session.closeGone();
-    else if (unsaved) setAsking(true);
+    const action = editorCloseAction({ gone, unsaved });
+    if (action === "skip") void session.closeGone();
+    else if (action === "ask") setAsking(true);
     else session.cancelEdit();
   };
   useImperativeHandle(ref, () => ({ cancel }));
@@ -110,7 +116,7 @@ export function StudyEditor({
     busy.current = true;
     setSaving(true);
     setFormError(undefined);
-    const resetProgress = card.studied && reset;
+    const resetProgress = resetOnSave(card, reset);
     const outcome = await updateCard(queryClient, card.id, form.fields, nextTags, {
       resetProgress,
     });
@@ -199,7 +205,8 @@ export function StudyEditor({
             <X aria-hidden className="size-5" />
           </Button>
         </header>
-        <div className="flex-1 pb-[env(safe-area-inset-bottom)]">
+        {/* Room below the foot for the toolbar a phone docks over it while a field has the focus. */}
+        <div className="flex-1 pb-[calc(6rem+env(safe-area-inset-bottom))] lg:pb-0">
           <CardForm
             stacked
             deck={deck}

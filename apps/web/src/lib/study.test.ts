@@ -15,6 +15,7 @@ import {
   cardClickAction,
   copyFormula,
   createStudySession,
+  editorCloseAction,
   formatInterval,
   keyAction,
   recallPercent,
@@ -649,6 +650,22 @@ describe("keyAction", () => {
     }
   });
 
+  test("while editing, every key is the editor's, Esc included", () => {
+    for (const key of [" ", "Enter", "1", "4", "e", "Escape"]) {
+      expect(
+        keyAction(press(key), { showing: true, revealed: true, focus: undefined, editing: true }),
+      ).toEqual({ type: "none" });
+    }
+    expect(
+      keyAction(press("z", { ctrlKey: true }), {
+        showing: true,
+        revealed: true,
+        focus: undefined,
+        editing: true,
+      }),
+    ).toEqual({ type: "none" });
+  });
+
   test("Esc leaves", () => {
     expect(
       keyAction(press("Escape"), { showing: true, revealed: false, focus: undefined }),
@@ -914,6 +931,18 @@ const edited = (id: string, front: string, studied = false): Card => ({
   ...card(id),
   front,
   studied,
+});
+
+describe("editorCloseAction", () => {
+  test("closes at once with nothing unsaved, asks first with something unsaved", () => {
+    expect(editorCloseAction({ gone: false, unsaved: false })).toBe("close");
+    expect(editorCloseAction({ gone: false, unsaved: true })).toBe("ask");
+  });
+
+  test("skips to the next Card when it was deleted elsewhere, unsaved or not", () => {
+    expect(editorCloseAction({ gone: true, unsaved: true })).toBe("skip");
+    expect(editorCloseAction({ gone: true, unsaved: false })).toBe("skip");
+  });
 });
 
 describe("editing the shown Card", () => {

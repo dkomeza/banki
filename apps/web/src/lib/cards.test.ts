@@ -16,6 +16,7 @@ import {
   hasUnsavedChanges,
   moveCards,
   sideProblem,
+  resetOnSave,
   updateCard,
 } from "./cards";
 import { CANT_REACH } from "./decks";
@@ -240,6 +241,15 @@ describe("updateCard", () => {
 
     expect(sent[0]?.body).toMatchObject({ resetProgress: true });
     expect(sent[1]?.body).not.toHaveProperty("resetProgress");
+  });
+});
+
+describe("resetOnSave", () => {
+  test("resets only a studied Card with Reset progress ticked", () => {
+    const studied = { ...card("c1"), studied: true };
+    expect(resetOnSave(studied, true)).toBe(true);
+    expect(resetOnSave(studied, false)).toBe(false);
+    expect(resetOnSave(card("c1"), true)).toBe(false);
   });
 });
 

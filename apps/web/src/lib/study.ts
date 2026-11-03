@@ -703,8 +703,16 @@ export function keyAction(
     showing,
     revealed,
     focus,
-  }: { showing: boolean; revealed: boolean; focus: "rating" | "control" | undefined },
+    editing = false,
+  }: {
+    showing: boolean;
+    revealed: boolean;
+    focus: "rating" | "control" | undefined;
+    /** While the editor is open, every key is its own, Esc included. */
+    editing?: boolean;
+  },
 ): KeyAction {
+  if (editing) return { type: "none" };
   if ((key.ctrlKey || key.metaKey) && !key.altKey && key.key.toLowerCase() === "z") {
     return { type: "undo" };
   }
@@ -725,6 +733,22 @@ export function keyAction(
 type Clicked = {
   closest: (selector: string) => { getAttribute: (name: string) => string | null } | null;
 };
+
+/**
+ * What closing the study screen's editor (Cancel, ×, Esc) does: with the
+ * Card deleted elsewhere, skips to the next one; with something unsaved, asks
+ * first (the discard guard); else closes it on the Card as it was.
+ */
+export function editorCloseAction({
+  gone,
+  unsaved,
+}: {
+  gone: boolean;
+  unsaved: boolean;
+}): "skip" | "ask" | "close" {
+  if (gone) return "skip";
+  return unsaved ? "ask" : "close";
+}
 
 /** What a click or tap on the Card does. */
 export type CardClickAction =

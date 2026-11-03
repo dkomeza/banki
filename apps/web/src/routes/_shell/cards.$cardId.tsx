@@ -14,7 +14,14 @@ import { Page } from "@/components/page";
 import { OUTLINE_PILL, PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
 import { dayLabel, timeLabel } from "@/lib/card-days";
-import { type Card, cardQueryOptions, cardsQueryOptions, fieldsOf, updateCard } from "@/lib/cards";
+import {
+  type Card,
+  cardQueryOptions,
+  cardsQueryOptions,
+  fieldsOf,
+  resetOnSave,
+  updateCard,
+} from "@/lib/cards";
 import { type Deck, deckQueryOptions } from "@/lib/decks";
 import { ensureLibrary } from "@/lib/folders";
 import { rememberedDeckSearch, tagsChanged, tagsQueryOptions } from "@/lib/tags";
@@ -81,11 +88,15 @@ function EditCard({ deck, card }: { deck: Deck; card: Card }) {
   const navigate = useNavigate();
   const form = useCardForm(fieldsOf(card));
   const tags = useTagInput(card.tags);
+  const [reset, setReset] = useState(false);
+  // A ticked Reset progress is unsaved too.
   const guard = useDiscardGuard(
-    form.unsaved || tagsChanged(tags.tags, card.tags) || tags.draft.trim() !== "",
+    form.unsaved ||
+      tagsChanged(tags.tags, card.tags) ||
+      tags.draft.trim() !== "" ||
+      resetOnSave(card, reset),
   );
   const [formError, setFormError] = useState<string>();
-  const [reset, setReset] = useState(false);
   const saving = useRef(false);
   const toDeck = () =>
     navigate({
@@ -101,7 +112,7 @@ function EditCard({ deck, card }: { deck: Deck; card: Card }) {
     saving.current = true;
     setFormError(undefined);
     const outcome = await updateCard(queryClient, card.id, form.fields, nextTags, {
-      resetProgress: card.studied && reset,
+      resetProgress: resetOnSave(card, reset),
     });
     saving.current = false;
     if (outcome.ok) {
@@ -158,7 +169,7 @@ function EditCard({ deck, card }: { deck: Deck; card: Card }) {
                 Cancel
               </Button>
               <Button type="submit" className={cn(PILL, "h-11 lg:h-10")} disabled={form.uploading}>
-                {card.studied && reset ? "Save and reset" : "Save"}
+                Save
               </Button>
             </div>
           </>

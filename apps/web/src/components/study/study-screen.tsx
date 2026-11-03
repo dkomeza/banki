@@ -75,6 +75,8 @@ export function StudyScreen({ deck }: { deck: Deck }) {
   useEffect(() => {
     void queryClient.prefetchQuery(cardsQueryOptions(deck.id));
     void queryClient.prefetchQuery(tagsQueryOptions());
+    // Ratings change whether a Card is studied: the edit page fetches each one afresh after.
+    return () => queryClient.removeQueries({ queryKey: ["cards"] });
   }, [queryClient, deck.id]);
   // The editor suspends until the Deck's Cards are in, which would leave it
   // out of the View Transition's new frame: it opens once they are.
@@ -90,13 +92,13 @@ export function StudyScreen({ deck }: { deck: Deck }) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.repeat) return;
-      if (session.getState().editing) return;
       const target = event.target instanceof Element ? event.target : null;
       if (target?.closest("input, textarea, select, [contenteditable]")) return;
-      const { phase, revealed } = session.getState();
+      const { phase, revealed, editing } = session.getState();
       const action = keyAction(event, {
         showing: phase === "card",
         revealed,
+        editing,
         focus: target?.closest("[data-rating]")
           ? "rating"
           : target?.closest("a, button")
