@@ -18,6 +18,7 @@ import {
   copyFormula,
   createStudySession,
   editorCloseAction,
+  editorEscAction,
   editorOpener,
   formatInterval,
   keyAction,
@@ -980,6 +981,28 @@ describe("editorCloseAction", () => {
   test("skips to the next Card when it was deleted elsewhere, unsaved or not", () => {
     expect(editorCloseAction({ gone: true, unsaved: true })).toBe("skip");
     expect(editorCloseAction({ gone: true, unsaved: false })).toBe("skip");
+  });
+});
+
+describe("editorEscAction", () => {
+  const front = { field: "front" };
+  const back = { field: "back" };
+
+  test("in a field, the first Esc only leaves it, so Tab can move on", () => {
+    expect(editorEscAction(front, null)).toBe("leave-field");
+  });
+
+  test("a second Esc in the same field closes the editor", () => {
+    expect(editorEscAction(front, front)).toBe("close");
+  });
+
+  test("an Esc armed in one field leaves another just the same", () => {
+    expect(editorEscAction(back, front)).toBe("leave-field");
+  });
+
+  test("anywhere else in the panel, Esc closes at once", () => {
+    expect(editorEscAction(null, null)).toBe("close");
+    expect(editorEscAction(null, front)).toBe("close");
   });
 });
 

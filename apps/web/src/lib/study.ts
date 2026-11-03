@@ -842,6 +842,17 @@ export function editorCloseAction({
   return unsaved ? "ask" : "close";
 }
 
+/**
+ * What Esc does in the study screen's editor, given the Front or Back field it
+ * was pressed in (`null` anywhere else in the panel) and the field where the
+ * key just before it was a lone Esc (`armed`): in a field, the first Esc only
+ * leaves it, so Tab moves on (CodeMirror's Esc-then-Tab), and a second closes
+ * the editor; anywhere else, Esc closes it at once.
+ */
+export function editorEscAction<F>(field: F | null, armed: F | null): "leave-field" | "close" {
+  return field !== null && field !== armed ? "leave-field" : "close";
+}
+
 /** What a click or tap on the Card does. */
 export type CardClickAction =
   | { type: "reveal" }

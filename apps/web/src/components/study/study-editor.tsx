@@ -13,7 +13,7 @@ import { OUTLINE_PILL, PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
 import { type Card, fieldsOf, resetOnSave, updateCard } from "@/lib/cards";
 import type { Deck } from "@/lib/decks";
-import { type StudySession, editorCloseAction } from "@/lib/study";
+import { type StudySession, editorCloseAction, editorEscAction } from "@/lib/study";
 import { tagsChanged } from "@/lib/tags";
 import { cn } from "@/lib/utils";
 
@@ -54,6 +54,9 @@ export function ResetNote() {
   );
 }
 
+/** Keys that, pressed alone, leave an armed Esc as it is (as CodeMirror does). */
+const MODIFIER_KEYS = new Set(["Shift", "Control", "Alt", "Meta"]);
+
 /** What the study screen asks of the open editor: closing it as Cancel would, from ×. */
 export type StudyEditorHandle = { cancel: () => void };
 
@@ -61,7 +64,8 @@ export type StudyEditorHandle = { cancel: () => void };
  * The open editor over the shown Card `card`, revealed or not (`revealed`).
  * Save writes the Card (with a Progress reset when ticked on a studied one)
  * and shows it again; Cancel, × and Esc close it, through the discard guard
- * when something is unsaved; Delete deletes the Card at once, with Undo, and
+ * when something is unsaved (in Front or Back, the first Esc only leaves the
+ * field); Delete deletes the Card at once, with Undo, and
  * the next one loads. A failed save keeps it open with its error, and a Card
  * deleted elsewhere says so there, the next one loading once it is closed.
  */
@@ -147,11 +151,30 @@ export function StudyEditor({
   };
 
   // Esc closes, through the discard guard; the editor's own Esc (a popup) comes
-  // first, and so does a "Discard changes?" dialog's, ours or the route's.
+  // first, and so does a "Discard changes?" dialog's, ours or the route's. In
+  // Front or Back the first Esc is CodeMirror's, so Tab then leaves the field,
+  // and only a second one closes (editorEscAction).
+  const escArmed = useRef<Element | null>(null);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented || asking) return;
+      if (event.key !== "Escape") {
+        if (!MODIFIER_KEYS.has(event.key)) escArmed.current = null;
+        return;
+      }
+      if (event.defaultPrevented || asking) {
+        escArmed.current = null;
+        return;
+      }
       if (document.querySelector('[role="alertdialog"]') !== null) return;
+      const field =
+        event.target instanceof Element
+          ? event.target.closest("[data-study-editor] .cm-editor")
+          : null;
+      if (editorEscAction(field, escArmed.current) === "leave-field") {
+        escArmed.current = field;
+        return;
+      }
+      escArmed.current = null;
       event.preventDefault();
       cancel();
     };
