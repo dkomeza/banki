@@ -507,6 +507,7 @@ describe("DELETE /api/reviews/:id after a Progress reset", () => {
 
     const old = await send(app, "DELETE", `/api/reviews/${before.review.id}`, undefined, cookie);
     expect(old.status).toBe(409);
+    expect(await codeOf(old)).toBe("review_not_newest");
     expect(reviewsOf(cardId)).toHaveLength(2);
 
     const res = await send(app, "DELETE", `/api/reviews/${after.review.id}`, undefined, cookie);
@@ -514,6 +515,12 @@ describe("DELETE /api/reviews/:id after a Progress reset", () => {
     expect(UndoReviewResponse.parse(await res.json()).schedule).toMatchObject({
       state: "new",
     });
+    expect(reviewsOf(cardId)).toHaveLength(1);
+
+    // The newest Review now, the one from before the reset still stands.
+    const again = await send(app, "DELETE", `/api/reviews/${before.review.id}`, undefined, cookie);
+    expect(again.status).toBe(409);
+    expect(await codeOf(again)).toBe("review_before_progress_reset");
     expect(reviewsOf(cardId)).toHaveLength(1);
   });
 });
