@@ -41,6 +41,15 @@ export function EditCard({ deck, card }: { deck: Deck; card: Card }) {
   const form = useCardForm(fieldsOf(card));
   const tags = useTagInput(card.tags);
   const [reset, setReset] = useState(false);
+  const saving = useRef(false);
+  // The Card as a Save on its way found it. Meanwhile Reset progress can't
+  // change, and its row stays as it was, though the Save's answer (a Card back
+  // to New) is cached before the page is left. A Save that went through keeps
+  // it until the page is gone.
+  const [savingFrom, setSavingFrom] = useState<Card>();
+  // Cancel, Delete, the breadcrumbs and Back all wait for a Save on its way,
+  // so nothing leaves while its answer can still land.
+  const busy = savingFrom !== undefined;
   // A ticked Reset progress is unsaved too.
   const guard = useDiscardGuard(
     editUnsaved(card, {
@@ -49,13 +58,9 @@ export function EditCard({ deck, card }: { deck: Deck; card: Card }) {
       draft: tags.draft,
       ticked: reset,
     }),
+    busy,
   );
   const [formError, setFormError] = useState<string>();
-  const saving = useRef(false);
-  // The Card as a Save on its way found it. Meanwhile Reset progress can't
-  // change, and its row stays as it was, though the Save's answer (a Card back
-  // to New) is cached before the page is left.
-  const [savingFrom, setSavingFrom] = useState<Card>();
   // A refetch that finds the Card New takes the row away, and its tick with it,
   // so it never comes back ticked.
   if (reset && !card.studied && savingFrom === undefined) setReset(false);
@@ -73,7 +78,7 @@ export function EditCard({ deck, card }: { deck: Deck; card: Card }) {
     saving.current = true;
     setSavingFrom(card);
     setFormError(undefined);
-    let outcome: CardOutcome;
+    let outcome: CardOutcome | undefined;
     try {
       outcome = await saveCardEdit(
         card,
@@ -85,9 +90,11 @@ export function EditCard({ deck, card }: { deck: Deck; card: Card }) {
         },
       );
     } finally {
-      // However it went, Save and Reset progress work again.
-      saving.current = false;
-      setSavingFrom(undefined);
+      // Unless it went through, Save and Reset progress work again.
+      if (!outcome?.ok) {
+        saving.current = false;
+        setSavingFrom(undefined);
+      }
     }
     if (outcome.ok) return;
     if ("errors" in outcome) form.setErrors(outcome.errors);
@@ -95,9 +102,6 @@ export function EditCard({ deck, card }: { deck: Deck; card: Card }) {
     else setFormError(outcome.message);
   };
 
-  // Cancel and Delete wait for a Save on its way too, so neither leaves while
-  // its answer can still land. Deletes first, so a delete that fails leaves the page, and what's typed, as it was.
-  const busy = savingFrom !== undefined;
   const remove = () =>
     deleteWithUndo(queryClient, card, async () => {
       guard.release();

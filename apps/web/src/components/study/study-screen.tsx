@@ -91,7 +91,17 @@ export function StudyScreen({ deck }: { deck: Deck }) {
   // Desktop keys: Space / Enter reveal, 1–4 rate, E edits, Ctrl/⌘+Z undoes,
   // Esc leaves. While the editor is open, they are its own.
   useEffect(() => {
+    // Held, the E that opened the editor opens it once, and its repeats don't
+    // type into the field it focuses.
+    let holdingE = false;
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() === "e") holdingE = false;
+    };
     const onKey = (event: KeyboardEvent) => {
+      if (event.repeat && holdingE && event.key.toLowerCase() === "e") {
+        event.preventDefault();
+        return;
+      }
       if (event.defaultPrevented || event.repeat) return;
       const target = event.target instanceof Element ? event.target : null;
       if (target?.closest("input, textarea, select, [contenteditable]")) return;
@@ -123,6 +133,7 @@ export function StudyScreen({ deck }: { deck: Deck }) {
           break;
         case "edit":
           event.preventDefault();
+          holdingE = true;
           if (session.getState().editable) openEditor();
           break;
         case "leave":
@@ -135,7 +146,11 @@ export function StudyScreen({ deck }: { deck: Deck }) {
       }
     };
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    document.addEventListener("keyup", onKeyUp);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("keyup", onKeyUp);
+    };
   }, [session, navigate, deck.id, openEditor]);
 
   return (
@@ -201,7 +216,8 @@ function TopBar({
   onLeave: () => "summary" | "away" | "stay";
 }) {
   return (
-    <header className="sticky top-0 z-10 grid h-14 grid-cols-[1fr_auto_1fr] items-center gap-2 bg-background/95 px-2 backdrop-blur sm:px-4">
+    // Named, it stays above the Card's text that slides under it while the editor opens or closes.
+    <header className="sticky top-0 z-10 grid h-14 grid-cols-[1fr_auto_1fr] items-center gap-2 bg-background/95 px-2 backdrop-blur [view-transition-name:study-top] sm:px-4">
       <Button
         variant="ghost"
         size="icon"

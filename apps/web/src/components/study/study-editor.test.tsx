@@ -62,7 +62,7 @@ function recordingSession() {
  * The API, answering `answer` for each request it is sent, and recording those
  * that write (the form's own reads, such as the Settings, go unrecorded).
  */
-function stubApi(answer: (method: string, path: string) => Response) {
+function stubApi(answer: (method: string, path: string) => Response | Promise<Response>) {
   const sent: { method: string; path: string; body: unknown }[] = [];
   vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = new Request(
@@ -263,6 +263,19 @@ describe("StudyEditor", () => {
       expect(session.cancelEdit).not.toHaveBeenCalled();
     });
 
+    test("in Front, a click between the two Escs starts over", () => {
+      const session = renderEditor(card(true));
+      const front = document.querySelector(".cm-content")!;
+
+      press(front, "Escape");
+      fireEvent.pointerDown(front);
+      press(front, "Escape");
+      expect(session.cancelEdit).not.toHaveBeenCalled();
+
+      press(front, "Escape");
+      expect(session.cancelEdit).toHaveBeenCalledTimes(1);
+    });
+
     test("with something unsaved asks first, and Esc in the dialog keeps editing", async () => {
       const session = renderEditor(card(true));
       fireEvent.click(resetBox());
@@ -336,18 +349,55 @@ describe("StudyEditor", () => {
       expect(session.cancelEdit).not.toHaveBeenCalled();
     });
 
+    test("on its way holds the rest: the foot is disabled, and Cancel and Esc wait", async () => {
+      let answer: ((res: Response) => void) | undefined;
+      stubApi((method) =>
+        method === "DELETE"
+          ? new Promise<Response>((resolve) => {
+              answer = resolve;
+            })
+          : json({ code: "not_found" }, 404),
+      );
+      const session = renderEditor(card(true));
+
+      fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+
+      await waitFor(() => expect(answer).toBeDefined());
+      for (const name of ["Delete", "Save"]) {
+        expect(screen.getByRole("button", { name }).hasAttribute("disabled")).toBe(true);
+      }
+      expect(footCancel().hasAttribute("disabled")).toBe(true);
+      expect(resetBox().disabled).toBe(true);
+      press(document.body, "Escape");
+      expect(session.cancelEdit).not.toHaveBeenCalled();
+
+      answer?.(json({ deletionId: "del1" }));
+      await waitFor(() => expect(session.closeGone).toHaveBeenCalledTimes(1));
+    });
+
     test("that fails leaves the editor open, as it was", async () => {
-      stubApi(() => json({ code: "oops" }, 500));
+      let answer: ((res: Response) => void) | undefined;
+      const sent = stubApi((method) =>
+        method === "DELETE"
+          ? new Promise<Response>((resolve) => {
+              answer = resolve;
+            })
+          : json({ code: "not_found" }, 404),
+      );
       const session = renderEditor(card(true));
       fireEvent.click(resetBox());
 
       fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+      await waitFor(() => expect(sent).toHaveLength(1));
+      expect(screen.getByRole("button", { name: "Delete" }).hasAttribute("disabled")).toBe(true);
 
+      answer?.(json({ code: "oops" }, 500));
       await waitFor(() =>
         expect(screen.getByRole("button", { name: "Delete" }).hasAttribute("disabled")).toBe(false),
       );
       expect(session.closeGone).not.toHaveBeenCalled();
       expect(resetBox().checked).toBe(true);
+      expect(resetBox().disabled).toBe(false);
     });
   });
 });

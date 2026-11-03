@@ -183,7 +183,9 @@ async function outcomeOf(
     res = await send();
     // The answer read too: the connection can drop while it comes in.
     if (res.ok) body = await res.json();
-  } catch {
+  } catch (error) {
+    // Read whole but not JSON (a proxy's page), it isn't a Card.
+    if (error instanceof SyntaxError) return { ok: false, message: failed };
     return { ok: false, message: CANT_REACH };
   }
   if (res.ok) {

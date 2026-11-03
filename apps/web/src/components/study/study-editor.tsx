@@ -114,6 +114,9 @@ export function StudyEditor({
   const [reset, setReset] = useState(false);
   const [formError, setFormError] = useState<string>();
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  // While a Save or a Delete is on its way, the rest waits for it.
+  const pending = saving || deleting;
   // The Card was deleted elsewhere: nothing is left to save, or to ask about.
   const [gone, setGone] = useState(false);
   const [asking, setAsking] = useState(false);
@@ -127,7 +130,7 @@ export function StudyEditor({
       ticked: reset,
     });
   // Leaving the study screen with something unsaved asks too.
-  const guard = useDiscardGuard(unsaved);
+  const guard = useDiscardGuard(unsaved, pending);
   const busy = useRef(false);
 
   const cancel = () => {
@@ -168,11 +171,14 @@ export function StudyEditor({
   const remove = async () => {
     if (busy.current) return;
     busy.current = true;
+    setDeleting(true);
     const deleted = await deleteWithUndo(queryClient, card, async () => {
       guard.release();
       void session.closeGone();
     });
-    if (!deleted) busy.current = false;
+    if (deleted) return;
+    busy.current = false;
+    setDeleting(false);
   };
 
   // Esc closes, through the discard guard; the editor's own Esc (a popup) comes
@@ -205,8 +211,16 @@ export function StudyEditor({
       event.preventDefault();
       cancel();
     };
+    // A click moves the focus, or the caret, so the next Esc leaves the field again.
+    const onPointer = () => {
+      escArmed.current = null;
+    };
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    document.addEventListener("pointerdown", onPointer);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onPointer);
+    };
   });
 
   return (
@@ -266,7 +280,7 @@ export function StudyEditor({
             selfId={card.id}
             form={form}
             tags={tags}
-            saving={saving}
+            saving={pending}
             autoFocus={fine}
             linkDuplicate={false}
             onSave={() => void save()}
@@ -277,7 +291,7 @@ export function StudyEditor({
                 card={card}
                 checked={reset}
                 onChange={setReset}
-                disabled={saving}
+                disabled={pending}
               />
             }
             foot={
@@ -290,7 +304,7 @@ export function StudyEditor({
                       PILL,
                       "-ml-3 h-11 text-destructive hover:text-destructive lg:h-10",
                     )}
-                    disabled={saving || gone}
+                    disabled={pending || gone}
                     onClick={() => void remove()}
                   >
                     <Trash2 aria-hidden />
@@ -306,7 +320,7 @@ export function StudyEditor({
                     type="button"
                     variant="outline"
                     className={cn(OUTLINE_PILL, "h-11 lg:h-10")}
-                    disabled={saving}
+                    disabled={pending}
                     onClick={cancel}
                   >
                     Cancel
@@ -314,7 +328,7 @@ export function StudyEditor({
                   <Button
                     type="submit"
                     className={cn(PILL, "h-11 lg:h-10")}
-                    disabled={form.uploading || saving || gone}
+                    disabled={form.uploading || pending || gone}
                   >
                     Save
                   </Button>

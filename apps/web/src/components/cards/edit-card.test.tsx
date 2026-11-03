@@ -213,8 +213,20 @@ describe("The edit page's Reset progress", () => {
     ],
     [
       "the answer drops while it comes in",
-      () => new Response("{", { headers: { "content-type": "application/json" } }),
+      () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.error(new TypeError("network error"));
+            },
+          }),
+        ),
       "Can't reach Banki. Check your connection and try again.",
+    ],
+    [
+      "the answer isn't JSON",
+      () => new Response("<html>", { headers: { "content-type": "text/html" } }),
+      "Banki couldn't save the card. Try again.",
     ],
     [
       "the answer isn't a Card",
@@ -294,6 +306,36 @@ describe("The edit page's discard guard", () => {
 
     await onDeck();
     expect(discardAsked()).toBeNull();
+  });
+
+  test("holds the page while a Save is on its way: a link or Back leaves nothing, unasked", async () => {
+    let answer: ((res: Response) => void) | undefined;
+    stubApi((method) =>
+      method === "PATCH"
+        ? new Promise<Response>((resolve) => {
+            answer = resolve;
+          })
+        : json([]),
+    );
+    const { router } = await renderPage(card(true));
+    fireEvent.click(resetBox());
+    fireEvent.click(button("Save"));
+    await waitFor(() => expect(answer).toBeDefined());
+
+    await act(async () => {
+      void router.navigate({ to: "/decks/$deckId", params: { deckId: "d1" } });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(router.state.location.pathname).toBe("/cards/c1");
+    await act(async () => {
+      router.history.back();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(router.state.location.pathname).toBe("/cards/c1");
+    expect(discardAsked()).toBeNull();
+
+    answer?.(json({ ...card(true), studied: false }));
+    await onDeck();
   });
 
   test("a ticked Reset progress alone counts as unsaved: Keep editing stays, Discard leaves", async () => {

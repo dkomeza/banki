@@ -1,6 +1,6 @@
 import { AlertDialog } from "@base-ui/react/alert-dialog";
 import { useBlocker } from "@tanstack/react-router";
-import { useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { OUTLINE_PILL, PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -10,31 +10,39 @@ import { cn } from "@/lib/utils";
  * link, the breadcrumb, Cancel or back. Closing or reloading the tab gets the
  * browser's own prompt instead. With nothing unsaved it leaves without asking.
  * Renders the dialog in `dialog`; `release` lets the next navigation through,
- * for a save or a delete that leaves on purpose.
+ * for a save or a delete that leaves on purpose. While `holding` (a save or a
+ * delete on its way, whose answer can still land), nothing leaves, unasked.
  */
-export function useDiscardGuard(unsaved: boolean) {
-  // A ref, so a save that navigates straight after can let itself through
+export function useDiscardGuard(unsaved: boolean, holding = false) {
+  // Refs, so a save that navigates straight after can let itself through
   // before React has rendered the saved state.
   const guarded = useRef(unsaved);
+  const held = useRef(holding);
   useLayoutEffect(() => {
     guarded.current = unsaved;
-  }, [unsaved]);
+    held.current = holding;
+  }, [unsaved, holding]);
   const blocker = useBlocker({
-    shouldBlockFn: () => guarded.current,
-    enableBeforeUnload: () => guarded.current,
+    shouldBlockFn: () => guarded.current || held.current,
+    enableBeforeUnload: () => guarded.current || held.current,
     withResolver: true,
   });
+  const staying = blocker.status === "blocked" && holding;
+  useEffect(() => {
+    if (staying) blocker.reset?.();
+  }, [staying, blocker]);
 
   return {
     dialog: (
       <DiscardDialog
-        open={blocker.status === "blocked"}
+        open={blocker.status === "blocked" && !holding}
         onKeep={() => blocker.reset?.()}
         onDiscard={() => blocker.proceed?.()}
       />
     ),
     release: () => {
       guarded.current = false;
+      held.current = false;
     },
   };
 }

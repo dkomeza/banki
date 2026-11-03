@@ -254,6 +254,15 @@ describe("updateCard", () => {
     });
   });
 
+  test("answers that it couldn't save when the answer isn't JSON (a proxy's page)", async () => {
+    const { client } = answering(() => new Response("<html>", { status: 200 }));
+
+    expect(await updateCard(new QueryClient(), "c1", sides("f", "b"), [], {}, client)).toEqual({
+      ok: false,
+      message: "Banki couldn't save the card. Try again.",
+    });
+  });
+
   test("answers that it couldn't save when the answer isn't a Card", async () => {
     const { client } = answering(() => Response.json({ id: "c1" }));
 
