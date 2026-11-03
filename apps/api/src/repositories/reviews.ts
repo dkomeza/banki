@@ -127,7 +127,7 @@ export function rescheduleCards(
 }
 
 /**
- * The newest Review of the User's Card `cardId` in their write order (`seq`),
+ * The newest Review of the User's Card `cardId` in their Write order (`seq`),
  * with its ID and `seq`, or undefined when it has none.
  */
 export function lastReviewOf(

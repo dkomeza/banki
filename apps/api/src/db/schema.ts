@@ -224,7 +224,7 @@ export const card = sqliteTable(
  * `deckId` is the Card's latest Deck, which a Move rewrites (ADR-0021).
  * `cardBefore` is the Card's memory state before the Review, as JSON
  * (`MemoryState` in scheduling/fsrs.ts), so Undo can put it back. `seq` is its
- * place in the User's write order, shared with their Progress resets
+ * place in the User's Write order, shared with their Progress resets
  * (`nextSeq`): what came first goes by it, never by clocks, which can tie or
  * step back (ADR-0026).
  */

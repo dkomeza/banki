@@ -3,7 +3,7 @@ import type { Queryable } from "../db/database";
 import { progress_reset, review } from "../db/schema";
 
 /**
- * The next place in the User's write order, which their Reviews and Progress
+ * The next place in the User's Write order, which their Reviews and Progress
  * resets share (`seq`; ADR-0026): one past the newest of either. Expects to run
  * inside the immediate transaction that writes the row, so no other write
  * takes the same place.

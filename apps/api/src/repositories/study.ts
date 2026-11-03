@@ -207,7 +207,7 @@ export function createStudyRepository(db: Queryable) {
      * "not_newest" when the Card has a newer Review;
      * "before_progress_reset" when, its newest, it was given before the Card's
      * newest Progress reset (ADR-0026), whose state restoring it would undo
-     * too. Both go by the User's write order (`seq`), never by clocks, which
+     * too. Both go by the User's Write order (`seq`), never by clocks, which
      * can tie or step back. "not_found" for a missing Review, another User's,
      * or one whose Card is deleted or in a deleted Deck.
      * `now` is for tests.

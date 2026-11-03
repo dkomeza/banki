@@ -530,7 +530,7 @@ describe("DELETE /api/reviews/:id after a Progress reset", () => {
   });
 });
 
-describe("the write order", () => {
+describe("the Write order", () => {
   test("numbers a User's Reviews and Progress resets together, one after another", async () => {
     const { app, cookie, cardId, deckId } = await signedIn();
     const other = await createCard(app, cookie, deckId);

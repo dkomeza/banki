@@ -444,7 +444,7 @@ describe("Removal", () => {
   });
 });
 
-describe("the write order", () => {
+describe("the Write order", () => {
   test("numbers each User's Reviews and Progress resets on their own, never from another User's", () => {
     const mine = write(deckNamed("Spanish"));
     const theirs = write(deckNamed("Theirs", OTHER), "theirs", OTHER);
