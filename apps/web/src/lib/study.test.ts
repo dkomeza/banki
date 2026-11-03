@@ -2073,8 +2073,26 @@ describe("opening the editor once the Deck's Cards are in", () => {
 });
 
 /** The study API over HTTP, answered by `res`. */
-const answering = (res: () => Response) =>
-  studyApi("d1", createApiClient(vi.fn(async () => res())));
+/**
+ * The study API over a server that answers `res` to `route` (a method and
+ * a path), and fails any other request, so a call to the wrong route can't pass.
+ */
+const answering = (route: string, res: () => Response) =>
+  studyApi(
+    "d1",
+    createApiClient(
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = input instanceof Request ? input.url : String(input);
+        const request = new Request(new URL(url, "http://banki.test"), init);
+        const asked = `${request.method} ${new URL(request.url).pathname}`;
+        if (asked !== route) throw new Error(`Unexpected request: ${asked}`);
+        return res();
+      }),
+    ),
+  );
+
+const UNDO_R1 = "DELETE /api/reviews/r1";
+const INTERVALS_A = "GET /api/cards/a/intervals";
 
 describe("studyApi", () => {
   test("an Undo answers the Card back with its previews, 404 as gone and 409 as settled", async () => {
@@ -2089,27 +2107,29 @@ describe("studyApi", () => {
       scheduledDays: 0,
       lastReview: null,
     };
-    await expect(answering(() => Response.json({ ...back, schedule })).undo("r1")).resolves.toEqual(
-      back,
-    );
-    await expect(answering(() => new Response(null, { status: 404 })).undo("r1")).resolves.toBe(
-      "gone",
-    );
-    await expect(answering(() => new Response(null, { status: 409 })).undo("r1")).resolves.toBe(
-      "settled",
-    );
-    await expect(answering(() => new Response(null, { status: 500 })).undo("r1")).rejects.toThrow();
+    await expect(
+      answering(UNDO_R1, () => Response.json({ ...back, schedule })).undo("r1"),
+    ).resolves.toEqual(back);
+    await expect(
+      answering(UNDO_R1, () => new Response(null, { status: 404 })).undo("r1"),
+    ).resolves.toBe("gone");
+    await expect(
+      answering(UNDO_R1, () => new Response(null, { status: 409 })).undo("r1"),
+    ).resolves.toBe("settled");
+    await expect(
+      answering(UNDO_R1, () => new Response(null, { status: 500 })).undo("r1"),
+    ).rejects.toThrow();
   });
 
   test("a Card's previews answer as they are, 404 as gone", async () => {
-    await expect(answering(() => Response.json(intervals("a"))).intervals("a")).resolves.toEqual(
-      intervals("a"),
-    );
-    await expect(answering(() => new Response(null, { status: 404 })).intervals("a")).resolves.toBe(
-      "gone",
-    );
     await expect(
-      answering(() => new Response(null, { status: 500 })).intervals("a"),
+      answering(INTERVALS_A, () => Response.json(intervals("a"))).intervals("a"),
+    ).resolves.toEqual(intervals("a"));
+    await expect(
+      answering(INTERVALS_A, () => new Response(null, { status: 404 })).intervals("a"),
+    ).resolves.toBe("gone");
+    await expect(
+      answering(INTERVALS_A, () => new Response(null, { status: 500 })).intervals("a"),
     ).rejects.toThrow();
   });
 });
