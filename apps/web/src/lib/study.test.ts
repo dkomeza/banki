@@ -16,6 +16,9 @@ import {
   createStudySession,
   formatInterval,
   keyAction,
+  recallPercent,
+  spentLabel,
+  summaryOf,
 } from "./study";
 
 const NOW = Date.parse("2026-05-01T10:00:00Z");
@@ -680,5 +683,194 @@ describe("copyFormula", () => {
     await copyFormula("$x$", { clipboard: undefined, notify });
 
     expect(messages).toEqual(["Couldn't copy", "Couldn't copy"]);
+  });
+});
+
+/** A standing Rating of `cardId`. */
+const r = (cardId: string, kind: QueueKind, rating: Rating, durationMs = 1000) => ({
+  cardId,
+  kind,
+  rating,
+  durationMs,
+});
+
+describe("summaryOf", () => {
+  test("is nothing with no standing Rating", () => {
+    expect(summaryOf([])).toEqual({ studied: 0, newStudied: 0, recall: null, timeMs: 0 });
+  });
+
+  test("counts each Card once, with how many were New", () => {
+    const summary = summaryOf([
+      r("a", "new", "again"),
+      r("b", "review", "good"),
+      r("a", "learning", "good"),
+      r("c", "new", "good"),
+    ]);
+
+    expect(summary).toMatchObject({ studied: 3, newStudied: 2 });
+  });
+
+  test("Recall rate counts only review-kind Cards, by their first standing Rating", () => {
+    const summary = summaryOf([
+      r("a", "review", "good"),
+      r("b", "review", "again"),
+      // b's later Rating doesn't change its first.
+      r("b", "learning", "good"),
+      r("c", "review", "hard"),
+      // New and learning Cards don't count, Again or not.
+      r("d", "new", "again"),
+      r("e", "learning", "good"),
+    ]);
+
+    expect(summary.recall).toEqual({ kept: 2, of: 3 });
+    expect(recallPercent({ kept: 2, of: 3 })).toBe(67);
+  });
+
+  test("Recall rate is absent with no review-kind Card", () => {
+    expect(summaryOf([r("a", "new", "good"), r("b", "learning", "good")]).recall).toBeNull();
+  });
+
+  test("time sums every standing Rating's duration", () => {
+    expect(summaryOf([r("a", "new", "again", 4000), r("a", "learning", "good", 2500)]).timeMs).toBe(
+      6500,
+    );
+  });
+});
+
+test("spentLabel says seconds under a minute, else whole minutes", () => {
+  expect(spentLabel(0)).toBe("0 s");
+  expect(spentLabel(45_000)).toBe("45 s");
+  expect(spentLabel(59_400)).toBe("59 s");
+  expect(spentLabel(59_600)).toBe("1 min");
+  expect(spentLabel(14 * 60_000 + 20_000)).toBe("14 min");
+});
+
+describe("the Session's summary", () => {
+  test("adds up its standing Ratings, and an Undo takes its Rating out", async () => {
+    const t = setUp([next("a", "review"), next("b", "new"), next("c", "review")]);
+    await t.session.start();
+    t.wait(3000);
+    await revealAndRate(t, "good");
+    t.wait(5000);
+    await revealAndRate(t, "good");
+    t.wait(2000);
+    await revealAndRate(t, "again");
+
+    expect(t.state().summary).toEqual({
+      studied: 3,
+      newStudied: 1,
+      recall: { kept: 1, of: 2 },
+      timeMs: 10_000,
+    });
+
+    await t.session.undo();
+
+    expect(t.state().summary).toEqual({
+      studied: 2,
+      newStudied: 1,
+      recall: { kept: 1, of: 1 },
+      timeMs: 8000,
+    });
+  });
+
+  test("shows at the end of the Queue", async () => {
+    const t = setUp([next("a", "review")]);
+    await t.session.start();
+    await revealAndRate(t, "good");
+
+    expect(t.state()).toMatchObject({ phase: "done", summary: { studied: 1 } });
+  });
+});
+
+describe("leaving the Session", () => {
+  test("with no Rating standing goes away", async () => {
+    const t = setUp([next("a"), next("b")]);
+    await t.session.start();
+
+    expect(t.session.leave()).toBe("away");
+    expect(t.state().phase).toBe("card");
+  });
+
+  test("with a Rating standing shows the summary", async () => {
+    const t = setUp([next("a"), next("b")]);
+    await t.session.start();
+    await revealAndRate(t, "good");
+
+    expect(t.session.leave()).toBe("summary");
+    expect(t.state()).toMatchObject({ phase: "left", summary: { studied: 1 } });
+  });
+
+  test("from the summary goes away", async () => {
+    const t = setUp([next("a")]);
+    await t.session.start();
+    await revealAndRate(t, "good");
+    expect(t.state().phase).toBe("done");
+
+    expect(t.session.leave()).toBe("away");
+  });
+
+  test("Keep studying returns to the Card shown, as it was, with its counters, time and Undo kept", async () => {
+    const t = setUp([next("a", "review"), next("b", "new"), next("c")]);
+    await t.session.start();
+    await revealAndRate(t, "good");
+    t.wait(2000);
+    t.session.reveal();
+    t.session.leave();
+    // Time on the summary doesn't count.
+    t.wait(60_000);
+
+    t.session.resume();
+    expect(t.state()).toMatchObject({ phase: "card", revealed: true, ratable: true, rated: 1 });
+    expect(t.shownId()).toBe("b");
+    t.wait(1000);
+    t.session.rate("good");
+    await flush();
+
+    expect(t.calls.rate.at(-1)).toEqual({ cardId: "b", rating: "good", durationMs: 3000 });
+    expect(t.calls.next.at(-1)).toEqual({ reviewsShown: 1, newShown: 1, batches: 1, after: "b" });
+    expect(t.session.canUndo()).toBe(true);
+  });
+
+  test("Undo from the summary brings the last Card back, revealed", async () => {
+    const t = setUp([next("a"), next("b")]);
+    await t.session.start();
+    await revealAndRate(t, "good");
+    t.session.leave();
+
+    await t.session.undo();
+
+    expect(t.state()).toMatchObject({ phase: "card", revealed: true, undone: true, rated: 0 });
+    expect(t.shownId()).toBe("a");
+  });
+
+  test("a Queue that runs out while the summary shows makes it the end's summary", async () => {
+    const t = setUp([next("a"), next("b")]);
+    await t.session.start();
+    await revealAndRate(t, "good");
+    t.session.reveal();
+    t.session.rate("good");
+    // Left while b's Rating saves.
+    expect(t.session.leave()).toBe("summary");
+    await flush();
+
+    // The Queue ran out meanwhile: the summary is the end's.
+    expect(t.state()).toMatchObject({ phase: "done", summary: { studied: 2 } });
+  });
+
+  test("a next Card that arrives on the summary waits there", async () => {
+    const t = setUp([next("a"), next("b"), next("c")]);
+    await t.session.start();
+    t.session.reveal();
+    t.session.rate("good");
+    await flush();
+    t.session.reveal();
+    t.session.rate("good");
+    t.session.leave();
+    await flush();
+
+    expect(t.state()).toMatchObject({ phase: "left", revealed: false });
+    t.session.resume();
+    expect(t.state().phase).toBe("card");
+    expect(t.shownId()).toBe("c");
   });
 });

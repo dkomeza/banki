@@ -19,6 +19,7 @@ import {
   updateCard,
 } from "./cards";
 import { CANT_REACH } from "./decks";
+import { type StudyOverview, studyOverviewQueryOptions } from "./study-overview";
 
 const card = (id: string, front = "f", back = "b", tags: string[] = []): Card => ({
   id,
@@ -48,6 +49,24 @@ const unreachable = () =>
       throw new TypeError("Failed to fetch");
     }),
   );
+
+/** A QueryClient with a cached Study overview for each of `deckIds`, and whether each went stale. */
+const withOverviews = (...deckIds: string[]) => {
+  const queryClient = new QueryClient();
+  const overview: StudyOverview = {
+    due: 1,
+    new: 0,
+    newTotal: 0,
+    estimateMs: 10_000,
+    nextDue: null,
+  };
+  for (const deckId of deckIds) {
+    queryClient.setQueryData(studyOverviewQueryOptions(deckId).queryKey, overview);
+  }
+  const stale = (deckId: string) =>
+    queryClient.getQueryState(studyOverviewQueryOptions(deckId).queryKey)?.isInvalidated;
+  return { queryClient, stale };
+};
 
 /** A new card's fields: nothing typed. */
 const BLANK = { front: "", back: "", gradingNotes: "" };
@@ -227,6 +246,14 @@ describe("deleteCard", () => {
     ]);
   });
 
+  test("has the Deck's Study overview fetched again", async () => {
+    const { queryClient, stale } = withOverviews("d1");
+    const { client } = answering(() => Response.json({ deletionId: "x1" }));
+
+    await deleteCard(queryClient, card("c1"), client);
+    expect(stale("d1")).toBe(true);
+  });
+
   test("counts a Card that is gone already as deleted", async () => {
     const { client } = answering(() =>
       Response.json({ error: { code: "not_found", message: "…" } }, { status: 404 }),
@@ -271,6 +298,14 @@ describe("moveCards", () => {
       "c2",
     ]);
     expect(queryClient.getQueryData(cardQueryOptions("c1").queryKey)?.deckId).toBe("d2");
+  });
+
+  test("has both Decks' Study overviews fetched again", async () => {
+    const { queryClient, stale } = withOverviews("d1", "d2", "d3");
+    const { client } = answering(() => Response.json({ cards: [{ ...card("c1"), deckId: "d2" }] }));
+
+    await moveCards(queryClient, ["c1"], "d1", "d2", client);
+    expect([stale("d1"), stale("d2"), stale("d3")]).toEqual([true, true, false]);
   });
 
   test("says not found, leaving the list, when a Card or the Deck is gone", async () => {
@@ -322,6 +357,16 @@ describe("deleteCards", () => {
     expect(queryClient.getQueryData(cardsQueryOptions("d1").queryKey)?.map((c) => c.id)).toEqual([
       "c2",
     ]);
+  });
+
+  test("has the Deck's Study overview fetched again", async () => {
+    const { queryClient, stale } = withOverviews("d1");
+    const { client } = answering(() =>
+      Response.json({ deletions: [{ cardId: "c1", deletionId: "x1" }] }),
+    );
+
+    await deleteCards(queryClient, "d1", ["c1"], client);
+    expect(stale("d1")).toBe(true);
   });
 
   test("says nothing was deleted when one Card is gone already", async () => {

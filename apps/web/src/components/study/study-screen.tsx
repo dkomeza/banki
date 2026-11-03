@@ -8,6 +8,7 @@ import { CardText } from "@/components/cards/card-text";
 import { OUTLINE_PILL, PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
+import { Summary } from "@/components/study/summary";
 import type { Deck } from "@/lib/decks";
 import { moreOffer } from "@/lib/new-cards";
 import { settingsQueryOptions } from "@/lib/settings";
@@ -31,6 +32,8 @@ import { cn } from "@/lib/utils";
 // Show answer, then four equal ratings led by their Interval. Going from Card
 // to Card, nothing moves: the Front always starts at the top, in the same
 // place. Revealed, it steps back (smaller, muted) and the Back opens below it.
+// At the end of the Queue, or on leaving with a Rating standing, the summary
+// (Summary) takes the Card's place; Esc or × from there goes to the deck page.
 
 /** A Session over the Deck's Queue, started on mount and stopped on unmount. */
 function useStudySession(deckId: string): [StudySession, StudyState] {
@@ -80,7 +83,9 @@ export function StudyScreen({ deck }: { deck: Deck }) {
           void session.undo();
           break;
         case "leave":
-          void navigate({ to: "/decks/$deckId", params: { deckId: deck.id } });
+          if (session.leave() === "away") {
+            void navigate({ to: "/decks/$deckId", params: { deckId: deck.id } });
+          }
           break;
         case "none":
           break;
@@ -92,11 +97,27 @@ export function StudyScreen({ deck }: { deck: Deck }) {
 
   return (
     <div className="flex min-h-svh flex-col pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] [--toast-bottom:calc(7.5rem+env(safe-area-inset-bottom))]">
-      <TopBar deck={deck} state={state} onUndo={() => void session.undo()} />
+      <TopBar
+        deck={deck}
+        state={state}
+        onUndo={() => void session.undo()}
+        onLeave={() => session.leave()}
+      />
       <main className="flex flex-1 flex-col">
         {state.phase === "card" ? (
           <CardView session={session} state={state} />
-        ) : state.phase === "loading" ? null : (
+        ) : state.phase === "loading" ? null : (state.phase === "done" || state.phase === "left") &&
+          state.summary.studied > 0 ? (
+          <Summary
+            deck={deck}
+            summary={state.summary}
+            left={state.phase === "left"}
+            newHeld={state.newHeld}
+            loadingMore={state.loadingMore}
+            onMore={() => session.more()}
+            onResume={() => session.resume()}
+          />
+        ) : (
           <End
             deck={deck}
             state={state}
@@ -111,7 +132,18 @@ export function StudyScreen({ deck }: { deck: Deck }) {
   );
 }
 
-function TopBar({ deck, state, onUndo }: { deck: Deck; state: StudyState; onUndo: () => void }) {
+function TopBar({
+  deck,
+  state,
+  onUndo,
+  onLeave,
+}: {
+  deck: Deck;
+  state: StudyState;
+  onUndo: () => void;
+  /** Leaving: "summary" when the summary shows instead of the deck page. */
+  onLeave: () => "summary" | "away";
+}) {
   return (
     <header className="sticky top-0 z-10 grid h-14 grid-cols-[1fr_auto_1fr] items-center gap-2 bg-background/95 px-2 backdrop-blur sm:px-4">
       <Button
@@ -120,7 +152,15 @@ function TopBar({ deck, state, onUndo }: { deck: Deck; state: StudyState; onUndo
         className="rounded-full text-foreground no-underline"
         aria-label="Back to deck"
         title="Back to deck (Esc)"
-        render={<Link to="/decks/$deckId" params={{ deckId: deck.id }} />}
+        render={
+          <Link
+            to="/decks/$deckId"
+            params={{ deckId: deck.id }}
+            onClick={(event) => {
+              if (onLeave() === "summary") event.preventDefault();
+            }}
+          />
+        }
         nativeButton={false}
       >
         <X aria-hidden className="size-5" />
@@ -293,7 +333,10 @@ function Dock({ session, state }: { session: StudySession; state: StudyState }) 
   );
 }
 
-/** The end of the Session: done, nothing to study, or Banki out of reach. Exported for its tests. */
+/**
+ * The end of the Session without a summary: done with no Rating standing,
+ * nothing to study, or Banki out of reach. Exported for its tests.
+ */
 export function End({
   deck,
   state,
@@ -319,12 +362,6 @@ export function End({
       <h1 className="text-[1.85rem] leading-tight font-semibold tracking-[-0.02em] lg:text-4xl">
         {title}
       </h1>
-      {state.phase === "done" && state.rated > 0 && (
-        <p className="-mt-2 text-balance text-muted-foreground tabular-nums">
-          {state.rated} {state.rated === 1 ? "card" : "cards"} rated. Undo is still up there if you
-          need it.
-        </p>
-      )}
       {offer !== undefined && (
         <p className="-mt-2 text-balance text-muted-foreground tabular-nums">{offer.waiting}</p>
       )}

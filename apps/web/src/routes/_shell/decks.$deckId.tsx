@@ -1,6 +1,6 @@
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
-import { CornerDownRight, Pencil, Play, Settings2, Trash2 } from "lucide-react";
+import { CornerDownRight, Pencil, Settings2, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { DeckMacros } from "@/components/cards/deck-macros";
 import { deleteAllWithUndo, showMovedToast } from "@/components/cards/card-toasts";
@@ -9,13 +9,14 @@ import { DeckPicker } from "@/components/cards/deck-picker";
 import { ConfirmDelete } from "@/components/decks/confirm-delete";
 import { Cover, Stack } from "@/components/decks/cover";
 import { DeckDialog } from "@/components/decks/deck-dialog";
+import { StudyCard } from "@/components/decks/study-card";
 import { showDeletedToast } from "@/components/deleted/toasts";
 import { DeckNotFound } from "@/components/not-found";
 import { Breadcrumb } from "@/components/folders/breadcrumb";
 import { placeRoute, usePlaceActions } from "@/components/folders/place-actions";
 import { useLibrary } from "@/components/folders/use-library";
 import { Page } from "@/components/page";
-import { OUTLINE_PILL, PILL } from "@/components/settings/parts";
+import { OUTLINE_PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
 import { type Card, cardCountLabel, cardsQueryOptions, moveCards } from "@/lib/cards";
 import {
@@ -30,14 +31,16 @@ import { ensureLibrary, placePath } from "@/lib/folders";
 import { deckRetentionLabel } from "@/lib/retention";
 import { useSelection } from "@/lib/selection";
 import { settingsQueryOptions } from "@/lib/settings";
+import { studyOverviewQueryOptions } from "@/lib/study-overview";
 import { deckSearch, rememberDeckSearch } from "@/lib/tags";
 import { cn } from "@/lib/utils";
 
 // The deck page opens with the breadcrumb from "Decks" down to the Deck, then
 // the Deck's stack, its cover on top, beside the name and the whole
 // description, a line saying when it was created, how many Cards it has and
-// the Desired retention it schedules with (a link to its settings page), and
-// Edit, Settings, Move… and Delete under them. Edit opens the same dialog as
+// the Desired retention it schedules with (a link to its settings page), the
+// Study card (what Study will bring, StudyCard), and Edit, Settings, Move… and
+// Delete under them. Edit opens the same dialog as
 // create; Delete asks in a dialog, naming how many Cards go with it. The Cards follow below, on a timeline (CardTimeline), searched and
 // filtered by Tag through the URL (`?q=…&tags=verb,irregular`), so Back from a
 // Card's edit page comes back to the same list. Cards Move to another Deck
@@ -56,6 +59,8 @@ export const Route = createFileRoute("/_shell/decks/$deckId")({
       queryClient.ensureQueryData(cardsQueryOptions(deckId)),
       queryClient.ensureQueryData(settingsQueryOptions()),
       ensureLibrary(queryClient),
+      // Never thrown: without it, the Study card is just the Study pill.
+      queryClient.prefetchQuery(studyOverviewQueryOptions(deckId)),
     ]),
   component: DeckPage,
 });
@@ -171,15 +176,8 @@ function DeckBody({ deck }: { deck: Deck }) {
               {deckRetentionLabel(deck.desiredRetention, desiredRetention)}
             </Link>
           </p>
+          <StudyCard deckId={deck.id} />
           <div className="flex shrink-0 flex-wrap gap-2 pt-1">
-            <Button
-              className={cn(PILL, "h-11 text-primary-foreground no-underline")}
-              render={<Link to="/decks/$deckId/study" params={{ deckId: deck.id }} />}
-              nativeButton={false}
-            >
-              <Play aria-hidden />
-              Study
-            </Button>
             <Button
               variant="outline"
               className={cn(OUTLINE_PILL, "h-11")}

@@ -122,3 +122,26 @@ export const UndoReviewResponse = z.object({
   intervals: IntervalPreviews,
 });
 export type UndoReviewResponse = z.infer<typeof UndoReviewResponse>;
+
+/**
+ * The body `GET /api/decks/:deckId/study/overview` answers: what Study will
+ * bring now. `due` is the Deck's review Cards due before the next Day start
+ * plus every Card in its learning steps; `new` the New cards a Session
+ * introduces, at most a New-card batch, of `newTotal` in all; `estimateMs`
+ * how long they will take, from the User's own Reviews. `nextDue` is the
+ * first Study day after today with review Cards due (its calendar date, as a
+ * Study day is named) and how many fall due on it; null when none ever is.
+ */
+export const StudyOverviewResponse = z.object({
+  due: z.number().int().nonnegative(),
+  new: z.number().int().nonnegative(),
+  newTotal: z.number().int().nonnegative(),
+  estimateMs: z.number().int().nonnegative(),
+  nextDue: z
+    .object({
+      day: z.iso.date(),
+      count: z.number().int().positive(),
+    })
+    .nullable(),
+});
+export type StudyOverviewResponse = z.infer<typeof StudyOverviewResponse>;

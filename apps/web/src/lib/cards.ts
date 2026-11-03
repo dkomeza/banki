@@ -12,6 +12,7 @@ import { type ApiClient, api } from "./api";
 import { CANT_REACH, deckQueryOptions, decksQueryOptions } from "./decks";
 import { deletionIdOf, deletionsQueryOptions } from "./deletions";
 import { ApiRequestError } from "./query";
+import { studyOverviewQueryOptions } from "./study-overview";
 
 export type Card = CardResponse;
 
@@ -146,12 +147,16 @@ async function outcomeOf(
   return { ok: false, message: failed };
 }
 
-/** Has the Deck's list, its count and the User's Tags fetched again. */
+/** Has the Deck's list, its count, its Study overview and the User's Tags fetched again. */
 async function refreshDeck(queryClient: QueryClient, deckId: string) {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: ["tags"], exact: true }),
     queryClient.invalidateQueries({ queryKey: cardsQueryOptions(deckId).queryKey, exact: true }),
     queryClient.invalidateQueries({ queryKey: deckQueryOptions(deckId).queryKey, exact: true }),
+    queryClient.invalidateQueries({
+      queryKey: studyOverviewQueryOptions(deckId).queryKey,
+      exact: true,
+    }),
     queryClient.invalidateQueries({ queryKey: decksQueryOptions().queryKey, exact: true }),
   ]);
 }

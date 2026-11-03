@@ -19,15 +19,24 @@ const DECK_NOT_FOUND = apiError("not_found", "Deck not found");
  * call, and an empty Queue's `newHeld` says how many New cards the batch
  * held back. A deleted Deck, an unknown one and another User's all
  * answer 404 `not_found`.
+ *
+ * `GET /:deckId/study/overview` answers what Study brings now: the Cards due
+ * (reviews due today and every Card in its learning steps), the New cards a
+ * Session introduces of all the Deck's, an estimate of the time they take,
+ * and the next Study day with review Cards due. It reads the Timezone, Day
+ * start and New-card batch from the Settings on every call, and answers 404
+ * `not_found` as `next` does.
  */
 export function studyRoutes({ study }: { study: StudyRepository }) {
-  return new Hono<SignedInEnv>().get(
-    "/:deckId/study/next",
-    query(StudyNextQuery, "Invalid study progress"),
-    (c) => {
+  return new Hono<SignedInEnv>()
+    .get("/:deckId/study/next", query(StudyNextQuery, "Invalid study progress"), (c) => {
       const next = study.next(c.var.user.id, c.req.param("deckId"), c.req.valid("query"));
       if (next === "not_found") return c.json(DECK_NOT_FOUND, 404);
       return c.json(next, 200);
-    },
-  );
+    })
+    .get("/:deckId/study/overview", (c) => {
+      const overview = study.overview(c.var.user.id, c.req.param("deckId"));
+      if (overview === "not_found") return c.json(DECK_NOT_FOUND, 404);
+      return c.json(overview, 200);
+    });
 }

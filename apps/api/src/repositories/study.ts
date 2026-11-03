@@ -2,11 +2,16 @@ import {
   DEFAULT_LEARNING_LIMIT,
   DEFAULT_NEW_CARD_BATCH,
   type StudyNextResponse,
+  type StudyOverviewResponse,
   type UndoReviewResponse,
+  addStudyDays,
+  studyDayBounds,
+  studyDayOf,
 } from "@banki/shared";
-import { and, eq, isNull, lte, ne, or } from "drizzle-orm";
+import { and, eq, gte, isNull, lt, ne, or, sql } from "drizzle-orm";
 import type { Queryable } from "../db/database";
 import { card, review, user_settings } from "../db/schema";
+import { ESTIMATE_WINDOW_DAYS, cardDayAverages, estimateMs } from "../scheduling/estimate";
 import { previewIntervals, restore, scheduleOf } from "../scheduling/fsrs";
 import { type QueueLimits, type QueueProgress, nextInQueue } from "../scheduling/queue";
 import { findIn, isLiveDeck } from "./cards";
@@ -58,6 +63,8 @@ export function createStudyRepository(db: Queryable) {
     ): StudyNextResponse | "not_found" {
       return db.transaction((tx) => {
         if (!isLiveDeck(tx, userId, deckId)) return "not_found";
+        const { studyDay } = schedulingSettingsOf(tx, userId);
+        const tomorrow = studyDayBounds(studyDayOf(now, studyDay), studyDay).end;
         // Reviews not yet due never count, so they stay in the database.
         const cards = tx
           .select({ id: card.id, createdAt: card.createdAt, ...MEMORY_COLUMNS })
@@ -67,7 +74,7 @@ export function createStudyRepository(db: Queryable) {
               eq(card.userId, userId),
               eq(card.deckId, deckId),
               isNull(card.deletedAt),
-              or(ne(card.state, "review"), lte(card.dueAt, now)),
+              or(ne(card.state, "review"), lt(card.dueAt, tomorrow)),
             ),
           )
           .all();
@@ -76,6 +83,7 @@ export function createStudyRepository(db: Queryable) {
           progress,
           queueLimitsOf(tx, userId),
           now,
+          tomorrow,
         );
         if (picked === null) return { next: null, newHeld };
         const row = cards.find((c) => c.id === picked.id);
@@ -85,11 +93,79 @@ export function createStudyRepository(db: Queryable) {
         const intervals = previewIntervals(id, memory, {
           now,
           desiredRetention: deckRetentionOf(tx, userId, deckId),
-          studyDay: schedulingSettingsOf(tx, userId).studyDay,
+          studyDay,
         });
         return {
-          next: { card: found, schedule: scheduleOf(memory), kind: picked.kind, intervals },
+          next: {
+            card: found,
+            schedule: scheduleOf(memory),
+            kind: picked.kind,
+            intervals,
+          },
           newHeld: 0,
+        };
+      });
+    },
+
+    /**
+     * What Study on the User's Deck `deckId` brings at `now`, from its live
+     * Cards and the Timezone, Day start and New-card batch as they are now:
+     * the review Cards due before the next Day start plus every Card in its
+     * learning steps, the New cards a Session introduces (at most a batch) of
+     * all its New cards, how long they will take (`cardDayAverages` over the
+     * User's Reviews in every Deck), and the first Study day after today with
+     * review Cards due, with how many. `now` is for tests.
+     */
+    overview(
+      userId: string,
+      deckId: string,
+      { now = new Date() }: { now?: Date } = {},
+    ): StudyOverviewResponse | "not_found" {
+      return db.transaction((tx) => {
+        if (!isLiveDeck(tx, userId, deckId)) return "not_found";
+        const { studyDay } = schedulingSettingsOf(tx, userId);
+        const today = studyDayOf(now, studyDay);
+        const tomorrow = studyDayBounds(today, studyDay).end.getTime();
+        const cards = tx
+          .select({ state: card.state, dueAt: card.dueAt })
+          .from(card)
+          .where(and(eq(card.userId, userId), eq(card.deckId, deckId), isNull(card.deletedAt)))
+          .all();
+
+        let due = 0;
+        let newTotal = 0;
+        const later = new Map<string, number>();
+        for (const { state, dueAt } of cards) {
+          if (state === "new") newTotal += 1;
+          else if (state !== "review") due += 1;
+          else if (dueAt === null || dueAt.getTime() < tomorrow) due += 1;
+          else {
+            const day = studyDayOf(dueAt, studyDay);
+            later.set(day, (later.get(day) ?? 0) + 1);
+          }
+        }
+        const fresh = Math.min(newTotal, queueLimitsOf(tx, userId).newCardBatch);
+        const nextDay = [...later.keys()].toSorted()[0];
+
+        const since = studyDayBounds(addStudyDays(today, -(ESTIMATE_WINDOW_DAYS - 1)), studyDay);
+        const reviews = tx
+          .select({
+            cardId: review.cardId,
+            reviewedAt: review.reviewedAt,
+            durationMs: review.durationMs,
+            wasNew: sql<number>`json_extract(${review.cardBefore}, '$.state') = 'new'`,
+          })
+          .from(review)
+          .where(and(eq(review.userId, userId), gte(review.reviewedAt, since.start)))
+          .all()
+          .map((r) => ({ ...r, wasNew: Boolean(r.wasNew) }));
+
+        return {
+          due,
+          new: fresh,
+          newTotal,
+          estimateMs: estimateMs({ due, fresh }, cardDayAverages(reviews, { now, studyDay })),
+          nextDue: nextDay === undefined ? null : { day: nextDay, count: later.get(nextDay) ?? 0 },
         };
       });
     },

@@ -44,11 +44,12 @@ const DONE: StudyState = {
   saving: undefined,
   undoing: false,
   failure: undefined,
-  rated: 12,
+  rated: 0,
   ratable: false,
   undone: false,
   newHeld: 0,
   loadingMore: false,
+  summary: { studied: 0, newStudied: 0, recall: null, timeMs: 0 },
 };
 
 /** The end screen's markup for `state`, with the Settings' New-card batch at `batch` (none loaded when null). */
@@ -81,7 +82,6 @@ describe("End", () => {
     const out = renderEnd({ newHeld: 37 });
 
     expect(text(out)).toContain("Done for now");
-    expect(text(out)).toContain("12 cards rated.");
     expect(text(out)).toContain("37 new cards are waiting.");
     expect(out).toMatch(/<button[^>]*>[^<]*Learn 20 more<\/button>/);
     expect(text(out)).toContain("Back to deck");

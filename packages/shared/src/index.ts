@@ -176,5 +176,6 @@ export {
   QueueKind,
   StudyNextQuery,
   StudyNextResponse,
+  StudyOverviewResponse,
   UndoReviewResponse,
 } from "./study";
