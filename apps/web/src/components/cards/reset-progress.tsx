@@ -47,7 +47,7 @@ export function ResetProgress({
           >
             {checked
               ? "On save, this card goes back to New and you rate it again from the start."
-              : "Keeps its reviews, starts its schedule over."}
+              : "Keeps its reviews, and starts it over as New."}
           </span>
         </span>
         <input
