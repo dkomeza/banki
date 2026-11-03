@@ -23,6 +23,7 @@ import { moreOffer } from "@/lib/new-cards";
 import { settingsQueryOptions } from "@/lib/settings";
 import { tagsQueryOptions } from "@/lib/tags";
 import {
+  RATE_FAILED,
   RATING_KEYS,
   RATING_LABELS,
   type StudySession,
@@ -349,10 +350,11 @@ export function Dock({ session, state }: { session: StudySession; state: StudySt
       )}
     >
       <div className="mx-auto flex w-full max-w-2xl flex-col gap-2 px-3 pt-3 sm:px-6">
-        {/* In the dock, not above the Front, so the Card doesn't move when it comes back. */}
-        {state.progressReset && state.failure === undefined && !state.refreshing && (
-          <ResetNote turning={state.turning} />
-        )}
+        {/* In the dock, not above the Front, so the Card doesn't move when it comes back. A
+            Rating that failed leaves the fresh Intervals it describes; their own failure doesn't. */}
+        {state.progressReset &&
+          (state.failure === undefined || state.failure === RATE_FAILED) &&
+          !state.refreshing && <ResetNote turning={state.turning} />}
         {state.undone && state.failure === undefined && (
           <p className="text-center text-xs font-medium text-muted-foreground">
             Back from Undo: rate it again

@@ -10,7 +10,13 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
 import type { Deck } from "@/lib/decks";
 import { settingsQueryOptions } from "@/lib/settings";
-import { type StudyState, createStudySession, studyApi } from "@/lib/study";
+import {
+  INTERVALS_FAILED,
+  RATE_FAILED,
+  type StudyState,
+  createStudySession,
+  studyApi,
+} from "@/lib/study";
 import { Dock, End } from "./study-screen";
 
 const DECK: Deck = {
@@ -154,8 +160,13 @@ describe("Dock", () => {
     expect(dock(RESET)).toContain("Back to New");
   });
 
-  test("not while Try again loads them, as the old ones still show", () => {
+  test("not while Try again loads them, nor once they failed, as the old ones still show", () => {
     expect(dock({ ...RESET, refreshing: true })).not.toContain("Back to New");
+    expect(dock({ ...RESET, failure: INTERVALS_FAILED })).not.toContain("Back to New");
+  });
+
+  test("still, once a Rating of the reset Card failed: its Intervals are the fresh ones", () => {
+    expect(dock({ ...RESET, failure: RATE_FAILED })).toContain("Back to New");
   });
 
   test("the Intervals and the note turn over on the close after the reset only", () => {

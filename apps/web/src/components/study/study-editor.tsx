@@ -226,7 +226,7 @@ export function StudyEditor({
   return (
     <div className="fixed inset-x-0 top-[calc(3.5rem+env(safe-area-inset-top))] bottom-0 z-30 flex">
       {/* The Card as it will read, from 1024 px, where Focus had it. */}
-      <div className="hidden min-w-0 flex-1 flex-col overflow-y-auto bg-background lg:flex">
+      <div className="hidden min-w-0 flex-1 flex-col overflow-y-auto bg-background pl-[env(safe-area-inset-left)] lg:flex">
         <div className="relative mx-auto flex w-full max-w-2xl flex-col px-10 pt-12 pb-10">
           <p className="absolute top-5 left-10 text-xs font-semibold tracking-[0.08em] text-muted-foreground uppercase">
             Preview
@@ -252,7 +252,7 @@ export function StudyEditor({
         role="dialog"
         aria-label="Edit card"
         data-study-editor
-        className="flex w-full flex-col overflow-y-auto rounded-t-[1.5rem] border-t bg-card shadow-[0_-18px_40px_-20px_rgb(48_28_10/0.35)] [view-transition-name:edit-panel] lg:w-[34rem] lg:shrink-0 lg:rounded-none lg:border-t-0 lg:border-l lg:shadow-[-24px_0_48px_-32px_rgb(48_28_10/0.35)]"
+        className="flex w-full flex-col overflow-y-auto rounded-t-[1.5rem] border-t bg-card pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] lg:pl-0 shadow-[0_-18px_40px_-20px_rgb(48_28_10/0.35)] [view-transition-name:edit-panel] lg:w-[34rem] lg:shrink-0 lg:rounded-none lg:border-t-0 lg:border-l lg:shadow-[-24px_0_48px_-32px_rgb(48_28_10/0.35)]"
       >
         <header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b bg-card/95 px-4 py-2 backdrop-blur sm:px-6">
           <div
@@ -273,7 +273,7 @@ export function StudyEditor({
           </Button>
         </header>
         {/* Room below the foot for the toolbar a phone docks over it while a field has the focus. */}
-        <div className="flex-1 pb-[calc(6rem+env(safe-area-inset-bottom))] lg:pb-0">
+        <div className="flex-1 pb-[calc(6rem+env(safe-area-inset-bottom))] lg:pb-[env(safe-area-inset-bottom)]">
           <CardForm
             stacked
             deck={deck}
@@ -291,7 +291,7 @@ export function StudyEditor({
                 card={card}
                 checked={reset}
                 onChange={setReset}
-                disabled={pending}
+                disabled={pending || gone}
               />
             }
             foot={

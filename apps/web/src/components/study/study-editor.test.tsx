@@ -6,7 +6,7 @@ import {
   createRootRoute,
   createRouter,
 } from "@tanstack/react-router";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createRef } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { type Card, cardsQueryOptions } from "@/lib/cards";
@@ -347,10 +347,80 @@ describe("StudyEditor", () => {
         await screen.findByText("This card, or its deck, was deleted meanwhile."),
       ).toBeTruthy();
       expect(session.saveEdit).not.toHaveBeenCalled();
+      // Nothing is left to save it with.
+      expect(resetBox().disabled).toBe(true);
       fireEvent.click(footCancel());
       expect(session.closeGone).toHaveBeenCalledTimes(1);
       expect(session.cancelEdit).not.toHaveBeenCalled();
     });
+
+    test("on its way holds the rest: Cancel, Esc and the top bar's × wait", async () => {
+      let answer: ((res: Response) => void) | undefined;
+      stubApi((method) =>
+        method === "PATCH"
+          ? new Promise<Response>((resolve) => {
+              answer = resolve;
+            })
+          : json({ code: "not_found" }, 404),
+      );
+      const ref = createRef<StudyEditorHandle>();
+      const session = renderEditor(card(true), ref);
+      fireEvent.click(resetBox());
+
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      await waitFor(() => expect(answer).toBeDefined());
+      for (const name of ["Delete", "Save"]) {
+        expect(screen.getByRole("button", { name }).hasAttribute("disabled")).toBe(true);
+      }
+      expect(footCancel().hasAttribute("disabled")).toBe(true);
+      expect(resetBox().disabled).toBe(true);
+      press(document.body, "Escape");
+      act(() => ref.current?.cancel());
+      expect(session.cancelEdit).not.toHaveBeenCalled();
+      expect(discardAsked()).toBeNull();
+
+      answer?.(json(saved));
+      await waitFor(() =>
+        expect(session.saveEdit).toHaveBeenCalledWith(saved, { progressReset: true }),
+      );
+    });
+
+    test.each([
+      [
+        "the API fails",
+        () => json({ code: "internal" }, 500),
+        "Banki couldn't save the card. Try again.",
+      ],
+      [
+        "Banki can't be reached",
+        (): Response => {
+          throw new TypeError("Failed to fetch");
+        },
+        "Can't reach Banki. Check your connection and try again.",
+      ],
+    ])(
+      "that fails because %s keeps the editor open with its error, as it was",
+      async (_, fails, error) => {
+        stubApi((method) => (method === "PATCH" ? fails() : json({ code: "not_found" }, 404)));
+        const session = renderEditor(card(true));
+        fireEvent.click(resetBox());
+
+        fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+        expect(await screen.findByText(error)).toBeTruthy();
+        expect(session.saveEdit).not.toHaveBeenCalled();
+        for (const name of ["Delete", "Save"]) {
+          expect(screen.getByRole("button", { name }).hasAttribute("disabled")).toBe(false);
+        }
+        expect(resetBox()).toMatchObject({ checked: true, disabled: false });
+        // Not frozen: Cancel asks, as the ticked box is still unsaved.
+        fireEvent.click(footCancel());
+        await waitFor(() => expect(discardAsked()).not.toBeNull());
+        expect(session.cancelEdit).not.toHaveBeenCalled();
+        expect(session.closeGone).not.toHaveBeenCalled();
+      },
+    );
   });
 
   describe("Delete", () => {
