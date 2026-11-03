@@ -111,6 +111,15 @@ const next = (id: string, kind: QueueKind = "new"): NextCard => ({
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
+/** A promise the test answers when it likes. */
+function deferred<T>() {
+  const box: { resolve?: (value: T) => void } = {};
+  const promise = new Promise<T>((done) => {
+    box.resolve = done;
+  });
+  return { promise, resolve: (value: T) => box.resolve?.(value) };
+}
+
 /**
  * A fake study API over a Queue of Cards, answering each call at once unless
  * the test makes it fail, and recording every call. Once the Queue is empty it
@@ -127,7 +136,7 @@ function fakeApi(queue: NextCard[]) {
   const fail = {
     next: false,
     rate: false as boolean | "gone",
-    undo: false as boolean | "gone",
+    undo: false as boolean | "gone" | "kept",
     intervals: false as boolean | "gone",
   };
   const held = { count: 0 };
@@ -149,7 +158,7 @@ function fakeApi(queue: NextCard[]) {
     },
     undo: async (reviewId) => {
       calls.undo.push(reviewId);
-      if (fail.undo === "gone") return "gone";
+      if (fail.undo === "gone" || fail.undo === "kept") return fail.undo;
       if (fail.undo) throw new Error("offline");
       const cardId = calls.rate.find((_, i) => `r${i + 1}` === reviewId)?.cardId ?? "?";
       return { card: card(cardId), intervals: intervals(`${cardId}-undone`) };
@@ -398,6 +407,31 @@ describe("a Session", () => {
     expect(t.messages).toEqual([UNDO_FAILED, UNDO_GONE]);
     expect(t.state().rated).toBe(1);
     expect(t.shownId()).toBe("c");
+  });
+
+  test("an Undo refused for good (a Progress reset since) keeps its Rating standing, and the next goes on to the one before", async () => {
+    const t = setUp([next("a"), next("b"), next("c")]);
+    await t.session.start();
+    await revealAndRate(t, "good");
+    await revealAndRate(t, "good");
+
+    t.fail.undo = "kept";
+    await t.session.undo();
+    expect(t.messages).toEqual([UNDO_GONE]);
+    expect(t.state()).toMatchObject({ rated: 2, undoable: true, undoing: false });
+    expect(t.state().summary.studied).toBe(2);
+    expect(t.shownId()).toBe("c");
+
+    t.fail.undo = false;
+    await t.session.undo();
+    expect(t.calls.undo).toEqual(["r2", "r1"]);
+    expect(t.shownId()).toBe("a");
+    expect(t.state()).toMatchObject({ rated: 1, undoable: false });
+    expect(t.state().summary.studied).toBe(1);
+
+    // Only the kept one is left: nothing to undo.
+    await t.session.undo();
+    expect(t.calls.undo).toEqual(["r2", "r1"]);
   });
 
   test("a second Rating while one saves does nothing", async () => {
@@ -995,7 +1029,7 @@ describe("editing the shown Card", () => {
     expect(t.shownId()).toBe("b");
 
     t.session.edit();
-    await t.session.saveEdit(edited("b", "b edited"), { reset: false });
+    await t.session.saveEdit(edited("b", "b edited"), { progressReset: false });
     expect(t.state().shown?.card.front).toBe("b edited");
     await revealAndRate(t, "easy");
     expect(t.calls.next.at(-1)).toEqual({ reviewsShown: 1, newShown: 1, batches: 1, after: "b" });
@@ -1010,7 +1044,7 @@ describe("editing the shown Card", () => {
     const t = setUp([next("a"), next("b")]);
     await t.session.start();
     t.session.edit();
-    await t.session.saveEdit(edited("a", "new front"), { reset: false });
+    await t.session.saveEdit(edited("a", "new front"), { progressReset: false });
     expect(t.state()).toMatchObject({ editing: false, revealed: false, progressReset: false });
     expect(t.state().shown).toEqual({
       card: edited("a", "new front"),
@@ -1030,7 +1064,7 @@ describe("editing the shown Card", () => {
     const t = setUp([next("a", "review"), next("b")]);
     await t.session.start();
     t.session.edit();
-    const saving = t.session.saveEdit(edited("a", "a", false), { reset: true });
+    const saving = t.session.saveEdit(edited("a", "a", false), { progressReset: true });
     // Open until the fresh previews are in.
     expect(t.state().editing).toBe(true);
     await saving;
@@ -1063,7 +1097,7 @@ describe("editing the shown Card", () => {
     await t.session.start();
     t.session.edit();
     t.fail.intervals = true;
-    await t.session.saveEdit(edited("a", "a"), { reset: true });
+    await t.session.saveEdit(edited("a", "a"), { progressReset: true });
 
     expect(t.state()).toMatchObject({ editing: false, ratable: false, failure: INTERVALS_FAILED });
     t.session.rate("good");
@@ -1077,12 +1111,42 @@ describe("editing the shown Card", () => {
     expect(t.state().shown?.intervals).toEqual(intervals("a-fresh"));
   });
 
+  test("while Try again loads a reset Card's previews, Undo, Edit and Rating wait", async () => {
+    const t = setUp([next("a"), next("b"), next("c")]);
+    await t.session.start();
+    await revealAndRate(t, "good");
+    t.session.edit();
+    t.fail.intervals = true;
+    await t.session.saveEdit(edited("b", "b"), { progressReset: true });
+    expect(t.state().failure).toBe(INTERVALS_FAILED);
+
+    const answer = deferred<IntervalPreviews>();
+    t.api.intervals = () => answer.promise;
+    t.session.retry();
+    expect(t.state()).toMatchObject({
+      refreshing: true,
+      undoable: true,
+      editable: false,
+      ratable: false,
+      failure: undefined,
+    });
+    await t.session.undo();
+    expect(t.session.edit()).toBe(false);
+    expect(t.calls.undo).toEqual([]);
+
+    answer.resolve(intervals("b-fresh"));
+    await flush();
+    expect(t.shownId()).toBe("b");
+    expect(t.state()).toMatchObject({ refreshing: false, ratable: true, editable: true });
+    expect(t.state().shown?.intervals).toEqual(intervals("b-fresh"));
+  });
+
   test("a reset Card deleted meanwhile is skipped with a message", async () => {
     const t = setUp([next("a"), next("b")]);
     await t.session.start();
     t.session.edit();
     t.fail.intervals = "gone";
-    await t.session.saveEdit(edited("a", "a"), { reset: true });
+    await t.session.saveEdit(edited("a", "a"), { progressReset: true });
 
     expect(t.messages).toEqual([CARD_GONE]);
     expect(t.shownId()).toBe("b");
@@ -1122,6 +1186,40 @@ describe("editing the shown Card", () => {
     expect(t.shownId()).toBe("b");
   });
 
+  test("can't open on a Card whose Rating saved while the next one failed to load", async () => {
+    const t = setUp([next("a", "review"), next("b")]);
+    await t.session.start();
+    t.fail.next = true;
+    await revealAndRate(t, "good");
+    expect(t.state()).toMatchObject({ failure: NEXT_FAILED, editable: false, ratable: false });
+    expect(t.session.edit()).toBe(false);
+
+    t.fail.next = false;
+    t.session.retry();
+    await flush();
+    expect(t.shownId()).toBe("b");
+    expect(t.state().editable).toBe(true);
+  });
+
+  test("leaves the time with the editor open, and with a reset's previews on their way, out of the Card's durationMs", async () => {
+    const t = setUp([next("a", "review"), next("b")]);
+    await t.session.start();
+    t.wait(2000);
+    t.session.edit();
+    t.wait(45_000);
+    const answer = deferred<IntervalPreviews>();
+    t.api.intervals = () => answer.promise;
+    const saving = t.session.saveEdit(edited("a", "a", false), { progressReset: true });
+    t.wait(5000);
+    answer.resolve(intervals("a-fresh"));
+    await saving;
+    t.wait(1500);
+    t.session.rate("good");
+    await flush();
+
+    expect(t.calls.rate).toEqual([{ cardId: "a", rating: "good", durationMs: 3500 }]);
+  });
+
   test("leaves the time with the editor open out of the Card's durationMs", async () => {
     const t = setUp([next("a"), next("b")]);
     await t.session.start();
@@ -1133,7 +1231,7 @@ describe("editing the shown Card", () => {
     t.session.reveal();
     t.session.edit();
     t.wait(30_000);
-    await t.session.saveEdit(edited("a", "a2"), { reset: false });
+    await t.session.saveEdit(edited("a", "a2"), { progressReset: false });
     t.wait(500);
     t.session.rate("good");
     await flush();
@@ -1149,9 +1247,53 @@ describe("editing the shown Card", () => {
     expect(t.state().undone).toBe(true);
 
     t.session.edit();
-    await t.session.saveEdit(edited("a", "a"), { reset: true });
+    await t.session.saveEdit(edited("a", "a"), { progressReset: true });
 
     expect(t.state()).toMatchObject({ undone: false, progressReset: true });
+  });
+
+  test("leaving while the editor is on its way (a frame later) does nothing", async () => {
+    const later: (() => void)[] = [];
+    const server = fakeApi([next("a"), next("b"), next("c")]);
+    const session = createStudySession({
+      studyApi: server.api,
+      notify: () => {},
+      transition: (update) => later.push(update),
+    });
+    await session.start();
+    session.reveal();
+    session.rate("good");
+    await flush();
+    expect(session.edit()).toBe(true);
+
+    expect(session.leave()).toBe("stay");
+    for (const update of later.splice(0)) update();
+    expect(session.getState()).toMatchObject({ phase: "card", editing: true });
+  });
+
+  test("once stopped, a reset's answer says nothing and moves nothing", async () => {
+    const transitions: number[] = [];
+    const messages: string[] = [];
+    const server = fakeApi([next("a"), next("b")]);
+    const session = createStudySession({
+      studyApi: server.api,
+      notify: (message) => messages.push(message),
+      transition: (update) => {
+        transitions.push(1);
+        update();
+      },
+    });
+    await session.start();
+    session.edit();
+    const answer = deferred<"gone">();
+    server.api.intervals = () => answer.promise;
+    const saving = session.saveEdit(edited("a", "a"), { progressReset: true });
+    session.stop();
+    answer.resolve("gone");
+    await saving;
+
+    expect(messages).toEqual([]);
+    expect(transitions).toEqual([1]);
   });
 
   test("runs opening and closing the editor through `transition`", async () => {

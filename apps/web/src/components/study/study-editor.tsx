@@ -110,7 +110,8 @@ export function StudyEditor({
   useImperativeHandle(ref, () => ({ cancel }));
 
   const save = async () => {
-    if (busy.current) return;
+    // Ctrl/⌘+Enter too: with the Card gone, there is nothing to save.
+    if (busy.current || gone) return;
     const nextTags = tags.commit();
     if (nextTags === false) return;
     busy.current = true;
@@ -122,7 +123,7 @@ export function StudyEditor({
     });
     if (outcome.ok) {
       guard.release();
-      await session.saveEdit(outcome.card, { reset: resetProgress });
+      await session.saveEdit(outcome.card, { progressReset: resetProgress });
       return;
     }
     busy.current = false;
@@ -145,10 +146,12 @@ export function StudyEditor({
     if (!deleted) busy.current = false;
   };
 
-  // Esc closes, through the discard guard; the editor's own Esc (a popup) comes first.
+  // Esc closes, through the discard guard; the editor's own Esc (a popup) comes
+  // first, and so does a "Discard changes?" dialog's, ours or the route's.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented || asking) return;
+      if (document.querySelector('[role="alertdialog"]') !== null) return;
       event.preventDefault();
       cancel();
     };
@@ -180,9 +183,9 @@ export function StudyEditor({
           />
         </div>
       </div>
+      {/* Not modal: the top bar stays in reach, its × closing the editor. */}
       <section
         role="dialog"
-        aria-modal="true"
         aria-label="Edit card"
         data-study-editor
         className="flex w-full flex-col overflow-y-auto rounded-t-[1.5rem] border-t bg-card shadow-[0_-18px_40px_-20px_rgb(48_28_10/0.35)] [view-transition-name:edit-panel] lg:w-[34rem] lg:shrink-0 lg:rounded-none lg:border-t-0 lg:border-l lg:shadow-[-24px_0_48px_-32px_rgb(48_28_10/0.35)]"

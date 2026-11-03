@@ -45,6 +45,7 @@ const DONE: StudyState = {
   undoing: false,
   failure: undefined,
   rated: 0,
+  undoable: false,
   ratable: false,
   undone: false,
   newHeld: 0,
@@ -54,6 +55,7 @@ const DONE: StudyState = {
   editable: false,
   progressReset: false,
   skipping: false,
+  refreshing: false,
 };
 
 /** The end screen's markup for `state`, with the Settings' New-card batch at `batch` (none loaded when null). */

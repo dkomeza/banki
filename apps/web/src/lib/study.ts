@@ -87,8 +87,14 @@ export type StudyApi = {
     rating: Rating,
     durationMs: number,
   ) => Promise<{ reviewId: string } | "gone">;
-  /** Undoes a Review: the Card and its fresh previews, or "gone" when it can't be undone anymore. */
-  undo: (reviewId: string) => Promise<{ card: Card; intervals: IntervalPreviews } | "gone">;
+  /**
+   * Undoes a Review: the Card and its fresh previews; "gone" when the Review
+   * is gone (deleted elsewhere, or its Card), or "kept" when it stands but
+   * can't be undone anymore (a newer Review, or a Progress reset since).
+   */
+  undo: (
+    reviewId: string,
+  ) => Promise<{ card: Card; intervals: IntervalPreviews } | "gone" | "kept">;
   /** A Card's previews as it is now, or "gone" when it was deleted meanwhile. */
   intervals: (cardId: string) => Promise<IntervalPreviews | "gone">;
 };
@@ -124,7 +130,8 @@ export function studyApi(deckId: string, client: ApiClient = api): StudyApi {
     undo: async (reviewId) => {
       const res = await client.api.reviews[":id"].$delete({ param: { id: reviewId } });
       const status: number = res.status;
-      if (status === 404 || status === 409) return "gone";
+      if (status === 404) return "gone";
+      if (status === 409) return "kept";
       if (status !== 200) throw new Error(`Undo answered ${status}`);
       const { card, intervals } = UndoReviewResponse.parse(await res.json());
       return { card, intervals };
@@ -146,6 +153,7 @@ export const UNDO_GONE = "That rating can't be undone anymore.";
 export const UNDO_FAILED = "Couldn't undo. Check your connection.";
 export const MORE_FAILED = "Couldn't load more cards. Check your connection.";
 export const INTERVALS_FAILED = "Couldn't load the card's new intervals. Check your connection.";
+export const EDITOR_FAILED = "Couldn't open the editor. Check your connection.";
 
 /**
  * Where the Session is: loading its first Card, showing one, done after
@@ -227,6 +235,8 @@ export type StudyState = {
   failure: string | undefined;
   /** The Session's Ratings still standing. */
   rated: number;
+  /** Whether a standing Rating is left that Undo can try to take back. */
+  undoable: boolean;
   /** Whether a Rating can be given now: the Card is revealed and nothing is on its way. */
   ratable: boolean;
   /** Set when the shown Card is back from an Undo, until it is rated. */
@@ -245,10 +255,21 @@ export type StudyState = {
   progressReset: boolean;
   /** Set while the Card after one deleted from the editor is on its way. */
   skipping: boolean;
+  /** Set while a reset Card's previews load again (Try again). */
+  refreshing: boolean;
 };
 
-/** A Rating the Session gave and can take back. */
-type Given = { reviewId: string; shown: NextCard; rating: Rating; durationMs: number };
+/**
+ * A Rating the Session gave and can take back, until the API says it stands
+ * for good (`kept`: a newer Review of its Card, or a Progress reset since).
+ */
+type Given = {
+  reviewId: string;
+  shown: NextCard;
+  rating: Rating;
+  durationMs: number;
+  kept?: boolean;
+};
 
 const standing = (given: readonly Given[]): StandingRating[] =>
   given.map(({ shown, rating, durationMs }) => ({
@@ -291,6 +312,7 @@ export function createStudySession({
     undoing: false,
     failure: undefined,
     rated: 0,
+    undoable: false,
     ratable: false,
     undone: false,
     newHeld: 0,
@@ -300,6 +322,7 @@ export function createStudySession({
     editable: false,
     progressReset: false,
     skipping: false,
+    refreshing: false,
   };
   const listeners = new Set<() => void>();
   const given: Given[] = [];
@@ -326,14 +349,20 @@ export function createStudySession({
   // start counts, so only the newest one's answer shows.
   let stopped = false;
   let starts = 0;
+  const say = (message: string) => {
+    if (!stopped) notify(message);
+  };
 
-  const set = (patch: Partial<Omit<StudyState, "rated" | "ratable" | "summary" | "editable">>) => {
+  const set = (
+    patch: Partial<Omit<StudyState, "rated" | "undoable" | "ratable" | "summary" | "editable">>,
+  ) => {
     if (stopped) return;
     const next = { ...state, ...patch };
     state = {
       ...next,
       newHeld: next.phase === "done" ? next.newHeld : 0,
       rated: given.length,
+      undoable: given.some((g) => !g.kept),
       summary: summaryOf(standing(given)),
       // A Rating that failed can be given again, or another one instead; a
       // Card whose Rating saved, waiting for the next one, can't.
@@ -344,14 +373,18 @@ export function createStudySession({
         !next.undoing &&
         !next.editing &&
         !next.skipping &&
+        !next.refreshing &&
         failed?.kind !== "next" &&
         failed?.kind !== "intervals",
+      // Not on a Card whose Rating saved, waiting for the next one: it is done.
       editable:
         next.phase === "card" &&
         next.saving === undefined &&
         !next.undoing &&
         !next.editing &&
-        !next.skipping,
+        !next.skipping &&
+        !next.refreshing &&
+        failed?.kind !== "next",
     };
     for (const listener of listeners) listener();
   };
@@ -362,6 +395,7 @@ export function createStudySession({
     state.loadingMore ||
     editorOpen ||
     state.skipping ||
+    state.refreshing ||
     state.phase === "loading";
 
   /** Shows the next Card, or the end of the Queue; while left, keeps it for Keep studying. */
@@ -425,7 +459,7 @@ export function createStudySession({
         after: undefined,
       });
     } catch {
-      notify(MORE_FAILED);
+      say(MORE_FAILED);
       set({ loadingMore: false });
       return;
     }
@@ -449,24 +483,32 @@ export function createStudySession({
 
   /** Try again for a reset Card's previews: shows them as it is now; one deleted meanwhile is skipped. */
   const refresh = async (cardId: string) => {
+    set({ refreshing: true, failure: undefined });
     let fresh: Awaited<ReturnType<StudyApi["intervals"]>>;
     try {
       fresh = await client.intervals(cardId);
     } catch {
-      failed = { kind: "intervals", cardId };
-      set({ failure: INTERVALS_FAILED });
+      set({ refreshing: false, failure: INTERVALS_FAILED });
       return;
     }
     if (fresh === "gone") {
-      notify(CARD_GONE);
-      set({ skipping: true });
+      say(CARD_GONE);
+      set({ refreshing: false, skipping: true });
       await loadNext(cardId);
       return;
     }
     const shown = state.shown;
-    if (shown === undefined || shown.card.id !== cardId) return;
+    if (shown === undefined || shown.card.id !== cardId) {
+      set({ refreshing: false });
+      return;
+    }
     failed = undefined;
-    set({ shown: { ...shown, intervals: fresh }, previewedAt: now(), failure: undefined });
+    set({
+      shown: { ...shown, intervals: fresh },
+      previewedAt: now(),
+      failure: undefined,
+      refreshing: false,
+    });
   };
 
   /**
@@ -478,7 +520,8 @@ export function createStudySession({
     if (!editorOpen) return;
     editorOpen = false;
     shownAt += now() - editedAt;
-    transition(() => set({ ...patch, editing: false }));
+    // Gone from the screen, nothing is left to move.
+    if (!stopped) transition(() => set({ ...patch, editing: false }));
   };
 
   const save = async (rating: Rating, durationMs: number) => {
@@ -493,7 +536,7 @@ export function createStudySession({
       set({ saving: undefined, failure: RATE_FAILED });
       return;
     }
-    if (saved === "gone") notify(CARD_GONE);
+    if (saved === "gone") say(CARD_GONE);
     else given.push({ reviewId: saved.reviewId, shown, rating, durationMs });
     await loadNext(shown.card.id);
   };
@@ -531,10 +574,7 @@ export function createStudySession({
         set({ failure: undefined });
         void loadNext(what.after);
       }
-      if (what?.kind === "intervals") {
-        set({ failure: undefined });
-        void refresh(what.cardId);
-      }
+      if (what?.kind === "intervals") void refresh(what.cardId);
     },
     /**
      * At the end of a Queue that held New cards back, takes another batch of
@@ -548,30 +588,35 @@ export function createStudySession({
       void loadMore();
     },
     /** Whether a Rating of this Session is still standing to take back. */
-    canUndo: () => given.length > 0,
+    canUndo: () => state.undoable,
     /**
      * Takes back the newest Rating still standing: its Review is deleted and
      * its Card comes back revealed, with fresh previews. One that can't be
-     * undone anymore (gone elsewhere) is dropped, with a message.
+     * undone anymore says so: gone elsewhere, it is dropped; still standing
+     * (a newer Review, or a Progress reset since), it keeps counting, and the
+     * next Undo goes on to the Rating before it.
      */
     async undo() {
-      const last = given.at(-1);
+      const at = given.findLastIndex((g) => !g.kept);
+      const last = given[at];
       if (last === undefined || busy()) return;
       set({ undoing: true });
       let back: Awaited<ReturnType<StudyApi["undo"]>>;
       try {
         back = await client.undo(last.reviewId);
       } catch {
-        notify(UNDO_FAILED);
+        say(UNDO_FAILED);
         set({ undoing: false });
         return;
       }
-      given.pop();
-      if (back === "gone") {
-        notify(UNDO_GONE);
+      if (back === "gone" || back === "kept") {
+        if (back === "gone") given.splice(at, 1);
+        else last.kept = true;
+        say(UNDO_GONE);
         set({ undoing: false });
         return;
       }
+      given.splice(at, 1);
       failed = undefined;
       // The re-rated Review's time is the undone one's plus the time since.
       shownAt = now() - last.durationMs;
@@ -611,9 +656,9 @@ export function createStudySession({
      * previews that don't load leave it unratable until Try again, and a Card
      * deleted meanwhile is skipped. Answers once the editor is closed.
      */
-    async saveEdit(card: Card, { reset }: { reset: boolean }) {
+    async saveEdit(card: Card, { progressReset }: { progressReset: boolean }) {
       if (!editorOpen || state.shown === undefined) return;
-      if (!reset) {
+      if (!progressReset) {
         closeEditor({ shown: { ...state.shown, card } });
         return;
       }
@@ -626,7 +671,7 @@ export function createStudySession({
       const shown = state.shown;
       if (!editorOpen || shown === undefined) return;
       if (fresh === "gone") {
-        notify(CARD_GONE);
+        say(CARD_GONE);
         set({ skipping: true });
         closeEditor({});
         await loadNext(card.id);
@@ -656,9 +701,11 @@ export function createStudySession({
     /**
      * Leaving the study screen (Esc, or ×): with a Rating standing, while a
      * Card is shown, the summary shows instead ("summary"), the Card's time
-     * paused; otherwise the screen goes ("away").
+     * paused; otherwise the screen goes ("away"). With the editor opening (it
+     * may show a frame later), nothing happens ("stay").
      */
-    leave(): "summary" | "away" {
+    leave(): "summary" | "away" | "stay" {
+      if (editorOpen) return "stay";
       if (state.phase !== "card" || given.length === 0) return "away";
       pausedFor = now() - shownAt;
       set({ phase: "left" });

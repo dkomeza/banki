@@ -29,6 +29,7 @@ import { moreOffer } from "@/lib/new-cards";
 import { settingsQueryOptions } from "@/lib/settings";
 import { tagsQueryOptions } from "@/lib/tags";
 import {
+  EDITOR_FAILED,
   RATING_KEYS,
   RATING_LABELS,
   type StudySession,
@@ -79,11 +80,16 @@ export function StudyScreen({ deck }: { deck: Deck }) {
     return () => queryClient.removeQueries({ queryKey: ["cards"] });
   }, [queryClient, deck.id]);
   // The editor suspends until the Deck's Cards are in, which would leave it
-  // out of the View Transition's new frame: it opens once they are.
+  // out of the View Transition's new frame: it opens once they are, on the
+  // Card it was asked for. Cards that don't load leave it closed, with a
+  // message, as the editor can't show without them.
   const openEditor = useCallback(() => {
+    const asked = session.getState().shown?.card.id;
     void queryClient.ensureQueryData(cardsQueryOptions(deck.id)).then(
-      () => session.edit(),
-      () => session.edit(),
+      () => {
+        if (session.getState().shown?.card.id === asked) session.edit();
+      },
+      () => toast(EDITOR_FAILED),
     );
   }, [queryClient, deck.id, session]);
 
@@ -203,8 +209,8 @@ function TopBar({
   state: StudyState;
   onUndo: () => void;
   onEdit: () => void;
-  /** Leaving: "summary" when something else shows instead of the deck page. */
-  onLeave: () => "summary" | "away";
+  /** Leaving: "away" to the deck page, else something else shows, or nothing happens. */
+  onLeave: () => "summary" | "away" | "stay";
 }) {
   return (
     <header className="sticky top-0 z-10 grid h-14 grid-cols-[1fr_auto_1fr] items-center gap-2 bg-background/95 px-2 backdrop-blur sm:px-4">
@@ -219,7 +225,7 @@ function TopBar({
             to="/decks/$deckId"
             params={{ deckId: deck.id }}
             onClick={(event) => {
-              if (onLeave() === "summary") event.preventDefault();
+              if (onLeave() !== "away") event.preventDefault();
             }}
           />
         }
@@ -244,11 +250,12 @@ function TopBar({
           variant="ghost"
           className="h-11 min-w-11 gap-1.5 rounded-full px-3 lg:h-9 lg:min-w-9"
           disabled={
-            state.rated === 0 ||
+            !state.undoable ||
             state.undoing ||
             state.saving !== undefined ||
             state.editing ||
-            state.skipping
+            state.skipping ||
+            state.refreshing
           }
           onClick={onUndo}
           // A click leaves no focus behind, so Space still reveals the next Card.
@@ -352,7 +359,7 @@ function Dock({ session, state }: { session: StudySession; state: StudyState }) 
             <Button
               variant="outline"
               className={cn(PILL, "h-11 border-destructive/40 text-destructive lg:h-8 lg:px-3")}
-              disabled={state.saving !== undefined}
+              disabled={state.saving !== undefined || state.refreshing}
               onClick={() => session.retry()}
             >
               Try again
