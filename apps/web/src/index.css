@@ -234,6 +234,12 @@
   animation-duration: 460ms;
   animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
 }
+/* The top bar stays above what moves, as on the page: closing, the
+   preview's Front, rule and Back would come above it, unclipped, since the
+   groups stack as the editor's frame painted them. */
+::view-transition-group(study-top) {
+  z-index: 1;
+}
 ::view-transition-new(edit-panel):only-child {
   animation: morph-up 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
