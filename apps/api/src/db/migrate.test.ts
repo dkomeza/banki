@@ -292,7 +292,7 @@ test("0014_grading_notes keeps every Card, with no Grading notes", () => {
   ]);
 });
 
-test("0015_progress_resets keeps every Card and Review, numbered in order, with no Progress reset", () => {
+test("0015_progress_resets keeps every Card and Review, numbered in order for each User, with no Progress reset", () => {
   const journalPath = join(folder, "meta", "_journal.json");
   const full = readFileSync(journalPath, "utf8");
   const journal = z
@@ -315,6 +315,19 @@ test("0015_progress_resets keeps every Card and Review, numbered in order, with 
   opened.db.run(
     sql`INSERT INTO card (id, user_id, deck_id, front, back, created_at, updated_at, state) VALUES ('c', 'u', 'd', 'f', 'b', 0, 0, 'review')`,
   );
+  // Another User, whose Reviews are numbered on their own, from 1.
+  opened.db.run(
+    sql`INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES ('v', 'n', 'v@x.y', 1, 0, 0)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO deck (id, user_id, name, name_key, created_at, updated_at) VALUES ('e', 'v', 'E', 'e', 0, 0)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO card (id, user_id, deck_id, front, back, created_at, updated_at, state) VALUES ('k', 'v', 'e', 'f', 'b', 0, 0, 'review')`,
+  );
+  opened.db.run(
+    sql`INSERT INTO review (id, user_id, card_id, deck_id, reviewed_at, rating, kind, duration_ms, card_before) VALUES ('v0', 'v', 'k', 'e', 0, 'good', 'self-rated', 0, '{}')`,
+  );
   opened.db.run(
     sql`INSERT INTO review (id, user_id, card_id, deck_id, reviewed_at, rating, kind, duration_ms, card_before) VALUES ('r', 'u', 'c', 'd', 0, 'good', 'self-rated', 0, '{}')`,
   );
@@ -325,17 +338,25 @@ test("0015_progress_resets keeps every Card and Review, numbered in order, with 
   opened.db.run(
     sql`INSERT INTO review (id, user_id, card_id, deck_id, reviewed_at, rating, kind, duration_ms, card_before) VALUES ('r1', 'u', 'c', 'd', 0, 'good', 'self-rated', 0, '{}')`,
   );
+  opened.db.run(
+    sql`INSERT INTO review (id, user_id, card_id, deck_id, reviewed_at, rating, kind, duration_ms, card_before) VALUES ('v1', 'v', 'k', 'e', 1, 'good', 'self-rated', 0, '{}')`,
+  );
 
   writeFileSync(journalPath, full);
   expect(applyMigrations(opened.db, folder)).toEqual(
     COMMITTED.slice(COMMITTED.indexOf("0015_progress_resets")),
   );
 
-  expect(opened.db.values(sql`SELECT id, state FROM card`)).toEqual([["c", "review"]]);
-  expect(opened.db.values(sql`SELECT id, seq FROM review ORDER BY seq`)).toEqual([
-    ["r0", 1],
-    ["r", 2],
-    ["r1", 3],
+  expect(opened.db.values(sql`SELECT id, state FROM card ORDER BY id`)).toEqual([
+    ["c", "review"],
+    ["k", "review"],
+  ]);
+  expect(opened.db.values(sql`SELECT user_id, id, seq FROM review ORDER BY user_id, seq`)).toEqual([
+    ["u", "r0", 1],
+    ["u", "r", 2],
+    ["u", "r1", 3],
+    ["v", "v0", 1],
+    ["v", "v1", 2],
   ]);
   expect(opened.db.values(sql`SELECT id FROM progress_reset`)).toEqual([]);
 });

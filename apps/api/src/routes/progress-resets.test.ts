@@ -377,6 +377,20 @@ describe("DELETE /api/reviews/:id after a Progress reset", () => {
     expect(back.card.studied).toBe(false);
   });
 
+  test("counts only the Card's own resets: another Card's, logged since, leaves its Undo as it was", async () => {
+    const { app, cookie, deckId, cardId } = await signedIn();
+    const other = await createCard(app, cookie, deckId);
+    await rate(app, cookie, other.id);
+    const mine = await rate(app, cookie, cardId);
+    await patch(app, cookie, other.id, { resetProgress: true });
+
+    const res = await send(app, "DELETE", `/api/reviews/${mine.review.id}`, undefined, cookie);
+
+    expect(res.status).toBe(200);
+    expect(reviewsOf(cardId)).toHaveLength(0);
+    expect(memoryOf(cardId)?.state).toBe("new");
+  });
+
   test("goes by the newest reset: a Rating between two resets can't be undone", async () => {
     const { app, cookie, cardId } = await signedIn();
     await rate(app, cookie, cardId);
