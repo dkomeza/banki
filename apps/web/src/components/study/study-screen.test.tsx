@@ -64,6 +64,7 @@ const DONE: StudyState = {
   turning: false,
   skipping: false,
   refreshing: false,
+  endedAfterMs: 0,
 };
 
 /** The end screen's markup for `state`, with the Settings' New-card batch at `batch` (none loaded when null). */

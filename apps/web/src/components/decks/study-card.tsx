@@ -74,6 +74,7 @@ export function StudyCardView({
   // New cards held back by the open Session's batch: its end offers another.
   const waiting = empty && resuming && overview.newTotal > 0;
   const nothing = empty && !waiting;
+  // Nothing at all to study, the pill is as without an open Session.
   const label = resuming ? "Continue" : "Study";
   const next = overview === undefined ? undefined : nextDueLabel(overview.nextDue, today);
   return (
@@ -111,7 +112,7 @@ export function StudyCardView({
       {nothing ? (
         <Button variant="outline" className={cn(OUTLINE_PILL, "h-11 w-full sm:w-auto")} disabled>
           <Play aria-hidden />
-          {label}
+          Study
         </Button>
       ) : (
         <Button

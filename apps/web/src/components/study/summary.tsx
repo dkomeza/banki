@@ -1,4 +1,4 @@
-import { DEFAULT_DAY_START_HOUR, DEFAULT_SESSION_TIMEOUT_MINUTES } from "@banki/shared";
+import { DEFAULT_DAY_START_HOUR } from "@banki/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { LoaderCircle } from "lucide-react";
@@ -29,7 +29,7 @@ export function Summary({
   deck,
   summary,
   left,
-  ended = false,
+  endedAfterMs,
   newHeld,
   loadingMore,
   onMore,
@@ -40,8 +40,8 @@ export function Summary({
   summary: SessionSummary;
   /** Left early (Keep studying), rather than at the end of the Queue. */
   left: boolean;
-  /** Ended by the Session timeout (Start a new session). */
-  ended?: boolean;
+  /** Ended by the Session timeout of this many ms (Start a new session); undefined while open. */
+  endedAfterMs?: number | undefined;
   newHeld: number;
   loadingMore: boolean;
   onMore: () => void;
@@ -59,9 +59,7 @@ export function Summary({
       summary={summary}
       left={left}
       ended={
-        ended
-          ? { minutes: settings?.sessionTimeoutMinutes ?? DEFAULT_SESSION_TIMEOUT_MINUTES }
-          : undefined
+        endedAfterMs === undefined ? undefined : { minutes: Math.round(endedAfterMs / 60_000) }
       }
       // Only a fresh answer: a cached one is from before the Session.
       overview={overview.isFetchedAfterMount ? (overview.data ?? undefined) : undefined}
@@ -69,7 +67,9 @@ export function Summary({
         timezone: settings?.timezone ?? null,
         dayStartHour: settings?.dayStartHour ?? DEFAULT_DAY_START_HOUR,
       })}
-      offer={left || ended ? undefined : moreOffer(newHeld, settings?.newCardBatch)}
+      offer={
+        left || endedAfterMs !== undefined ? undefined : moreOffer(newHeld, settings?.newCardBatch)
+      }
       loadingMore={loadingMore}
       onMore={onMore}
       onResume={onResume}

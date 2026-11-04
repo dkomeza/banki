@@ -284,6 +284,8 @@ export type StudyState = {
   skipping: boolean;
   /** Set while a reset Card's previews load again (Try again). */
   refreshing: boolean;
+  /** In the `ended` phase, the Session timeout that ended it, in ms; else 0. */
+  endedAfterMs: number;
 };
 
 /**
@@ -358,6 +360,7 @@ export function createStudySession({
     turning: false,
     skipping: false,
     refreshing: false,
+    endedAfterMs: 0,
   };
   const listeners = new Set<() => void>();
   const given: Given[] = [];
@@ -404,6 +407,9 @@ export function createStudySession({
   let restored = false;
   // The stored Card shown, while resuming it.
   let resuming: StoredShown | undefined;
+  // The shown Card once it is done with (rated, or found gone), until the next
+  // shows: stored as none, so a resume never shows it to rate again.
+  let doneWith: string | undefined;
   const say = (message: string) => {
     if (!stopped) notify(message);
   };
@@ -430,7 +436,7 @@ export function createStudySession({
       given: given.map((g) => ({ ...g })),
       shown:
         resuming ??
-        (shown === undefined
+        (shown === undefined || shown.card.id === doneWith
           ? null
           : {
               cardId: shown.card.id,
@@ -447,6 +453,17 @@ export function createStudySession({
   const persist = () => {
     if (stopped || state.phase === "ended" || seen.size === 0) return;
     store.write(snapshot());
+  };
+
+  /**
+   * Saves the shown Card's time so far, which is no activity: not over a
+   * Session another tab acted in since this one last did, as the one acted in
+   * last wins.
+   */
+  const persistTime = () => {
+    const stored = store.read();
+    if (stored !== undefined && stored.activeAt > activeAt) return;
+    persist();
   };
 
   /** Takes in the stored Session, unless it timed out, which is cleared. */
@@ -475,6 +492,7 @@ export function createStudySession({
     state = {
       ...next,
       newHeld: next.phase === "done" ? next.newHeld : 0,
+      endedAfterMs: next.phase === "ended" ? next.endedAfterMs : 0,
       rated: given.length,
       undoable: next.phase !== "ended" && given.some((g) => !g.settled),
       summary: summaryOf(standing(given)),
@@ -545,6 +563,7 @@ export function createStudySession({
       if (next.kind === "review") reviewsShown += 1;
     }
     lastShown = next.card.id;
+    doneWith = undefined;
     touch();
     shownAt = now();
     pausedFor = 0;
@@ -637,10 +656,12 @@ export function createStudySession({
     if (mine !== starts) return;
     resuming = undefined;
     if (card === "gone" || fresh === "gone") {
+      lastShown = stored.cardId;
       await loadFirst(mine, stored.cardId);
       return;
     }
     failed = undefined;
+    doneWith = undefined;
     touch();
     shownAt = now() - stored.elapsedMs;
     pausedFor = 0;
@@ -681,15 +702,14 @@ export function createStudySession({
     // the first Card (`show`), and a Save on its way changes nothing.
     editorOpen = false;
     const mine = starts;
-    // A resumed Session whose Queue had run out asks for the Card after its last.
-    let from: string | undefined;
     if (!restored) {
       restored = true;
       restore();
-      if (resuming === undefined) from = lastShown;
     }
+    // With no Card shown (a resumed Session whose Queue had run out, or one
+    // whose first Card didn't load), it asks for the Card after its last.
     if (resuming !== undefined) await resume(resuming, mine);
-    else await loadFirst(mine, from);
+    else await loadFirst(mine, state.shown === undefined ? lastShown : undefined);
   }
 
   /** Forgets the Session, stored and here, and starts a fresh one at its first Card. */
@@ -734,7 +754,11 @@ export function createStudySession({
    */
   const timeOut = (): boolean => {
     if (stopped || activeAt === 0 || editorOpen || state.phase === "ended") return false;
-    if (now() - activeAt < timeoutMs()) return false;
+    // Another tab acting in the stored Session since keeps it open: the
+    // stale tab neither ends nor clears it, and acting in it wins again.
+    const last = Math.max(activeAt, store.read()?.activeAt ?? 0);
+    const timeout = timeoutMs();
+    if (now() - last < timeout) return false;
     if (given.length === 0) {
       startFresh();
       return true;
@@ -743,6 +767,7 @@ export function createStudySession({
     failed = undefined;
     set({
       phase: "ended",
+      endedAfterMs: timeout,
       shown: undefined,
       revealed: false,
       saving: undefined,
@@ -767,6 +792,7 @@ export function createStudySession({
    */
   const skipGone = (cardId: string): Partial<StudyState> => {
     gone.add(cardId);
+    doneWith = cardId;
     failed = undefined;
     return { skipping: true, failure: undefined, undone: false, progressReset: false };
   };
@@ -843,6 +869,7 @@ export function createStudySession({
       return;
     }
     if (mine !== starts) return;
+    doneWith = shown.card.id;
     if (saved === "gone") {
       gone.add(shown.card.id);
       say(CARD_GONE);
@@ -856,6 +883,8 @@ export function createStudySession({
         settled: false,
       });
     }
+    // Stored at once, so a tab closed before the next Card shows keeps the Rating.
+    persist();
     await loadNext(shown.card.id);
   };
 
@@ -960,6 +989,7 @@ export function createStudySession({
       drop(last);
       if (!current) return set({});
       failed = undefined;
+      doneWith = undefined;
       // The re-rated Review's time is the undone one's plus the time since.
       shownAt = now() - last.durationMs;
       set({
@@ -1084,7 +1114,7 @@ export function createStudySession({
     },
     /** Stops it: answers still on their way change nothing, until it starts again. */
     stop() {
-      persist();
+      persistTime();
       stopped = true;
     },
     /**
@@ -1095,7 +1125,7 @@ export function createStudySession({
       timeOut();
     },
     /** Saves the shown Card's time so far, as the page hides; not activity. */
-    persist,
+    persist: persistTime,
     /** Start a new session, from an ended one: clears it and loads a fresh Session's first Card. */
     restart() {
       if (state.phase === "ended") startFresh();

@@ -90,7 +90,8 @@ describe("StudyCardView", () => {
     const out = render({ ...OVERVIEW, due: 0, new: 0, newTotal: 0, estimateMs: 0 }, true);
 
     expect(text(out)).toContain("Nothing to study");
-    expect(out).toMatch(/<button[^>]* disabled=""[^>]*>/);
+    expect(out).toMatch(/<button[^>]* disabled=""[^>]*>.*Study<\/button>/);
+    expect(text(out)).not.toContain("Continue");
   });
 
   test("without an open Session, reads Study", () => {

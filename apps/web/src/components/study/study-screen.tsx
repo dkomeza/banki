@@ -228,7 +228,7 @@ export function StudyScreen({ deck }: { deck: Deck }) {
             deck={deck}
             summary={state.summary}
             left={state.phase === "left"}
-            ended={state.phase === "ended"}
+            endedAfterMs={state.phase === "ended" ? state.endedAfterMs : undefined}
             onRestart={() => session.restart()}
             newHeld={state.newHeld}
             loadingMore={state.loadingMore}

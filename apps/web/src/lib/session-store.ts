@@ -152,6 +152,7 @@ export function openSession(
 /**
  * How far the Deck's open Session has gone into its New cards, for the deck
  * page's counts (`study/overview` takes them); undefined with no open Session.
+ * A New Card it shows is still to come, so it isn't counted as shown.
  * `timeoutMinutes` is the Settings', the default without them.
  */
 export function openProgress(
@@ -163,5 +164,7 @@ export function openProgress(
     now,
     timeoutMs: timeoutMsOf(timeoutMinutes),
   });
-  return open === undefined ? undefined : { newShown: open.newShown, batches: open.batches };
+  if (open === undefined) return undefined;
+  const pending = open.shown?.kind === "new" ? 1 : 0;
+  return { newShown: Math.max(0, open.newShown - pending), batches: open.batches };
 }

@@ -2715,6 +2715,59 @@ describe("a saved Session", () => {
     expect(t.state().rated).toBe(1);
   });
 
+  test("a tab that only hides or closes leaves a Session another tab acted in since as it is", async () => {
+    const storage = memoryStorage();
+    const idle = browsing([next("a"), next("b")], storage);
+    await idle.session.start();
+    // Opened later, it resumes the stored Session at a.
+    const busy = browsing([next("x"), next("y")], storage);
+    busy.wait(1000);
+    await busy.session.start();
+    expect(busy.shownId()).toBe("a");
+    await rateIn(busy, "good");
+    await rateIn(busy, "good");
+
+    idle.session.persist();
+    idle.session.stop();
+
+    expect(busy.stored()?.shown?.cardId).toBe("y");
+    expect(busy.stored()?.given).toHaveLength(2);
+  });
+
+  test("whose Queue had run out and whose first Card didn't load asks again for the Card after its last", async () => {
+    const t = browsing([next("a")]);
+    await t.session.start();
+    await rateIn(t, "good");
+    t.fail.next = true;
+
+    await t.reload();
+    expect(t.state().phase).toBe("unreachable");
+    t.fail.next = false;
+    t.session.retry();
+    await flush();
+
+    expect(t.calls.next.at(-1)).toMatchObject({ newShown: 1, after: "a" });
+  });
+
+  test("keeps a Rating that saved though the tab closed before the next Card showed, and never shows its Card to rate again", async () => {
+    const t = browsing([next("a"), next("b")]);
+    await t.session.start();
+    const serve = t.api.next;
+    t.api.next = () => new Promise(() => {});
+    await rateIn(t, "good");
+    expect(t.calls.rate).toHaveLength(1);
+
+    t.api.next = serve;
+    await t.reload();
+
+    expect(t.calls.card).toEqual([]);
+    expect(t.calls.next.at(-1)).toMatchObject({ newShown: 1, after: "a" });
+    expect(t.shownId()).toBe("b");
+    expect(t.state().rated).toBe(1);
+    await t.session.undo();
+    expect(t.calls.undo).toEqual(["r1"]);
+  });
+
   test("two tabs share it, and the one acted in last wins", async () => {
     const storage = memoryStorage();
     const one = browsing([next("a"), next("b"), next("c")], storage);
@@ -2840,6 +2893,35 @@ describe("the Session timeout", () => {
     expect(t.calls.next).toHaveLength(2);
     expect(t.state().phase).toBe("ended");
     expect(t.session.leave()).toBe("away");
+  });
+
+  test("on a stale tab, doesn't end or clear a Session another tab acted in since", async () => {
+    const storage = memoryStorage();
+    const stale = browsing([next("a"), next("b")], storage);
+    await stale.session.start();
+    await rateIn(stale, "good");
+    const other = browsing([next("c")], storage);
+    other.wait(20 * MINUTE);
+    await other.session.start();
+    await rateIn(other, "good");
+
+    stale.wait(TIMEOUT);
+    stale.session.checkTimeout();
+
+    expect(stale.state().phase).toBe("card");
+    expect(stale.stored()?.given).toHaveLength(2);
+  });
+
+  test("ends a Session saying the timeout that ended it", async () => {
+    const t = browsing([next("a"), next("b")]);
+    await t.session.start();
+    await rateIn(t, "good");
+    t.timeout.ms = 45 * MINUTE;
+    t.wait(45 * MINUTE);
+    t.session.checkTimeout();
+    expect(t.state()).toMatchObject({ phase: "ended", endedAfterMs: 45 * MINUTE });
+    t.timeout.ms = 5 * MINUTE;
+    expect(t.state().endedAfterMs).toBe(45 * MINUTE);
   });
 
   test("on a screen still open, an action past it ends the Session instead of acting", async () => {
@@ -2997,10 +3079,17 @@ describe("the session store", () => {
     await rateIn(t, "good");
 
     const at = (ms: number) => openProgress("d1", 30, { now: NOW + ms, storage: t.storage });
-    expect(at(TIMEOUT - 1)).toEqual({ newShown: 2, batches: 1 });
+    // b, the New Card it shows, is still to come.
+    expect(at(TIMEOUT - 1)).toEqual({ newShown: 1, batches: 1 });
     expect(at(TIMEOUT)).toBeUndefined();
     expect(openProgress("d1", undefined, { now: NOW, storage: t.storage })).toBeDefined();
     expect(openProgress("d2", 30, { now: NOW, storage: t.storage })).toBeUndefined();
+    // At its end, every New Card it showed is used.
+    await rateIn(t, "good");
+    expect(openProgress("d1", 30, { now: NOW, storage: t.storage })).toEqual({
+      newShown: 2,
+      batches: 1,
+    });
     expect(openProgress("d1", 30, { now: NOW, storage: undefined })).toBeUndefined();
   });
 });
