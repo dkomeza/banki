@@ -334,8 +334,8 @@ export function createStudySession({
   };
   const listeners = new Set<() => void>();
   const given: Given[] = [];
-  // Every Card the Session has shown, so each counts once, by its first kind.
-  const seen = new Set<string>();
+  // Every Card the Session has shown, with its first kind, so each counts once, by it.
+  const seen = new Map<string, QueueKind>();
   // The kind each Card put back to New here came with: served again by the
   // Queue (after an Undo took its place), it still counts as that kind.
   const resetKinds = new Map<string, QueueKind>();
@@ -439,7 +439,7 @@ export function createStudySession({
       return;
     }
     if (!seen.has(next.card.id)) {
-      seen.add(next.card.id);
+      seen.set(next.card.id, next.kind);
       if (next.kind === "new") newShown += 1;
       if (next.kind === "review") reviewsShown += 1;
     }
@@ -766,7 +766,7 @@ export function createStudySession({
         return;
       }
       for (const g of given) if (g.shown.card.id === card.id) g.settled = true;
-      resetKinds.set(card.id, state.shown.kind);
+      resetKinds.set(card.id, seen.get(card.id) ?? state.shown.kind);
       const mine = starts;
       let fresh: Awaited<ReturnType<StudyApi["intervals"]>> | undefined;
       try {
@@ -873,15 +873,19 @@ export function editorOpener({
 }) {
   let presses = 0;
   let live = true;
+  // The newest press's watch for a step out to the summary; a newer press ends it.
+  let unwatch: (() => void) | undefined;
   return {
     open: () => {
       presses += 1;
       const mine = presses;
       const asked = session.getState().shown;
       let left = false;
+      unwatch?.();
       const unsubscribe = session.subscribe(() => {
         if (session.getState().phase === "left") left = true;
       });
+      unwatch = unsubscribe;
       const current = () => live && mine === presses;
       void ready()
         .then(
@@ -901,6 +905,7 @@ export function editorOpener({
     /** The screen went: answers on their way open nothing and say nothing. */
     stop: () => {
       live = false;
+      unwatch?.();
     },
   };
 }

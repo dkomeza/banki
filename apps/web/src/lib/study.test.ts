@@ -1430,6 +1430,24 @@ describe("editing the shown Card", () => {
     });
   });
 
+  test("a reset Card counts by the kind it first came with, not the one it was shown with when reset", async () => {
+    // a comes New, then back in its learning steps, is reset there, and the
+    // Queue serves it again (New) after an Undo took b's Rating back.
+    const t = setUp([next("b", "review"), next("a"), next("a", "learning"), next("a")]);
+    await t.session.start();
+    await revealAndRate(t, "good");
+    await revealAndRate(t, "again");
+    expect(t.state().shown?.kind).toBe("learning");
+    t.session.edit();
+    await t.session.saveEdit(edited("a", "a", false), { progressReset: true });
+
+    await t.session.undo();
+    expect(t.shownId()).toBe("b");
+    await revealAndRate(t, "good");
+    expect(t.shownId()).toBe("a");
+    expect(t.state().shown?.kind).toBe("new");
+  });
+
   test("a Card back from Undo, then reset, is no longer marked as back from Undo", async () => {
     const t = setUp([next("a"), next("b")]);
     await t.session.start();
@@ -2095,6 +2113,37 @@ describe("opening the editor once the Deck's Cards are in", () => {
     await flush();
 
     expect(t.state().editing).toBe(true);
+  });
+
+  test("while the Cards hang, only the newest press watches the Session, and none once stopped", async () => {
+    const t = setUp([next("a")]);
+    await t.session.start();
+    let watching = 0;
+    const opener = editorOpener({
+      session: {
+        getState: () => t.session.getState(),
+        edit: () => t.session.edit(),
+        subscribe: (listener) => {
+          watching += 1;
+          const unsubscribe = t.session.subscribe(listener);
+          let done = false;
+          return () => {
+            if (!done) watching -= 1;
+            done = true;
+            unsubscribe();
+          };
+        },
+      },
+      ready: () => new Promise(() => {}),
+      notify: () => {},
+    });
+    opener.open();
+    opener.open();
+    opener.open();
+    expect(watching).toBe(1);
+
+    opener.stop();
+    expect(watching).toBe(0);
   });
 
   test("Cards that don't load leave it closed, and say so", async () => {
