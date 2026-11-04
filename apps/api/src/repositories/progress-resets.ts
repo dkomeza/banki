@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, gt } from "drizzle-orm";
 import type { Queryable } from "../db/database";
 import { card, progress_reset } from "../db/schema";
 import { NEW_MEMORY_STATE } from "../scheduling/fsrs";
@@ -44,6 +44,32 @@ export function hasProgressResets(db: Queryable, userId: string): boolean {
       .select({ id: progress_reset.id })
       .from(progress_reset)
       .where(eq(progress_reset.userId, userId))
+      .limit(1)
+      .get() !== undefined
+  );
+}
+
+/**
+ * Whether the User's Card `cardId` has a Progress reset after the place `seq`
+ * in their Write order (ADR-0026).
+ */
+export function hasProgressResetSince(
+  db: Queryable,
+  userId: string,
+  cardId: string,
+  seq: number,
+): boolean {
+  return (
+    db
+      .select({ id: progress_reset.id })
+      .from(progress_reset)
+      .where(
+        and(
+          eq(progress_reset.userId, userId),
+          eq(progress_reset.cardId, cardId),
+          gt(progress_reset.seq, seq),
+        ),
+      )
       .limit(1)
       .get() !== undefined
   );

@@ -1,11 +1,17 @@
+import { Database as SQLite } from "bun:sqlite";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 import { z } from "zod";
-import { type OpenedDatabase, openDatabase } from "./database";
+import { hasProgressResetSince } from "../repositories/progress-resets";
+import { lastReviewOf } from "../repositories/reviews";
+import { nextSeq } from "../repositories/write-order";
+import { type OpenedDatabase, type Queryable, openDatabase } from "./database";
 import { applyMigrations, migrationsFolder } from "./migrate";
+import * as schema from "./schema";
 
 let tempDir: string;
 let folder: string;
@@ -361,26 +367,45 @@ test("0015_progress_resets keeps every Card and Review, numbered in order for ea
   expect(opened.db.values(sql`SELECT id FROM progress_reset`)).toEqual([]);
 });
 
-test("a Card's newest Review and its Progress resets since are found through the Card, not the User's whole history", () => {
+test("a Card's newest Review, its Progress resets since and the next place in the Write order are found through an index, not the User's whole history", () => {
   applyMigrations(opened.db, folder);
-  const plan = (query: ReturnType<typeof sql>) =>
-    opened.db
-      .values<[number, number, number, string]>(sql`EXPLAIN QUERY PLAN ${query}`)
-      .map(([, , , detail]) => detail);
+  // The SQL each one builds, as it runs, planned with its own parameters.
+  const queries: { query: string; params: unknown[] }[] = [];
+  const client = new SQLite(join(tempDir, "data", "banki.db"));
+  const logged = drizzle({
+    client,
+    schema,
+    logger: { logQuery: (query, params) => queries.push({ query, params }) },
+  });
+  const plansOf = (run: (db: Queryable) => unknown) => {
+    queries.length = 0;
+    run(logged);
+    return queries.map(({ query, params }) => {
+      const [first = "", ...rest] = query.split("?");
+      const bound = sql.join([
+        sql.raw(`EXPLAIN QUERY PLAN ${first}`),
+        ...rest.flatMap((part, i) => [sql`${params[i]}`, sql.raw(part)]),
+      ]);
+      return opened.db
+        .values<[number, number, number, string]>(bound)
+        .map(([, , , detail]) => detail);
+    });
+  };
 
-  // `lastReviewOf`, and Undo's check for a Progress reset since.
-  expect(
-    plan(
-      sql`SELECT id FROM review WHERE user_id = 'u' AND card_id = 'c' ORDER BY seq DESC LIMIT 1`,
-    ),
-  ).toEqual(["SEARCH review USING INDEX review_card_id_user_id_seq (card_id=? AND user_id=?)"]);
-  expect(
-    plan(
-      sql`SELECT id FROM progress_reset WHERE user_id = 'u' AND card_id = 'c' AND seq > 1 LIMIT 1`,
-    ),
-  ).toEqual([
-    "SEARCH progress_reset USING INDEX progress_reset_card_id_user_id_seq (card_id=? AND user_id=? AND seq>?)",
+  expect(plansOf((db) => lastReviewOf(db, "u", "c"))).toEqual([
+    ["SEARCH review USING INDEX review_card_id_user_id_seq (card_id=? AND user_id=?)"],
   ]);
+  // Undo's check for a Progress reset since.
+  expect(plansOf((db) => hasProgressResetSince(db, "u", "c", 1))).toEqual([
+    [
+      "SEARCH progress_reset USING INDEX progress_reset_card_id_user_id_seq (card_id=? AND user_id=? AND seq>?)",
+    ],
+  ]);
+  expect(plansOf((db) => nextSeq(db, "u"))).toEqual([
+    ["SEARCH review USING COVERING INDEX review_user_id_seq (user_id=?)"],
+    ["SEARCH progress_reset USING COVERING INDEX progress_reset_user_id_seq (user_id=?)"],
+  ]);
+  client.close();
 });
 
 test("0015 leaves the review table only the indexes a query uses", () => {

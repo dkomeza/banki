@@ -9,13 +9,14 @@ import {
   studyDayBounds,
   studyDayOf,
 } from "@banki/shared";
-import { and, eq, gt, gte, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { and, eq, gte, isNull, lt, ne, or, sql } from "drizzle-orm";
 import type { Queryable } from "../db/database";
-import { card, progress_reset, review, user_settings } from "../db/schema";
+import { card, review, user_settings } from "../db/schema";
 import { ESTIMATE_WINDOW_DAYS, cardDayAverages, estimateMs } from "../scheduling/estimate";
 import { previewIntervals, restore, scheduleOf } from "../scheduling/fsrs";
 import { type QueueLimits, type QueueProgress, nextInQueue } from "../scheduling/queue";
 import { findIn, isLiveDeck } from "./cards";
+import { hasProgressResetSince } from "./progress-resets";
 import {
   MEMORY_COLUMNS,
   deckRetentionOf,
@@ -229,19 +230,9 @@ export function createStudyRepository(db: Queryable) {
           if (found === undefined) return "not_found";
           const newest = lastReviewOf(tx, userId, undone.cardId);
           if (newest?.id !== reviewId) return "not_newest";
-          const resetSince = tx
-            .select({ id: progress_reset.id })
-            .from(progress_reset)
-            .where(
-              and(
-                eq(progress_reset.userId, userId),
-                eq(progress_reset.cardId, undone.cardId),
-                gt(progress_reset.seq, newest.seq),
-              ),
-            )
-            .limit(1)
-            .get();
-          if (resetSince !== undefined) return "before_progress_reset";
+          if (hasProgressResetSince(tx, userId, undone.cardId, newest.seq)) {
+            return "before_progress_reset";
+          }
 
           tx.delete(review)
             .where(and(eq(review.userId, userId), eq(review.id, reviewId)))

@@ -189,6 +189,18 @@ describe("PATCH /api/cards/:id with resetProgress", () => {
     expect(resetsOf(cardId)).toHaveLength(1);
   });
 
+  test("alone on a studied Card moves its updatedAt", async () => {
+    setSystemTime(new Date("2026-05-01T10:00:00.000Z"));
+    const { app, cookie, cardId } = await signedIn();
+    await rate(app, cookie, cardId);
+    setSystemTime(new Date("2026-05-01T11:00:00.000Z"));
+
+    const res = await patch(app, cookie, cardId, { resetProgress: true });
+
+    expect(res.status).toBe(200);
+    expect(CardResponse.parse(await res.json()).updatedAt).toBe("2026-05-01T11:00:00.000Z");
+  });
+
   test("logs one row per reset", async () => {
     const { app, cookie, cardId } = await signedIn();
     await rate(app, cookie, cardId);
