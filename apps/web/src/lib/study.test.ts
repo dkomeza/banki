@@ -786,6 +786,9 @@ describe("keyAction", () => {
     expect(keyAction({ ...press("."), code: "KeyE" }, shown)).toEqual({ type: "none" });
     expect(keyAction({ ...press("e"), code: "KeyD" }, shown)).toEqual({ type: "edit" });
     expect(keyAction({ ...press("у"), code: "KeyR" }, shown)).toEqual({ type: "none" });
+    // Turkish F: the key where E is types ğ, a Latin letter, and e is elsewhere.
+    expect(keyAction({ ...press("ğ"), code: "KeyE" }, shown)).toEqual({ type: "none" });
+    expect(isEditKey({ key: "ğ", code: "KeyE" })).toBe(false);
   });
 
   test("while editing, every key is the editor's, Esc included", () => {
@@ -2123,6 +2126,19 @@ describe("opening the editor once the Deck's Cards are in", () => {
     await revealAndRate(t, "again");
     await t.session.undo();
     expect(t.shownId()).toBe("a");
+
+    await t.load();
+    expect(t.state().editing).toBe(false);
+  });
+
+  test("opens nothing when the User left for the summary meanwhile, even back again", async () => {
+    const t = opening([next("a"), next("b")]);
+    await t.session.start();
+    await revealAndRate(t, "good");
+    t.opener.open();
+    expect(t.session.leave()).toBe("summary");
+    t.session.resume();
+    expect(t.state().phase).toBe("card");
 
     await t.load();
     expect(t.state().editing).toBe(false);

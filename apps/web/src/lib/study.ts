@@ -265,8 +265,10 @@ export type StudyState = {
 };
 
 /**
- * A Rating the Session gave and can take back, until the API says it stands
- * for good (`settled`: a newer Review of its Card, or a Progress reset since).
+ * A Rating the Session gave and can take back, until it stands for good
+ * (`settled`): the API says so (a newer Review of its Card, or a Progress
+ * reset since), the Session saved a Progress reset of its Card, or an Undo
+ * of it found its Card deleted from the Session (`gone`).
  */
 type Given = {
   reviewId: string;
@@ -856,7 +858,8 @@ export const saveStudyEdit = (
 /**
  * Opens the editor on the shown Card once `ready` (the Deck's Cards the
  * editor reads) is in, as it can't show without them. Not when, meanwhile,
- * the Card shown changed (a Rating, an Undo), another press came, or the
+ * the Card shown changed (a Rating, an Undo), the User stepped out to the
+ * summary (`leave`, even if they came back), another press came, or the
  * screen went (`stop`); Cards that don't load say so (`notify`) instead.
  */
 export function editorOpener({
@@ -864,7 +867,7 @@ export function editorOpener({
   ready,
   notify,
 }: {
-  session: Pick<StudySession, "getState" | "edit">;
+  session: Pick<StudySession, "getState" | "subscribe" | "edit">;
   ready: () => Promise<unknown>;
   notify: (message: string) => void;
 }) {
@@ -875,15 +878,21 @@ export function editorOpener({
       presses += 1;
       const mine = presses;
       const asked = session.getState().shown;
+      let left = false;
+      const unsubscribe = session.subscribe(() => {
+        if (session.getState().phase === "left") left = true;
+      });
       const current = () => live && mine === presses;
-      void ready().then(
-        () => {
-          if (current() && session.getState().shown === asked) session.edit();
-        },
-        () => {
-          if (current()) notify(EDITOR_FAILED);
-        },
-      );
+      void ready()
+        .then(
+          () => {
+            if (current() && !left && session.getState().shown === asked) session.edit();
+          },
+          () => {
+            if (current()) notify(EDITOR_FAILED);
+          },
+        )
+        .finally(unsubscribe);
     },
     /** Mounted again (a remount): opens as before. */
     start: () => {
@@ -902,7 +911,7 @@ export function editorOpener({
  */
 export function isEditKey({ key, code }: { key: string; code?: string }): boolean {
   if (key.toLowerCase() === "e") return true;
-  return code === "KeyE" && /^\p{L}$/u.test(key) && !/^[a-z]$/i.test(key);
+  return code === "KeyE" && /^\p{L}$/u.test(key) && !/\p{Script=Latin}/u.test(key);
 }
 
 /** What a key press on the study screen does. */
