@@ -2178,7 +2178,6 @@ describe("opening the editor once the Deck's Cards are in", () => {
   });
 });
 
-/** The study API over HTTP, answered by `res`. */
 /**
  * The study API over a server that answers `res` to `route` (a method and
  * a path), and fails any other request, so a call to the wrong route can't pass.

@@ -240,7 +240,7 @@ export const review = sqliteTable(
     reviewedAt: integer("reviewed_at", { mode: "timestamp_ms" }).notNull(),
     rating: text("rating", { enum: RATINGS }).notNull(),
     kind: text("kind", { enum: REVIEW_KINDS }).notNull(),
-    /** The time spent on the Card, as the client measured it. */
+    /** The time spent studying the Card, as the client measured it (time spent editing it is left out). */
     durationMs: integer("duration_ms").notNull(),
     cardBefore: text("card_before", { mode: "json" }).notNull(),
     seq: integer("seq").notNull().default(0),

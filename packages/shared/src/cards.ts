@@ -36,7 +36,7 @@ export const GradingNotes = z
  * A Card as the API answers it: its Deck, its Front and Back as typed, its Tags
  * A–Z, its Grading notes or null, when it was created and last changed, as ISO
  * 8601 times, and whether it is studied: its state isn't New, so it has a
- * Review since its newest Progress reset, and can be reset.
+ * Review since its newest Progress reset, and can have a Progress reset.
  */
 export const CardResponse = z.object({
   id: z.string(),
@@ -87,7 +87,7 @@ export const UpdateCardRequest = z
       patch.tags !== undefined ||
       patch.gradingNotes !== undefined ||
       patch.resetProgress !== undefined,
-    "Expected a front, a back, tags, grading notes or a progress reset",
+    "Expected a front, a back, tags, grading notes or a Progress reset",
   );
 export type UpdateCardRequest = z.input<typeof UpdateCardRequest>;
 

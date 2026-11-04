@@ -98,7 +98,7 @@ _Avoid_: forget, reset (alone, which is Edge's), relearn
 
 **Write order**:
 The order in which the User's Reviews and Progress resets were written, one place each, shared by both. "Before", "newest" and a Card's history go by it rather than by moments, which a clock can tie or step back. An Undo takes its Review out of the Write order, which can leave a place in it unused. Reviews given before it existed took their places in it by their moments, as well as Banki could tell.
-_Avoid_: timeline, sequence, seq (outside the code)
+_Avoid_: sequence, seq (outside the code)
 
 **Due**:
 A Card is due on the Study day FSRS scheduled it for, from that day's Day start, and stays due until it is reviewed, or until a Progress reset puts it back to New. A Card still in its learning steps is due at an exact moment instead, minutes after its last Review.

@@ -156,7 +156,7 @@ describe("Dock", () => {
   const dock = (state: Partial<StudyState>) =>
     text(renderToStaticMarkup(<Dock session={IDLE} state={{ ...DONE, ...state }} />));
 
-  test("after a Progress reset, says the Intervals are a new card's", () => {
+  test("after a Progress reset, says the Intervals are a New card's", () => {
     expect(dock(RESET)).toContain("Back to New");
   });
 

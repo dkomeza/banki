@@ -633,7 +633,10 @@ export function createStudySession({
       if (!state.ratable || editorOpen) return;
       void save(rating, Math.max(0, Math.round(now() - shownAt)));
     },
-    /** Tries again what failed: the Rating, or loading the next Card. */
+    /**
+     * Tries again what failed: the Rating, loading the next Card, or loading a
+     * reset Card's fresh Intervals.
+     */
     retry() {
       if (busy()) return;
       if (state.phase === "unreachable") {

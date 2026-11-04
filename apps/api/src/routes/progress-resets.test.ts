@@ -227,7 +227,7 @@ describe("PATCH /api/cards/:id with resetProgress", () => {
     expect(resetsOf(cardId)).toEqual([]);
   });
 
-  test("without it the schedule stays as it was", async () => {
+  test("without it the memory state stays as it was", async () => {
     const { app, cookie, cardId } = await signedIn();
     await rate(app, cookie, cardId);
     const before = memoryOf(cardId);
