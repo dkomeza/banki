@@ -73,6 +73,21 @@ describe("POST /api/cards/:id/reviews", () => {
     expect(Date.parse(schedule.due ?? "")).toBe(Date.parse(review.reviewedAt) + 10 * 60_000);
   });
 
+  test("records a duration above 2 minutes as 2 minutes", async () => {
+    const { app, cookie, cardId } = await signedIn();
+
+    const res = await send(
+      app,
+      "POST",
+      `/api/cards/${cardId}/reviews`,
+      { rating: "good", durationMs: 10 * 60_000 },
+      cookie,
+    );
+
+    expect(res.status).toBe(201);
+    expect(RateCardResponse.parse(await res.json()).review.durationMs).toBe(2 * 60_000);
+  });
+
   test("takes every Rating", async () => {
     const { app, cookie, deckId } = await signedIn();
 

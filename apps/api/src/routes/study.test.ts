@@ -363,8 +363,8 @@ function setCard(
   }
 }
 
-const overviewOf = async (app: App, cookie: string, deckId: string) => {
-  const res = await get(app, `/api/decks/${deckId}/study/overview`, cookie);
+const overviewOf = async (app: App, cookie: string, deckId: string, query = "") => {
+  const res = await get(app, `/api/decks/${deckId}/study/overview${query}`, cookie);
   expect(res.status).toBe(200);
   return StudyOverviewResponse.parse(await res.json());
 };
@@ -438,6 +438,61 @@ describe("GET /api/decks/:deckId/study/overview", () => {
 
     await patchSettings(app, cookie, { newCardBatch: 20 });
     expect(await overviewOf(app, cookie, deckId)).toMatchObject({ new: 7, newTotal: 7 });
+  });
+
+  test("leaves out the New cards an open Session's batch has used up", async () => {
+    const { app, cookie, deckId } = await signedIn();
+    await createCards(app, cookie, deckId, 12);
+    await patchSettings(app, cookie, { newCardBatch: 5 });
+
+    expect(await overviewOf(app, cookie, deckId, "?newShown=3&batches=1")).toMatchObject({
+      new: 2,
+      newTotal: 12,
+      estimateMs: 2 * 60_000,
+    });
+    expect(await overviewOf(app, cookie, deckId, "?newShown=5&batches=1")).toMatchObject({
+      due: 0,
+      new: 0,
+      newTotal: 12,
+      estimateMs: 0,
+    });
+    // Shown more than the batch allows (a smaller batch since): none, never fewer.
+    expect(await overviewOf(app, cookie, deckId, "?newShown=8")).toMatchObject({ new: 0 });
+  });
+
+  test("counts a second batch of an open Session, at most the New cards there are", async () => {
+    const { app, cookie, deckId } = await signedIn();
+    await createCards(app, cookie, deckId, 7);
+    await patchSettings(app, cookie, { newCardBatch: 5 });
+
+    expect(await overviewOf(app, cookie, deckId, "?newShown=5&batches=2")).toMatchObject({
+      new: 5,
+      newTotal: 7,
+      estimateMs: 5 * 60_000,
+    });
+    expect(await overviewOf(app, cookie, deckId, "?newShown=2&batches=2")).toMatchObject({
+      new: 7,
+      newTotal: 7,
+    });
+  });
+
+  test("answers 400 invalid_request for newShown or batches out of range", async () => {
+    const { app, cookie, deckId } = await signedIn();
+
+    for (const query of [
+      "?newShown=-1",
+      "?newShown=1.5",
+      "?newShown=",
+      "?newShown=abc",
+      "?batches=0",
+      "?batches=1.5",
+      "?batches=",
+      "?batches=x",
+    ]) {
+      const res = await get(app, `/api/decks/${deckId}/study/overview${query}`, cookie);
+      expect(res.status).toBe(400);
+      expect(await codeOf(res)).toBe("invalid_request");
+    }
   });
 
   test("estimates from the User's own Reviews once there are 20 Card-days", async () => {

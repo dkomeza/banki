@@ -57,6 +57,7 @@ const COMMITTED = [
   "0013_macros",
   "0014_grading_notes",
   "0015_progress_resets",
+  "0016_session_timeout",
 ];
 
 /** The tables the committed migrations create. */
@@ -365,6 +366,68 @@ test("0015_progress_resets keeps every Card and Review, numbered in order for ea
     ["v", "v1", 2],
   ]);
   expect(opened.db.values(sql`SELECT id FROM progress_reset`)).toEqual([]);
+});
+
+test("0016_session_timeout keeps every row of Settings with the default Session timeout, and caps every Review at 2 minutes", () => {
+  // The database as the release before it left it: this migration and later ones not applied.
+  const journalPath = join(folder, "meta", "_journal.json");
+  const full = readFileSync(journalPath, "utf8");
+  const journal = z
+    .looseObject({ entries: z.array(z.looseObject({ tag: z.string() })) })
+    .parse(JSON.parse(full));
+  writeFileSync(
+    journalPath,
+    JSON.stringify({
+      ...journal,
+      entries: journal.entries.filter((entry) => entry.tag < "0016_session_timeout"),
+    }),
+  );
+  applyMigrations(opened.db, folder);
+  opened.db.run(
+    sql`INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES ('u', 'n', 'u@x.y', 1, 0, 0)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO user_settings (user_id, timezone, learning_limit) VALUES ('u', 'UTC', 15)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO deck (id, user_id, name, name_key, created_at, updated_at) VALUES ('d', 'u', 'D', 'd', 0, 0)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO card (id, user_id, deck_id, front, back, created_at, updated_at) VALUES ('c', 'u', 'd', 'f', 'b', 0, 0)`,
+  );
+  for (const [id, seq, durationMs] of [
+    ["short", 1, 4200],
+    ["cap", 2, 120_000],
+    ["long", 3, 600_000],
+  ] as const) {
+    opened.db.run(
+      sql`INSERT INTO review (id, user_id, card_id, deck_id, reviewed_at, rating, kind, duration_ms, card_before, seq) VALUES (${id}, 'u', 'c', 'd', 0, 'good', 'self-rated', ${durationMs}, '{}', ${seq})`,
+    );
+  }
+
+  writeFileSync(journalPath, full);
+  expect(applyMigrations(opened.db, folder)).toEqual(
+    COMMITTED.slice(COMMITTED.indexOf("0016_session_timeout")),
+  );
+
+  expect(
+    opened.db.values(
+      sql`SELECT user_id, timezone, learning_limit, session_timeout_minutes FROM user_settings`,
+    ),
+  ).toEqual([["u", "UTC", 15, 30]]);
+  expect(opened.db.values(sql`SELECT id FROM card`)).toEqual([["c"]]);
+  expect(opened.db.values(sql`SELECT id, duration_ms FROM review ORDER BY seq`)).toEqual([
+    ["short", 4200],
+    ["cap", 120_000],
+    ["long", 120_000],
+  ]);
+  // The new column refuses what is out of range.
+  for (const bad of [
+    sql`UPDATE user_settings SET session_timeout_minutes = 4`,
+    sql`UPDATE user_settings SET session_timeout_minutes = 241`,
+  ]) {
+    expect(() => opened.db.run(bad)).toThrow();
+  }
 });
 
 test("a Card's newest Review, its Progress resets since and the next place in the Write order are found through an index, not the User's whole history", () => {

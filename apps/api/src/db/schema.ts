@@ -10,6 +10,7 @@ import {
   DEFAULT_DESIRED_RETENTION,
   DEFAULT_LEARNING_LIMIT,
   DEFAULT_NEW_CARD_BATCH,
+  DEFAULT_SESSION_TIMEOUT_MINUTES,
   DESIRED_RETENTION_MAX,
   DESIRED_RETENTION_MIN,
   LEARNING_LIMIT_MAX,
@@ -19,6 +20,8 @@ import {
   type Macro,
   RATINGS,
   REVIEW_KINDS,
+  SESSION_TIMEOUT_MINUTES_MAX,
+  SESSION_TIMEOUT_MINUTES_MIN,
 } from "@banki/shared";
 import { sql } from "drizzle-orm";
 import {
@@ -63,6 +66,10 @@ export const user_settings = sqliteTable(
     newCardBatch: integer("new_card_batch").notNull().default(DEFAULT_NEW_CARD_BATCH),
     /** How many of a Deck's Cards may be in learning before a Session stops introducing New cards. */
     learningLimit: integer("learning_limit").notNull().default(DEFAULT_LEARNING_LIMIT),
+    /** How many minutes a Session goes without activity before it ends. */
+    sessionTimeoutMinutes: integer("session_timeout_minutes")
+      .notNull()
+      .default(DEFAULT_SESSION_TIMEOUT_MINUTES),
     /** Settings' Macros, every Deck's Cards use under its own: a JSON list of `{ name, definition }`. */
     macros: text("macros", { mode: "json" }).$type<Macro[]>().notNull().default([]),
   },
@@ -79,6 +86,10 @@ export const user_settings = sqliteTable(
     check(
       "user_settings_learning_limit",
       sql`${table.learningLimit} BETWEEN ${sql.raw(String(LEARNING_LIMIT_MIN))} AND ${sql.raw(String(LEARNING_LIMIT_MAX))}`,
+    ),
+    check(
+      "user_settings_session_timeout_minutes",
+      sql`${table.sessionTimeoutMinutes} BETWEEN ${sql.raw(String(SESSION_TIMEOUT_MINUTES_MIN))} AND ${sql.raw(String(SESSION_TIMEOUT_MINUTES_MAX))}`,
     ),
   ],
 );
@@ -240,7 +251,7 @@ export const review = sqliteTable(
     reviewedAt: integer("reviewed_at", { mode: "timestamp_ms" }).notNull(),
     rating: text("rating", { enum: RATINGS }).notNull(),
     kind: text("kind", { enum: REVIEW_KINDS }).notNull(),
-    /** The time spent studying the Card, as the client measured it (time spent editing it is left out). */
+    /** The time spent studying the Card, as the client measured it (time spent editing it is left out), at most `REVIEW_CAP_MS`. */
     durationMs: integer("duration_ms").notNull(),
     cardBefore: text("card_before", { mode: "json" }).notNull(),
     seq: integer("seq").notNull().default(0),

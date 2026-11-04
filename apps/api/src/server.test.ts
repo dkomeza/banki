@@ -111,6 +111,7 @@ describe("the server process", () => {
       "0013_macros",
       "0014_grading_notes",
       "0015_progress_resets",
+      "0016_session_timeout",
     ];
     expect(records.map(({ level, message, properties }) => [level, message, properties])).toEqual([
       ["INFO", `API starting "${dataDir}"`, { dataDir }],

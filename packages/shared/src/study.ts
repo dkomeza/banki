@@ -34,6 +34,18 @@ export const LearningLimit = z
   .min(LEARNING_LIMIT_MIN, "Expected a number from 5 to 50")
   .max(LEARNING_LIMIT_MAX, "Expected a number from 5 to 50");
 
+/** The Session timeout a User has until they change it, in minutes (CONTEXT.md: Session timeout). */
+export const DEFAULT_SESSION_TIMEOUT_MINUTES = 30;
+export const SESSION_TIMEOUT_MINUTES_MIN = 5;
+export const SESSION_TIMEOUT_MINUTES_MAX = 240;
+
+/** A Session timeout: a whole number of minutes from 5 to 240. */
+export const SessionTimeoutMinutes = z
+  .number()
+  .int("Expected a whole number")
+  .min(SESSION_TIMEOUT_MINUTES_MIN, "Expected a number from 5 to 240")
+  .max(SESSION_TIMEOUT_MINUTES_MAX, "Expected a number from 5 to 240");
+
 /** A count the Session keeps: a non-negative whole number, as a query string gives it; 0 when left out. */
 const ShownCount = z
   .string()
@@ -68,6 +80,14 @@ export const StudyNextQuery = z.object({
     .transform((after) => (after === "" ? undefined : after)),
 });
 export type StudyNextQuery = z.input<typeof StudyNextQuery>;
+
+/**
+ * The query of `GET /api/decks/:deckId/study/overview`: the open Session's
+ * `newShown` and `batches`, as `study/next` takes them, so the overview
+ * leaves out what its batches have used. Left out, a fresh Session's: 0 and 1.
+ */
+export const StudyOverviewQuery = z.object({ newShown: ShownCount, batches: Batches });
+export type StudyOverviewQuery = z.input<typeof StudyOverviewQuery>;
 
 /**
  * What one Rating of a Card would give at a moment (CONTEXT.md: Interval): the
@@ -127,7 +147,7 @@ export type UndoReviewResponse = z.infer<typeof UndoReviewResponse>;
  * The body `GET /api/decks/:deckId/study/overview` answers: what Study will
  * bring now. `due` is the Deck's review Cards due before the next Day start
  * plus every Card in its learning steps; `new` the New cards a Session
- * introduces, at most a New-card batch, of `newTotal` in all; `estimateMs`
+ * introduces, at most what its New-card batches have left, of `newTotal` in all; `estimateMs`
  * how long they will take, from the User's own Reviews. `nextDue` is the
  * first Study day after today with review Cards due (its calendar date, as a
  * Study day is named) and how many fall due on it; null when none ever is.
