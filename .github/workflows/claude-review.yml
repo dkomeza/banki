@@ -29,7 +29,8 @@ jobs:
         with:
           fetch-depth: 1
 
-      # The files the review must cover. Lockfiles and binaries have nothing to read.
+      # The files the review must cover. Lockfiles, binaries and drizzle-kit's
+      # generated meta (its snapshots and journal) have nothing to read.
       - id: files
         env:
           GH_TOKEN: ${{ github.token }}
@@ -38,7 +39,7 @@ jobs:
           # A failed `gh` fails the step: an empty list would check no coverage.
           gh pr diff "$PR" --name-only > changed.txt
           # grep exits 1 when every file is filtered out, 2 on an error.
-          grep -vE '(^|/)bun\.lock$|\.(png|jpe?g|gif|webp|ico|woff2?|ttf|otf)$' changed.txt > files.txt || [ $? -eq 1 ]
+          grep -vE '(^|/)bun\.lock$|^apps/api/drizzle/meta/|\.(png|jpe?g|gif|webp|ico|woff2?|ttf|otf)$' changed.txt > files.txt || [ $? -eq 1 ]
           sort -o files.txt files.txt
           {
             echo "list<<EOF"
