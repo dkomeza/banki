@@ -239,6 +239,9 @@ function TopBar({
             onClick={(event) => {
               if (onLeave() !== "away") event.preventDefault();
             }}
+            // A click that closes the editor leaves no focus behind, so Space
+            // still reveals and Enter doesn't follow the link.
+            onMouseDown={(event) => event.preventDefault()}
           />
         }
         nativeButton={false}

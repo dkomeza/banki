@@ -187,4 +187,22 @@ describe("the study screen's ×", () => {
     expect(screen.getByText("el desayuno")).toBeTruthy();
     expect(screen.queryByText("Discard changes?")).toBeNull();
   });
+
+  test("a click leaves no focus on it, so Space then reveals", async () => {
+    renderScreen();
+    await screen.findByText("el desayuno");
+    fireEvent.keyDown(document.body, { key: "e" });
+    await waitFor(() =>
+      expect(document.querySelector("[data-study-editor] .cm-content")).not.toBeNull(),
+    );
+
+    const leave = screen.getByLabelText("Back to deck");
+    // fireEvent answers false when the default was prevented: no focus moves.
+    expect(fireEvent.mouseDown(leave)).toBe(false);
+    fireEvent.click(leave);
+    await waitFor(() => expect(document.querySelector("[data-study-editor]")).toBeNull());
+
+    fireEvent.keyDown(document.body, { key: " " });
+    expect(await screen.findByText("breakfast")).toBeTruthy();
+  });
 });
