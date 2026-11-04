@@ -509,7 +509,13 @@ export function createStudySession({
     } catch {
       // What was on its way before the restart can't clear itself, so Try again isn't held.
       if (mine === starts) {
-        set({ phase: "unreachable", editing: false, skipping: false, refreshing: false });
+        set({
+          phase: "unreachable",
+          editing: false,
+          skipping: false,
+          refreshing: false,
+          saving: undefined,
+        });
       }
       return;
     }
@@ -760,8 +766,9 @@ export function createStudySession({
       }
       failed = fresh === undefined ? { kind: "intervals", cardId: card.id } : undefined;
       closeEditor({
+        // Previews that failed are the old ones, still counted from when they came.
         shown: { ...shown, card, intervals: fresh ?? shown.intervals },
-        previewedAt: now(),
+        previewedAt: fresh === undefined ? state.previewedAt : now(),
         revealed: true,
         undone: false,
         progressReset: true,

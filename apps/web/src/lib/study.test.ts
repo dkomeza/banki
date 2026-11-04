@@ -483,6 +483,23 @@ describe("a Session", () => {
     expect(t.state()).toMatchObject({ rated: 1, undoable: false });
   });
 
+  test("an Undo of a Card a Rating found deleted elsewhere answers 404 and is skipped, its Rating still counting", async () => {
+    const t = setUp([next("a"), next("a", "learning"), next("c")]);
+    await t.session.start();
+    await revealAndRate(t, "again");
+    t.fail.rate = "gone";
+    await revealAndRate(t, "good");
+    t.fail.rate = false;
+    expect(t.shownId()).toBe("c");
+
+    t.fail.undo = "gone";
+    await t.session.undo();
+    expect(t.messages).toEqual([CARD_GONE, UNDO_GONE]);
+    // Its Review outlives the Card (ADR-0018): it still counts.
+    expect(t.state()).toMatchObject({ rated: 1 });
+    expect(t.state().summary.studied).toBe(1);
+  });
+
   test("an Undo refused for good (a Progress reset since) keeps its Rating standing, and the next goes on to the one before", async () => {
     const t = setUp([next("a"), next("b"), next("c")]);
     await t.session.start();
@@ -1223,11 +1240,16 @@ describe("editing the shown Card", () => {
   test("fresh previews that don't load leave the reset Card unratable until Try again", async () => {
     const t = setUp([next("a"), next("b")]);
     await t.session.start();
+    const previewedAt = t.state().previewedAt;
     t.session.edit();
+    t.wait(8 * MINUTE);
     t.fail.intervals = true;
     await t.session.saveEdit(edited("a", "a"), { progressReset: true });
 
     expect(t.state()).toMatchObject({ editing: false, ratable: false, failure: INTERVALS_FAILED });
+    // The old previews, still counted from when they came: Good reads 10m, not 2m.
+    expect(t.state().previewedAt).toBe(previewedAt);
+    expect(t.state().shown?.intervals).toEqual(intervals("a"));
     t.session.rate("good");
     await flush();
     expect(t.calls.rate).toEqual([]);
@@ -1536,6 +1558,26 @@ describe("editing the shown Card", () => {
     await t.session.start();
 
     expect(t.state()).toMatchObject({ phase: "unreachable", editing: false });
+  });
+
+  test("started again while a Rating saves, a first Card that can't load leaves Try again working", async () => {
+    const t = setUp([next("a"), next("b")]);
+    await t.session.start();
+    const saved = deferred<{ reviewId: string }>();
+    t.api.rate = () => saved.promise;
+    await revealAndRate(t, "good");
+    expect(t.state().saving).toBe("good");
+    t.session.stop();
+    t.fail.next = true;
+    await t.session.start();
+    saved.resolve({ reviewId: "r1" });
+    await flush();
+
+    expect(t.state()).toMatchObject({ phase: "unreachable", saving: undefined });
+    t.fail.next = false;
+    t.session.retry();
+    await flush();
+    expect(t.state().phase).toBe("card");
   });
 
   test("stopped before the editor's frame, it never opens, and a start that follows isn't held up", async () => {
