@@ -17,6 +17,14 @@ import { foldersQueryOptions } from "@/lib/folders";
 import { settingsQueryOptions } from "@/lib/settings";
 import { EditCard } from "./edit-card";
 
+const toasts = vi.hoisted(() => ({ shown: [] as string[] }));
+vi.mock("sonner", () => ({
+  toast: Object.assign((title: string) => toasts.shown.push(title), {
+    error: () => {},
+    dismiss: () => {},
+  }),
+}));
+
 const DECK: Deck = {
   id: "d1",
   name: "Spanish",
@@ -147,6 +155,7 @@ const discardAsked = () => screen.queryByText("Discard changes?");
 
 // Nothing reaches a real API: what a test doesn't stub answers 404.
 beforeEach(() => {
+  toasts.shown.length = 0;
   stubApi(() => json({ code: "not_found" }, 404));
 });
 
@@ -472,6 +481,20 @@ describe("The edit page's discard guard", () => {
     fireEvent.click(button("Delete"));
 
     await onDeck();
+    expect(sent).toEqual([{ method: "DELETE", path: "/api/cards/c1", body: undefined }]);
+    expect(discardAsked()).toBeNull();
+  });
+
+  test("deleted, a navigation back that fails still offers Undo, and leaves nothing on its way", async () => {
+    const sent = stubApi((method) =>
+      method === "DELETE" ? json({ deletionId: "del1" }) : json([]),
+    );
+    const { router } = await renderPage(card(true));
+    vi.spyOn(router, "navigate").mockRejectedValueOnce(new Error("navigation failed"));
+
+    fireEvent.click(button("Delete"));
+
+    await waitFor(() => expect(toasts.shown).toEqual(["Card deleted"]));
     expect(sent).toEqual([{ method: "DELETE", path: "/api/cards/c1", body: undefined }]);
     expect(discardAsked()).toBeNull();
   });

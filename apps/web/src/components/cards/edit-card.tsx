@@ -118,14 +118,15 @@ export function EditCard({ deck, card }: { deck: Deck; card: Card }) {
     else setFormError(outcome.message);
   };
 
-  // A Delete that fails leaves the page, and what's typed, as it was.
+  // A Delete that fails leaves the page, and what's typed, as it was. Deleted,
+  // the Undo toast shows even if going back fails.
   const remove = async () => {
     if (pending.current) return;
     pending.current = true;
     setDeleting(true);
     const deleted = await deleteWithUndo(queryClient, card, async () => {
       guard.release();
-      await toDeck();
+      await toDeck().catch(() => undefined);
     });
     if (deleted) return;
     pending.current = false;
