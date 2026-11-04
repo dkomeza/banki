@@ -354,6 +354,20 @@ describe("StudyEditor", () => {
       expect(session.cancelEdit).not.toHaveBeenCalled();
     });
 
+    test("on a Card deleted meanwhile, Ctrl/⌘+Enter sends nothing more", async () => {
+      const sent = stubApi(() => json({ code: "not_found" }, 404));
+      renderEditor(card(true));
+
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+      await screen.findByText("This card, or its deck, was deleted meanwhile.");
+      const patches = () => sent.filter((s) => s.method === "PATCH").length;
+      expect(patches()).toBe(1);
+
+      fireEvent.keyDown(document.querySelector(".cm-content")!, { key: "Enter", ctrlKey: true });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(patches()).toBe(1);
+    });
+
     test("on its way holds the rest: Cancel, Esc and the top bar's × wait", async () => {
       let answer: ((res: Response) => void) | undefined;
       stubApi((method) =>
