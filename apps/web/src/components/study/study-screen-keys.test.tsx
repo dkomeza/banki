@@ -103,6 +103,7 @@ function renderScreen() {
       </RouterContextProvider>
     </QueryClientProvider>,
   );
+  return router;
 }
 
 /** The top bar's Edit. */
@@ -174,16 +175,19 @@ describe("the study screen's Edit", () => {
 
 describe("the study screen's ×", () => {
   test("while editing, reaches the open editor: it closes, and the Session stays", async () => {
-    renderScreen();
+    const router = renderScreen();
+    const before = router.history.location.pathname;
     await screen.findByText("el desayuno");
     fireEvent.keyDown(document.body, { key: "e" });
     await waitFor(() =>
       expect(document.querySelector("[data-study-editor] .cm-content")).not.toBeNull(),
     );
 
-    fireEvent.click(screen.getByLabelText("Back to deck"));
+    // fireEvent answers false when the default was prevented: the link isn't followed.
+    expect(fireEvent.click(screen.getByLabelText("Back to deck"))).toBe(false);
 
     await waitFor(() => expect(document.querySelector("[data-study-editor]")).toBeNull());
+    expect(router.history.location.pathname).toBe(before);
     expect(screen.getByText("el desayuno")).toBeTruthy();
     expect(screen.queryByText("Discard changes?")).toBeNull();
   });
