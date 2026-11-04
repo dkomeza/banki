@@ -3,7 +3,9 @@ import {
   type IntervalPreviews,
   type QueueKind,
   IntervalPreviews as IntervalPreviewsSchema,
+  CardResponse,
   RATINGS,
+  REVIEW_CAP_MS,
   RateCardResponse,
   type Rating,
   StudyNextResponse,
@@ -11,6 +13,13 @@ import {
 } from "@banki/shared";
 import { type ApiClient, api } from "./api";
 import { type Card, type CardOutcome, saveCardEdit } from "./cards";
+import {
+  NO_STORE,
+  type SessionStore,
+  type StoredSession,
+  type StoredShown,
+  timeoutMsOf,
+} from "./session-store";
 
 // The study screen's Session (CONTEXT.md: Session, Queue, Interval, New-card
 // batch): it walks a Deck's Queue Card by Card, asking the API for each next
@@ -18,8 +27,10 @@ import { type Card, type CardOutcome, saveCardEdit } from "./cards";
 // first. Where the Queue ends with New cards held back, it can take another
 // batch and carry on. The shown Card can be edited without leaving it, and a
 // studied one put back to New (a Progress reset). Left early, or at the end
-// of the Queue, it sums up the Ratings still standing (the summary). Nothing
-// here touches the page, so it is tested without one.
+// of the Queue, it sums up the Ratings still standing (the summary). It
+// saves itself to the browser on every change and resumes from there, until
+// it goes a Session timeout without activity (ADR-0027). Nothing here
+// touches the page, so it is tested without one.
 
 export const RATING_LABELS: Record<Rating, string> = {
   again: "Again",
@@ -97,6 +108,8 @@ export type StudyApi = {
   ) => Promise<{ card: Card; intervals: IntervalPreviews } | "gone" | "settled">;
   /** A Card's previews as it is now, or "gone" when it was deleted meanwhile. */
   intervals: (cardId: string) => Promise<IntervalPreviews | "gone">;
+  /** A Card as it is now, or "gone" when it was deleted or moved to another Deck meanwhile. */
+  card: (cardId: string) => Promise<Card | "gone">;
 };
 
 /** The study API over HTTP. */
@@ -143,6 +156,14 @@ export function studyApi(deckId: string, client: ApiClient = api): StudyApi {
       if (status !== 200) throw new Error(`Intervals answered ${status}`);
       return IntervalPreviewsSchema.parse(await res.json());
     },
+    card: async (cardId) => {
+      const res = await client.api.cards[":id"].$get({ param: { id: cardId } });
+      const status: number = res.status;
+      if (status === 404) return "gone";
+      if (status !== 200) throw new Error(`Card answered ${status}`);
+      const card = CardResponse.parse(await res.json());
+      return card.deckId === deckId ? card : "gone";
+    },
   };
 }
 
@@ -158,9 +179,10 @@ export const EDITOR_FAILED = "Couldn't open the editor. Check your connection.";
 /**
  * Where the Session is: loading its first Card, showing one, done after
  * studying, left early with a Rating standing (until Keep studying), with
- * nothing to study from the start, or unable to load its first Card.
+ * nothing to study from the start, unable to load its first Card, or ended by
+ * the Session timeout with a Rating standing (until a new Session starts).
  */
-export type Phase = "loading" | "card" | "done" | "left" | "nothing" | "unreachable";
+export type Phase = "loading" | "card" | "done" | "left" | "nothing" | "unreachable" | "ended";
 
 /**
  * What the Session's standing Ratings add up to: the Cards studied (each
@@ -270,21 +292,10 @@ export type StudyState = {
  * reset since), the Session saved a Progress reset of its Card, or an Undo
  * of it found its Card deleted from the Session (`gone`).
  */
-type Given = {
-  reviewId: string;
-  shown: NextCard;
-  rating: Rating;
-  durationMs: number;
-  settled?: boolean;
-};
+type Given = StandingRating & { reviewId: string; settled: boolean };
 
 const standing = (given: readonly Given[]): StandingRating[] =>
-  given.map(({ shown, rating, durationMs }) => ({
-    cardId: shown.card.id,
-    kind: shown.kind,
-    rating,
-    durationMs,
-  }));
+  given.map(({ cardId, kind, rating, durationMs }) => ({ cardId, kind, rating, durationMs }));
 
 /**
  * One Session over a Deck's Queue. `start` loads the first Card; then
@@ -297,18 +308,34 @@ const standing = (given: readonly Given[]): StandingRating[] =>
  * paused meanwhile. `edit` opens the editor over the shown Card, its time
  * paused while it is open, and `cancelEdit`, `saveEdit` and `closeGone`
  * close it. `notify` shows a passing message (a toast).
+ *
+ * Each change is saved to `store`, and the first `start` resumes what it
+ * holds: the counters, batches, Ratings and the Card shown, as it was (re-read,
+ * with fresh previews), or the next Card when its Queue had run out. Only the
+ * Session timeout (`timeoutMs`, since the last activity: a Card shown, a
+ * reveal, a Rating, an Undo, another batch, Keep studying, an edit saved)
+ * ends it. Past it, opening it starts afresh; on a screen still open
+ * (`checkTimeout`, and each action), it ends on its summary with a Rating
+ * standing (`ended`, until `restart`), or quietly starts afresh without one.
+ * Each Card's time is at most `REVIEW_CAP_MS`.
  */
 export function createStudySession({
   studyApi: client,
   notify,
   now = Date.now,
   transition = (update) => update(),
+  store = NO_STORE,
+  timeoutMs = () => timeoutMsOf(undefined),
 }: {
   studyApi: StudyApi;
   notify: (message: string) => void;
   now?: () => number;
   /** Runs the change of opening or closing the editor, such as in a View Transition. */
   transition?: (update: () => void) => void;
+  /** Where the Session is saved, to resume from; nowhere by default. */
+  store?: SessionStore;
+  /** The Session timeout as it is now, in ms. */
+  timeoutMs?: () => number;
 }) {
   let state: StudyState = {
     phase: "loading",
@@ -369,8 +396,75 @@ export function createStudySession({
   // start counts, so only the newest one's answer shows.
   let stopped = false;
   let starts = 0;
+  // The Card shown last, which the next Card comes after.
+  let lastShown: string | undefined;
+  // When the Session was last active; 0 before its first activity.
+  let activeAt = 0;
+  // Whether the stored Session was read: only the first start resumes it.
+  let restored = false;
+  // The stored Card shown, while resuming it.
+  let resuming: StoredShown | undefined;
   const say = (message: string) => {
     if (!stopped) notify(message);
+  };
+  const touch = () => {
+    activeAt = now();
+  };
+
+  /** The shown Card's time on screen so far, its editor's and while left out. */
+  const elapsed = () => {
+    if (state.phase === "left") return pausedFor;
+    return Math.max(0, (editorOpen ? editedAt : now()) - shownAt);
+  };
+
+  const snapshot = (): StoredSession => {
+    const shown = state.shown;
+    return {
+      reviewsShown,
+      newShown,
+      batches,
+      after: lastShown ?? null,
+      seen: [...seen],
+      resetKinds: [...resetKinds],
+      gone: [...gone],
+      given: given.map((g) => ({ ...g })),
+      shown:
+        resuming ??
+        (shown === undefined
+          ? null
+          : {
+              cardId: shown.card.id,
+              kind: shown.kind,
+              revealed: state.revealed,
+              undone: state.undone,
+              elapsedMs: elapsed(),
+            }),
+      activeAt,
+    };
+  };
+
+  /** Saves the Session, once it has shown a Card; an ended one is left as it was. */
+  const persist = () => {
+    if (stopped || state.phase === "ended" || seen.size === 0) return;
+    store.write(snapshot());
+  };
+
+  /** Takes in the stored Session, unless it timed out, which is cleared. */
+  const restore = () => {
+    const stored = store.read();
+    if (stored === undefined) return;
+    if (now() - stored.activeAt >= timeoutMs()) {
+      store.clear();
+      return;
+    }
+    ({ reviewsShown, newShown, batches } = stored);
+    lastShown = stored.after ?? undefined;
+    for (const [id, kind] of stored.seen) seen.set(id, kind);
+    for (const [id, kind] of stored.resetKinds) resetKinds.set(id, kind);
+    for (const id of stored.gone) gone.add(id);
+    given.push(...stored.given);
+    activeAt = stored.activeAt;
+    resuming = stored.shown ?? undefined;
   };
 
   const set = (
@@ -382,7 +476,7 @@ export function createStudySession({
       ...next,
       newHeld: next.phase === "done" ? next.newHeld : 0,
       rated: given.length,
-      undoable: given.some((g) => !g.settled),
+      undoable: next.phase !== "ended" && given.some((g) => !g.settled),
       summary: summaryOf(standing(given)),
       // A Rating that failed can be given again, or another one instead; a
       // Card whose Rating saved, waiting for the next one, can't.
@@ -406,6 +500,7 @@ export function createStudySession({
         !next.refreshing &&
         failed?.kind !== "next",
     };
+    persist();
     for (const listener of listeners) listener();
   };
 
@@ -449,6 +544,8 @@ export function createStudySession({
       if (next.kind === "new") newShown += 1;
       if (next.kind === "review") reviewsShown += 1;
     }
+    lastShown = next.card.id;
+    touch();
     shownAt = now();
     pausedFor = 0;
     set({
@@ -510,6 +607,73 @@ export function createStudySession({
     show(answer);
   };
 
+  /** The first Card couldn't load: says so, with Try again. */
+  const unreachable = () =>
+    // What was on its way before the restart can't clear itself, so Try again isn't held.
+    set({
+      phase: "unreachable",
+      editing: false,
+      skipping: false,
+      refreshing: false,
+      saving: undefined,
+      undoing: false,
+      loadingMore: false,
+    });
+
+  /**
+   * Shows the stored Card `stored` as it stood, re-read with fresh previews;
+   * one deleted or moved meanwhile is skipped for the Card after it.
+   */
+  const resume = async (stored: StoredShown, mine: number) => {
+    let card: Card | "gone";
+    let fresh: IntervalPreviews | "gone" = "gone";
+    try {
+      card = await client.card(stored.cardId);
+      if (card !== "gone") fresh = await client.intervals(stored.cardId);
+    } catch {
+      if (mine === starts) unreachable();
+      return;
+    }
+    if (mine !== starts) return;
+    resuming = undefined;
+    if (card === "gone" || fresh === "gone") {
+      await loadFirst(mine, stored.cardId);
+      return;
+    }
+    failed = undefined;
+    touch();
+    shownAt = now() - stored.elapsedMs;
+    pausedFor = 0;
+    set({
+      phase: "card",
+      shown: { card, kind: stored.kind, intervals: fresh },
+      previewedAt: now(),
+      revealed: stored.revealed,
+      undone: stored.undone,
+      saving: undefined,
+      failure: undefined,
+      loadingMore: false,
+      undoing: false,
+      progressReset: false,
+      turning: false,
+      skipping: false,
+      refreshing: false,
+      editing: false,
+    });
+  };
+
+  /** Loads and shows the first Card, after `from`; one that can't load says so. */
+  const loadFirst = async (mine: number, from: string | undefined) => {
+    let first: NextAnswer;
+    try {
+      first = await client.next({ reviewsShown, newShown, batches, after: from });
+    } catch {
+      if (mine === starts) unreachable();
+      return;
+    }
+    if (mine === starts) show(first);
+  };
+
   async function start() {
     stopped = false;
     starts += 1;
@@ -517,26 +681,84 @@ export function createStudySession({
     // the first Card (`show`), and a Save on its way changes nothing.
     editorOpen = false;
     const mine = starts;
-    let first: NextAnswer;
-    try {
-      first = await client.next({ reviewsShown, newShown, batches, after: undefined });
-    } catch {
-      // What was on its way before the restart can't clear itself, so Try again isn't held.
-      if (mine === starts) {
-        set({
-          phase: "unreachable",
-          editing: false,
-          skipping: false,
-          refreshing: false,
-          saving: undefined,
-          undoing: false,
-          loadingMore: false,
-        });
-      }
-      return;
+    // A resumed Session whose Queue had run out asks for the Card after its last.
+    let from: string | undefined;
+    if (!restored) {
+      restored = true;
+      restore();
+      if (resuming === undefined) from = lastShown;
     }
-    if (mine === starts) show(first);
+    if (resuming !== undefined) await resume(resuming, mine);
+    else await loadFirst(mine, from);
   }
+
+  /** Forgets the Session, stored and here, and starts a fresh one at its first Card. */
+  const startFresh = () => {
+    store.clear();
+    given.length = 0;
+    seen.clear();
+    resetKinds.clear();
+    gone.clear();
+    reviewsShown = 0;
+    newShown = 0;
+    batches = 1;
+    lastShown = undefined;
+    activeAt = 0;
+    resuming = undefined;
+    failed = undefined;
+    editorOpen = false;
+    starts += 1;
+    set({
+      phase: "loading",
+      shown: undefined,
+      revealed: false,
+      saving: undefined,
+      undoing: false,
+      failure: undefined,
+      undone: false,
+      loadingMore: false,
+      editing: false,
+      progressReset: false,
+      turning: false,
+      skipping: false,
+      refreshing: false,
+    });
+    void start();
+  };
+
+  /**
+   * Past the Session timeout since the last activity (the editor open aside,
+   * whose save is activity): with a Rating standing, ends on the summary;
+   * without one, starts afresh. Answers on their way are then the old
+   * Session's, and change nothing. Answers whether it timed out.
+   */
+  const timeOut = (): boolean => {
+    if (stopped || activeAt === 0 || editorOpen || state.phase === "ended") return false;
+    if (now() - activeAt < timeoutMs()) return false;
+    if (given.length === 0) {
+      startFresh();
+      return true;
+    }
+    starts += 1;
+    failed = undefined;
+    set({
+      phase: "ended",
+      shown: undefined,
+      revealed: false,
+      saving: undefined,
+      undoing: false,
+      failure: undefined,
+      undone: false,
+      newHeld: 0,
+      loadingMore: false,
+      editing: false,
+      progressReset: false,
+      turning: false,
+      skipping: false,
+      refreshing: false,
+    });
+    return true;
+  };
 
   /**
    * Skipping the shown Card `cardId`, gone: what was said about it (a failure and its
@@ -624,7 +846,16 @@ export function createStudySession({
     if (saved === "gone") {
       gone.add(shown.card.id);
       say(CARD_GONE);
-    } else given.push({ reviewId: saved.reviewId, shown, rating, durationMs });
+    } else {
+      given.push({
+        reviewId: saved.reviewId,
+        cardId: shown.card.id,
+        kind: shown.kind,
+        rating,
+        durationMs,
+        settled: false,
+      });
+    }
     await loadNext(shown.card.id);
   };
 
@@ -640,19 +871,24 @@ export function createStudySession({
     start,
     /** Shows the Back of the Card shown. */
     reveal() {
-      if (state.phase === "card" && !state.revealed && !editorOpen) set({ revealed: true });
+      if (timeOut()) return;
+      if (state.phase === "card" && !state.revealed && !editorOpen) {
+        touch();
+        set({ revealed: true });
+      }
     },
-    /** Rates the revealed Card, then shows the next one once the Rating saved. */
+    /** Rates the revealed Card, its time capped, then shows the next one once the Rating saved. */
     rate(rating: Rating) {
-      if (!state.ratable || editorOpen) return;
-      void save(rating, Math.max(0, Math.round(now() - shownAt)));
+      if (timeOut() || !state.ratable || editorOpen) return;
+      touch();
+      void save(rating, Math.min(REVIEW_CAP_MS, Math.max(0, Math.round(now() - shownAt))));
     },
     /**
      * Tries again what failed: the Rating, loading the next Card, or loading a
      * reset Card's fresh Intervals.
      */
     retry() {
-      if (busy()) return;
+      if (timeOut() || busy()) return;
       if (state.phase === "unreachable") {
         set({ phase: "loading" });
         void start();
@@ -674,7 +910,8 @@ export function createStudySession({
      * the batch as it was.
      */
     more() {
-      if (state.phase !== "done" || state.newHeld === 0 || busy()) return;
+      if (timeOut() || state.phase !== "done" || state.newHeld === 0 || busy()) return;
+      touch();
       set({ loadingMore: true });
       void loadMore();
     },
@@ -689,8 +926,10 @@ export function createStudySession({
      * on to the Rating before them.
      */
     async undo() {
+      if (timeOut() || state.phase === "ended") return;
       const last = given.findLast((g) => !g.settled);
       if (last === undefined || busy()) return;
+      touch();
       set({ undoing: true });
       const mine = starts;
       let back: Awaited<ReturnType<StudyApi["undo"]>>;
@@ -707,12 +946,12 @@ export function createStudySession({
       // Rating still counts, but the screen stays as it is.
       const current = mine === starts;
       if (back === "gone" || back === "settled") {
-        const cardId = last.shown.card.id;
+        const { cardId } = last;
         // Its Review gone (undone elsewhere), it no longer counts. Still
         // standing, under a deleted Card or a newer Review or Progress reset,
         // none of the Card's Ratings can be undone, and they keep counting.
         if (back === "gone" && !gone.has(cardId)) drop(last);
-        else for (const g of given) if (g.shown.card.id === cardId) g.settled = true;
+        else for (const g of given) if (g.cardId === cardId) g.settled = true;
         if (!current) return set({});
         say(UNDO_GONE);
         set({ undoing: false });
@@ -725,7 +964,7 @@ export function createStudySession({
       shownAt = now() - last.durationMs;
       set({
         phase: "card",
-        shown: { card: back.card, kind: last.shown.kind, intervals: back.intervals },
+        shown: { card: back.card, kind: last.kind, intervals: back.intervals },
         previewedAt: now(),
         revealed: true,
         saving: undefined,
@@ -742,7 +981,7 @@ export function createStudySession({
      * Card's. Answers whether it opened.
      */
     edit(): boolean {
-      if (stopped || !state.editable || editorOpen) return false;
+      if (stopped || timeOut() || !state.editable || editorOpen) return false;
       editorOpen = true;
       editedAt = now();
       // The Intervals turned over on the last close: done, before this
@@ -773,11 +1012,12 @@ export function createStudySession({
      */
     async saveEdit(card: Card, { progressReset }: { progressReset: boolean }) {
       if (!editorOpen || state.shown === undefined) return;
+      touch();
       if (!progressReset) {
         closeEditor({ shown: { ...state.shown, card } });
         return;
       }
-      for (const g of given) if (g.shown.card.id === card.id) g.settled = true;
+      for (const g of given) if (g.cardId === card.id) g.settled = true;
       resetKinds.set(card.id, seen.get(card.id) ?? state.shown.kind);
       const mine = starts;
       let fresh: Awaited<ReturnType<StudyApi["intervals"]>> | undefined;
@@ -824,10 +1064,12 @@ export function createStudySession({
      * Leaving the study screen (Esc, or ×): with a Rating standing, while a
      * Card is shown, the summary shows instead ("summary"), the Card's time
      * paused; otherwise the screen goes ("away"). With the editor opening (it
-     * may show a frame later), nothing happens ("stay").
+     * may show a frame later), nothing happens ("stay"). Past the Session
+     * timeout, it ends there first: on its summary with a Rating standing.
      */
     leave(): "summary" | "away" | "stay" {
       if (editorOpen) return "stay";
+      if (timeOut()) return state.phase === "ended" ? "summary" : "away";
       if (state.phase !== "card" || given.length === 0) return "away";
       pausedFor = now() - shownAt;
       set({ phase: "left" });
@@ -835,13 +1077,28 @@ export function createStudySession({
     },
     /** Keep studying: back from the summary to the Card shown when it was left, its time going on. */
     resume() {
-      if (state.phase !== "left") return;
+      if (timeOut() || state.phase !== "left") return;
+      touch();
       shownAt = now() - pausedFor;
       set({ phase: "card" });
     },
     /** Stops it: answers still on their way change nothing, until it starts again. */
     stop() {
+      persist();
       stopped = true;
+    },
+    /**
+     * Checks the Session timeout, as on focus or on a timer: past it, ends the
+     * Session on its summary with a Rating standing, or starts afresh without.
+     */
+    checkTimeout() {
+      timeOut();
+    },
+    /** Saves the shown Card's time so far, as the page hides; not activity. */
+    persist,
+    /** Start a new session, from an ended one: clears it and loads a fresh Session's first Card. */
+    restart() {
+      if (state.phase === "ended") startFresh();
     },
   };
 }

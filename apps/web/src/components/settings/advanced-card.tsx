@@ -6,6 +6,7 @@ import { Stepper } from "@/components/settings/stepper";
 import {
   LEARNING_LIMIT_RANGE,
   NEW_CARD_BATCH_RANGE,
+  SESSION_TIMEOUT_RANGE,
   type StepperRange,
   pacingErrorText,
 } from "@/lib/new-cards";
@@ -13,9 +14,12 @@ import { settingsQueryOptions } from "@/lib/settings";
 import { type SettingsSaver, shownSettings } from "@/lib/settings-saver";
 import { settingsSaverFor } from "@/lib/settings-store";
 
-type PacingSetting = "newCardBatch" | "learningLimit";
+type PacingSetting = "newCardBatch" | "learningLimit" | "sessionTimeoutMinutes";
 
-/** Advanced: how a Session paces New cards, the New-card batch and the Learning limit. */
+/**
+ * Advanced: how a Session paces New cards, the New-card batch and the
+ * Learning limit, and when it ends, the Session timeout.
+ */
 export function AdvancedCard() {
   const queryClient = useQueryClient();
   // Loads the Settings, which the saver starts from.
@@ -40,11 +44,19 @@ export function AdvancedCard() {
         hint="New cards pause while this many cards are still in their learning steps."
         name={{ fewer: "Lower learning limit", more: "Higher learning limit" }}
       />
+      <PacingField
+        saver={saver}
+        field="sessionTimeoutMinutes"
+        range={SESSION_TIMEOUT_RANGE}
+        label="Session timeout"
+        hint="A session ends after this many minutes without activity."
+        name={{ fewer: "Shorter session timeout", more: "Longer session timeout" }}
+      />
     </SettingsCard>
   );
 }
 
-/** One of the pacing Settings: its stepper, autosaving, with save state and error. */
+/** One of the Settings with a stepper: its stepper, autosaving, with save state and error. */
 function PacingField({
   saver,
   field,

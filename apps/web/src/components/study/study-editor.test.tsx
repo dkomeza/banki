@@ -49,6 +49,7 @@ function recordingSession() {
       rate: async () => "gone",
       undo: async () => "gone",
       intervals: async () => "gone",
+      card: async () => "gone",
     },
     notify: () => {},
   });
