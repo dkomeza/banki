@@ -101,7 +101,7 @@ The order in which the User's Reviews and Progress resets were written, one plac
 _Avoid_: timeline, sequence, seq (outside the code)
 
 **Due**:
-A Card is due on the Study day FSRS scheduled it for, from that day's Day start, and stays due until it is reviewed. A Card still in its learning steps is due at an exact moment instead, minutes after its last Review.
+A Card is due on the Study day FSRS scheduled it for, from that day's Day start, and stays due until it is reviewed, or until a Progress reset puts it back to New. A Card still in its learning steps is due at an exact moment instead, minutes after its last Review.
 _Avoid_: scheduled, pending
 
 **Interval**:
