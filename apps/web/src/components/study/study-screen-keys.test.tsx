@@ -9,9 +9,10 @@ import {
 } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { type Card, cardQueryOptions } from "@/lib/cards";
+import { type Card, cardQueryOptions, cardsQueryOptions } from "@/lib/cards";
 import type { Deck } from "@/lib/decks";
 import { settingsQueryOptions } from "@/lib/settings";
+import { tagsQueryOptions } from "@/lib/tags";
 import { StudyScreen } from "./study-screen";
 
 vi.mock("@/components/folders/drag", () => ({ useFinePointer: () => true }));
@@ -240,5 +241,24 @@ describe("leaving the study screen", () => {
     cleanup();
 
     expect(queryClient.getQueryData(cardQueryOptions("c1").queryKey)).toBeUndefined();
+  });
+});
+
+describe("the Deck's Cards for the editor", () => {
+  test("stay cached for the whole Session, so E never waits on them again", async () => {
+    // Dropped as soon as nothing watches them.
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    });
+    renderScreen(queryClient);
+    await screen.findByText("el desayuno");
+    await waitFor(() =>
+      expect(queryClient.getQueryData(cardsQueryOptions("d1").queryKey)).toEqual([CARD]),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(queryClient.getQueryData(cardsQueryOptions("d1").queryKey)).toEqual([CARD]);
+    expect(queryClient.getQueryData(tagsQueryOptions().queryKey)).toBeDefined();
   });
 });

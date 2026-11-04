@@ -68,13 +68,14 @@ export function StudyScreen({ deck }: { deck: Deck }) {
   const queryClient = useQueryClient();
   const editor = useRef<StudyEditorHandle>(null);
   // The editor's Duplicate warning and Tag suggestions read these: fetched
-  // ahead, so opening it doesn't wait.
+  // ahead, and watched for the whole Session so they stay cached, so opening
+  // it doesn't wait. Watching them re-renders nothing.
+  useQuery({ ...cardsQueryOptions(deck.id), notifyOnChangeProps: [] });
+  useQuery({ ...tagsQueryOptions(), notifyOnChangeProps: [] });
   useEffect(() => {
-    void queryClient.prefetchQuery(cardsQueryOptions(deck.id));
-    void queryClient.prefetchQuery(tagsQueryOptions());
     // Ratings change whether a Card is studied: the edit page fetches each one afresh after.
     return () => queryClient.removeQueries({ queryKey: ["cards"] });
-  }, [queryClient, deck.id]);
+  }, [queryClient]);
   // The editor suspends until the Deck's Cards are in, which would leave it
   // out of the View Transition's new frame: it opens once they are.
   const [opener] = useState(() =>
