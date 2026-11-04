@@ -27,7 +27,9 @@ import { cn } from "@/lib/utils";
 // a live preview of the Card where Focus had it; below that, a sheet over the
 // Card, up to the top bar. Its form is the edit page's, with Delete, Cancel and
 // Save along its foot, and Reset progress above them on a studied Card. The
-// Session, its counters and its Undo history stay as they are throughout.
+// Session and its counters stay as they are throughout, and so does its Undo
+// history, but that a Progress reset saved here settles the Card's earlier
+// Ratings, which can't be undone after it (ADR-0026).
 // Opening and closing are View Transitions (morph.ts, index.css).
 
 /** The top bar's Edit: a pill beside Undo, its label from 640 px. */
