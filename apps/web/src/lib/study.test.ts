@@ -1927,6 +1927,70 @@ describe("a stopped Session", () => {
 
     expect(t.shownId()).toBe("a");
   });
+
+  test("started again while an Undo is on its way, isn't held up by it, and its answer replaces nothing", async () => {
+    const t = setUp([next("a"), next("b"), next("c"), next("d")]);
+    await t.session.start();
+    await revealAndRate(t, "good");
+    const back = deferred<Awaited<ReturnType<StudyApi["undo"]>>>();
+    t.api.undo = () => back.promise;
+    const undone = t.session.undo();
+    expect(t.state().undoing).toBe(true);
+
+    t.session.stop();
+    await t.session.start();
+    expect(t.shownId()).toBe("c");
+    expect(t.state()).toMatchObject({ undoing: false, editable: true });
+
+    back.resolve({ card: card("a"), intervals: intervals("a-undone") });
+    await undone;
+    // Its Review deleted, the Rating no longer counts, but "c" stays shown.
+    expect(t.shownId()).toBe("c");
+    expect(t.state()).toMatchObject({ rated: 0, undoable: false, revealed: false });
+  });
+
+  test("an Undo that answers while stopped doesn't hold up the start that follows", async () => {
+    const t = setUp([next("a"), next("b"), next("c")]);
+    await t.session.start();
+    await revealAndRate(t, "good");
+    const back = deferred<Awaited<ReturnType<StudyApi["undo"]>>>();
+    t.api.undo = () => back.promise;
+    const undone = t.session.undo();
+    t.session.stop();
+    back.resolve({ card: card("a"), intervals: intervals("a-undone") });
+    await undone;
+
+    await t.session.start();
+    expect(t.shownId()).toBe("c");
+    expect(t.state()).toMatchObject({ undoing: false, editable: true, rated: 0 });
+    t.session.reveal();
+    expect(t.state().ratable).toBe(true);
+  });
+
+  test("started again while another batch loads, a first Card that can't load leaves Try again working", async () => {
+    const t = await ranOut();
+    const batch = deferred<NextAnswer>();
+    const serve = t.api.next;
+    t.api.next = () => batch.promise;
+    t.session.more();
+    expect(t.state().loadingMore).toBe(true);
+
+    t.session.stop();
+    t.api.next = serve;
+    t.fail.next = true;
+    await t.session.start();
+    expect(t.state()).toMatchObject({ phase: "unreachable", loadingMore: false });
+    // The old batch's answer shows nothing.
+    batch.resolve({ next: next("x"), newHeld: 0 });
+    await flush();
+    expect(t.state().phase).toBe("unreachable");
+
+    t.fail.next = false;
+    t.queue.push(next("c"));
+    t.session.retry();
+    await flush();
+    expect(t.shownId()).toBe("c");
+  });
 });
 
 function studySaving(outcome: CardOutcome) {

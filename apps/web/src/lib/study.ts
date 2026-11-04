@@ -426,6 +426,7 @@ export function createStudySession({
         undone: false,
         newHeld,
         loadingMore: false,
+        undoing: false,
         progressReset: false,
         turning: false,
         skipping: false,
@@ -451,6 +452,7 @@ export function createStudySession({
       failure: undefined,
       undone: false,
       loadingMore: false,
+      undoing: false,
       progressReset: false,
       turning: false,
       skipping: false,
@@ -479,6 +481,7 @@ export function createStudySession({
 
   /** Loads another batch's first Card; on failure, says so and keeps the batches as they were. */
   const loadMore = async () => {
+    const mine = starts;
     let answer: NextAnswer;
     try {
       answer = await client.next({
@@ -488,10 +491,13 @@ export function createStudySession({
         after: undefined,
       });
     } catch {
+      // Started again since, the batch was another Session's.
+      if (mine !== starts) return;
       say(MORE_FAILED);
       set({ loadingMore: false });
       return;
     }
+    if (mine !== starts) return;
     batches += 1;
     show(answer);
   };
@@ -515,6 +521,8 @@ export function createStudySession({
           skipping: false,
           refreshing: false,
           saving: undefined,
+          undoing: false,
+          loadingMore: false,
         });
       }
       return;
@@ -664,30 +672,37 @@ export function createStudySession({
      * on to the Rating before them.
      */
     async undo() {
-      const at = given.findLastIndex((g) => !g.settled);
-      const last = given[at];
+      const last = given.findLast((g) => !g.settled);
       if (last === undefined || busy()) return;
       set({ undoing: true });
+      const mine = starts;
       let back: Awaited<ReturnType<StudyApi["undo"]>>;
       try {
         back = await client.undo(last.reviewId);
       } catch {
+        // Started again since, another Card shows: the Undo was the old one's.
+        if (mine !== starts) return;
         say(UNDO_FAILED);
         set({ undoing: false });
         return;
       }
+      // Started again since, another Card shows: what the answer says of the
+      // Rating still counts, but the screen stays as it is.
+      const current = mine === starts;
       if (back === "gone" || back === "settled") {
         const cardId = last.shown.card.id;
         // Its Review gone (undone elsewhere), it no longer counts. Still
         // standing, under a deleted Card or a newer Review or Progress reset,
         // none of the Card's Ratings can be undone, and they keep counting.
-        if (back === "gone" && !gone.has(cardId)) given.splice(at, 1);
+        if (back === "gone" && !gone.has(cardId)) given.splice(given.indexOf(last), 1);
         else for (const g of given) if (g.shown.card.id === cardId) g.settled = true;
+        if (!current) return set({});
         say(UNDO_GONE);
         set({ undoing: false });
         return;
       }
-      given.splice(at, 1);
+      given.splice(given.indexOf(last), 1);
+      if (!current) return set({});
       failed = undefined;
       // The re-rated Review's time is the undone one's plus the time since.
       shownAt = now() - last.durationMs;
