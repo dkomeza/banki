@@ -53,15 +53,19 @@ export function EditCard({ deck, card }: { deck: Deck; card: Card }) {
   // Delete on its way, so nothing leaves or writes while its answer can still
   // land.
   const busy = savingFrom !== undefined || deleting;
+  // A Save or a Delete that went through: nothing is on its way, and nothing
+  // is unsaved, whatever a refetch brings, until the page is gone.
+  const [done, setDone] = useState(false);
   // A ticked Reset progress is unsaved too.
   const guard = useDiscardGuard(
-    editUnsaved(card, {
-      fieldsUnsaved: form.unsaved,
-      tags: tags.tags,
-      draft: tags.draft,
-      ticked: reset,
-    }),
-    busy,
+    !done &&
+      editUnsaved(card, {
+        fieldsUnsaved: form.unsaved,
+        tags: tags.tags,
+        draft: tags.draft,
+        ticked: reset,
+      }),
+    busy && !done,
   );
   const [formError, setFormError] = useState<string>();
   // A refetch that finds the Card New takes the row away, and its tick with it,
@@ -100,6 +104,7 @@ export function EditCard({ deck, card }: { deck: Deck; card: Card }) {
         (options) => updateCard(queryClient, card.id, form.fields, nextTags, options),
         async () => {
           guard.release();
+          setDone(true);
           // Saved, the page stays as it is if going back fails: its links
           // still go back, and nothing asks about what was saved.
           await toDeck().catch(() => undefined);
@@ -126,6 +131,7 @@ export function EditCard({ deck, card }: { deck: Deck; card: Card }) {
     setDeleting(true);
     const deleted = await deleteWithUndo(queryClient, card, async () => {
       guard.release();
+      setDone(true);
       await toDeck().catch(() => undefined);
     });
     if (deleted) return;

@@ -219,6 +219,29 @@ describe("The edit page's Reset progress", () => {
     expect(discardAsked()).toBeNull();
   });
 
+  test("saved, a navigation back that fails holds nothing, even once a refetch makes the tick unsaved again", async () => {
+    stubApi((method) => (method === "PATCH" ? json({ ...card(true), studied: false }) : json([])));
+    const { router, queryClient } = await renderPage(card(true));
+    fireEvent.click(resetBox());
+    vi.spyOn(router, "navigate").mockRejectedValueOnce(new Error("navigation failed"));
+    fireEvent.click(button("Save"));
+    await waitFor(() => expect(button("Save").hasAttribute("disabled")).toBe(true));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
+    // Rated on another device: a refetch finds the Card studied again, the box still ticked.
+    act(() => {
+      queryClient.setQueryData(cardQueryOptions("c1").queryKey, card(true));
+    });
+    await act(async () => {
+      await router.navigate({ to: "/decks/$deckId", params: { deckId: DECK.id } });
+    });
+
+    await onDeck();
+    expect(discardAsked()).toBeNull();
+  });
+
   test("unticked, Save sends no reset", async () => {
     const sent = stubApi((method) => (method === "PATCH" ? json(card(true)) : json([])));
     await renderPage(card(true));
