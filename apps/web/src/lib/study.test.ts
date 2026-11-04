@@ -2780,6 +2780,92 @@ describe("a saved Session", () => {
     expect(one.stored()?.shown?.cardId).toBe("b");
     expect(one.stored()?.given.map((g) => g.reviewId)).toEqual(["r1"]);
   });
+
+  test("keeps a Rating answered after the screen went, and never shows its Card to rate again", async () => {
+    const t = browsing([next("a"), next("b")]);
+    await t.session.start();
+    const pending = deferred<{ reviewId: string } | "gone">();
+    t.api.rate = (cardId, rating, durationMs) => {
+      t.calls.rate.push({ cardId, rating, durationMs });
+      return pending.promise;
+    };
+    t.session.reveal();
+    t.session.rate("good");
+    expect(t.session.leave()).toBe("away");
+    t.session.stop();
+    pending.resolve({ reviewId: "r1" });
+    await flush();
+
+    await t.reload();
+
+    expect(t.calls.card).toEqual([]);
+    expect(t.calls.next.at(-1)).toMatchObject({ newShown: 1, after: "a" });
+    expect(t.shownId()).toBe("b");
+    expect(t.state().rated).toBe(1);
+    expect(t.calls.rate).toHaveLength(1);
+  });
+
+  test("keeps an Undo answered after the screen went: its Card resumes back from it, the Rating gone", async () => {
+    const t = browsing([next("a"), next("b")]);
+    await t.session.start();
+    t.wait(2000);
+    await rateIn(t, "good");
+    const pending = deferred<UndoAnswer>();
+    t.api.undo = (reviewId) => {
+      t.calls.undo.push(reviewId);
+      return pending.promise;
+    };
+    void t.session.undo();
+    t.session.stop();
+    pending.resolve({ card: card("a"), intervals: intervals("a-undone") });
+    await flush();
+
+    await t.reload();
+
+    expect(t.calls.card).toEqual(["a"]);
+    expect(t.shownId()).toBe("a");
+    expect(t.state()).toMatchObject({ revealed: true, undone: true, rated: 0, undoable: false });
+    t.wait(1000);
+    t.session.rate("easy");
+    await flush();
+    expect(t.calls.rate.map((rated) => rated.durationMs)).toEqual([2000, 3000]);
+  });
+
+  test("a stale tab leaving it doesn't make it older than another tab's activity since", async () => {
+    const storage = memoryStorage();
+    const stale = browsing([next("a"), next("b")], storage);
+    await stale.session.start();
+    await rateIn(stale, "good");
+    const other = browsing([next("c"), next("d")], storage);
+    other.wait(25 * MINUTE);
+    await other.session.start();
+    await rateIn(other, "good");
+
+    stale.wait(26 * MINUTE);
+    expect(stale.session.leave()).toBe("summary");
+    expect(stale.stored()?.activeAt).toBe(NOW + 25 * MINUTE);
+
+    // Six minutes after the other tab's Rating, it still resumes there.
+    other.wait(6 * MINUTE);
+    await other.reload();
+    expect(other.state()).toMatchObject({ phase: "card", rated: 2 });
+  });
+
+  test("a shown Card found deleted as it resumes says so, and its Ratings stand through an Undo's 404", async () => {
+    const t = browsing([next("a", "new"), next("a", "learning"), next("b")]);
+    await t.session.start();
+    await rateIn(t, "again");
+    expect(t.shownId()).toBe("a");
+    t.missing.add("a");
+
+    await t.reload();
+    expect(t.messages).toContain(CARD_GONE);
+    expect(t.shownId()).toBe("b");
+
+    t.fail.undo = "gone";
+    await t.session.undo();
+    expect(t.state()).toMatchObject({ rated: 1, undoable: false, summary: { studied: 1 } });
+  });
 });
 
 describe("the Session timeout", () => {
@@ -2910,6 +2996,28 @@ describe("the Session timeout", () => {
 
     expect(stale.state().phase).toBe("card");
     expect(stale.stored()?.given).toHaveLength(2);
+  });
+
+  test("ended on a screen still open, it is cleared: a longer timeout set later doesn't bring it back", async () => {
+    const t = browsing([next("a"), next("b"), next("c")]);
+    await t.session.start();
+    await rateIn(t, "good");
+    t.wait(TIMEOUT);
+    t.session.checkTimeout();
+    expect(t.state().phase).toBe("ended");
+    expect(t.stored()).toBeUndefined();
+
+    t.timeout.ms = 2 * TIMEOUT;
+    await t.reload();
+
+    expect(t.calls.card).toEqual([]);
+    expect(t.calls.next.at(-1)).toEqual({
+      reviewsShown: 0,
+      newShown: 0,
+      batches: 1,
+      after: undefined,
+    });
+    expect(t.state()).toMatchObject({ phase: "card", rated: 0 });
   });
 
   test("ends a Session saying the timeout that ended it", async () => {

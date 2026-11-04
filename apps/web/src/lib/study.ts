@@ -449,21 +449,24 @@ export function createStudySession({
     };
   };
 
-  /** Saves the Session, once it has shown a Card; an ended one is left as it was. */
-  const persist = () => {
-    if (stopped || state.phase === "ended" || seen.size === 0) return;
-    store.write(snapshot());
-  };
-
   /**
-   * Saves the shown Card's time so far, which is no activity: not over a
-   * Session another tab acted in since this one last did, as the one acted in
-   * last wins.
+   * Saves the Session, once it has shown a Card, even once stopped (a Rating
+   * or an Undo answered after the screen went); an ended one is cleared
+   * already. Never over a Session another tab acted in since this one last
+   * did, as the one acted in last wins: a change that is no activity (the
+   * shown Card's time, leaving, the editor) doesn't make this tab's the newer.
+   * `shown` stores another Card shown than the screen's.
    */
-  const persistTime = () => {
+  const write = (shown?: StoredShown) => {
+    if (state.phase === "ended" || seen.size === 0) return;
     const stored = store.read();
     if (stored !== undefined && stored.activeAt > activeAt) return;
-    persist();
+    store.write(shown === undefined ? snapshot() : { ...snapshot(), shown });
+  };
+
+  /** Saves the Session while the screen shows it. */
+  const persist = () => {
+    if (!stopped) write();
   };
 
   /** Takes in the stored Session, unless it timed out, which is cleared. */
@@ -656,6 +659,9 @@ export function createStudySession({
     if (mine !== starts) return;
     resuming = undefined;
     if (card === "gone" || fresh === "gone") {
+      // Its Reviews stand (ADR-0018), so an Undo of one that answers 404 keeps it counting.
+      gone.add(stored.cardId);
+      say(CARD_GONE);
       lastShown = stored.cardId;
       await loadFirst(mine, stored.cardId);
       return;
@@ -763,6 +769,8 @@ export function createStudySession({
       startFresh();
       return true;
     }
+    // Ended, it never resumes, not even under a longer timeout set later.
+    store.clear();
     starts += 1;
     failed = undefined;
     set({
@@ -883,8 +891,9 @@ export function createStudySession({
         settled: false,
       });
     }
-    // Stored at once, so a tab closed before the next Card shows keeps the Rating.
-    persist();
+    // Stored at once, so a tab closed before the next Card shows keeps the
+    // Rating, and so does one closed before it was answered.
+    write();
     await loadNext(shown.card.id);
   };
 
@@ -981,12 +990,23 @@ export function createStudySession({
         // none of the Card's Ratings can be undone, and they keep counting.
         if (back === "gone" && !gone.has(cardId)) drop(last);
         else for (const g of given) if (g.cardId === cardId) g.settled = true;
+        if (stopped) return write();
         if (!current) return set({});
         say(UNDO_GONE);
         set({ undoing: false });
         return;
       }
       drop(last);
+      if (stopped) {
+        // Answered after the screen went, its Card is the one to resume, back from the Undo.
+        return write({
+          cardId: last.cardId,
+          kind: last.kind,
+          revealed: true,
+          undone: true,
+          elapsedMs: last.durationMs,
+        });
+      }
       if (!current) return set({});
       failed = undefined;
       doneWith = undefined;
@@ -1114,7 +1134,7 @@ export function createStudySession({
     },
     /** Stops it: answers still on their way change nothing, until it starts again. */
     stop() {
-      persistTime();
+      persist();
       stopped = true;
     },
     /**
@@ -1125,7 +1145,7 @@ export function createStudySession({
       timeOut();
     },
     /** Saves the shown Card's time so far, as the page hides; not activity. */
-    persist: persistTime,
+    persist,
     /** Start a new session, from an ended one: clears it and loads a fresh Session's first Card. */
     restart() {
       if (state.phase === "ended") startFresh();

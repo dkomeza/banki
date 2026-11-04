@@ -6,9 +6,11 @@ import { OUTLINE_PILL, PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
 import type { Deck } from "@/lib/decks";
 import { moreOffer } from "@/lib/new-cards";
+import { openProgress } from "@/lib/session-store";
 import { settingsQueryOptions } from "@/lib/settings";
 import { type SessionSummary, recallPercent, spentLabel } from "@/lib/study";
 import {
+  FRESH,
   type StudyOverview,
   nextDueLabel,
   studyOverviewQueryOptions,
@@ -24,7 +26,10 @@ import { cn } from "@/lib/utils";
 // Session the Session timeout ended says so in that sentence's place, and
 // offers only a new Session and the deck page.
 
-/** The summary, with the Deck's overview fetched afresh as it shows. */
+/**
+ * The summary, with the Deck's overview fetched afresh as it shows, for the
+ * open Session's progress as the deck page counts it (a fresh one's once it ended).
+ */
 export function Summary({
   deck,
   summary,
@@ -48,11 +53,12 @@ export function Summary({
   onResume: () => void;
   onRestart?: () => void;
 }) {
+  const settings = useQuery(settingsQueryOptions()).data?.settings;
+  const open = openProgress(deck.id, settings?.sessionTimeoutMinutes);
   const overview = useQuery({
-    ...studyOverviewQueryOptions(deck.id),
+    ...studyOverviewQueryOptions(deck.id, open ?? FRESH),
     refetchOnMount: "always",
   });
-  const settings = useQuery(settingsQueryOptions()).data?.settings;
   return (
     <SummaryView
       deck={deck}
