@@ -131,16 +131,23 @@ export function StudyEditor({
       draft: tags.draft,
       ticked: reset,
     });
-  // Leaving the study screen with something unsaved asks too.
-  const guard = useDiscardGuard(unsaved, pending);
+  // Leaving the study screen with something unsaved asks too. While our own
+  // "Discard changes?" asks, it holds instead, so only one dialog asks.
+  const guard = useDiscardGuard(unsaved, pending || asking);
+  // A Save or a Delete on its way, or the editor closing: the rest waits, or
+  // does nothing, as the editor unmounts only once its View Transition updates.
   const busy = useRef(false);
+  const close = (closing: () => void) => {
+    busy.current = true;
+    closing();
+  };
 
   const cancel = () => {
     if (busy.current) return;
     const action = editorCloseAction({ gone, unsaved });
-    if (action === "skip") void session.closeGone();
+    if (action === "skip") close(() => void session.closeGone());
     else if (action === "ask") setAsking(true);
-    else session.cancelEdit();
+    else close(() => session.cancelEdit());
   };
   useImperativeHandle(ref, () => ({ cancel }));
 
@@ -346,7 +353,7 @@ export function StudyEditor({
         onKeep={() => setAsking(false)}
         onDiscard={() => {
           setAsking(false);
-          session.cancelEdit();
+          close(() => session.cancelEdit());
         }}
       />
       {guard.dialog}

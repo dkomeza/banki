@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  type RouterHistory,
   RouterContextProvider,
+  createBrowserHistory,
   createMemoryHistory,
   createRootRoute,
   createRouter,
@@ -84,12 +86,16 @@ const json = (body: unknown, status = 200) =>
 
 /**
  * The open editor over `shown`, on a Session that records what it is asked,
- * its handle in `ref`, with the router it sits in.
+ * its handle in `ref`, with the router it sits in, on `history`.
  */
-function renderEditor(shown: Card, ref = createRef<StudyEditorHandle>()) {
+function renderEditor(
+  shown: Card,
+  ref = createRef<StudyEditorHandle>(),
+  history: RouterHistory = createMemoryHistory(),
+) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   queryClient.setQueryData(cardsQueryOptions(DECK.id).queryKey, [shown]);
-  const router = createRouter({ routeTree: createRootRoute(), history: createMemoryHistory() });
+  const router = createRouter({ routeTree: createRootRoute(), history });
   const recording = recordingSession();
   render(
     <QueryClientProvider client={queryClient}>
@@ -99,6 +105,31 @@ function renderEditor(shown: Card, ref = createRef<StudyEditorHandle>()) {
     </QueryClientProvider>,
   );
   return { ...recording, router };
+}
+
+/**
+ * The browser's history, on the study screen opened from the Deck, so Back
+ * goes to the Deck. A memory history wouldn't do: it asks the blockers about
+ * a link, never about Back, which the browser's does on popstate.
+ */
+function studyingFromDeck() {
+  window.history.replaceState(null, "", "/decks/d1");
+  window.history.pushState(null, "", "/decks/d1/study");
+  return createBrowserHistory();
+}
+
+/** A link to the Deck, then Back, each given time to land. */
+async function tryLeaving(history: RouterHistory) {
+  await act(async () => {
+    history.push("/decks/d1");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+  expect(history.location.pathname).toBe("/decks/d1/study");
+  await act(async () => {
+    history.back();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+  expect(history.location.pathname).toBe("/decks/d1/study");
 }
 
 /** The foot's Cancel, not the top bar's ×, which is named Cancel too. */
@@ -175,6 +206,36 @@ describe("StudyEditor", () => {
       fireEvent.click(footCancel());
       fireEvent.click(await screen.findByRole("button", { name: "Discard" }));
       expect(session.cancelEdit).toHaveBeenCalledTimes(1);
+    });
+
+    test("once it has closed the editor, a Save or a Delete in the frame before it goes sends nothing", async () => {
+      const sent = stubApi(() => json({ code: "not_found" }, 404));
+      const session = renderEditor(card(true));
+
+      fireEvent.click(footCancel());
+      expect(session.cancelEdit).toHaveBeenCalledTimes(1);
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+      fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      });
+
+      expect(sent).toEqual([]);
+      expect(session.saveEdit).not.toHaveBeenCalled();
+      expect(session.closeGone).not.toHaveBeenCalled();
+    });
+
+    test("while it asks, a link or Back waits, unasked, so only one dialog asks", async () => {
+      const history = studyingFromDeck();
+      const session = renderEditor(card(true), undefined, history);
+      fireEvent.click(resetBox());
+      fireEvent.click(footCancel());
+      await waitFor(() => expect(discardAsked()).not.toBeNull());
+
+      await tryLeaving(history);
+      expect(screen.getAllByText("Discard changes?")).toHaveLength(1);
+      expect(session.cancelEdit).not.toHaveBeenCalled();
+      history.destroy();
     });
 
     test("the panel's × goes the same way", async () => {
@@ -413,6 +474,31 @@ describe("StudyEditor", () => {
       );
     });
 
+    test("on its way holds the study screen too: a link or Back leaves nothing, unasked", async () => {
+      let answer: ((res: Response) => void) | undefined;
+      stubApi((method) =>
+        method === "PATCH"
+          ? new Promise<Response>((resolve) => {
+              answer = resolve;
+            })
+          : json({ code: "not_found" }, 404),
+      );
+      const history = studyingFromDeck();
+      // A Save with nothing changed: nothing unsaved, which alone would let it through.
+      const session = renderEditor(card(true), undefined, history);
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+      await waitFor(() => expect(answer).toBeDefined());
+
+      await tryLeaving(history);
+      expect(discardAsked()).toBeNull();
+
+      answer?.(json(card(true)));
+      await waitFor(() =>
+        expect(session.saveEdit).toHaveBeenCalledWith(card(true), { progressReset: false }),
+      );
+      history.destroy();
+    });
+
     test.each([
       [
         "the API fails",
@@ -488,6 +574,29 @@ describe("StudyEditor", () => {
 
       answer?.(json({ deletionId: "del1" }));
       await waitFor(() => expect(session.closeGone).toHaveBeenCalledTimes(1));
+    });
+
+    test("on its way holds the study screen too, with something unsaved: a link or Back leaves nothing, unasked", async () => {
+      let answer: ((res: Response) => void) | undefined;
+      stubApi((method) =>
+        method === "DELETE"
+          ? new Promise<Response>((resolve) => {
+              answer = resolve;
+            })
+          : json({ code: "not_found" }, 404),
+      );
+      const history = studyingFromDeck();
+      const session = renderEditor(card(true), undefined, history);
+      fireEvent.click(resetBox());
+      fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+      await waitFor(() => expect(answer).toBeDefined());
+
+      await tryLeaving(history);
+      expect(discardAsked()).toBeNull();
+
+      answer?.(json({ deletionId: "del1" }));
+      await waitFor(() => expect(session.closeGone).toHaveBeenCalledTimes(1));
+      history.destroy();
     });
 
     test("that fails leaves the editor open, as it was", async () => {
