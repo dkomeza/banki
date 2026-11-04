@@ -34,12 +34,13 @@ Wait until the `claude-review` check has finished on the head SHA (`stages.md` �
 
 ## 4. Triage
 
-Triage the `new` and `open` findings from the summary comment, and the unresolved threads `claude[bot]` started, as in `implement.md` § 5.
+Triage the `new` and `open` findings from the summary comment, and the unresolved threads `claude[bot]` started, as in `implement.md` § 5. A `minor` finding is dismissed, never fixed: it doesn't block the merge, and each fix is new code for the next round to find fault with. Its answer (§ 6) says it is minor and left as is.
 
 The rounds have stopped converging, and that is a stop on the Maintainer (`stages.md` § Questions and stops), when:
 
 - a finding comes back after an earlier round fixed or dismissed it (its resolved thread, or the round's PR comment, says which);
-- the gate still fails on a blocker or major you dismissed, with nothing to push: only the Maintainer's admin bypass gets past it.
+- the gate still fails on a blocker or major you dismissed, with nothing to push: only the Maintainer's admin bypass gets past it;
+- this round would push, and five rounds already have since the PR opened or the issue last left Acceptance (its `stateHistory`): `claude-review` has run on more than six head SHAs in that time (`gh run list --workflow claude-review.yml --branch <branch> --json headSha,createdAt`).
 
 Done when every finding has a verdict.
 
