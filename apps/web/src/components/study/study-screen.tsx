@@ -94,10 +94,13 @@ export function StudyScreen({ deck }: { deck: Deck }) {
   // Esc leaves. While the editor is open, they are its own.
   useEffect(() => {
     // Held, the E that opened the editor opens it once, and its repeats don't
-    // type into the field it focuses.
+    // type into the field it focuses. Its keyup can land in another window.
     let holdingE = false;
     const onKeyUp = (event: KeyboardEvent) => {
       if (isEditKey(event)) holdingE = false;
+    };
+    const onBlur = () => {
+      holdingE = false;
     };
     const onKey = (event: KeyboardEvent) => {
       if (event.repeat && holdingE && isEditKey(event)) {
@@ -149,9 +152,11 @@ export function StudyScreen({ deck }: { deck: Deck }) {
     };
     document.addEventListener("keydown", onKey);
     document.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
     return () => {
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
     };
   }, [session, navigate, deck.id, openEditor]);
 

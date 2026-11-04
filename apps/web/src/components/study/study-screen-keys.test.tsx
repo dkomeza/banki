@@ -81,6 +81,8 @@ beforeEach(() => {
       });
     }
     if (path === "/api/decks/d1/cards") return json([CARD]);
+    // A Rating stays on its way.
+    if (path === "/api/cards/c1/reviews") return new Promise<Response>(() => {});
     return json([]);
   });
 });
@@ -103,6 +105,9 @@ function renderScreen() {
   );
 }
 
+/** The top bar's Edit. */
+const edit = () => screen.getByRole<HTMLButtonElement>("button", { name: "Edit card" });
+
 describe("the study screen's E", () => {
   test("held, opens the editor once, and its repeats type nothing into Front", async () => {
     renderScreen();
@@ -122,6 +127,48 @@ describe("the study screen's E", () => {
     fireEvent.keyUp(front, { key: "e" });
     expect(fireEvent.keyDown(front, { key: "e" })).toBe(true);
     expect(fireEvent.keyDown(front, { key: "e", repeat: true })).toBe(true);
+  });
+
+  test("held while the window loses focus, its repeats type into Front once back", async () => {
+    renderScreen();
+    await screen.findByText("el desayuno");
+
+    fireEvent.keyDown(document.body, { key: "e" });
+    await waitFor(() =>
+      expect(document.querySelector("[data-study-editor] .cm-content")).not.toBeNull(),
+    );
+    const front = document.querySelector("[data-study-editor] .cm-content")!;
+    // Its keyup goes to the other window.
+    fireEvent.blur(window);
+
+    expect(fireEvent.keyDown(front, { key: "e", repeat: true })).toBe(true);
+  });
+});
+
+describe("the study screen's Edit", () => {
+  test("opens the editor for the shown Card, before the reveal", async () => {
+    renderScreen();
+    await screen.findByText("el desayuno");
+    expect(edit().disabled).toBe(false);
+
+    fireEvent.click(edit());
+
+    await waitFor(() =>
+      expect(document.querySelector("[data-study-editor] .cm-content")).not.toBeNull(),
+    );
+  });
+
+  test("is disabled while a Rating saves, and opens nothing", async () => {
+    renderScreen();
+    await screen.findByText("el desayuno");
+    fireEvent.keyDown(document.body, { key: " " });
+    fireEvent.keyDown(document.body, { key: "3" });
+    await waitFor(() => expect(edit().disabled).toBe(true));
+
+    fireEvent.click(edit());
+    fireEvent.keyDown(document.body, { key: "e" });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(document.querySelector("[data-study-editor]")).toBeNull();
   });
 });
 
