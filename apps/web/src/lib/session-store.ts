@@ -20,6 +20,10 @@ const StoredShown = z.object({
 
 /** A Session as it is stored. */
 const StoredSession = z.object({
+  /** Which Session it is: a fresh one is another, though on the same Deck. */
+  id: z.string(),
+  /** Which write stored it, so a tab can tell whether another wrote since it last read or wrote. */
+  writeId: z.string(),
   reviewsShown: z.number().int().nonnegative(),
   newShown: z.number().int().nonnegative(),
   batches: z.number().int().positive(),
@@ -106,6 +110,9 @@ export function sessionStore(
     },
   };
 }
+
+/** A new ID, for a Session or a write: unique enough across one browser's tabs. */
+export const newId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
 /** A store that keeps nothing: a Session without resume. */
 export const NO_STORE: SessionStore = {

@@ -6,11 +6,10 @@ import { OUTLINE_PILL, PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
 import type { Deck } from "@/lib/decks";
 import { moreOffer } from "@/lib/new-cards";
-import { openProgress } from "@/lib/session-store";
 import { settingsQueryOptions } from "@/lib/settings";
 import { type SessionSummary, recallPercent, spentLabel } from "@/lib/study";
 import {
-  FRESH,
+  type SessionProgress,
   type StudyOverview,
   nextDueLabel,
   studyOverviewQueryOptions,
@@ -28,11 +27,12 @@ import { cn } from "@/lib/utils";
 
 /**
  * The summary, with the Deck's overview fetched afresh as it shows, for the
- * open Session's progress as the deck page counts it (a fresh one's once it ended).
+ * Session's `progress` as the deck page counts it (a fresh one's once it ended).
  */
 export function Summary({
   deck,
   summary,
+  progress,
   left,
   endedAfterMs,
   newHeld,
@@ -43,6 +43,8 @@ export function Summary({
 }: {
   deck: Deck;
   summary: SessionSummary;
+  /** How far the Session has gone into its New cards (`overviewProgress`), whether or not it is stored. */
+  progress: SessionProgress;
   /** Left early (Keep studying), rather than at the end of the Queue. */
   left: boolean;
   /** Ended by the Session timeout of this many ms (Start a new session); undefined while open. */
@@ -54,9 +56,8 @@ export function Summary({
   onRestart?: () => void;
 }) {
   const settings = useQuery(settingsQueryOptions()).data?.settings;
-  const open = openProgress(deck.id, settings?.sessionTimeoutMinutes);
   const overview = useQuery({
-    ...studyOverviewQueryOptions(deck.id, open ?? FRESH),
+    ...studyOverviewQueryOptions(deck.id, progress),
     refetchOnMount: "always",
   });
   return (

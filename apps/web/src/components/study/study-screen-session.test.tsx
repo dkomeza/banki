@@ -71,6 +71,8 @@ const PREVIEWS = { again: preview, hard: preview, good: preview, easy: preview }
 
 /** A Session stored with one standing Rating, showing c1 unrevealed for 4 s. */
 const STORED: StoredSession = {
+  id: "s1",
+  writeId: "w1",
   reviewsShown: 2,
   newShown: 20,
   batches: 1,
@@ -240,6 +242,16 @@ describe("an open study screen", () => {
 
   test("left, sums up what the open Session has left to study, as the deck page counts it", async () => {
     await resumeStudy();
+
+    fireEvent.keyDown(document.body, { key: "Escape" });
+
+    expect(await screen.findByText("Keep studying")).toBeDefined();
+    expect(overviews).toEqual(["20/1"]);
+  });
+
+  test("left, counts the Session's own progress though storage can't be read", async () => {
+    await resumeStudy();
+    vi.stubGlobal("localStorage", undefined);
 
     fireEvent.keyDown(document.body, { key: "Escape" });
 

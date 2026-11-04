@@ -2866,6 +2866,46 @@ describe("a saved Session", () => {
     await t.session.undo();
     expect(t.state()).toMatchObject({ rated: 1, undoable: false, summary: { studied: 1 } });
   });
+
+  test("closed while a Rating is on its way, never shows its Card to rate again", async () => {
+    const t = browsing([next("a"), next("b")]);
+    await t.session.start();
+    t.api.rate = (cardId, rating, durationMs) => {
+      t.calls.rate.push({ cardId, rating, durationMs });
+      return new Promise(() => {});
+    };
+    t.session.reveal();
+    t.session.rate("good");
+    t.session.persist();
+    expect(t.stored()?.shown).toBeNull();
+
+    await t.reload();
+
+    expect(t.calls.card).toEqual([]);
+    expect(t.calls.next.at(-1)).toMatchObject({ newShown: 1, after: "a" });
+    expect(t.shownId()).toBe("b");
+  });
+
+  test("keeps storing its own Ratings after the clock steps back", async () => {
+    const t = browsing([next("a"), next("b"), next("c")]);
+    await t.session.start();
+    await rateIn(t, "good");
+    t.wait(-10 * MINUTE);
+    await rateIn(t, "good");
+    expect(t.stored()?.given).toHaveLength(2);
+
+    await t.reload();
+    expect(t.shownId()).toBe("c");
+    expect(t.state().rated).toBe(2);
+  });
+
+  test("answers its own progress for the overview, stored or not: a New Card it shows is still to come", async () => {
+    const t = browsing([next("a", "new"), next("b", "new")]);
+    await t.session.start();
+    expect(t.session.overviewProgress()).toEqual({ newShown: 0, batches: 1 });
+    await rateIn(t, "good");
+    expect(t.session.overviewProgress()).toEqual({ newShown: 1, batches: 1 });
+  });
 });
 
 describe("the Session timeout", () => {
@@ -2996,6 +3036,64 @@ describe("the Session timeout", () => {
 
     expect(stale.state().phase).toBe("card");
     expect(stale.stored()?.given).toHaveLength(2);
+  });
+
+  test("on a stale tab, isn't kept open by a Session another tab started since: it ends, and leaves that one alone", async () => {
+    const storage = memoryStorage();
+    const stale = browsing([next("a"), next("b")], storage);
+    await stale.session.start();
+    await rateIn(stale, "good");
+    const other = browsing([next("x"), next("y")], storage);
+    other.wait(40 * MINUTE);
+    await other.session.start();
+    expect(other.shownId()).toBe("x");
+    await rateIn(other, "good");
+
+    stale.wait(41 * MINUTE);
+    stale.session.reveal();
+
+    expect(stale.state()).toMatchObject({ phase: "ended", rated: 1 });
+    expect(other.stored()?.given.map((g) => g.cardId)).toEqual(["x"]);
+    expect(other.stored()?.shown?.cardId).toBe("y");
+  });
+
+  test("on a stale tab, ends on the Ratings of the tab acted in last", async () => {
+    const storage = memoryStorage();
+    const stale = browsing([next("a"), next("b")], storage);
+    await stale.session.start();
+    await rateIn(stale, "good");
+    const other = browsing([next("c"), next("d"), next("e")], storage);
+    other.wait(1000);
+    await other.session.start();
+    expect(other.shownId()).toBe("b");
+    await rateIn(other, "good");
+    await rateIn(other, "good");
+    other.session.stop();
+
+    stale.wait(35 * MINUTE);
+    stale.session.checkTimeout();
+
+    expect(stale.state()).toMatchObject({ phase: "ended", rated: 3, summary: { studied: 3 } });
+    expect(stale.stored()).toBeUndefined();
+  });
+
+  test("never ends a Session while it resumes, right after Continue", async () => {
+    const t = browsing([next("a"), next("b")]);
+    await t.session.start();
+    await rateIn(t, "good");
+    t.wait(TIMEOUT - 10_000);
+    const pending = deferred<Card | "gone">();
+    t.api.card = () => pending.promise;
+
+    const reloading = t.reload();
+    t.wait(15_000);
+    t.session.checkTimeout();
+    expect(t.state().phase).toBe("loading");
+
+    pending.resolve(card("b"));
+    await reloading;
+    expect(t.state()).toMatchObject({ phase: "card", rated: 1 });
+    expect(t.stored()?.activeAt).toBe(NOW + TIMEOUT + 5000);
   });
 
   test("ended on a screen still open, it is cleared: a longer timeout set later doesn't bring it back", async () => {

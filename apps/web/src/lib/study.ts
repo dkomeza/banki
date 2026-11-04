@@ -16,6 +16,7 @@ import { type Card, type CardOutcome, saveCardEdit } from "./cards";
 import {
   NO_STORE,
   type SessionStore,
+  newId,
   type StoredSession,
   type StoredShown,
   timeoutMsOf,
@@ -407,6 +408,10 @@ export function createStudySession({
   let restored = false;
   // The stored Card shown, while resuming it.
   let resuming: StoredShown | undefined;
+  // Which Session this is, as stored: another tab's fresh one is another.
+  let sessionId = newId();
+  // The write this tab last stored or read: one stored since is another tab's.
+  let lastWrite: string | undefined;
   // The shown Card once it is done with (rated, or found gone), until the next
   // shows: stored as none, so a resume never shows it to rate again.
   let doneWith: string | undefined;
@@ -423,9 +428,10 @@ export function createStudySession({
     return Math.max(0, (editorOpen ? editedAt : now()) - shownAt);
   };
 
-  const snapshot = (): StoredSession => {
+  const snapshot = (): Omit<StoredSession, "writeId"> => {
     const shown = state.shown;
     return {
+      id: sessionId,
       reviewsShown,
       newShown,
       batches,
@@ -436,7 +442,9 @@ export function createStudySession({
       given: given.map((g) => ({ ...g })),
       shown:
         resuming ??
-        (shown === undefined || shown.card.id === doneWith
+        // A Card whose Rating is on its way may be rated already: stored as
+        // none, a tab closed meanwhile never shows it to rate again.
+        (shown === undefined || shown.card.id === doneWith || state.saving !== undefined
           ? null
           : {
               cardId: shown.card.id,
@@ -452,16 +460,19 @@ export function createStudySession({
   /**
    * Saves the Session, once it has shown a Card, even once stopped (a Rating
    * or an Undo answered after the screen went); an ended one is cleared
-   * already. Never over a Session another tab acted in since this one last
-   * did, as the one acted in last wins: a change that is no activity (the
-   * shown Card's time, leaving, the editor) doesn't make this tab's the newer.
-   * `shown` stores another Card shown than the screen's.
+   * already. Never over what another tab stored since this one last wrote
+   * or read, when it acted later, as the one acted in last wins: a change
+   * that is no activity (the shown Card's time, leaving, the editor) doesn't
+   * make this tab's the newer. Its own writes always go, even after the
+   * clock steps back. `shown` stores another Card shown than the screen's.
    */
   const write = (shown?: StoredShown) => {
     if (state.phase === "ended" || seen.size === 0) return;
     const stored = store.read();
-    if (stored !== undefined && stored.activeAt > activeAt) return;
-    store.write(shown === undefined ? snapshot() : { ...snapshot(), shown });
+    if (stored !== undefined && stored.writeId !== lastWrite && stored.activeAt > activeAt) return;
+    const writeId = newId();
+    store.write({ ...snapshot(), ...(shown === undefined ? {} : { shown }), writeId });
+    lastWrite = writeId;
   };
 
   /** Saves the Session while the screen shows it. */
@@ -478,6 +489,8 @@ export function createStudySession({
       return;
     }
     ({ reviewsShown, newShown, batches } = stored);
+    sessionId = stored.id;
+    lastWrite = stored.writeId;
     lastShown = stored.after ?? undefined;
     for (const [id, kind] of stored.seen) seen.set(id, kind);
     for (const [id, kind] of stored.resetKinds) resetKinds.set(id, kind);
@@ -718,9 +731,16 @@ export function createStudySession({
     else await loadFirst(mine, state.shown === undefined ? lastShown : undefined);
   }
 
-  /** Forgets the Session, stored and here, and starts a fresh one at its first Card. */
-  const startFresh = () => {
-    store.clear();
+  /**
+   * Forgets the Session, here and stored, and starts afresh: at a fresh
+   * Session's first Card, or in the open one another tab stored since, kept
+   * unless `clear` is "any".
+   */
+  const startFresh = (clear: "own" | "any") => {
+    if (clear === "any" || store.read()?.id === sessionId) store.clear();
+    sessionId = newId();
+    lastWrite = undefined;
+    restored = false;
     given.length = 0;
     seen.clear();
     resetKinds.clear();
@@ -760,17 +780,27 @@ export function createStudySession({
    */
   const timeOut = (): boolean => {
     if (stopped || activeAt === 0 || editorOpen || state.phase === "ended") return false;
-    // Another tab acting in the stored Session since keeps it open: the
-    // stale tab neither ends nor clears it, and acting in it wins again.
-    const last = Math.max(activeAt, store.read()?.activeAt ?? 0);
+    // Resuming, the Card it shows is activity, still to come.
+    if (state.phase === "loading") return false;
+    // Another tab acting in this Session since keeps it open: the stale tab
+    // neither ends nor clears it, and acting in it wins again. A Session
+    // another tab started since is another, and keeps nothing open.
+    const read = store.read();
+    const stored = read?.id === sessionId ? read : undefined;
+    const last = Math.max(activeAt, stored?.activeAt ?? 0);
     const timeout = timeoutMs();
     if (now() - last < timeout) return false;
+    // Another tab acted in it last: it ends on that tab's Ratings.
+    if (stored !== undefined && stored.writeId !== lastWrite && stored.activeAt >= activeAt) {
+      given.length = 0;
+      given.push(...stored.given);
+    }
     if (given.length === 0) {
-      startFresh();
+      startFresh("own");
       return true;
     }
     // Ended, it never resumes, not even under a longer timeout set later.
-    store.clear();
+    if (stored !== undefined) store.clear();
     starts += 1;
     failed = undefined;
     set({
@@ -1146,9 +1176,19 @@ export function createStudySession({
     },
     /** Saves the shown Card's time so far, as the page hides; not activity. */
     persist,
+    /**
+     * How far the Session has gone into its New cards, as `study/overview`
+     * takes it: a New Card it shows is still to come, so it isn't counted as
+     * shown. An ended one's is a fresh Session's.
+     */
+    overviewProgress(): { newShown: number; batches: number } {
+      if (state.phase === "ended") return { newShown: 0, batches: 1 };
+      const pending = state.shown?.kind === "new" && state.shown.card.id !== doneWith ? 1 : 0;
+      return { newShown: Math.max(0, newShown - pending), batches };
+    },
     /** Start a new session, from an ended one: clears it and loads a fresh Session's first Card. */
     restart() {
-      if (state.phase === "ended") startFresh();
+      if (state.phase === "ended") startFresh("any");
     },
   };
 }
