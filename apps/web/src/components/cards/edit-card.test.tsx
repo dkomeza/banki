@@ -217,6 +217,10 @@ describe("The edit page's Reset progress", () => {
     expect(resetBox().disabled).toBe(true);
     expect(router.state.location.pathname).toBe("/cards/c1");
     expect(discardAsked()).toBeNull();
+
+    // Nothing is on its way: Cancel still goes back.
+    fireEvent.click(button("Cancel"));
+    await onDeck();
   });
 
   test("saved, a navigation back that fails holds nothing, even once a refetch makes the tick unsaved again", async () => {

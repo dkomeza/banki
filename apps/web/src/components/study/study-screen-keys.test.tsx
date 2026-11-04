@@ -9,7 +9,7 @@ import {
 } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import type { Card } from "@/lib/cards";
+import { type Card, cardQueryOptions } from "@/lib/cards";
 import type { Deck } from "@/lib/decks";
 import { settingsQueryOptions } from "@/lib/settings";
 import { StudyScreen } from "./study-screen";
@@ -92,8 +92,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function renderScreen() {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function renderScreen(
+  queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+) {
   queryClient.setQueryData(settingsQueryOptions().queryKey, { settings: SETTINGS, issuedAt: 0 });
   const router = createRouter({ routeTree: createRootRoute(), history: createMemoryHistory() });
   render(
@@ -224,5 +225,20 @@ describe("the study screen's ×", () => {
 
     fireEvent.keyDown(document.body, { key: " " });
     expect(await screen.findByText("breakfast")).toBeTruthy();
+  });
+});
+
+describe("leaving the study screen", () => {
+  test("drops the cached Cards, so the edit page fetches whether each is studied afresh", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    // Cached by the edit page before the Session, when it was New.
+    queryClient.setQueryData(cardQueryOptions("c1").queryKey, CARD);
+    renderScreen(queryClient);
+    await screen.findByText("el desayuno");
+    expect(queryClient.getQueryData(cardQueryOptions("c1").queryKey)).toEqual(CARD);
+
+    cleanup();
+
+    expect(queryClient.getQueryData(cardQueryOptions("c1").queryKey)).toBeUndefined();
   });
 });

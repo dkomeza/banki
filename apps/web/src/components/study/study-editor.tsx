@@ -208,7 +208,10 @@ export function StudyEditor({
         escArmed.current = null;
         return;
       }
-      if (document.querySelector('[role="alertdialog"]') !== null) return;
+      if (document.querySelector('[role="alertdialog"]') !== null) {
+        escArmed.current = null;
+        return;
+      }
       const field =
         event.target instanceof Element
           ? event.target.closest("[data-study-editor] .cm-editor")

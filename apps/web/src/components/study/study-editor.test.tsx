@@ -381,6 +381,26 @@ describe("StudyEditor", () => {
       expect(session.cancelEdit).not.toHaveBeenCalled();
       expect(session.router.history.location.pathname).toBe("/");
     });
+
+    test("in Front, the route's own Discard dialog between the two Escs starts over", async () => {
+      const session = renderEditor(card(true));
+      fireEvent.click(resetBox());
+      const front = document.querySelector(".cm-content")!;
+      press(front, "Escape");
+
+      session.router.history.push("/elsewhere");
+      await waitFor(() => expect(discardAsked()).not.toBeNull());
+      press(document.body, "Escape");
+      await waitFor(() => expect(discardAsked()).toBeNull());
+
+      // Only leaves the field; a second asks, as something is unsaved.
+      press(front, "Escape");
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(discardAsked()).toBeNull();
+      press(front, "Escape");
+      await waitFor(() => expect(discardAsked()).not.toBeNull());
+      expect(session.cancelEdit).not.toHaveBeenCalled();
+    });
   });
 
   describe("Save", () => {

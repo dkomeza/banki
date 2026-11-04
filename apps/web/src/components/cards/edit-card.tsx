@@ -184,7 +184,7 @@ export function EditCard({ deck, card }: { deck: Deck; card: Card }) {
                 type="button"
                 variant="outline"
                 className={cn(OUTLINE_PILL, "h-11 lg:h-10")}
-                disabled={busy}
+                disabled={busy && !done}
                 onClick={() => void toDeck()}
               >
                 Cancel
