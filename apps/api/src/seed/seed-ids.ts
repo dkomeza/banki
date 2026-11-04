@@ -7,7 +7,8 @@
  * `deck` is the one the route manifest shoots the deck page at, `folder`
  * the folder page, and `card` the edit-card page: a Calculus 2 Card with a
  * Front of two lines and a Back of several, which refers to the one seeded
- * Image, `image`, so the page shows its thumbnail.
+ * Image, `image`, so the page shows its thumbnail. It has a Review, so the
+ * page shows the Reset progress row.
  */
 export const SEED_IDS = {
   deck: "5eed0000-0000-4000-8000-000000000001",
