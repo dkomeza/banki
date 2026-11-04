@@ -13,6 +13,7 @@ import { CANT_REACH, deckQueryOptions, decksQueryOptions } from "./decks";
 import { deletionIdOf, deletionsQueryOptions } from "./deletions";
 import { ApiRequestError } from "./query";
 import { studyOverviewQueryOptions } from "./study-overview";
+import { tagsChanged } from "./tags";
 
 export type Card = CardResponse;
 
@@ -122,6 +123,46 @@ export const hasUnsavedChanges = (fields: CardFields, saved: CardFields) =>
   fields.back !== saved.back ||
   fields.gradingNotes !== saved.gradingNotes;
 
+/**
+ * Whether a Save puts the Card back to New: Reset progress ticked (`ticked`)
+ * on a studied Card. A New Card never shows the tick, so it never resets.
+ */
+export const resetOnSave = (card: Card, ticked: boolean) => card.studied && ticked;
+
+/**
+ * Whether an editor of `card` holds something unsaved: its fields
+ * (`fieldsUnsaved`), its Tags or a Tag still being typed (`draft`), or a
+ * Reset progress ticked on it (`ticked`) that Save would carry out.
+ */
+export const editUnsaved = (
+  card: Card,
+  {
+    fieldsUnsaved,
+    tags,
+    draft,
+    ticked,
+  }: { fieldsUnsaved: boolean; tags: readonly string[]; draft: string; ticked: boolean },
+) =>
+  fieldsUnsaved || tagsChanged(tags, card.tags) || draft.trim() !== "" || resetOnSave(card, ticked);
+
+/**
+ * Save in an editor of `card`: `update` writes it, with a Progress reset
+ * when Reset progress is ticked on a studied Card (`resetOnSave`); once it
+ * saved, `saved` gets the Card as saved and whether it was reset. Answers how
+ * it went.
+ */
+export async function saveCardEdit(
+  card: Card,
+  ticked: boolean,
+  update: (options: { resetProgress: boolean }) => Promise<CardOutcome>,
+  saved: (card: Card, progressReset: boolean) => Promise<unknown>,
+): Promise<CardOutcome> {
+  const resetProgress = resetOnSave(card, ticked);
+  const outcome = await update({ resetProgress });
+  if (outcome.ok) await saved(outcome.card, resetProgress);
+  return outcome;
+}
+
 export type CardOutcome =
   | { ok: true; card: Card }
   | { ok: false; errors: FieldErrors }
@@ -137,12 +178,21 @@ async function outcomeOf(
   const errors = fieldErrors(fields);
   if (Object.keys(errors).length > 0) return { ok: false, errors };
   let res: Response;
+  let body: unknown;
   try {
     res = await send();
-  } catch {
+    // The answer read too: the connection can drop while it comes in.
+    if (res.ok) body = await res.json();
+  } catch (error) {
+    // Read whole but not JSON (a proxy's page), it isn't a Card.
+    if (error instanceof SyntaxError) return { ok: false, message: failed };
     return { ok: false, message: CANT_REACH };
   }
-  if (res.ok) return { ok: true, card: CardResponse.parse(await res.json()) };
+  if (res.ok) {
+    // An answer that isn't a Card (an old client, a proxy) says so, as a failure does.
+    const parsed = CardResponse.safeParse(body);
+    return parsed.success ? { ok: true, card: parsed.data } : { ok: false, message: failed };
+  }
   if (res.status === 404) return { ok: false, notFound: true };
   return { ok: false, message: failed };
 }
@@ -190,13 +240,16 @@ export async function createCard(
 
 /**
  * Changes a Card's sides, Tags and Grading notes with `PATCH /api/cards/:id`,
- * and says how it went.
+ * and says how it went. With `resetProgress`, the same change puts a studied
+ * Card back to New (a Progress reset). `written` runs once the change has
+ * landed, before the Deck's lists are fetched again.
  */
 export async function updateCard(
   queryClient: QueryClient,
   id: string,
   fields: CardFields,
   tags: readonly string[],
+  { resetProgress = false, written }: { resetProgress?: boolean; written?: () => void } = {},
   client: ApiClient = api,
 ): Promise<CardOutcome> {
   const outcome = await outcomeOf(
@@ -204,12 +257,17 @@ export async function updateCard(
     () =>
       client.api.cards[":id"].$patch({
         param: { id },
-        json: { ...bodyOf(fields), tags: [...tags] },
+        json: {
+          ...bodyOf(fields),
+          tags: [...tags],
+          ...(resetProgress ? { resetProgress: true as const } : {}),
+        },
       }),
     "Banki couldn't save the card. Try again.",
   );
   if (outcome.ok) {
     queryClient.setQueryData(cardQueryOptions(id).queryKey, outcome.card);
+    written?.();
     await refreshDeck(queryClient, outcome.card.deckId);
   }
   return outcome;
@@ -221,12 +279,14 @@ export async function updateCard(
  * already counts as deleted, with no Deletion to undo. Answers a
  * message when it couldn't be deleted, putting it back in the list. The Card's
  * own cache entry stays until {@link forgetCard}, so its edit page doesn't turn
- * into "Card not found" before it is left.
+ * into "Card not found" before it is left. `written` runs once the Card is
+ * deleted, before the Deck's lists are fetched again.
  */
 export async function deleteCard(
   queryClient: QueryClient,
   card: Card,
   client: ApiClient = api,
+  { written }: { written?: () => void } = {},
 ): Promise<{ ok: true; deletionId?: string } | { ok: false; message: string }> {
   const listKey = cardsQueryOptions(card.deckId).queryKey;
   queryClient.setQueryData(listKey, (cards) => cards?.filter((c) => c.id !== card.id));
@@ -244,6 +304,7 @@ export async function deleteCard(
     };
   }
   const deletionId = await deletionIdOf(res);
+  written?.();
   await Promise.all([
     refreshDeck(queryClient, card.deckId),
     queryClient.invalidateQueries({ queryKey: deletionsQueryOptions().queryKey }),

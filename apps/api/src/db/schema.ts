@@ -223,7 +223,10 @@ export const card = sqliteTable(
  * Reviews in place, naming a Card and a Deck that may be gone (ADR-0018).
  * `deckId` is the Card's latest Deck, which a Move rewrites (ADR-0021).
  * `cardBefore` is the Card's memory state before the Review, as JSON
- * (`MemoryState` in scheduling/fsrs.ts), so Undo can put it back.
+ * (`MemoryState` in scheduling/fsrs.ts), so Undo can put it back. `seq` is its
+ * place in the User's Write order, shared with their Progress resets
+ * (`nextSeq`): what came first goes by it, never by clocks, which can tie or
+ * step back (ADR-0026).
  */
 export const review = sqliteTable(
   "review",
@@ -237,15 +240,16 @@ export const review = sqliteTable(
     reviewedAt: integer("reviewed_at", { mode: "timestamp_ms" }).notNull(),
     rating: text("rating", { enum: RATINGS }).notNull(),
     kind: text("kind", { enum: REVIEW_KINDS }).notNull(),
-    /** The time spent on the Card, as the client measured it. */
+    /** The time spent studying the Card, as the client measured it (time spent editing it is left out). */
     durationMs: integer("duration_ms").notNull(),
     cardBefore: text("card_before", { mode: "json" }).notNull(),
+    seq: integer("seq").notNull().default(0),
   },
   (table) => [
     check("review_duration_ms", sql`${table.durationMs} >= 0`),
-    index("review_user_id").on(table.userId),
-    index("review_card_id_reviewed_at").on(table.cardId, table.reviewedAt),
+    index("review_card_id_user_id_seq").on(table.cardId, table.userId, table.seq),
     index("review_deck_id").on(table.deckId),
+    uniqueIndex("review_user_id_seq").on(table.userId, table.seq),
   ],
 );
 
@@ -292,5 +296,30 @@ export const image = sqliteTable(
   (table) => [
     index("image_user_id").on(table.userId),
     index("image_uploaded_at").on(table.uploadedAt),
+  ],
+);
+
+/**
+ * The User's Progress resets (CONTEXT.md, ADR-0026): one row each time one of
+ * their Cards was put back to New while being edited. A reset leaves the
+ * Card's Reviews in place; whatever learns from them starts from its Card's
+ * newest one, and a Review from before it can't be undone. `cardId` carries no
+ * foreign key: like a Review, a Progress reset outlives its Card's Removal
+ * (ADR-0018). `seq` places it among the User's Reviews, as theirs does.
+ */
+export const progress_reset = sqliteTable(
+  "progress_reset",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    cardId: text("card_id").notNull(),
+    resetAt: integer("reset_at", { mode: "timestamp_ms" }).notNull(),
+    seq: integer("seq").notNull(),
+  },
+  (table) => [
+    index("progress_reset_card_id_user_id_seq").on(table.cardId, table.userId, table.seq),
+    uniqueIndex("progress_reset_user_id_seq").on(table.userId, table.seq),
   ],
 );

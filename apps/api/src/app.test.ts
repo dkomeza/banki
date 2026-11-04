@@ -129,6 +129,7 @@ describe("migrations", () => {
       "0012_soft_cap",
       "0013_macros",
       "0014_grading_notes",
+      "0015_progress_resets",
     ]);
     first.close();
 

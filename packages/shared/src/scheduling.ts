@@ -52,7 +52,10 @@ export const CardSchedule = z.object({
 });
 export type CardSchedule = z.infer<typeof CardSchedule>;
 
-/** The body of `POST /api/cards/:id/reviews`: the Rating, and the time spent on the Card in ms. */
+/**
+ * The body of `POST /api/cards/:id/reviews`: the Rating, and the time spent
+ * studying the Card in ms (time spent editing it is left out).
+ */
 export const ReviewRequest = z.strictObject({
   rating: Rating,
   durationMs: z.number().int("Expected whole milliseconds").nonnegative(),

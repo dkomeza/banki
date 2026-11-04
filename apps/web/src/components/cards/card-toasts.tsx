@@ -12,14 +12,16 @@ import { restoreDeletion, restoreDeletions } from "@/lib/deletions";
  * it couldn't, such as its Deck being deleted meanwhile. `then` runs once the
  * Card is deleted, before the toast shows, such as leaving its edit page; a
  * delete that fails shows an error toast instead, and leaves nothing.
- * Answers whether the Card was deleted.
+ * `written` runs earlier, as soon as the Card is deleted, before its Deck's
+ * lists are fetched again. Answers whether the Card was deleted.
  */
 export async function deleteWithUndo(
   queryClient: QueryClient,
   card: Card,
   then?: () => Promise<unknown>,
+  written?: () => void,
 ): Promise<boolean> {
-  const deleted = await deleteCard(queryClient, card);
+  const deleted = await deleteCard(queryClient, card, undefined, { written });
   if (!deleted.ok) {
     toast.error(deleted.message);
     return false;

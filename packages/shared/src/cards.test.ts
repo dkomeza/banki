@@ -32,6 +32,19 @@ describe("UpdateCardRequest", () => {
     expect(UpdateCardRequest.parse({ gradingNotes: " " })).toEqual({ gradingNotes: null });
   });
 
+  test("takes a Progress reset alone or with an edit", () => {
+    expect(UpdateCardRequest.parse({ resetProgress: true })).toEqual({ resetProgress: true });
+    expect(UpdateCardRequest.parse({ tags: ["a"], resetProgress: true })).toEqual({
+      tags: ["a"],
+      resetProgress: true,
+    });
+  });
+
+  test("refuses a Progress reset that isn't true", () => {
+    expect(UpdateCardRequest.safeParse({ resetProgress: false }).success).toBe(false);
+    expect(UpdateCardRequest.safeParse({ front: "x", resetProgress: "yes" }).success).toBe(false);
+  });
+
   test("still wants something to change", () => {
     expect(UpdateCardRequest.safeParse({}).success).toBe(false);
   });
