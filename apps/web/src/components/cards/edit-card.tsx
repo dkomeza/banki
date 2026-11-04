@@ -54,7 +54,9 @@ export function EditCard({ deck, card }: { deck: Deck; card: Card }) {
   // land.
   const busy = savingFrom !== undefined || deleting;
   // A Save or a Delete that went through: nothing is on its way, and nothing
-  // is unsaved, whatever a refetch brings, until the page is gone.
+  // is unsaved, whatever a refetch brings, until the page is gone. It goes
+  // through as soon as the write lands, so the Deck's lists, fetched again
+  // after it, hold no link or Back however long they take.
   const [done, setDone] = useState(false);
   // A ticked Reset progress is unsaved too.
   const guard = useDiscardGuard(
@@ -67,6 +69,10 @@ export function EditCard({ deck, card }: { deck: Deck; card: Card }) {
       }),
     busy && !done,
   );
+  const written = () => {
+    guard.release();
+    setDone(true);
+  };
   const [formError, setFormError] = useState<string>();
   // A refetch that finds the Card New takes the row away, and its tick with it,
   // so it never comes back ticked.
@@ -101,10 +107,9 @@ export function EditCard({ deck, card }: { deck: Deck; card: Card }) {
       outcome = await saveCardEdit(
         card,
         reset,
-        (options) => updateCard(queryClient, card.id, form.fields, nextTags, options),
+        (options) =>
+          updateCard(queryClient, card.id, form.fields, nextTags, { ...options, written }),
         async () => {
-          guard.release();
-          setDone(true);
           // Saved, the page stays as it is if going back fails: its links
           // still go back, and nothing asks about what was saved.
           await toDeck().catch(() => undefined);
@@ -129,11 +134,12 @@ export function EditCard({ deck, card }: { deck: Deck; card: Card }) {
     if (pending.current) return;
     pending.current = true;
     setDeleting(true);
-    const deleted = await deleteWithUndo(queryClient, card, async () => {
-      guard.release();
-      setDone(true);
-      await toDeck().catch(() => undefined);
-    });
+    const deleted = await deleteWithUndo(
+      queryClient,
+      card,
+      () => toDeck().catch(() => undefined),
+      written,
+    );
     if (deleted) return;
     pending.current = false;
     setDeleting(false);

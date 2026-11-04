@@ -409,6 +409,51 @@ describe("The edit page's discard guard", () => {
     await onDeck();
   });
 
+  test("lets a link go once the Save lands, though the Deck's lists, fetched again, never answer", async () => {
+    let landed = false;
+    stubApi((method) => {
+      if (method === "PATCH") {
+        landed = true;
+        return json({ ...card(true), studied: false });
+      }
+      return landed ? new Promise<Response>(() => {}) : json([card(true)]);
+    });
+    const { router } = await renderPage(card(true));
+    fireEvent.click(resetBox());
+    fireEvent.click(button("Save"));
+    await waitFor(() => expect(landed).toBe(true));
+
+    await act(async () => {
+      void router.navigate({ to: "/decks/$deckId", params: { deckId: "d1" } });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
+    expect(router.state.location.pathname).toBe("/decks/d1");
+    expect(discardAsked()).toBeNull();
+  });
+
+  test("lets Back go once the Delete lands, though the Deck's lists, fetched again, never answer", async () => {
+    let landed = false;
+    stubApi((method) => {
+      if (method === "DELETE") {
+        landed = true;
+        return json({ deletionId: "del1" });
+      }
+      return landed ? new Promise<Response>(() => {}) : json([card(true)]);
+    });
+    const { router } = await renderPage(card(true));
+    fireEvent.click(button("Delete"));
+    await waitFor(() => expect(landed).toBe(true));
+
+    await act(async () => {
+      router.history.back();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
+    expect(router.state.location.pathname).toBe("/decks/d1");
+    expect(discardAsked()).toBeNull();
+  });
+
   test("asks before the sign-in redirect a 401 sends while a Save is on its way: Keep editing stays, Discard goes", async () => {
     stubApi((method) => (method === "PATCH" ? new Promise<Response>(() => {}) : json([])));
     const { router } = await renderPage(card(true));

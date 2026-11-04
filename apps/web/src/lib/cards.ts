@@ -241,14 +241,15 @@ export async function createCard(
 /**
  * Changes a Card's sides, Tags and Grading notes with `PATCH /api/cards/:id`,
  * and says how it went. With `resetProgress`, the same change puts a studied
- * Card back to New (a Progress reset).
+ * Card back to New (a Progress reset). `written` runs once the change has
+ * landed, before the Deck's lists are fetched again.
  */
 export async function updateCard(
   queryClient: QueryClient,
   id: string,
   fields: CardFields,
   tags: readonly string[],
-  { resetProgress = false }: { resetProgress?: boolean } = {},
+  { resetProgress = false, written }: { resetProgress?: boolean; written?: () => void } = {},
   client: ApiClient = api,
 ): Promise<CardOutcome> {
   const outcome = await outcomeOf(
@@ -266,6 +267,7 @@ export async function updateCard(
   );
   if (outcome.ok) {
     queryClient.setQueryData(cardQueryOptions(id).queryKey, outcome.card);
+    written?.();
     await refreshDeck(queryClient, outcome.card.deckId);
   }
   return outcome;
@@ -277,12 +279,14 @@ export async function updateCard(
  * already counts as deleted, with no Deletion to undo. Answers a
  * message when it couldn't be deleted, putting it back in the list. The Card's
  * own cache entry stays until {@link forgetCard}, so its edit page doesn't turn
- * into "Card not found" before it is left.
+ * into "Card not found" before it is left. `written` runs once the Card is
+ * deleted, before the Deck's lists are fetched again.
  */
 export async function deleteCard(
   queryClient: QueryClient,
   card: Card,
   client: ApiClient = api,
+  { written }: { written?: () => void } = {},
 ): Promise<{ ok: true; deletionId?: string } | { ok: false; message: string }> {
   const listKey = cardsQueryOptions(card.deckId).queryKey;
   queryClient.setQueryData(listKey, (cards) => cards?.filter((c) => c.id !== card.id));
@@ -300,6 +304,7 @@ export async function deleteCard(
     };
   }
   const deletionId = await deletionIdOf(res);
+  written?.();
   await Promise.all([
     refreshDeck(queryClient, card.deckId),
     queryClient.invalidateQueries({ queryKey: deletionsQueryOptions().queryKey }),
