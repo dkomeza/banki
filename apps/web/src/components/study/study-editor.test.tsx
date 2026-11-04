@@ -255,6 +255,19 @@ describe("StudyEditor", () => {
       expect(session.cancelEdit).not.toHaveBeenCalled();
     });
 
+    test("that cancels an IME conversion is the input method's: it neither closes nor leaves the field", () => {
+      const session = renderEditor(card(true));
+      const front = document.querySelector(".cm-content")!;
+      const composing = { key: "Escape", isComposing: true };
+
+      fireEvent.keyDown(screen.getByRole("combobox"), composing);
+      fireEvent.keyDown(front, composing);
+      fireEvent.keyDown(front, { key: "Escape", keyCode: 229 });
+      press(front, "Escape");
+
+      expect(session.cancelEdit).not.toHaveBeenCalled();
+    });
+
     test("in Front, a key between the two Escs starts over", () => {
       const session = renderEditor(card(true));
       const front = document.querySelector(".cm-content")!;

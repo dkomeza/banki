@@ -192,8 +192,9 @@ export function StudyEditor({
         if (!MODIFIER_KEYS.has(event.key)) escArmed.current = null;
         return;
       }
-      // A held Esc is one press: its repeats neither close nor ask.
-      if (event.repeat) return;
+      // A held Esc is one press: its repeats neither close nor ask. An Esc that
+      // cancels an IME conversion is the input method's.
+      if (event.repeat || event.isComposing || event.keyCode === 229) return;
       if (event.defaultPrevented || asking) {
         escArmed.current = null;
         return;
