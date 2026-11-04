@@ -195,8 +195,6 @@ describe("a tick", () => {
     const github = fakeGitHub({
       pr: { number: 12, headSha: HEAD, open: true, createdAt: "2026-10-20T00:00:00.000Z" },
       pushedAt: "2026-10-21T11:00:00.000Z",
-      check: { status: "completed", conclusion: "success" },
-      summary: { sha: HEAD.slice(0, 7), findings: [] },
       preview: { state: "success", description: "", url: "https://pr-12.banki.dkomeza.com" },
     });
     const { deps, linear } = dispatcher([issue], { now: WEDNESDAY, github });
@@ -243,7 +241,7 @@ describe("a tick", () => {
     expect(started.map((start) => start.kind)).toEqual(["implement"]);
   });
 
-  test("hands off to Acceptance once the rounds have ended and the PR Preview is up, outside the window too", async () => {
+  test("hands off to Acceptance once the PR Preview is up, outside the window too", async () => {
     const issue = fakeIssue("BAN-1", {
       status: "In Review",
       history: [{ at: "2026-10-01T00:00:00.000Z", from: "In Progress", to: "In Review" }],
@@ -251,8 +249,6 @@ describe("a tick", () => {
     const github = fakeGitHub({
       pr: { number: 12, headSha: HEAD, open: true, createdAt: "2026-10-20T00:00:00.000Z" },
       pushedAt: "2026-10-21T11:00:00.000Z",
-      check: { status: "completed", conclusion: "success" },
-      summary: { sha: HEAD.slice(0, 7), findings: [] },
       preview: { state: "success", description: "", url: "https://pr-12.banki.dkomeza.com" },
     });
     const { deps, linear } = dispatcher([issue], { now: WEDNESDAY, github });
@@ -292,7 +288,7 @@ describe("a tick", () => {
     const github = fakeGitHub({
       pr: { number: 12, headSha: HEAD, open: true, createdAt: "2026-10-20T00:00:00.000Z" },
       pushedAt: "2026-10-21T10:00:00.000Z",
-      check: { status: "completed", conclusion: "cancelled" },
+      preview: { state: "failure", description: "", url: null },
     });
     const { deps, linear } = dispatcher([issue], { now: WEDNESDAY, github });
 
@@ -316,7 +312,7 @@ describe("a tick", () => {
     );
     deps.records.saveActive({
       issue: "BAN-1",
-      kind: "review-round",
+      kind: "acceptance-fix",
       state: "running",
       pid: 99,
       runs: [{ startedAt: "2026-10-24T01:00:00.000Z", log, before: reading() }],
@@ -506,14 +502,14 @@ describe("a tick", () => {
     const { deps, linear } = dispatcher([issue], { alive: false, now: WEDNESDAY });
     deps.records.saveActive({
       issue: "BAN-1",
-      kind: "review-round",
+      kind: "acceptance-fix",
       state: "running",
       pid: 99,
       runs: [{ startedAt: "2026-10-21T10:00:00.000Z", log: "/x.jsonl", before: reading() }],
       unposted: {
         type: "crash",
         outcome: "timed-out",
-        why: "The review-round Stage ran for 3 hours, its limit.",
+        why: "The acceptance-fix Stage ran for 3 hours, its limit.",
         tail: ["say: Fixing the query"],
       },
     });
