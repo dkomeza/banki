@@ -334,6 +334,12 @@ export function createStudySession({
   };
   const listeners = new Set<() => void>();
   const given: Given[] = [];
+  // Takes `g` out of `given`; taken out already (an Undo answered twice, after
+  // a restart), nothing else goes.
+  const drop = (g: Given) => {
+    const at = given.indexOf(g);
+    if (at !== -1) given.splice(at, 1);
+  };
   // Every Card the Session has shown, with its first kind, so each counts once, by it.
   const seen = new Map<string, QueueKind>();
   // The kind each Card put back to New here came with: served again by the
@@ -589,8 +595,14 @@ export function createStudySession({
     if (!editorOpen) return;
     editorOpen = false;
     shownAt += now() - editedAt;
-    // Gone from the screen, nothing is left to move.
-    if (!stopped) transition(() => set({ turning: false, ...patch, editing: false }));
+    const mine = starts;
+    // Gone from the screen, nothing is left to move. Started again before the
+    // frame, another Card shows, and the start closed the editor already.
+    if (!stopped) {
+      transition(() => {
+        if (mine === starts) set({ turning: false, ...patch, editing: false });
+      });
+    }
   };
 
   const save = async (rating: Rating, durationMs: number) => {
@@ -699,14 +711,14 @@ export function createStudySession({
         // Its Review gone (undone elsewhere), it no longer counts. Still
         // standing, under a deleted Card or a newer Review or Progress reset,
         // none of the Card's Ratings can be undone, and they keep counting.
-        if (back === "gone" && !gone.has(cardId)) given.splice(given.indexOf(last), 1);
+        if (back === "gone" && !gone.has(cardId)) drop(last);
         else for (const g of given) if (g.shown.card.id === cardId) g.settled = true;
         if (!current) return set({});
         say(UNDO_GONE);
         set({ undoing: false });
         return;
       }
-      given.splice(given.indexOf(last), 1);
+      drop(last);
       if (!current) return set({});
       failed = undefined;
       // The re-rated Review's time is the undone one's plus the time since.

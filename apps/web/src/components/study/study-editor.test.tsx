@@ -134,6 +134,8 @@ async function tryLeaving(history: RouterHistory) {
 
 /** The foot's Cancel, not the top bar's ×, which is named Cancel too. */
 const footCancel = () => screen.getByText("Cancel", { selector: "button" });
+/** The panel header's ×. */
+const headerCancel = () => screen.getByTitle("Cancel (Esc)");
 /** The Reset progress checkbox. */
 function resetBox(): HTMLInputElement {
   const box = screen.getByRole("checkbox");
@@ -462,6 +464,7 @@ describe("StudyEditor", () => {
         expect(screen.getByRole("button", { name }).hasAttribute("disabled")).toBe(true);
       }
       expect(footCancel().hasAttribute("disabled")).toBe(true);
+      expect(headerCancel().hasAttribute("disabled")).toBe(true);
       expect(resetBox().disabled).toBe(true);
       press(document.body, "Escape");
       act(() => ref.current?.cancel());
@@ -568,6 +571,7 @@ describe("StudyEditor", () => {
         expect(screen.getByRole("button", { name }).hasAttribute("disabled")).toBe(true);
       }
       expect(footCancel().hasAttribute("disabled")).toBe(true);
+      expect(headerCancel().hasAttribute("disabled")).toBe(true);
       expect(resetBox().disabled).toBe(true);
       press(document.body, "Escape");
       expect(session.cancelEdit).not.toHaveBeenCalled();

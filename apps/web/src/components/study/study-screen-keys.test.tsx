@@ -171,6 +171,22 @@ describe("the study screen's Edit", () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(document.querySelector("[data-study-editor]")).toBeNull();
   });
+  test("a click leaves no focus on it, so Space then reveals once the editor closes", async () => {
+    renderScreen();
+    await screen.findByText("el desayuno");
+
+    // fireEvent answers false when the default was prevented: no focus moves.
+    expect(fireEvent.mouseDown(edit())).toBe(false);
+    fireEvent.click(edit());
+    await waitFor(() =>
+      expect(document.querySelector("[data-study-editor] .cm-content")).not.toBeNull(),
+    );
+    fireEvent.click(screen.getByText("Cancel", { selector: "button" }));
+    await waitFor(() => expect(document.querySelector("[data-study-editor]")).toBeNull());
+
+    fireEvent.keyDown(document.body, { key: " " });
+    expect(await screen.findByText("breakfast")).toBeTruthy();
+  });
 });
 
 describe("the study screen's ×", () => {

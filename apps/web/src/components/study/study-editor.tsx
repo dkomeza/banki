@@ -277,6 +277,7 @@ export function StudyEditor({
             className="size-11 rounded-full lg:size-9"
             aria-label="Cancel"
             title="Cancel (Esc)"
+            disabled={pending}
             onClick={cancel}
           >
             <X aria-hidden className="size-5" />

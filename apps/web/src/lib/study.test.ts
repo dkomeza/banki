@@ -119,6 +119,8 @@ const next = (id: string, kind: QueueKind = "new"): NextCard => ({
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
+type UndoAnswer = Awaited<ReturnType<StudyApi["undo"]>>;
+
 /** A promise the test answers when it likes. */
 function deferred<T>() {
   const box: { resolve?: (value: T) => void } = {};
@@ -1812,6 +1814,36 @@ describe("after a Progress reset", () => {
     expect(t.state().shown?.intervals).toEqual(intervals("a-fresh"));
     expect(t.state()).toMatchObject({ progressReset: true, turning: false });
   });
+
+  test("an Undo from the reset Card drops Back to New and the turnover with it", async () => {
+    const t = setUp([next("b", "review"), next("a", "review")]);
+    await t.session.start();
+    await revealAndRate(t, "good");
+    t.session.edit();
+    await t.session.saveEdit(edited("a", "a"), { progressReset: true });
+    expect(t.state()).toMatchObject({ progressReset: true, turning: true });
+
+    await t.session.undo();
+
+    expect(t.shownId()).toBe("b");
+    expect(t.state()).toMatchObject({ progressReset: false, turning: false });
+  });
+
+  test("an Undo from the reset Card whose previews failed drops Back to New and the failure", async () => {
+    const t = setUp([next("b", "review"), next("a", "review")]);
+    await t.session.start();
+    await revealAndRate(t, "good");
+    t.session.edit();
+    t.fail.intervals = true;
+    await t.session.saveEdit(edited("a", "a"), { progressReset: true });
+    expect(t.state()).toMatchObject({ progressReset: true, failure: INTERVALS_FAILED });
+
+    await t.session.undo();
+
+    expect(t.shownId()).toBe("b");
+    expect(t.state()).toMatchObject({ progressReset: false, turning: false, failure: undefined });
+    expect(t.state().ratable).toBe(true);
+  });
 });
 
 describe("editing while a Rating didn't save", () => {
@@ -2011,6 +2043,58 @@ describe("a stopped Session", () => {
     t.session.retry();
     await flush();
     expect(t.shownId()).toBe("c");
+  });
+  test("an Undo sent again after a restart, answered gone, takes back no other Rating", async () => {
+    const t = setUp([next("a"), next("b"), next("c"), next("d")]);
+    await t.session.start();
+    await revealAndRate(t, "good");
+    await revealAndRate(t, "good");
+    const answers = [deferred<UndoAnswer>(), deferred<UndoAnswer>()];
+    t.api.undo = (reviewId) => {
+      t.calls.undo.push(reviewId);
+      return answers[t.calls.undo.length - 1]!.promise;
+    };
+    void t.session.undo();
+    t.session.stop();
+    await t.session.start();
+    void t.session.undo();
+    expect(t.calls.undo).toEqual(["r2", "r2"]);
+
+    answers[0]!.resolve({ card: card("b"), intervals: intervals("b-undone") });
+    answers[1]!.resolve("gone");
+    await flush();
+
+    // a's Rating still stands, so Undo takes it back next.
+    t.api.undo = async (reviewId) => {
+      t.calls.undo.push(reviewId);
+      return { card: card("a"), intervals: intervals("a-undone") };
+    };
+    await t.session.undo();
+    expect(t.calls.undo).toEqual(["r2", "r2", "r1"]);
+    expect(t.shownId()).toBe("a");
+  });
+
+  test("started again before a Save's closing frame, the old Card doesn't come back over the new one", async () => {
+    const later: (() => void)[] = [];
+    const server = fakeApi([next("a"), next("b")]);
+    const session = createStudySession({
+      studyApi: server.api,
+      notify: () => {},
+      now: () => NOW,
+      transition: (update) => later.push(update),
+    });
+    await session.start();
+    session.edit();
+    for (const update of later.splice(0)) update();
+    await session.saveEdit(edited("a", "a2"), { progressReset: false });
+    session.stop();
+    await session.start();
+    expect(session.getState().shown?.card.id).toBe("b");
+
+    for (const update of later.splice(0)) update();
+
+    expect(session.getState().shown?.card.id).toBe("b");
+    expect(session.getState().editing).toBe(false);
   });
 });
 
