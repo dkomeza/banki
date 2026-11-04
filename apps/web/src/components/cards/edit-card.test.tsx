@@ -385,7 +385,14 @@ describe("The edit page's discard guard", () => {
   });
 
   test("with nothing unsaved, holds the page while a Delete is on its way, but for the sign-in redirect", async () => {
-    stubApi((method) => (method === "DELETE" ? new Promise<Response>(() => {}) : json([])));
+    let answer: ((res: Response) => void) | undefined;
+    stubApi((method) =>
+      method === "DELETE"
+        ? new Promise<Response>((resolve) => {
+            answer = resolve;
+          })
+        : json([]),
+    );
     const { router } = await renderPage(card(true));
     fireEvent.click(button("Delete"));
     await waitFor(() => expect(button("Cancel").hasAttribute("disabled")).toBe(true));
@@ -408,6 +415,13 @@ describe("The edit page's discard guard", () => {
 
     await screen.findByText("The sign-in page");
     expect(discardAsked()).toBeNull();
+
+    // The Delete went through in time: its answer leaves the User on the sign-in page.
+    await act(async () => {
+      answer?.(json({ deletionId: "del1" }));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(router.state.location.pathname).toBe("/login");
   });
 
   test("a ticked Reset progress alone counts as unsaved: Keep editing stays, Discard leaves", async () => {

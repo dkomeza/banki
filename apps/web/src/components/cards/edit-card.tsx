@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Trash2 } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FormError } from "@/components/auth-card";
 import { CardEditor, useCardForm } from "@/components/cards/card-editor";
 import { deleteWithUndo } from "@/components/cards/card-toasts";
@@ -67,12 +67,23 @@ export function EditCard({ deck, card }: { deck: Deck; card: Card }) {
   // A refetch that finds the Card New takes the row away, and its tick with it,
   // so it never comes back ticked.
   if (reset && !card.studied && savingFrom === undefined) setReset(false);
-  const toDeck = () =>
-    navigate({
+  // Left meanwhile (the sign-in redirect lets itself through a Save or a
+  // Delete on its way), an answer that lands after stays where the User is.
+  const left = useRef(false);
+  useEffect(() => {
+    left.current = false;
+    return () => {
+      left.current = true;
+    };
+  }, []);
+  const toDeck = async () => {
+    if (left.current) return;
+    await navigate({
       to: "/decks/$deckId",
       params: { deckId: deck.id },
       search: rememberedDeckSearch(deck.id),
     });
+  };
 
   const save = async () => {
     if (pending.current) return;
