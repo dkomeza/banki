@@ -474,7 +474,7 @@ const TAGS: Readonly<Record<string, readonly string[]>> = {
  * seed time, so a fresh Preview has studied Cards (the Reset progress row, and
  * Back to New after a Progress reset) without rating anything first. el
  * desayuno graduated three days ago and lapsed two hours ago, so it is in its
- * relearning step and Spanish vocabulary's Session shows it first; la cuenta
+ * learning steps again and Spanish vocabulary's Session shows it first; la cuenta
  * graduated four days ago and is due again; and the edit-card page's Card
  * (`SEED_IDS.card`) took its first Rating nine hours ago. Written through the
  * repository in this order, so they take their places in the Write order.
@@ -485,8 +485,8 @@ const REVIEWS: readonly { cardId: string; hoursAgo: number; rating: Rating; dura
     { cardId: spanish[1], hoursAgo: 99.8, rating: "good", durationMs: 3_100 },
     { cardId: spanish[0], hoursAgo: 74, rating: "good", durationMs: 5_200 },
     { cardId: spanish[0], hoursAgo: 73.8, rating: "good", durationMs: 2_700 },
-    { cardId: spanish[0], hoursAgo: 2, rating: "again", durationMs: 9_800 },
     { cardId: calculus2[9], hoursAgo: 9, rating: "good", durationMs: 41_000 },
+    { cardId: spanish[0], hoursAgo: 2, rating: "again", durationMs: 9_800 },
   ];
 
 /** The fixed ID of the Seed data's `n`th Review. */

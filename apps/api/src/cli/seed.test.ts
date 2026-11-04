@@ -1,3 +1,4 @@
+import { Database as SQLite } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -444,6 +445,21 @@ describe("banki seed's Reviews", () => {
     expect(next?.card.id).toBe(spanish[0]);
     expect(next?.kind).toBe("learning");
     expect(next?.schedule.lapses).toBe(1);
+  });
+
+  test("take their places in the Write order oldest first", async () => {
+    await setup();
+    await seed();
+
+    const sqlite = new SQLite(join(dataDir(), "banki.db"), { readonly: true });
+    const moments = sqlite
+      .query<{ reviewed_at: number }, []>("SELECT reviewed_at FROM review ORDER BY seq")
+      .all()
+      .map((r) => r.reviewed_at);
+    sqlite.close();
+
+    expect(moments.length).toBeGreaterThan(1);
+    expect(moments).toEqual(moments.toSorted((a, b) => a - b));
   });
 });
 
