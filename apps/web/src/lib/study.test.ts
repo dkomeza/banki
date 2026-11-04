@@ -2165,6 +2165,14 @@ function opening(queue: NextCard[]) {
       cards.resolve();
       await flush();
     },
+    /** What makes the Cards the latest press waits on arrive, kept for later. */
+    pending: () => {
+      const waited = cards;
+      return async () => {
+        waited.resolve();
+        await flush();
+      };
+    },
     /** The Cards fail to load, for the next press. */
     failing: () => {
       cards = { promise: Promise.reject(new Error("offline")), resolve: () => {} };
@@ -2281,7 +2289,7 @@ describe("opening the editor once the Deck's Cards are in", () => {
     const t = opening([next("a")]);
     await t.session.start();
     t.opener.open();
-    const first = t.load;
+    const first = t.pending();
     t.cached();
     t.opener.open();
     await flush();
