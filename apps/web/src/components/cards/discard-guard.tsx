@@ -33,15 +33,19 @@ export function useDiscardGuard(unsaved: boolean, holding = false) {
     enableBeforeUnload: () => guarded.current || held.current,
     withResolver: true,
   });
-  const staying = blocker.status === "blocked" && holding && blocker.next?.pathname !== SIGN_IN;
+  const action =
+    blocker.status === "blocked"
+      ? blockedAction({ holding, unsaved, toSignIn: blocker.next?.pathname === SIGN_IN })
+      : undefined;
   useEffect(() => {
-    if (staying) blocker.reset?.();
-  }, [staying, blocker]);
+    if (action === "stay") blocker.reset?.();
+    if (action === "go") blocker.proceed?.();
+  }, [action, blocker]);
 
   return {
     dialog: (
       <DiscardDialog
-        open={blocker.status === "blocked" && !staying}
+        open={action === "ask"}
         onKeep={() => blocker.reset?.()}
         onDiscard={() => blocker.proceed?.()}
       />
@@ -51,6 +55,25 @@ export function useDiscardGuard(unsaved: boolean, holding = false) {
       held.current = false;
     },
   };
+}
+
+/**
+ * What a navigation the guard blocked does, as the page now renders: held
+ * by a save or a delete on its way, it stays, unasked (but for the sign-in
+ * page); with something unsaved, it asks; with nothing (the hold that blocked
+ * it ended meanwhile), it goes.
+ */
+export function blockedAction({
+  holding,
+  unsaved,
+  toSignIn,
+}: {
+  holding: boolean;
+  unsaved: boolean;
+  toSignIn: boolean;
+}): "stay" | "ask" | "go" {
+  if (holding && !toSignIn) return "stay";
+  return unsaved ? "ask" : "go";
 }
 
 /** "Discard changes?", with Keep editing and Discard. */
