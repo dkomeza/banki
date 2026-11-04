@@ -245,6 +245,19 @@ describe("rate", () => {
 
     expect(userHasContent(opened.db, USER)).toBe(true);
   });
+
+  test("a Progress reset makes the User's content, for `banki seed`, and only theirs", () => {
+    const cardId = write(deckNamed("Spanish"));
+    give(cardId, "good", START);
+    expect(resetProgress(opened.db, USER, cardId, START)).toBe(true);
+    // Gone from every other table, its Review's too, the Progress reset still counts.
+    opened.db.run(sql`DELETE FROM review`);
+    opened.db.run(sql`DELETE FROM card`);
+    opened.db.run(sql`DELETE FROM deck`);
+
+    expect(userHasContent(opened.db, USER)).toBe(true);
+    expect(userHasContent(opened.db, OTHER)).toBe(false);
+  });
 });
 
 /** A Deck with a new Card, a learning Card and a Card past its learning steps. */
