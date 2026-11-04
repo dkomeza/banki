@@ -100,7 +100,9 @@ export function EditCard({ deck, card }: { deck: Deck; card: Card }) {
         (options) => updateCard(queryClient, card.id, form.fields, nextTags, options),
         async () => {
           guard.release();
-          await toDeck();
+          // Saved, the page stays as it is if going back fails: its links
+          // still go back, and nothing asks about what was saved.
+          await toDeck().catch(() => undefined);
         },
       );
     } finally {

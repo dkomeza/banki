@@ -191,6 +191,25 @@ describe("The edit page's Reset progress", () => {
     expect(discardAsked()).toBeNull();
   });
 
+  test("saved, a navigation back that fails leaves the page as saved, asking nothing", async () => {
+    const sent = stubApi((method) =>
+      method === "PATCH" ? json({ ...card(true), studied: false }) : json([]),
+    );
+    const { router } = await renderPage(card(true));
+    fireEvent.click(resetBox());
+    vi.spyOn(router, "navigate").mockRejectedValueOnce(new Error("navigation failed"));
+
+    fireEvent.click(button("Save"));
+
+    await waitFor(() => expect(sent).toHaveLength(1));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Saved: Save stays done, and the box doesn't come back to save again.
+    expect(button("Save").hasAttribute("disabled")).toBe(true);
+    expect(resetBox().disabled).toBe(true);
+    expect(router.state.location.pathname).toBe("/cards/c1");
+    expect(discardAsked()).toBeNull();
+  });
+
   test("unticked, Save sends no reset", async () => {
     const sent = stubApi((method) => (method === "PATCH" ? json(card(true)) : json([])));
     await renderPage(card(true));
