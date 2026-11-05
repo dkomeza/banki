@@ -9,6 +9,16 @@ import { OUTLINE_PILL, PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { morph } from "@/components/study/morph";
+import { answerProto, useAnswerProto, type AnswerProto } from "@/components/study/answer-proto";
+import {
+  DockSwitch,
+  DockWrite,
+  DontKnowDock,
+  RevealedBody,
+  TopBarSwitch,
+  UnderFront,
+  type AnswerActions,
+} from "@/components/study/answer-views";
 import {
   EditButton,
   ResetNote,
@@ -137,6 +147,7 @@ export function StudyScreen({ deck }: { deck: Deck }) {
     return () => opener.stop();
   }, [opener]);
   const openEditor = opener.open;
+  const [proto, answer] = useAnswerProto(session, state);
 
   // Desktop keys: Space / Enter reveal, 1–4 rate, E edits, Ctrl/⌘+Z undoes,
   // Esc leaves. While the editor is open, they are its own.
@@ -159,6 +170,24 @@ export function StudyScreen({ deck }: { deck: Deck }) {
       const target = event.target instanceof Element ? event.target : null;
       if (target?.closest("input, textarea, select, [contenteditable]")) return;
       const { phase, revealed, editing } = session.getState();
+      // PROTOTYPE: in write-and-grade nothing reveals but Check and I don't know;
+      // after I don't know, Enter or Space press Next and 1–4 do nothing.
+      const { mode, step } = answerProto.get();
+      if (phase === "card" && !editing && step === "dont-know" && revealed) {
+        if (event.key === "Enter" || event.key === " ") {
+          if (target?.closest("a, button")) return;
+          event.preventDefault();
+          answer.next();
+          return;
+        }
+        if (["1", "2", "3", "4"].includes(event.key)) return;
+      }
+      if (phase === "card" && !editing && mode === "write" && !revealed) {
+        if (event.key === "Enter" || event.key === " ") {
+          if (!target?.closest("a, button")) event.preventDefault();
+          return;
+        }
+      }
       const action = keyAction(event, {
         showing: phase === "card",
         revealed,
@@ -206,7 +235,7 @@ export function StudyScreen({ deck }: { deck: Deck }) {
       document.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", onBlur);
     };
-  }, [session, navigate, deck.id, openEditor]);
+  }, [session, navigate, deck.id, openEditor, answer]);
 
   return (
     <div className="flex min-h-svh flex-col pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] [--toast-bottom:calc(7.5rem+env(safe-area-inset-bottom))]">
@@ -216,10 +245,12 @@ export function StudyScreen({ deck }: { deck: Deck }) {
         onUndo={() => void session.undo()}
         onEdit={openEditor}
         onLeave={() => leaveOrCancelEdit(session, editor.current)}
+        proto={proto}
+        answer={answer}
       />
       <main className="flex flex-1 flex-col">
         {state.phase === "card" ? (
-          <CardView session={session} state={state} />
+          <CardView session={session} state={state} proto={proto} answer={answer} />
         ) : state.phase === "loading" ? null : (state.phase === "done" ||
             state.phase === "left" ||
             state.phase === "ended") &&
@@ -245,7 +276,9 @@ export function StudyScreen({ deck }: { deck: Deck }) {
           />
         )}
       </main>
-      {state.phase === "card" && session !== undefined && <Dock session={session} state={state} />}
+      {state.phase === "card" && session !== undefined && (
+        <Dock session={session} state={state} proto={proto} answer={answer} />
+      )}
       {state.editing && state.shown !== undefined && (
         <StudyEditor
           ref={editor}
@@ -267,11 +300,15 @@ function TopBar({
   onUndo,
   onEdit,
   onLeave,
+  proto,
+  answer,
 }: {
   deck: Deck;
   state: StudyState;
   onUndo: () => void;
   onEdit: () => void;
+  proto: AnswerProto;
+  answer: AnswerActions;
   /** Leaving: "away" to the deck page, else something else shows, or nothing happens. */
   onLeave: () => "summary" | "away" | "stay";
 }) {
@@ -305,6 +342,7 @@ function TopBar({
         {deck.name}
       </span>
       <div className="flex items-center justify-end gap-1 sm:gap-2">
+        {state.phase === "card" && <TopBarSwitch state={state} proto={proto} answer={answer} />}
         {state.phase === "card" && (
           // Open, it stays as it was: the editor it opened is in front.
           <EditButton disabled={!state.editable && !state.editing} onClick={onEdit} />
@@ -343,13 +381,24 @@ function TopBar({
   );
 }
 
-function CardView({ session, state }: { session: StudySession; state: StudyState }) {
+function CardView({
+  session,
+  state,
+  proto,
+  answer,
+}: {
+  session: StudySession;
+  state: StudyState;
+  proto: AnswerProto;
+  answer: AnswerActions;
+}) {
+  const writing = proto.mode === "write" && !state.revealed;
   const card = state.shown?.card;
   if (card === undefined) return null;
   const onClick = (event: MouseEvent) => {
     if (!(event.target instanceof Element)) return;
     const action = cardClickAction(event.target, { revealed: state.revealed });
-    if (action.type === "reveal") session.reveal();
+    if (action.type === "reveal" && !writing) session.reveal();
     if (action.type === "copy") {
       void copyFormula(action.source, {
         clipboard: globalThis.navigator.clipboard,
@@ -363,7 +412,7 @@ function CardView({ session, state }: { session: StudySession; state: StudyState
       onClick={onClick}
       className={cn(
         "mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 pt-6 pb-10 sm:px-10 lg:pt-12",
-        !state.revealed && "cursor-pointer",
+        !state.revealed && !writing && "cursor-pointer",
         // From 1024 px the preview beside the editor is the Card, moved there.
         state.editing && "lg:invisible lg:**:[view-transition-name:none]!",
         // A Formula shows it can be copied: the pointer, and a dashed outline on hover.
@@ -383,26 +432,25 @@ function CardView({ session, state }: { session: StudySession; state: StudyState
         )}
       />
       {state.revealed ? (
-        <>
-          <div
-            aria-hidden
-            className="my-6 h-px w-16 bg-border [view-transition-name:card-rule] lg:my-8"
-          />
-          <CardText
-            key={`${card.id}-back`}
-            text={card.back}
-            interactive
-            className="text-lg leading-relaxed [view-transition-name:card-back] lg:text-xl"
-          />
-        </>
+        <RevealedBody card={card} state={state} proto={proto} />
       ) : (
-        <p className="mt-8 text-sm text-muted-foreground">Tap anywhere to reveal</p>
+        <UnderFront state={state} proto={proto} answer={answer} />
       )}
     </div>
   );
 }
 
-export function Dock({ session, state }: { session: StudySession; state: StudyState }) {
+export function Dock({
+  session,
+  state,
+  proto,
+  answer,
+}: {
+  session: StudySession;
+  state: StudyState;
+  proto?: AnswerProto;
+  answer?: AnswerActions;
+}) {
   const intervals = state.shown?.intervals;
   return (
     <div
@@ -437,7 +485,20 @@ export function Dock({ session, state }: { session: StudySession; state: StudySt
             </Button>
           </div>
         )}
-        {state.revealed ? (
+        {proto !== undefined && answer !== undefined && !state.revealed && (
+          <DockSwitch state={state} proto={proto} answer={answer} />
+        )}
+        {proto !== undefined &&
+        answer !== undefined &&
+        state.revealed &&
+        proto.step === "dont-know" ? (
+          <DontKnowDock state={state} answer={answer} />
+        ) : proto !== undefined &&
+          answer !== undefined &&
+          !state.revealed &&
+          proto.mode === "write" ? (
+          <DockWrite state={state} proto={proto} answer={answer} />
+        ) : state.revealed ? (
           <div className="grid grid-cols-4 overflow-hidden rounded-2xl border bg-card">
             {RATINGS.map((rating, i) => (
               <button
