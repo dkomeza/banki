@@ -95,12 +95,19 @@ export { ApiError } from "./error";
 export {
   effectiveMacros,
   expandMacros,
+  expandMacrosMapped,
   Macro,
+  type MappedText,
+  mappedBuilder,
   MACRO_DEFINITION_MAX_LENGTH,
   macroArity,
   MacroList,
   MACROS_MAX,
+  type SourcePiece,
+  sourceRange,
+  unmapped,
 } from "./macros";
+export { GradeRequest, GradeResponse, TextRange, WRITTEN_ANSWER_MAX_LENGTH } from "./grading";
 export { frontKey } from "./front-key";
 export { HealthResponse } from "./health";
 export {

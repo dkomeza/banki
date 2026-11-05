@@ -991,6 +991,20 @@ The Broker logs every token it mints or revokes, by ID, never the token itself:
 docker compose -f deploy/runner/compose.yaml logs broker
 ```
 
+## The Grader's eval
+
+The Grader (`apps/api/src/grader/`) is checked against the real OpenRouter by an eval, never by a test: every test stubs OpenRouter. `apps/api/src/grader/eval/samples.ts` holds about ten Cards with a Written answer each and the Rating it should get (an equivalent form, a lost minus sign in a derivation, a Polish answer, a Card with an Image, a Grading note's "must", a blank-ish answer, a flawless one, and a few more). The eval grades every sample with every curated Model and prints a table of each Model's Rating beside the expected one, marking with ⚠ a Rating two or more steps off.
+
+Run it from the repo root with an OpenRouter key of your own; it spends a little of its credit:
+
+```sh
+OPENROUTER_API_KEY=sk-or-v1-… bun run --cwd apps/api grader:eval
+```
+
+It fails (exit code 1) when the default Model is two or more steps off on any sample; the other Models' results are for reading only, and a sample a Model failed to grade shows as `failed` without failing it. With no `OPENROUTER_API_KEY` it skips with a note.
+
+The `Grader eval` workflow runs it on pull requests that change `apps/api/src/grader/**` or the Model list (`packages/shared/src/models.ts`), weekly on Mondays, and by hand (Actions → Grader eval → Run workflow), with the table in the job summary. It reads the key from the `OPENROUTER_API_KEY` repository secret, which the Maintainer adds (Settings → Secrets and variables → Actions); without it (before it is added, on Dependabot's pull requests and on forks) the job skips with a note and passes.
+
 ## Database migrations
 
 The schema lives in `apps/api/src/db/schema.ts`, and the migrations drizzle-kit generates from it live in `apps/api/drizzle/` (SQL files plus `meta/`, all committed). To change the schema:

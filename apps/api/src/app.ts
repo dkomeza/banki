@@ -27,6 +27,7 @@ import { cardRoutes, deckCardRoutes } from "./routes/cards";
 import { deckRoutes } from "./routes/decks";
 import { deletionRoutes } from "./routes/deletions";
 import { folderRoutes } from "./routes/folders";
+import { gradeRoutes } from "./routes/grade";
 import { healthRoutes } from "./routes/health";
 import { imageRoutes } from "./routes/images";
 import { meRoutes } from "./routes/me";
@@ -131,6 +132,7 @@ export function createApp(
     .route("/api/decks", deckCardRoutes({ cards }))
     .route("/api/decks", studyRoutes({ study }))
     .route("/api/cards", cardRoutes({ cards, reviews, study }))
+    .route("/api/cards", gradeRoutes({ cards, decks, settings, images, openRouterFetch }))
     .route("/api/reviews", reviewRoutes({ study }))
     .route("/api/tags", tagRoutes({ cards }))
     .route("/api/folders", folderRoutes({ folders }))
