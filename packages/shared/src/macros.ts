@@ -132,37 +132,157 @@ function ownNames(tokens: readonly string[]): Set<string> {
 
 /**
  * The argument starting at `at` in `tokens` (after any spaces): a brace
- * group's tokens without its braces, or one token. Null when there is none: the
+ * group's tokens without its braces (`start` to `stop`), or one token, and
+ * where it ends. Null when there is none: the
  * group ends at `}`, or a brace group never closes.
  */
 function readArgument(
-  tokens: readonly string[],
+  tokens: readonly Token[],
   at: number,
-): { tokens: string[]; end: number } | null {
+): { start: number; stop: number; end: number } | null {
   let i = at;
-  while (isSpace(tokens[i] ?? "")) i++;
-  const first = tokens[i];
+  while (isSpace(tokens[i]?.text ?? "")) i++;
+  const first = tokens[i]?.text;
   if (first === undefined || first === "}") return null;
-  if (first !== "{") return { tokens: [first], end: i + 1 };
+  if (first !== "{") return { start: i, stop: i + 1, end: i + 1 };
   let depth = 0;
   for (let j = i; j < tokens.length; j++) {
-    if (tokens[j] === "{") depth++;
-    else if (tokens[j] === "}") depth--;
-    if (depth === 0) return { tokens: tokens.slice(i + 1, j), end: j + 1 };
+    if (tokens[j]?.text === "{") depth++;
+    else if (tokens[j]?.text === "}") depth--;
+    if (depth === 0) return { start: i + 1, stop: j, end: j + 1 };
   }
   return null;
 }
 
+/**
+ * Where a span of an expanded text came from in the text as written: `from`
+ * to `to` in the output, from `source.from` to `source.to` in the input.
+ * An `exact` piece is copied character for character, so part of it maps to
+ * the same part of its source; any other piece is a Macro's expansion (or a
+ * space put in beside it), and all of it maps to the whole Macro as written.
+ */
+export type SourcePiece = {
+  from: number;
+  to: number;
+  source: { from: number; to: number };
+  exact: boolean;
+};
+
+/** A text, and where each piece of it came from: {@link expandMacrosMapped}'s output. */
+export type MappedText = { text: string; pieces: SourcePiece[] };
+
+/** A text mapped to itself, character for character. */
+export const unmapped = (text: string, offset = 0): MappedText => ({
+  text,
+  pieces:
+    text === ""
+      ? []
+      : [
+          {
+            from: 0,
+            to: text.length,
+            source: { from: offset, to: offset + text.length },
+            exact: true,
+          },
+        ],
+});
+
+/**
+ * The range of the text as written that `from` to `to` in `mapped.text` came
+ * from: exact pieces map character for character, and a range over any part
+ * of a Macro's expansion widens to the whole Macro. Undefined when nothing in
+ * the range came from anywhere (an empty range, or one only over inserted
+ * spaces).
+ */
+export function sourceRange(
+  mapped: MappedText,
+  from: number,
+  to: number,
+): { from: number; to: number } | undefined {
+  let start = Infinity;
+  let end = -Infinity;
+  for (const piece of mapped.pieces) {
+    if (piece.to <= from || piece.from >= to) continue;
+    const range = piece.exact
+      ? {
+          from: piece.source.from + Math.max(from, piece.from) - piece.from,
+          to: piece.source.from + Math.min(to, piece.to) - piece.from,
+        }
+      : piece.source;
+    if (range.to <= range.from) continue;
+    start = Math.min(start, range.from);
+    end = Math.max(end, range.to);
+  }
+  return end > start ? { from: start, to: end } : undefined;
+}
+
+/** Appends `piece` to `pieces`, joining it to the last one when both are exact and run on. */
+function pushPiece(pieces: SourcePiece[], piece: SourcePiece): void {
+  if (piece.to <= piece.from) return;
+  const last = pieces.at(-1);
+  if (
+    last !== undefined &&
+    last.exact &&
+    piece.exact &&
+    last.to === piece.from &&
+    last.source.to === piece.source.from
+  ) {
+    last.to = piece.to;
+    last.source.to = piece.source.to;
+    return;
+  }
+  pieces.push({ ...piece, source: { ...piece.source } });
+}
+
+/** Builds a {@link MappedText} out of spans, each with the source it came from. */
+export function mappedBuilder() {
+  let text = "";
+  const pieces: SourcePiece[] = [];
+  return {
+    /** Appends `span`, all of it from `source` (character for character when `exact`). */
+    push(span: string, source: { from: number; to: number }, exact: boolean) {
+      pushPiece(pieces, { from: text.length, to: text.length + span.length, source, exact });
+      text += span;
+    },
+    /** Appends `from` to `to` of `mapped`, keeping where each part of it came from. */
+    pushSlice(mapped: MappedText, from: number, to: number) {
+      for (const piece of mapped.pieces) {
+        const start = Math.max(from, piece.from);
+        const end = Math.min(to, piece.to);
+        if (end <= start) continue;
+        const source = piece.exact
+          ? {
+              from: piece.source.from + start - piece.from,
+              to: piece.source.from + end - piece.from,
+            }
+          : piece.source;
+        pushPiece(pieces, {
+          from: text.length + start - from,
+          to: text.length + end - from,
+          source,
+          exact: piece.exact,
+        });
+      }
+      text += mapped.text.slice(from, to);
+    },
+    done: (): MappedText => ({ text, pieces }),
+  };
+}
+
+/** A token of a Formula, and where in the side it came from (see {@link SourcePiece}). */
+type Token = { text: string; from: number; to: number; exact: boolean };
+
 /** A Macro's definition with its arguments put in for `#1`…`#9`, and `#` for `##`. */
-function substitute(definition: readonly string[], args: readonly string[][]): string[] {
-  const out: string[] = [];
+function substitute(definition: readonly Token[], args: readonly Token[][]): Token[] {
+  const out: Token[] = [];
   for (let i = 0; i < definition.length; i++) {
-    const token = definition[i] ?? "";
-    const next = definition[i + 1] ?? "";
-    if (token === "#" && next === "#") {
-      out.push("#");
+    const token = definition[i];
+    if (token === undefined) continue;
+    const next = definition[i + 1]?.text ?? "";
+    if (token.text === "#" && next === "#") {
+      out.push(token);
       i++;
-    } else if (token === "#" && /^[1-9]$/.test(next)) {
+    } else if (token.text === "#" && /^[1-9]$/.test(next)) {
       out.push(...(args[Number(next) - 1] ?? []));
       i++;
     } else out.push(token);
@@ -171,38 +291,53 @@ function substitute(definition: readonly string[], args: readonly string[][]): s
 }
 
 /** Tokens joined back into source, with a space where a control word would run into a letter. */
-function untokenize(tokens: readonly string[]): string {
-  let out = "";
-  let last = "";
+function untokenize(tokens: readonly Token[], into: ReturnType<typeof mappedBuilder>): void {
+  let last: Token | undefined;
   for (const token of tokens) {
-    if (isControlWord(last) && /^[A-Za-z]/.test(token)) out += " ";
-    out += token;
+    if (last !== undefined && isControlWord(last.text) && /^[A-Za-z]/.test(token.text)) {
+      into.push(" ", { from: last.to, to: last.to }, false);
+    }
+    into.push(token.text, { from: token.from, to: token.to }, token.exact);
     last = token;
   }
-  return out;
 }
 
-/** One Formula's source with its Macros expanded, or as written past the expansion limit. */
-function expandFormula(source: string, macros: ReadonlyMap<string, Macro>): string {
-  let input = tokenize(source);
-  const own = ownNames(input);
-  const out: string[] = [];
+/**
+ * One Formula's source, at `offset` in its side, with its Macros expanded, or
+ * as written past the expansion limit, into `into`.
+ */
+function expandFormula(
+  source: string,
+  offset: number,
+  macros: ReadonlyMap<string, Macro>,
+  into: ReturnType<typeof mappedBuilder>,
+): void {
+  const asWritten = () => into.push(source, { from: offset, to: offset + source.length }, true);
+  let at = offset;
+  let input: Token[] = tokenize(source).map((text) => {
+    const token = { text, from: at, to: at + text.length, exact: true };
+    at += text.length;
+    return token;
+  });
+  const own = ownNames(input.map((token) => token.text));
+  const out: Token[] = [];
   let expansions = 0;
   let changed = false;
   for (let i = 0; i < input.length;) {
-    const token = input[i] ?? "";
-    const macro = own.has(token) ? undefined : macros.get(token);
+    const token = input[i];
+    if (token === undefined) break;
+    const macro = own.has(token.text) ? undefined : macros.get(token.text);
     if (macro === undefined) {
       out.push(token);
       i++;
       continue;
     }
-    const args: string[][] = [];
+    const args: Token[][] = [];
     let end = i + 1;
     for (let n = 0; n < macroArity(macro.definition); n++) {
       const arg = readArgument(input, end);
       if (arg === null) break;
-      args.push(arg.tokens);
+      args.push(input.slice(arg.start, arg.stop));
       end = arg.end;
     }
     if (args.length < macroArity(macro.definition)) {
@@ -212,12 +347,19 @@ function expandFormula(source: string, macros: ReadonlyMap<string, Macro>): stri
       continue;
     }
     expansions++;
-    if (expansions > MAX_EXPANSIONS) return source;
+    if (expansions > MAX_EXPANSIONS) return asWritten();
     changed = true;
-    input = [...substitute(tokenize(macro.definition), args), ...input.slice(end)];
+    const invoked = input.slice(i, end);
+    const span = {
+      from: Math.min(...invoked.map((t) => t.from)),
+      to: Math.max(...invoked.map((t) => t.to)),
+    };
+    const definition = tokenize(macro.definition).map((text) => ({ text, ...span, exact: false }));
+    input = [...substitute(definition, args), ...input.slice(end)];
     i = 0;
   }
-  return changed ? untokenize(out) : source;
+  if (changed) untokenize(out, into);
+  else asWritten();
 }
 
 /** The ranges of `side` that are Formulas' sources, between their delimiters. */
@@ -244,21 +386,32 @@ function formulaRanges(side: string): { from: number; to: number }[] {
 
 /**
  * A Card side with each Macro replaced inside its Formulas, as KaTeX would
- * read it, for the Grader (BAN-39), which has no KaTeX of its own. Text, code
+ * read it, for the Grader, which has no KaTeX of its own. Text, code
  * and `\$` stay as written. An argument is a brace group (its braces dropped)
  * or a single token; a Macro missing one stays as written. Macros inside
  * Macros expand too, up to 1,000 expansions per Formula, past which that
  * Formula stays as written. A Formula's own `\def` / `\newcommand` names are
  * left alone inside it.
  */
-export function expandMacros(side: string, macros: readonly Macro[]): string {
-  if (macros.length === 0) return side;
+export const expandMacros = (side: string, macros: readonly Macro[]): string =>
+  expandMacrosMapped(side, macros).text;
+
+/**
+ * {@link expandMacros}' output, and where each piece of it came from in
+ * `side`, so a range of the expanded text can be mapped back to the side as
+ * written ({@link sourceRange}). An argument's tokens map to themselves; the
+ * rest of a Macro's expansion maps to the whole Macro, arguments and all.
+ */
+export function expandMacrosMapped(side: string, macros: readonly Macro[]): MappedText {
+  if (macros.length === 0) return unmapped(side);
   const byName = new Map(macros.map((macro) => [macro.name, macro]));
-  let out = "";
+  const out = mappedBuilder();
   let pos = 0;
   for (const { from, to } of formulaRanges(side)) {
-    out += side.slice(pos, from) + expandFormula(side.slice(from, to), byName);
+    out.push(side.slice(pos, from), { from: pos, to: from }, true);
+    expandFormula(side.slice(from, to), from, byName, out);
     pos = to;
   }
-  return out + side.slice(pos);
+  out.push(side.slice(pos), { from: pos, to: side.length }, true);
+  return out.done();
 }

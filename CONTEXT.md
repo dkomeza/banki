@@ -184,6 +184,14 @@ _Avoid_: calendar day, date
 The LLM, reached through OpenRouter, that turns a written answer into a suggested rating with feedback. It only suggests: the User always confirms the rating.
 _Avoid_: AI, judge, provider
 
+**Feedback**:
+What the Grader says about a Written answer beside its suggested Rating: what was right, what was missing or wrong, down to the step where a derivation went wrong. It is in the Written answer's language, and never stored.
+_Avoid_: explanation, comment, verdict
+
+**Highlight**:
+A part of the Back that a Written answer is missing, or a part of the Written answer that is wrong, which the Feedback points at. It marks the text as the User wrote it, so a repeated phrase is never ambiguous.
+_Avoid_: annotation, mark, error
+
 **API key**:
 The User's OpenRouter key, which the Grader runs on and bills to. It is a Setting, but once stored it never leaves the server: Settings shows only its last four characters.
 _Avoid_: token, secret

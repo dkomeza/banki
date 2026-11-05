@@ -109,8 +109,8 @@ export function setInitialMacros(db: Queryable, userId: string, macros: Macro[])
 /**
  * The User's Settings. The API key is stored encrypted with `cipher` and
  * never leaves through {@link get}: the browser sees only whether it is set,
- * and its last four characters. Only {@link graderSettings}, which no route
- * calls, returns it decrypted.
+ * and its last four characters. Only {@link graderSettings} returns it
+ * decrypted, for the Grader's route to send to OpenRouter, never to answer.
  */
 export function createSettingsRepository(db: Queryable, cipher: ApiKeyCipher) {
   const apiKeyOf = (row: Row, userId: string): string | undefined =>
