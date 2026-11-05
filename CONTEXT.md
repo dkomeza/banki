@@ -81,15 +81,19 @@ The top of the folder tree, where Home lists what isn't in any Folder. It is not
 _Avoid_: top level, home folder
 
 **Session**:
-One sitting of studying one deck. It can be resumed, and it ends after a period of inactivity.
+One sitting of studying one Deck, in the browser it started in. Leaving it, finishing its Queue or closing the tab doesn't end it: studying the Deck again in that browser resumes it, at the Card it showed. Only the Session timeout ends it.
 _Avoid_: using "session" for being signed in
+
+**Session timeout**:
+How long a Session goes without activity before it ends, after which studying the Deck starts a new one. A Setting, 30 minutes unless the User changes it.
+_Avoid_: idle limit, session length
 
 **Rating**:
 How well the User recalled a Card: Again, Hard, Good or Easy. The User always gives it, by self-rating or by confirming the Grader's suggestion.
 _Avoid_: grade, score, ease
 
 **Review**:
-One Rating of one Card at one moment, with the time the User spent studying it (time spent editing it is left out) and whether it was self-rated or graded. Reviews, with the Card's Progress resets among them, are the Card's history: they are what FSRS learns from (since the Card's newest Progress reset), and they outlive the Card. Undoing a Rating takes its Review back as if it had never been given.
+One Rating of one Card at one moment, with the time the User spent studying it, at most 2 minutes (time spent editing it is left out), and whether it was self-rated or graded. Reviews, with the Card's Progress resets among them, are the Card's history: they are what FSRS learns from (since the Card's newest Progress reset), and they outlive the Card. Undoing a Rating takes its Review back as if it had never been given.
 _Avoid_: answer, attempt, repetition
 
 **Progress reset**:

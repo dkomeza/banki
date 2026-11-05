@@ -12,7 +12,7 @@ import { type ApiClient, api } from "./api";
 import { CANT_REACH, deckQueryOptions, decksQueryOptions } from "./decks";
 import { deletionIdOf, deletionsQueryOptions } from "./deletions";
 import { ApiRequestError } from "./query";
-import { studyOverviewQueryOptions } from "./study-overview";
+import { studyOverviewKey } from "./study-overview";
 import { tagsChanged } from "./tags";
 
 export type Card = CardResponse;
@@ -203,10 +203,8 @@ async function refreshDeck(queryClient: QueryClient, deckId: string) {
     queryClient.invalidateQueries({ queryKey: ["tags"], exact: true }),
     queryClient.invalidateQueries({ queryKey: cardsQueryOptions(deckId).queryKey, exact: true }),
     queryClient.invalidateQueries({ queryKey: deckQueryOptions(deckId).queryKey, exact: true }),
-    queryClient.invalidateQueries({
-      queryKey: studyOverviewQueryOptions(deckId).queryKey,
-      exact: true,
-    }),
+    // Each Session progress's overview of the Deck.
+    queryClient.invalidateQueries({ queryKey: studyOverviewKey(deckId) }),
     queryClient.invalidateQueries({ queryKey: decksQueryOptions().queryKey, exact: true }),
   ]);
 }

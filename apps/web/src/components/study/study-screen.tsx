@@ -20,6 +20,7 @@ import { Summary } from "@/components/study/summary";
 import { cardsQueryOptions } from "@/lib/cards";
 import type { Deck } from "@/lib/decks";
 import { moreOffer } from "@/lib/new-cards";
+import { sessionStore, timeoutMsOf } from "@/lib/session-store";
 import { settingsQueryOptions } from "@/lib/settings";
 import { tagsQueryOptions } from "@/lib/tags";
 import {
@@ -48,16 +49,62 @@ import { cn } from "@/lib/utils";
 // At the end of the Queue, or on leaving with a Rating standing, the summary
 // (Summary) takes the Card's place; Esc or × from there goes to the deck page.
 // Edit opens the editor over the Card (StudyEditor) without leaving the
-// Session.
+// Session. The Session is saved in the browser and resumes on the next visit
+// (ADR-0027); past its Session timeout, the summary says it ended.
 
-/** A Session over the Deck's Queue, started on mount and stopped on unmount. */
+/** How often a visible screen checks the Session timeout. */
+const TIMEOUT_CHECK_MS = 15_000;
+
+/**
+ * A Session over the Deck's Queue, saved in the browser, started (or
+ * resumed) on mount and stopped on unmount. Its timeout is the Settings', the
+ * default without them. It checks the timeout on focus, on becoming visible,
+ * and on a timer while visible, and saves the shown Card's time as the page
+ * hides.
+ */
 function useStudySession(deckId: string): [StudySession, StudyState] {
+  const queryClient = useQueryClient();
   const [session] = useState(() =>
-    createStudySession({ studyApi: studyApi(deckId), notify: (m) => toast(m), transition: morph }),
+    createStudySession({
+      studyApi: studyApi(deckId),
+      notify: (m) => toast(m),
+      transition: morph,
+      store: sessionStore(deckId),
+      timeoutMs: () =>
+        timeoutMsOf(
+          queryClient.getQueryData(settingsQueryOptions().queryKey)?.settings.sessionTimeoutMinutes,
+        ),
+    }),
   );
   useEffect(() => {
     void session.start();
     return () => session.stop();
+  }, [session]);
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const watch = () => {
+      clearInterval(timer);
+      timer = undefined;
+      if (document.visibilityState === "hidden") return;
+      session.checkTimeout();
+      timer = setInterval(() => session.checkTimeout(), TIMEOUT_CHECK_MS);
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") session.persist();
+      watch();
+    };
+    const onFocus = () => session.checkTimeout();
+    const onHide = () => session.persist();
+    watch();
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("pagehide", onHide);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("pagehide", onHide);
+    };
   }, [session]);
   return [session, useSyncExternalStore(session.subscribe, session.getState)];
 }
@@ -173,12 +220,17 @@ export function StudyScreen({ deck }: { deck: Deck }) {
       <main className="flex flex-1 flex-col">
         {state.phase === "card" ? (
           <CardView session={session} state={state} />
-        ) : state.phase === "loading" ? null : (state.phase === "done" || state.phase === "left") &&
+        ) : state.phase === "loading" ? null : (state.phase === "done" ||
+            state.phase === "left" ||
+            state.phase === "ended") &&
           state.summary.studied > 0 ? (
           <Summary
             deck={deck}
             summary={state.summary}
+            progress={session.overviewProgress()}
             left={state.phase === "left"}
+            endedAfterMs={state.phase === "ended" ? state.endedAfterMs : undefined}
+            onRestart={() => session.restart()}
             newHeld={state.newHeld}
             loadingMore={state.loadingMore}
             onMore={() => session.more()}

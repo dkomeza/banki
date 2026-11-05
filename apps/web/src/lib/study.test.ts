@@ -1,7 +1,9 @@
-import type { IntervalPreviews, QueueKind, Rating } from "@banki/shared";
+import { type IntervalPreviews, type QueueKind, REVIEW_CAP_MS, type Rating } from "@banki/shared";
 import { describe, expect, test, vi } from "vitest";
 import { createApiClient } from "./api";
 import type { Card, CardOutcome } from "./cards";
+import { memoryStorage } from "./memory-storage";
+import { clearStoredSessions, openProgress, sessionStore } from "./session-store";
 import {
   CARD_GONE,
   EDITOR_FAILED,
@@ -141,6 +143,7 @@ function fakeApi(queue: NextCard[]) {
     rate: [] as { cardId: string; rating: Rating; durationMs: number }[],
     undo: [] as string[],
     intervals: [] as string[],
+    card: [] as string[],
   };
   let reviews = 0;
   const fail = {
@@ -148,7 +151,10 @@ function fakeApi(queue: NextCard[]) {
     rate: false as boolean | "gone",
     undo: false as boolean | "gone" | "settled",
     intervals: false as boolean | "gone",
+    card: false as boolean,
   };
+  // The Cards deleted or moved to another Deck meanwhile: re-read, they are gone.
+  const missing = new Set<string>();
   const held = { count: 0 };
   const api: StudyApi = {
     next: async (progress) => {
@@ -179,8 +185,13 @@ function fakeApi(queue: NextCard[]) {
       if (fail.intervals) throw new Error("offline");
       return intervals(`${cardId}-fresh`);
     },
+    card: async (cardId) => {
+      calls.card.push(cardId);
+      if (fail.card) throw new Error("offline");
+      return missing.has(cardId) ? "gone" : card(cardId);
+    },
   };
-  return { api, calls, fail, held, queue };
+  return { api, calls, fail, held, queue, missing };
 }
 
 function setUp(queue: NextCard[]) {
@@ -2393,5 +2404,898 @@ describe("studyApi", () => {
     await expect(
       answering(INTERVALS_A, () => new Response(null, { status: 500 })).intervals("a"),
     ).rejects.toThrow();
+  });
+});
+
+const TIMEOUT = 30 * MINUTE;
+
+/**
+ * Sessions over one fake API and one fake storage, on one clock, as a browser
+ * would run them across reloads: `session` is the one open now, and `reload`
+ * stops it and opens the next, which resumes from the storage.
+ */
+function browsing(queue: NextCard[], storage = memoryStorage()) {
+  const server = fakeApi(queue);
+  const messages: string[] = [];
+  let time = NOW;
+  const timeout = { ms: TIMEOUT };
+  const open = () =>
+    createStudySession({
+      studyApi: server.api,
+      notify: (message) => messages.push(message),
+      now: () => time,
+      store: sessionStore("d1", storage),
+      timeoutMs: () => timeout.ms,
+    });
+  const t = {
+    ...server,
+    storage,
+    messages,
+    timeout,
+    session: open(),
+    state: () => t.session.getState(),
+    shownId: () => t.session.getState().shown?.card.id,
+    wait: (ms: number) => {
+      time += ms;
+    },
+    /** The stored Session, as the next reload reads it. */
+    stored: () => sessionStore("d1", storage).read(),
+    /** Closes the tab (or reloads it) and opens Study again. */
+    reload: async () => {
+      t.session.stop();
+      t.session = open();
+      await t.session.start();
+    },
+  };
+  return t;
+}
+
+/** Reveals and rates the Card shown in `t`'s open Session, waiting for the next one. */
+async function rateIn(t: ReturnType<typeof browsing>, rating: Rating) {
+  t.session.reveal();
+  t.session.rate(rating);
+  await flush();
+}
+
+describe("a saved Session", () => {
+  test("survives a restart: counters, seen Cards, standing Ratings and the shown Card, revealed, with its time", async () => {
+    const t = browsing([next("a", "review"), next("b", "new"), next("c", "new")]);
+    await t.session.start();
+    t.wait(3000);
+    await rateIn(t, "good");
+    t.session.reveal();
+    t.wait(5000);
+
+    await t.reload();
+
+    // Re-read, with fresh previews.
+    expect(t.calls.card).toEqual(["b"]);
+    expect(t.calls.intervals).toEqual(["b"]);
+    expect(t.state()).toMatchObject({
+      phase: "card",
+      revealed: true,
+      undone: false,
+      ratable: true,
+      rated: 1,
+      summary: { studied: 1, recall: { kept: 1, of: 1 } },
+    });
+    expect(t.state().shown).toEqual({
+      card: card("b"),
+      kind: "new",
+      intervals: intervals("b-fresh"),
+    });
+    t.wait(1000);
+    t.session.rate("easy");
+    await flush();
+    expect(t.calls.rate.map((rated) => rated.durationMs)).toEqual([3000, 6000]);
+    // The counters and `after` went on as they were: a and b counted once each.
+    expect(t.calls.next.at(-1)).toEqual({ reviewsShown: 1, newShown: 1, batches: 1, after: "b" });
+    expect(t.state().summary).toMatchObject({ studied: 2, newStudied: 1 });
+  });
+
+  test("stores IDs, counts and timings only, never a Card's content", async () => {
+    const t = browsing([next("a"), next("b")]);
+    await t.session.start();
+    await rateIn(t, "good");
+
+    const raw = t.storage.getItem("banki.session.d1") ?? "";
+    expect(raw).toContain('"b"');
+    expect(raw).not.toContain("front");
+    expect(raw).not.toContain("back");
+  });
+
+  test("keeps its batches", async () => {
+    const t = browsing([next("a", "new")]);
+    t.held.count = 5;
+    await t.session.start();
+    await rateIn(t, "good");
+    t.queue.push(next("b", "new"));
+    t.session.more();
+    await flush();
+    expect(t.shownId()).toBe("b");
+
+    await t.reload();
+    await rateIn(t, "good");
+
+    expect(t.calls.next.at(-1)).toMatchObject({ newShown: 2, batches: 2, after: "b" });
+  });
+
+  test("shows a Card back from an Undo as it was: revealed, to rate again, its time the undone one's plus the time since", async () => {
+    const t = browsing([next("a"), next("b")]);
+    await t.session.start();
+    t.wait(2000);
+    await rateIn(t, "again");
+    await t.session.undo();
+    t.wait(500);
+
+    await t.reload();
+    expect(t.shownId()).toBe("a");
+    expect(t.state()).toMatchObject({ revealed: true, undone: true, rated: 0 });
+    t.wait(1000);
+    t.session.rate("good");
+    await flush();
+
+    expect(t.calls.rate.map((rated) => rated.durationMs)).toEqual([2000, 3500]);
+  });
+
+  test("Undo after a restart takes back a Rating from before it", async () => {
+    const t = browsing([next("a"), next("b")]);
+    await t.session.start();
+    await rateIn(t, "hard");
+
+    await t.reload();
+    await t.session.undo();
+
+    expect(t.calls.undo).toEqual(["r1"]);
+    expect(t.shownId()).toBe("a");
+    expect(t.state()).toMatchObject({ undone: true, rated: 0 });
+  });
+
+  test.each(["gone", "settled"] as const)(
+    "Undo after a restart of a Review that is %s skips it with its message",
+    async (answer) => {
+      const t = browsing([next("a"), next("b")]);
+      await t.session.start();
+      await rateIn(t, "good");
+
+      await t.reload();
+      t.fail.undo = answer;
+      await t.session.undo();
+
+      expect(t.messages).toEqual([UNDO_GONE]);
+      expect(t.shownId()).toBe("b");
+      expect(t.state().rated).toBe(answer === "gone" ? 0 : 1);
+      expect(t.session.canUndo()).toBe(false);
+    },
+  );
+
+  test("skips a shown Card deleted or moved meanwhile, for the next Card after it", async () => {
+    const t = browsing([next("a"), next("b"), next("c")]);
+    await t.session.start();
+    await rateIn(t, "good");
+    t.missing.add("b");
+
+    await t.reload();
+
+    expect(t.calls.card).toEqual(["b"]);
+    expect(t.calls.next.at(-1)).toEqual({ reviewsShown: 0, newShown: 2, batches: 1, after: "b" });
+    expect(t.shownId()).toBe("c");
+    expect(t.state()).toMatchObject({ phase: "card", rated: 1 });
+  });
+
+  test("whose Queue had run out asks study/next with its counters: the next Card when one is due again", async () => {
+    const t = browsing([next("a", "review")]);
+    await t.session.start();
+    await rateIn(t, "again");
+    expect(t.state().phase).toBe("done");
+    // a's learning step ended meanwhile.
+    t.queue.push(next("a", "learning"));
+
+    await t.reload();
+
+    expect(t.calls.card).toEqual([]);
+    expect(t.calls.next.at(-1)).toEqual({ reviewsShown: 1, newShown: 0, batches: 1, after: "a" });
+    expect(t.shownId()).toBe("a");
+    // Still counted as the review Card it first came as.
+    expect(t.state()).toMatchObject({
+      phase: "card",
+      summary: { studied: 1, recall: { kept: 0, of: 1 } },
+    });
+  });
+
+  test("whose Queue had run out shows the end, with the whole Session's summary and the offer of another batch", async () => {
+    const t = browsing([next("a", "new"), next("b", "review")]);
+    t.held.count = 37;
+    await t.session.start();
+    await rateIn(t, "good");
+    await rateIn(t, "good");
+
+    await t.reload();
+
+    expect(t.state()).toMatchObject({
+      phase: "done",
+      newHeld: 37,
+      rated: 2,
+      summary: { studied: 2, newStudied: 1 },
+    });
+    expect(t.session.canUndo()).toBe(true);
+  });
+
+  test("left to its summary, resumes at its Card, its time as it was when left", async () => {
+    const t = browsing([next("a"), next("b")]);
+    await t.session.start();
+    await rateIn(t, "good");
+    t.wait(4000);
+    expect(t.session.leave()).toBe("summary");
+    t.wait(60_000);
+
+    await t.reload();
+    expect(t.state().phase).toBe("card");
+    expect(t.shownId()).toBe("b");
+    t.session.reveal();
+    t.wait(1000);
+    t.session.rate("good");
+    await flush();
+
+    expect(t.calls.rate.at(-1)?.durationMs).toBe(5000);
+  });
+
+  test("that hasn't shown a Card is never stored", async () => {
+    const t = browsing([]);
+    await t.session.start();
+
+    expect(t.state().phase).toBe("nothing");
+    expect(t.storage.map.size).toBe(0);
+  });
+
+  test("in blocked storage still studies, without resume", async () => {
+    const blocked = {
+      map: new Map<string, string>(),
+      get length(): number {
+        throw new Error("SecurityError");
+      },
+      key: () => {
+        throw new Error("SecurityError");
+      },
+      getItem: () => {
+        throw new Error("SecurityError");
+      },
+      setItem: () => {
+        throw new Error("QuotaExceededError");
+      },
+      removeItem: () => {
+        throw new Error("SecurityError");
+      },
+    };
+    const t = browsing([next("a"), next("b"), next("c")], blocked);
+    await t.session.start();
+    await rateIn(t, "good");
+    expect(t.shownId()).toBe("b");
+
+    await t.reload();
+
+    // A fresh Session: nothing resumed, nothing counted.
+    expect(t.calls.card).toEqual([]);
+    expect(t.calls.next.at(-1)).toEqual({
+      reviewsShown: 0,
+      newShown: 0,
+      batches: 1,
+      after: undefined,
+    });
+    expect(t.state()).toMatchObject({ phase: "card", rated: 0 });
+  });
+
+  test("that can't be read starts fresh", async () => {
+    for (const raw of ["{not json", '{"reviewsShown":"many"}', "null"]) {
+      const t = browsing([next("a")], memoryStorage({ "banki.session.d1": raw }));
+      await t.session.start();
+
+      expect(t.calls.next).toEqual([
+        { reviewsShown: 0, newShown: 0, batches: 1, after: undefined },
+      ]);
+      expect(t.shownId()).toBe("a");
+    }
+  });
+
+  test("whose Card can't be re-read says Banki can't be reached, and Try again resumes it", async () => {
+    const t = browsing([next("a"), next("b")]);
+    await t.session.start();
+    await rateIn(t, "good");
+    t.fail.card = true;
+
+    await t.reload();
+    expect(t.state().phase).toBe("unreachable");
+    // The stored Card stays stored meanwhile.
+    expect(t.stored()?.shown?.cardId).toBe("b");
+
+    t.fail.card = false;
+    t.session.retry();
+    await flush();
+    expect(t.shownId()).toBe("b");
+    expect(t.state().rated).toBe(1);
+  });
+
+  test("a tab that only hides or closes leaves a Session another tab acted in since as it is", async () => {
+    const storage = memoryStorage();
+    const idle = browsing([next("a"), next("b")], storage);
+    await idle.session.start();
+    // Opened later, it resumes the stored Session at a.
+    const busy = browsing([next("x"), next("y")], storage);
+    busy.wait(1000);
+    await busy.session.start();
+    expect(busy.shownId()).toBe("a");
+    await rateIn(busy, "good");
+    await rateIn(busy, "good");
+
+    idle.session.persist();
+    idle.session.stop();
+
+    expect(busy.stored()?.shown?.cardId).toBe("y");
+    expect(busy.stored()?.given).toHaveLength(2);
+  });
+
+  test("whose Queue had run out and whose first Card didn't load asks again for the Card after its last", async () => {
+    const t = browsing([next("a")]);
+    await t.session.start();
+    await rateIn(t, "good");
+    t.fail.next = true;
+
+    await t.reload();
+    expect(t.state().phase).toBe("unreachable");
+    t.fail.next = false;
+    t.session.retry();
+    await flush();
+
+    expect(t.calls.next.at(-1)).toMatchObject({ newShown: 1, after: "a" });
+  });
+
+  test("keeps a Rating that saved though the tab closed before the next Card showed, and never shows its Card to rate again", async () => {
+    const t = browsing([next("a"), next("b")]);
+    await t.session.start();
+    const serve = t.api.next;
+    t.api.next = () => new Promise(() => {});
+    await rateIn(t, "good");
+    expect(t.calls.rate).toHaveLength(1);
+
+    t.api.next = serve;
+    await t.reload();
+
+    expect(t.calls.card).toEqual([]);
+    expect(t.calls.next.at(-1)).toMatchObject({ newShown: 1, after: "a" });
+    expect(t.shownId()).toBe("b");
+    expect(t.state().rated).toBe(1);
+    await t.session.undo();
+    expect(t.calls.undo).toEqual(["r1"]);
+  });
+
+  test("two tabs share it, and the one acted in last wins", async () => {
+    const storage = memoryStorage();
+    const one = browsing([next("a"), next("b"), next("c")], storage);
+    await one.session.start();
+    const two = browsing([next("a"), next("x")], storage);
+    await two.session.start();
+    await rateIn(two, "good");
+    await rateIn(one, "good");
+
+    expect(one.stored()?.shown?.cardId).toBe("b");
+    expect(one.stored()?.given.map((g) => g.reviewId)).toEqual(["r1"]);
+  });
+
+  test("keeps a Rating answered after the screen went, and never shows its Card to rate again", async () => {
+    const t = browsing([next("a"), next("b")]);
+    await t.session.start();
+    const pending = deferred<{ reviewId: string } | "gone">();
+    t.api.rate = (cardId, rating, durationMs) => {
+      t.calls.rate.push({ cardId, rating, durationMs });
+      return pending.promise;
+    };
+    t.session.reveal();
+    t.session.rate("good");
+    expect(t.session.leave()).toBe("away");
+    t.session.stop();
+    pending.resolve({ reviewId: "r1" });
+    await flush();
+
+    await t.reload();
+
+    expect(t.calls.card).toEqual([]);
+    expect(t.calls.next.at(-1)).toMatchObject({ newShown: 1, after: "a" });
+    expect(t.shownId()).toBe("b");
+    expect(t.state().rated).toBe(1);
+    expect(t.calls.rate).toHaveLength(1);
+  });
+
+  test("keeps an Undo answered after the screen went: its Card resumes back from it, the Rating gone", async () => {
+    const t = browsing([next("a"), next("b")]);
+    await t.session.start();
+    t.wait(2000);
+    await rateIn(t, "good");
+    const pending = deferred<UndoAnswer>();
+    t.api.undo = (reviewId) => {
+      t.calls.undo.push(reviewId);
+      return pending.promise;
+    };
+    void t.session.undo();
+    t.session.stop();
+    pending.resolve({ card: card("a"), intervals: intervals("a-undone") });
+    await flush();
+
+    await t.reload();
+
+    expect(t.calls.card).toEqual(["a"]);
+    expect(t.shownId()).toBe("a");
+    expect(t.state()).toMatchObject({ revealed: true, undone: true, rated: 0, undoable: false });
+    t.wait(1000);
+    t.session.rate("easy");
+    await flush();
+    expect(t.calls.rate.map((rated) => rated.durationMs)).toEqual([2000, 3000]);
+  });
+
+  test("a stale tab leaving it doesn't make it older than another tab's activity since", async () => {
+    const storage = memoryStorage();
+    const stale = browsing([next("a"), next("b")], storage);
+    await stale.session.start();
+    await rateIn(stale, "good");
+    const other = browsing([next("c"), next("d")], storage);
+    other.wait(25 * MINUTE);
+    await other.session.start();
+    await rateIn(other, "good");
+
+    stale.wait(26 * MINUTE);
+    expect(stale.session.leave()).toBe("summary");
+    expect(stale.stored()?.activeAt).toBe(NOW + 25 * MINUTE);
+
+    // Six minutes after the other tab's Rating, it still resumes there.
+    other.wait(6 * MINUTE);
+    await other.reload();
+    expect(other.state()).toMatchObject({ phase: "card", rated: 2 });
+  });
+
+  test("a shown Card found deleted as it resumes says so, and its Ratings stand through an Undo's 404", async () => {
+    const t = browsing([next("a", "new"), next("a", "learning"), next("b")]);
+    await t.session.start();
+    await rateIn(t, "again");
+    expect(t.shownId()).toBe("a");
+    t.missing.add("a");
+
+    await t.reload();
+    expect(t.messages).toContain(CARD_GONE);
+    expect(t.shownId()).toBe("b");
+
+    t.fail.undo = "gone";
+    await t.session.undo();
+    expect(t.state()).toMatchObject({ rated: 1, undoable: false, summary: { studied: 1 } });
+  });
+
+  test("closed while a Rating is on its way, never shows its Card to rate again", async () => {
+    const t = browsing([next("a"), next("b")]);
+    await t.session.start();
+    t.api.rate = (cardId, rating, durationMs) => {
+      t.calls.rate.push({ cardId, rating, durationMs });
+      return new Promise(() => {});
+    };
+    t.session.reveal();
+    t.session.rate("good");
+    t.session.persist();
+    expect(t.stored()?.shown).toBeNull();
+
+    await t.reload();
+
+    expect(t.calls.card).toEqual([]);
+    expect(t.calls.next.at(-1)).toMatchObject({ newShown: 1, after: "a" });
+    expect(t.shownId()).toBe("b");
+  });
+
+  test("keeps storing its own Ratings after the clock steps back", async () => {
+    const t = browsing([next("a"), next("b"), next("c")]);
+    await t.session.start();
+    await rateIn(t, "good");
+    t.wait(-10 * MINUTE);
+    await rateIn(t, "good");
+    expect(t.stored()?.given).toHaveLength(2);
+
+    await t.reload();
+    expect(t.shownId()).toBe("c");
+    expect(t.state().rated).toBe(2);
+  });
+
+  test("answers its own progress for the overview, stored or not: a New Card it shows is still to come", async () => {
+    const t = browsing([next("a", "new"), next("b", "new")]);
+    await t.session.start();
+    expect(t.session.overviewProgress()).toEqual({ newShown: 0, batches: 1 });
+    await rateIn(t, "good");
+    expect(t.session.overviewProgress()).toEqual({ newShown: 1, batches: 1 });
+  });
+});
+
+describe("the Session timeout", () => {
+  test("just under it, opening Study resumes the Session", async () => {
+    const t = browsing([next("a"), next("b")]);
+    await t.session.start();
+    await rateIn(t, "good");
+    t.wait(TIMEOUT - 1);
+
+    await t.reload();
+
+    expect(t.state()).toMatchObject({ phase: "card", rated: 1 });
+    expect(t.shownId()).toBe("b");
+  });
+
+  test("past it, opening Study starts a fresh Session and clears the stored one, never showing its summary", async () => {
+    const t = browsing([next("a"), next("b"), next("c")]);
+    await t.session.start();
+    await rateIn(t, "good");
+    t.session.stop();
+    t.wait(TIMEOUT);
+    t.session = createStudySession({
+      studyApi: t.api,
+      notify: () => {},
+      now: () => NOW + 2000 + TIMEOUT,
+      store: sessionStore("d1", t.storage),
+      timeoutMs: () => TIMEOUT,
+    });
+    const reading = t.session.start();
+    // Cleared as it starts, before the first Card is in.
+    expect(t.storage.map.size).toBe(0);
+    await reading;
+
+    expect(t.calls.card).toEqual([]);
+    expect(t.calls.next.at(-1)).toEqual({
+      reviewsShown: 0,
+      newShown: 0,
+      batches: 1,
+      after: undefined,
+    });
+    expect(t.state()).toMatchObject({ phase: "card", rated: 0, summary: { studied: 0 } });
+  });
+
+  test("is the Settings' as it is now", async () => {
+    const t = browsing([next("a"), next("b")]);
+    await t.session.start();
+    await rateIn(t, "good");
+    t.timeout.ms = 5 * MINUTE;
+    t.wait(5 * MINUTE);
+
+    await t.reload();
+
+    expect(t.state().rated).toBe(0);
+  });
+
+  test("only it ends a Session: leaving, finishing and reloading resume it", async () => {
+    const t = browsing([next("a"), next("b")]);
+    await t.session.start();
+    await rateIn(t, "good");
+    t.session.leave();
+    await t.reload();
+    expect(t.state()).toMatchObject({ phase: "card", rated: 1 });
+
+    await rateIn(t, "good");
+    expect(t.state().phase).toBe("done");
+    await t.reload();
+    expect(t.state()).toMatchObject({ phase: "done", rated: 2 });
+  });
+
+  test("counts from the Session's own last activity: a reveal moves it on, time alone doesn't", async () => {
+    const t = browsing([next("a"), next("b")]);
+    await t.session.start();
+    await rateIn(t, "good");
+    t.wait(20 * MINUTE);
+    t.session.reveal();
+    t.wait(20 * MINUTE);
+    t.session.checkTimeout();
+    expect(t.state().phase).toBe("card");
+
+    // Saving its time as the page hides is not activity.
+    t.session.persist();
+    t.wait(10 * MINUTE);
+    t.session.checkTimeout();
+    expect(t.state().phase).toBe("ended");
+  });
+
+  test("on a screen still open with a Rating standing, ends on the summary: no Undo, Keep studying or Learn more", async () => {
+    const t = browsing([next("a", "review"), next("b")]);
+    t.held.count = 3;
+    await t.session.start();
+    await rateIn(t, "good");
+    t.wait(TIMEOUT - 1);
+    t.session.checkTimeout();
+    expect(t.state().phase).toBe("card");
+    t.wait(1);
+    t.session.checkTimeout();
+
+    expect(t.state()).toMatchObject({
+      phase: "ended",
+      shown: undefined,
+      undoable: false,
+      rated: 1,
+      summary: { studied: 1, recall: { kept: 1, of: 1 } },
+    });
+    await t.session.undo();
+    t.session.resume();
+    t.session.more();
+    t.session.reveal();
+    await flush();
+    expect(t.calls.undo).toEqual([]);
+    expect(t.calls.next).toHaveLength(2);
+    expect(t.state().phase).toBe("ended");
+    expect(t.session.leave()).toBe("away");
+  });
+
+  test("on a stale tab, doesn't end or clear a Session another tab acted in since", async () => {
+    const storage = memoryStorage();
+    const stale = browsing([next("a"), next("b")], storage);
+    await stale.session.start();
+    await rateIn(stale, "good");
+    const other = browsing([next("c")], storage);
+    other.wait(20 * MINUTE);
+    await other.session.start();
+    await rateIn(other, "good");
+
+    stale.wait(TIMEOUT);
+    stale.session.checkTimeout();
+
+    expect(stale.state().phase).toBe("card");
+    expect(stale.stored()?.given).toHaveLength(2);
+  });
+
+  test("on a stale tab, isn't kept open by a Session another tab started since: it ends, and leaves that one alone", async () => {
+    const storage = memoryStorage();
+    const stale = browsing([next("a"), next("b")], storage);
+    await stale.session.start();
+    await rateIn(stale, "good");
+    const other = browsing([next("x"), next("y")], storage);
+    other.wait(40 * MINUTE);
+    await other.session.start();
+    expect(other.shownId()).toBe("x");
+    await rateIn(other, "good");
+
+    stale.wait(41 * MINUTE);
+    stale.session.reveal();
+
+    expect(stale.state()).toMatchObject({ phase: "ended", rated: 1 });
+    expect(other.stored()?.given.map((g) => g.cardId)).toEqual(["x"]);
+    expect(other.stored()?.shown?.cardId).toBe("y");
+  });
+
+  test("on a stale tab, ends on the Ratings of the tab acted in last", async () => {
+    const storage = memoryStorage();
+    const stale = browsing([next("a"), next("b")], storage);
+    await stale.session.start();
+    await rateIn(stale, "good");
+    const other = browsing([next("c"), next("d"), next("e")], storage);
+    other.wait(1000);
+    await other.session.start();
+    expect(other.shownId()).toBe("b");
+    await rateIn(other, "good");
+    await rateIn(other, "good");
+    other.session.stop();
+
+    stale.wait(35 * MINUTE);
+    stale.session.checkTimeout();
+
+    expect(stale.state()).toMatchObject({ phase: "ended", rated: 3, summary: { studied: 3 } });
+    expect(stale.stored()).toBeUndefined();
+  });
+
+  test("never ends a Session while it resumes, right after Continue", async () => {
+    const t = browsing([next("a"), next("b")]);
+    await t.session.start();
+    await rateIn(t, "good");
+    t.wait(TIMEOUT - 10_000);
+    const pending = deferred<Card | "gone">();
+    t.api.card = () => pending.promise;
+
+    const reloading = t.reload();
+    t.wait(15_000);
+    t.session.checkTimeout();
+    expect(t.state().phase).toBe("loading");
+
+    pending.resolve(card("b"));
+    await reloading;
+    expect(t.state()).toMatchObject({ phase: "card", rated: 1 });
+    expect(t.stored()?.activeAt).toBe(NOW + TIMEOUT + 5000);
+  });
+
+  test("ended on a screen still open, it is cleared: a longer timeout set later doesn't bring it back", async () => {
+    const t = browsing([next("a"), next("b"), next("c")]);
+    await t.session.start();
+    await rateIn(t, "good");
+    t.wait(TIMEOUT);
+    t.session.checkTimeout();
+    expect(t.state().phase).toBe("ended");
+    expect(t.stored()).toBeUndefined();
+
+    t.timeout.ms = 2 * TIMEOUT;
+    await t.reload();
+
+    expect(t.calls.card).toEqual([]);
+    expect(t.calls.next.at(-1)).toEqual({
+      reviewsShown: 0,
+      newShown: 0,
+      batches: 1,
+      after: undefined,
+    });
+    expect(t.state()).toMatchObject({ phase: "card", rated: 0 });
+  });
+
+  test("ends a Session saying the timeout that ended it", async () => {
+    const t = browsing([next("a"), next("b")]);
+    await t.session.start();
+    await rateIn(t, "good");
+    t.timeout.ms = 45 * MINUTE;
+    t.wait(45 * MINUTE);
+    t.session.checkTimeout();
+    expect(t.state()).toMatchObject({ phase: "ended", endedAfterMs: 45 * MINUTE });
+    t.timeout.ms = 5 * MINUTE;
+    expect(t.state().endedAfterMs).toBe(45 * MINUTE);
+  });
+
+  test("on a screen still open, an action past it ends the Session instead of acting", async () => {
+    const t = browsing([next("a"), next("b")]);
+    await t.session.start();
+    await rateIn(t, "good");
+    t.wait(TIMEOUT);
+
+    t.session.reveal();
+
+    expect(t.state()).toMatchObject({ phase: "ended", revealed: false });
+  });
+
+  test("leaving past it shows the ended summary", async () => {
+    const t = browsing([next("a"), next("b")]);
+    await t.session.start();
+    await rateIn(t, "good");
+    t.wait(TIMEOUT);
+
+    expect(t.session.leave()).toBe("summary");
+    expect(t.state().phase).toBe("ended");
+  });
+
+  test("an answer on its way as it ends changes nothing", async () => {
+    const t = browsing([next("a"), next("b")]);
+    await t.session.start();
+    await rateIn(t, "good");
+    const pending = deferred<UndoAnswer>();
+    t.api.undo = () => pending.promise;
+    void t.session.undo();
+    t.wait(TIMEOUT);
+    t.session.checkTimeout();
+    pending.resolve({ card: card("a"), intervals: intervals("a") });
+    await flush();
+
+    expect(t.state().phase).toBe("ended");
+  });
+
+  test("Start a new session clears the stored one and loads a fresh Session's first Card", async () => {
+    const t = browsing([next("a"), next("b"), next("c")]);
+    await t.session.start();
+    await rateIn(t, "good");
+    t.wait(TIMEOUT);
+    t.session.checkTimeout();
+
+    t.session.restart();
+    expect(t.stored()).toBeUndefined();
+    await flush();
+
+    expect(t.calls.next.at(-1)).toEqual({
+      reviewsShown: 0,
+      newShown: 0,
+      batches: 1,
+      after: undefined,
+    });
+    expect(t.state()).toMatchObject({ phase: "card", rated: 0, undoable: false });
+    expect(t.shownId()).toBe("c");
+    expect(t.stored()?.given).toEqual([]);
+  });
+
+  test("on a screen still open with no Rating standing, quietly starts a fresh Session at the next Card", async () => {
+    const t = browsing([next("a", "review"), next("b")]);
+    await t.session.start();
+    t.session.reveal();
+    t.wait(TIMEOUT);
+
+    t.session.checkTimeout();
+    await flush();
+
+    expect(t.calls.next.at(-1)).toEqual({
+      reviewsShown: 0,
+      newShown: 0,
+      batches: 1,
+      after: undefined,
+    });
+    expect(t.shownId()).toBe("b");
+    expect(t.state()).toMatchObject({ phase: "card", revealed: false });
+    expect(t.messages).toEqual([]);
+  });
+
+  test("leaves Cards in their learning steps scheduled as they were: nothing is undone or rated", async () => {
+    const t = browsing([next("a", "new"), next("b", "learning")]);
+    await t.session.start();
+    // a goes into its learning steps, b is in them already.
+    await rateIn(t, "again");
+    t.wait(TIMEOUT);
+    t.session.checkTimeout();
+    t.session.restart();
+    await flush();
+
+    expect(t.calls.rate).toEqual([{ cardId: "a", rating: "again", durationMs: 0 }]);
+    expect(t.calls.undo).toEqual([]);
+  });
+
+  test("isn't checked while the editor is open: saving the edit is activity", async () => {
+    const t = browsing([next("a"), next("b")]);
+    await t.session.start();
+    await rateIn(t, "good");
+    expect(t.session.edit()).toBe(true);
+    t.wait(TIMEOUT);
+    t.session.checkTimeout();
+    expect(t.state().phase).toBe("card");
+
+    await t.session.saveEdit(card("b"), { progressReset: false });
+    t.wait(TIMEOUT - 1);
+    t.session.checkTimeout();
+    expect(t.state().phase).toBe("card");
+  });
+});
+
+describe("the time cap", () => {
+  test("caps a Card's time at 2 minutes", async () => {
+    const t = browsing([next("a"), next("b")]);
+    await t.session.start();
+    t.session.reveal();
+    t.wait(5 * MINUTE);
+    t.session.rate("good");
+    await flush();
+
+    expect(t.calls.rate.map((rated) => rated.durationMs)).toEqual([REVIEW_CAP_MS]);
+  });
+
+  test("caps a re-rate after an Undo: the undone time plus the time since", async () => {
+    const t = browsing([next("a"), next("b")]);
+    await t.session.start();
+    t.session.reveal();
+    t.wait(90_000);
+    t.session.rate("good");
+    await flush();
+    await t.session.undo();
+    t.wait(60_000);
+    t.session.rate("good");
+    await flush();
+
+    expect(t.calls.rate.map((rated) => rated.durationMs)).toEqual([90_000, REVIEW_CAP_MS]);
+  });
+});
+
+describe("the session store", () => {
+  test("clears every Deck's stored Session, and only those", () => {
+    const storage = memoryStorage({
+      "banki.session.d1": "{}",
+      "banki.session.d2": "{}",
+      "banki.deckSort": "name",
+    });
+
+    clearStoredSessions(storage);
+
+    expect([...storage.map.keys()]).toEqual(["banki.deckSort"]);
+  });
+
+  test("reads a Deck's Session as open until the timeout since its last activity, from the Settings' minutes", async () => {
+    const t = browsing([next("a"), next("b")]);
+    await t.session.start();
+    await rateIn(t, "good");
+
+    const at = (ms: number) => openProgress("d1", 30, { now: NOW + ms, storage: t.storage });
+    // b, the New Card it shows, is still to come.
+    expect(at(TIMEOUT - 1)).toEqual({ newShown: 1, batches: 1 });
+    expect(at(TIMEOUT)).toBeUndefined();
+    expect(openProgress("d1", undefined, { now: NOW, storage: t.storage })).toBeDefined();
+    expect(openProgress("d2", 30, { now: NOW, storage: t.storage })).toBeUndefined();
+    // At its end, every New Card it showed is used.
+    await rateIn(t, "good");
+    expect(openProgress("d1", 30, { now: NOW, storage: t.storage })).toEqual({
+      newShown: 2,
+      batches: 1,
+    });
+    expect(openProgress("d1", 30, { now: NOW, storage: undefined })).toBeUndefined();
   });
 });

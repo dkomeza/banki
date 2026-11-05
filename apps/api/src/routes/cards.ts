@@ -56,8 +56,9 @@ export function deckCardRoutes({ cards }: { cards: CardRepository }) {
  * isn't live, or a Move's Deck that isn't, answers 404 `not_found`.
  *
  * `POST /:id/reviews` rates a Card: it records a Review of its Rating and
- * time spent, reschedules the Card, and answers 201 with the Review and the
- * Card's new schedule. A Rating that isn't one, or a duration that isn't a
+ * time spent (at most 2 minutes, `REVIEW_CAP_MS`: more is taken as the cap),
+ * reschedules the Card, and answers 201 with the Review and the Card's new
+ * schedule. A Rating that isn't one, or a duration that isn't a
  * whole number of milliseconds from 0, answers 400 `invalid_request`.
  *
  * `GET /:id/intervals` answers each Rating's Interval preview for a Card as

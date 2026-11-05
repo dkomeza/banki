@@ -52,13 +52,21 @@ export const CardSchedule = z.object({
 });
 export type CardSchedule = z.infer<typeof CardSchedule>;
 
+/** The most time one Review records: 2 minutes (CONTEXT.md: Review). */
+export const REVIEW_CAP_MS = 2 * 60_000;
+
 /**
  * The body of `POST /api/cards/:id/reviews`: the Rating, and the time spent
- * studying the Card in ms (time spent editing it is left out).
+ * studying the Card in ms (time spent editing it is left out). A time above
+ * `REVIEW_CAP_MS` is taken as the cap, since an old tab may send more.
  */
 export const ReviewRequest = z.strictObject({
   rating: Rating,
-  durationMs: z.number().int("Expected whole milliseconds").nonnegative(),
+  durationMs: z
+    .number()
+    .int("Expected whole milliseconds")
+    .nonnegative()
+    .transform((ms) => Math.min(ms, REVIEW_CAP_MS)),
 });
 export type ReviewRequest = z.input<typeof ReviewRequest>;
 

@@ -10,6 +10,7 @@ const UNTOUCHED_DEFAULTS = {
   desiredRetention: 90,
   newCardBatch: 20,
   learningLimit: 10,
+  sessionTimeoutMinutes: 30,
   macros: [] as { name: string; definition: string }[],
 } as const;
 
@@ -127,6 +128,7 @@ describe("PATCH /api/settings", () => {
   test.each([
     ["newCardBatch", [5, 37, 100]],
     ["learningLimit", [5, 23, 50]],
+    ["sessionTimeoutMinutes", [5, 45, 240]],
   ] as const)(
     "stores %s from its lowest to its highest, and reads it back",
     async (field, values) => {
@@ -141,9 +143,15 @@ describe("PATCH /api/settings", () => {
     },
   );
 
-  test("keeps the New-card batch and the Learning limit when another Setting changes", async () => {
+  test("keeps the New-card batch, the Learning limit and the Session timeout when another Setting changes", async () => {
     const { app, cookie } = await signedIn();
-    await send(app, "PATCH", "/api/settings", { newCardBatch: 40, learningLimit: 15 }, cookie);
+    await send(
+      app,
+      "PATCH",
+      "/api/settings",
+      { newCardBatch: 40, learningLimit: 15, sessionTimeoutMinutes: 60 },
+      cookie,
+    );
 
     const res = await send(app, "PATCH", "/api/settings", { dayStartHour: 6 }, cookie);
 
@@ -153,6 +161,7 @@ describe("PATCH /api/settings", () => {
       ...UNTOUCHED_DEFAULTS,
       newCardBatch: 40,
       learningLimit: 15,
+      sessionTimeoutMinutes: 60,
     });
   });
 
@@ -182,6 +191,10 @@ describe("PATCH /api/settings", () => {
     ["a Learning limit over 50", { learningLimit: 51 }],
     ["a part of a Learning limit", { learningLimit: 7.5 }],
     ["a Learning limit that is null", { learningLimit: null }],
+    ["a Session timeout under 5 minutes", { sessionTimeoutMinutes: 4 }],
+    ["a Session timeout over 240 minutes", { sessionTimeoutMinutes: 241 }],
+    ["a part of a minute of Session timeout", { sessionTimeoutMinutes: 30.5 }],
+    ["a Session timeout that isn't a number", { sessionTimeoutMinutes: "30" }],
     ["something that isn't a Setting", { theme: "dark" }],
   ])("refuses %s with 400, changing nothing", async (_, body) => {
     const { app, cookie } = await signedIn();

@@ -30,6 +30,7 @@ const UNTOUCHED_DEFAULTS = {
   desiredRetention: 90,
   newCardBatch: 20,
   learningLimit: 10,
+  sessionTimeoutMinutes: 30,
   macros: [] as { name: string; definition: string }[],
 } as const;
 

@@ -37,6 +37,7 @@ const SETTINGS: SettingsResponse = {
   desiredRetention: 90,
   newCardBatch: 20,
   learningLimit: 10,
+  sessionTimeoutMinutes: 30,
   macros: [],
 };
 
@@ -91,6 +92,8 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  // Each test's Session starts fresh, not resumed from the last one's.
+  localStorage.clear();
 });
 
 function renderScreen(

@@ -159,6 +159,7 @@ export type FailedSave =
   | { field: "desiredRetention"; attempted: number }
   | { field: "newCardBatch"; attempted: number }
   | { field: "learningLimit"; attempted: number }
+  | { field: "sessionTimeoutMinutes"; attempted: number }
   | { field: "macros"; attempted: Macro[] };
 
 /** What a failed save says: what didn't change, and what is kept instead. */

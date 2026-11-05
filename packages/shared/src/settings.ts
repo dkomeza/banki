@@ -2,7 +2,7 @@ import { z } from "zod";
 import { Macro, MacroList } from "./macros";
 import { ModelId } from "./models";
 import { DesiredRetention } from "./scheduling";
-import { LearningLimit, NewCardBatch } from "./study";
+import { LearningLimit, NewCardBatch, SessionTimeoutMinutes } from "./study";
 
 /** The Day start a User has until they change it: 4:00 a.m. */
 export const DEFAULT_DAY_START_HOUR = 4;
@@ -67,7 +67,8 @@ export type ApiKeyStatus = z.infer<typeof ApiKeyStatus>;
  * effective auto-close, each the default when none is stored. `desiredRetention`
  * is the one every Deck follows until it has its own. `newCardBatch` and
  * `learningLimit` pace a Session's New cards (CONTEXT.md: New-card batch,
- * Learning limit). `macros` are Settings' Macros, [] for none, which every
+ * Learning limit), and `sessionTimeoutMinutes` ends one after that many
+ * minutes without activity (CONTEXT.md: Session timeout). `macros` are Settings' Macros, [] for none, which every
  * Deck's Cards use under its own.
  */
 export const SettingsResponse = z.object({
@@ -79,6 +80,7 @@ export const SettingsResponse = z.object({
   desiredRetention: z.number().int(),
   newCardBatch: z.number().int(),
   learningLimit: z.number().int(),
+  sessionTimeoutMinutes: z.number().int(),
   macros: z.array(Macro),
 });
 export type SettingsResponse = z.infer<typeof SettingsResponse>;
@@ -96,6 +98,7 @@ export const SettingsPatch = z.strictObject({
   desiredRetention: DesiredRetention.optional(),
   newCardBatch: NewCardBatch.optional(),
   learningLimit: LearningLimit.optional(),
+  sessionTimeoutMinutes: SessionTimeoutMinutes.optional(),
   macros: MacroList.optional(),
 });
 export type SettingsPatch = z.input<typeof SettingsPatch>;

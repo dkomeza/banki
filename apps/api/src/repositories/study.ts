@@ -3,6 +3,7 @@ import {
   DEFAULT_NEW_CARD_BATCH,
   type IntervalPreviews,
   type StudyNextResponse,
+  type StudyOverviewQuery,
   type StudyOverviewResponse,
   type UndoReviewResponse,
   addStudyDays,
@@ -10,6 +11,7 @@ import {
   studyDayOf,
 } from "@banki/shared";
 import { and, eq, gte, isNull, lt, ne, or, sql } from "drizzle-orm";
+import type { z } from "zod";
 import type { Queryable } from "../db/database";
 import { card, review, user_settings } from "../db/schema";
 import { ESTIMATE_WINDOW_DAYS, cardDayAverages, estimateMs } from "../scheduling/estimate";
@@ -141,14 +143,16 @@ export function createStudyRepository(db: Queryable) {
      * What Study on the User's Deck `deckId` brings at `now`, from its live
      * Cards and the Timezone, Day start and New-card batch as they are now:
      * the review Cards due before the next Day start plus every Card in its
-     * learning steps, the New cards a Session introduces (at most a batch) of
-     * all its New cards, how long they will take (`cardDayAverages` over the
+     * learning steps, the New cards a Session introduces of all its New cards
+     * (at most what its `batches` New-card batches leave after the `newShown`
+     * it has shown, so an open Session's counts are what resuming it brings), how long they will take (`cardDayAverages` over the
      * User's Reviews in every Deck), and the first Study day after today with
      * review Cards due, with how many. `now` is for tests.
      */
     overview(
       userId: string,
       deckId: string,
+      { newShown, batches }: z.output<typeof StudyOverviewQuery> = { newShown: 0, batches: 1 },
       { now = new Date() }: { now?: Date } = {},
     ): StudyOverviewResponse | "not_found" {
       return db.transaction((tx) => {
@@ -174,7 +178,8 @@ export function createStudyRepository(db: Queryable) {
             later.set(day, (later.get(day) ?? 0) + 1);
           }
         }
-        const fresh = Math.min(newTotal, queueLimitsOf(tx, userId).newCardBatch);
+        const left = queueLimitsOf(tx, userId).newCardBatch * batches - newShown;
+        const fresh = Math.max(0, Math.min(newTotal, left));
         const nextDay = [...later.keys()].toSorted()[0];
 
         const since = studyDayBounds(addStudyDays(today, -(ESTIMATE_WINDOW_DAYS - 1)), studyDay);
