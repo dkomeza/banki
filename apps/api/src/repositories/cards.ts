@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   type CardResponse,
+  type CardState,
   type CreateCardRequest,
   type UpdateCardRequest,
   sortTags,
@@ -9,6 +10,7 @@ import { type SQLWrapper, and, count, desc, eq, inArray, isNull } from "drizzle-
 import type { z } from "zod";
 import type { Queryable } from "../db/database";
 import { card, card_tag, deck, review } from "../db/schema";
+import { resetProgress } from "./progress-resets";
 import { deckRetentionOf, rescheduleCards } from "./reviews";
 
 export type Card = CardResponse;
@@ -35,6 +37,7 @@ const COLUMNS = {
   gradingNotes: card.gradingNotes,
   createdAt: card.createdAt,
   updatedAt: card.updatedAt,
+  state: card.state,
 } as const;
 
 type Row = {
@@ -45,15 +48,17 @@ type Row = {
   gradingNotes: string | null;
   createdAt: Date;
   updatedAt: Date;
+  state: CardState;
 };
 
 const NO_TAGS: readonly string[] = [];
 
-const toCard = (row: Row, tags: readonly string[]): Card => ({
+const toCard = ({ state, ...row }: Row, tags: readonly string[]): Card => ({
   ...row,
   tags: [...tags],
   createdAt: row.createdAt.toISOString(),
   updatedAt: row.updatedAt.toISOString(),
+  studied: state !== "new",
 });
 
 /** The User's Deck `id`, unless it is deleted. */
@@ -194,7 +199,7 @@ export function createCardRepository(db: Queryable) {
             .values({ ...row, userId })
             .run();
           writeTags(tx, userId, id, tags);
-          return toCard(row, sortTags(tags));
+          return toCard({ ...row, state: "new" }, sortTags(tags));
         },
         { behavior: "immediate" },
       );
@@ -202,12 +207,24 @@ export function createCardRepository(db: Queryable) {
 
     /**
      * Changes a Card's Front, Back, Tags, Grading notes or any of them, Tags
-     * given replacing all of its own; "not_found" for no such Card.
+     * given replacing all of its own; "not_found" for no such Card. With
+     * `resetProgress`, in the same transaction, a studied Card goes back to New
+     * and the Progress reset is logged (`resetProgress`); its Reviews stay. On
+     * a New Card it does nothing: asked alone, the Card stays as it was, its
+     * `updatedAt` too.
      */
     update(userId: string, id: string, changes: CardChanges, now = new Date()): Card | "not_found" {
       return db.transaction(
         (tx) => {
-          if (findIn(tx, userId, id) === undefined) return "not_found";
+          const found = findIn(tx, userId, id);
+          if (found === undefined) return "not_found";
+          const edited =
+            changes.front !== undefined ||
+            changes.back !== undefined ||
+            changes.gradingNotes !== undefined ||
+            changes.tags !== undefined;
+          const reset = changes.resetProgress === true && resetProgress(tx, userId, id, now);
+          if (!edited && !reset) return found;
           tx.update(card)
             .set({
               ...(changes.front === undefined ? {} : { front: changes.front }),

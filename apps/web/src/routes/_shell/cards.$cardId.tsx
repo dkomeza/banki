@@ -1,27 +1,18 @@
-import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { Trash2 } from "lucide-react";
-import { useRef, useState } from "react";
+import { useSuspenseQuery } from "@tanstack/react-query";
+import { createFileRoute } from "@tanstack/react-router";
 import { DeckMacros } from "@/components/cards/deck-macros";
-import { FormError } from "@/components/auth-card";
-import { CardEditor, useCardForm } from "@/components/cards/card-editor";
-import { deleteWithUndo } from "@/components/cards/card-toasts";
-import { useDiscardGuard } from "@/components/cards/discard-guard";
-import { useTagInput } from "@/components/cards/tag-field";
+import { EditCard } from "@/components/cards/edit-card";
 import { CardNotFound } from "@/components/not-found";
 import { Page } from "@/components/page";
-import { OUTLINE_PILL, PILL } from "@/components/settings/parts";
-import { Button } from "@/components/ui/button";
-import { dayLabel, timeLabel } from "@/lib/card-days";
-import { type Card, cardQueryOptions, cardsQueryOptions, fieldsOf, updateCard } from "@/lib/cards";
-import { type Deck, deckQueryOptions } from "@/lib/decks";
+import { type Card, cardQueryOptions, cardsQueryOptions } from "@/lib/cards";
+import { deckQueryOptions } from "@/lib/decks";
 import { ensureLibrary } from "@/lib/folders";
-import { rememberedDeckSearch, tagsChanged, tagsQueryOptions } from "@/lib/tags";
-import { cn } from "@/lib/utils";
+import { tagsQueryOptions } from "@/lib/tags";
 
 // The edit-card page, at a URL that doesn't name the Deck, so it outlasts a
 // move. Save writes both sides, the Grading notes and the Tags and goes back to the Deck, to the
-// list as it was last filtered there; Cancel goes back without writing; Delete deletes at once and goes back, with the Undo toast
+// list as it was last filtered there, putting a studied Card back to New too
+// when Reset progress is ticked (never by default); Cancel goes back without writing; Delete deletes at once and goes back, with the Undo toast
 // there. An unknown or deleted Card, or one whose Deck is deleted, shows
 // "Card not found".
 
@@ -65,98 +56,5 @@ function CardInDeck({ card }: { card: Card }) {
     <DeckMacros own={deck.macros}>
       <EditCard key={card.id} deck={deck} card={card} />
     </DeckMacros>
-  );
-}
-
-/** "Written today, 13:00", "Written Tue 20 Oct, 09:05". */
-const writtenLabel = (createdAt: string) => {
-  const day = dayLabel(createdAt);
-  return `Written ${day === "Today" || day === "Yesterday" ? day.toLowerCase() : day}, ${timeLabel(createdAt)}`;
-};
-
-function EditCard({ deck, card }: { deck: Deck; card: Card }) {
-  const queryClient = useQueryClient();
-  const navigate = useNavigate();
-  const form = useCardForm(fieldsOf(card));
-  const tags = useTagInput(card.tags);
-  const guard = useDiscardGuard(
-    form.unsaved || tagsChanged(tags.tags, card.tags) || tags.draft.trim() !== "",
-  );
-  const [formError, setFormError] = useState<string>();
-  const saving = useRef(false);
-  const toDeck = () =>
-    navigate({
-      to: "/decks/$deckId",
-      params: { deckId: deck.id },
-      search: rememberedDeckSearch(deck.id),
-    });
-
-  const save = async () => {
-    if (saving.current) return;
-    const nextTags = tags.commit();
-    if (nextTags === false) return;
-    saving.current = true;
-    setFormError(undefined);
-    const outcome = await updateCard(queryClient, card.id, form.fields, nextTags);
-    saving.current = false;
-    if (outcome.ok) {
-      guard.release();
-      await toDeck();
-      return;
-    }
-    if ("errors" in outcome) form.setErrors(outcome.errors);
-    else if ("notFound" in outcome) setFormError("This card, or its deck, was deleted meanwhile.");
-    else setFormError(outcome.message);
-  };
-
-  // Deletes first, so a delete that fails leaves the page, and what's typed, as it was.
-  const remove = () =>
-    deleteWithUndo(queryClient, card, async () => {
-      guard.release();
-      await toDeck();
-    });
-
-  return (
-    <>
-      <CardEditor
-        deck={deck}
-        selfId={card.id}
-        title="Edit card"
-        dateline={writtenLabel(card.createdAt)}
-        form={form}
-        tags={tags}
-        onSave={() => void save()}
-        foot={
-          <>
-            <div className="flex min-w-0 flex-1 flex-col items-start gap-1">
-              <Button
-                type="button"
-                variant="ghost"
-                className={cn(PILL, "-ml-3 h-11 text-destructive hover:text-destructive lg:h-10")}
-                onClick={() => void remove()}
-              >
-                <Trash2 aria-hidden />
-                Delete
-              </Button>
-              {formError !== undefined && <FormError>{formError}</FormError>}
-            </div>
-            <div className="flex flex-col-reverse gap-2 sm:flex-row">
-              <Button
-                type="button"
-                variant="outline"
-                className={cn(OUTLINE_PILL, "h-11 lg:h-10")}
-                onClick={() => void toDeck()}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" className={cn(PILL, "h-11 lg:h-10")} disabled={form.uploading}>
-                Save
-              </Button>
-            </div>
-          </>
-        }
-      />
-      {guard.dialog}
-    </>
   );
 }

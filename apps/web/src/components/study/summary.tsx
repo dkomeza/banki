@@ -9,6 +9,7 @@ import { moreOffer } from "@/lib/new-cards";
 import { settingsQueryOptions } from "@/lib/settings";
 import { type SessionSummary, recallPercent, spentLabel } from "@/lib/study";
 import {
+  type SessionProgress,
   type StudyOverview,
   nextDueLabel,
   studyOverviewQueryOptions,
@@ -20,47 +21,66 @@ import { cn } from "@/lib/utils";
 // standing ("Headline"): one figure, very large in the accent, the Recall
 // rate (or, in a Session without review Cards, the Cards studied), the other
 // figures in a smaller row under it, then one sentence on what comes next.
-// The actions dock to the bottom, stacked on phones, the main one on top.
+// The actions dock to the bottom, stacked on phones, the main one on top. A
+// Session the Session timeout ended says so in that sentence's place, and
+// offers only a new Session and the deck page.
 
-/** The summary, with the Deck's overview fetched afresh as it shows. */
+/**
+ * The summary, with the Deck's overview fetched afresh as it shows, for the
+ * Session's `progress` as the deck page counts it (a fresh one's once it ended).
+ */
 export function Summary({
   deck,
   summary,
+  progress,
   left,
+  endedAfterMs,
   newHeld,
   loadingMore,
   onMore,
   onResume,
+  onRestart = () => {},
 }: {
   deck: Deck;
   summary: SessionSummary;
+  /** How far the Session has gone into its New cards (`overviewProgress`), whether or not it is stored. */
+  progress: SessionProgress;
   /** Left early (Keep studying), rather than at the end of the Queue. */
   left: boolean;
+  /** Ended by the Session timeout of this many ms (Start a new session); undefined while open. */
+  endedAfterMs?: number | undefined;
   newHeld: number;
   loadingMore: boolean;
   onMore: () => void;
   onResume: () => void;
+  onRestart?: () => void;
 }) {
+  const settings = useQuery(settingsQueryOptions()).data?.settings;
   const overview = useQuery({
-    ...studyOverviewQueryOptions(deck.id),
+    ...studyOverviewQueryOptions(deck.id, progress),
     refetchOnMount: "always",
   });
-  const settings = useQuery(settingsQueryOptions()).data?.settings;
   return (
     <SummaryView
       deck={deck}
       summary={summary}
       left={left}
+      ended={
+        endedAfterMs === undefined ? undefined : { minutes: Math.round(endedAfterMs / 60_000) }
+      }
       // Only a fresh answer: a cached one is from before the Session.
       overview={overview.isFetchedAfterMount ? (overview.data ?? undefined) : undefined}
       today={todayOf({
         timezone: settings?.timezone ?? null,
         dayStartHour: settings?.dayStartHour ?? DEFAULT_DAY_START_HOUR,
       })}
-      offer={left ? undefined : moreOffer(newHeld, settings?.newCardBatch)}
+      offer={
+        left || endedAfterMs !== undefined ? undefined : moreOffer(newHeld, settings?.newCardBatch)
+      }
       loadingMore={loadingMore}
       onMore={onMore}
       onResume={onResume}
+      onRestart={onRestart}
     />
   );
 }
@@ -81,27 +101,36 @@ export function nextLine(
   return next === undefined ? "Nothing scheduled." : `Next: ${next}.`;
 }
 
+/** What an ended Session's summary says in place of what comes next. */
+export const endedLine = (minutes: number) =>
+  `Session ended after ${minutes} min without activity.`;
+
 /** The summary for its figures. Exported for its tests. */
 export function SummaryView({
   deck,
   summary,
   left,
+  ended,
   overview,
   today,
   offer,
   loadingMore,
   onMore,
   onResume,
+  onRestart = () => {},
 }: {
   deck: Deck;
   summary: SessionSummary;
   left: boolean;
+  /** Ended by the Session timeout, of `minutes`; undefined while open. */
+  ended?: { minutes: number } | undefined;
   overview: StudyOverview | undefined;
   today: string;
   offer: { waiting: string; action: string } | undefined;
   loadingMore: boolean;
   onMore: () => void;
   onResume: () => void;
+  onRestart?: () => void;
 }) {
   const allNew = summary.newStudied === summary.studied;
   const hero =
@@ -128,17 +157,20 @@ export function SummaryView({
         ]),
     { key: "time", value: spentLabel(summary.timeMs), label: "spent" },
   ];
-  const next = nextLine(overview, { left, today });
-  const primary = left
-    ? { label: "Keep studying", onClick: onResume, busy: false }
-    : offer !== undefined
-      ? { label: offer.action, onClick: onMore, busy: loadingMore }
-      : undefined;
+  const next = ended === undefined ? nextLine(overview, { left, today }) : endedLine(ended.minutes);
+  const primary =
+    ended !== undefined
+      ? { label: "Start a new session", onClick: onRestart, busy: false }
+      : left
+        ? { label: "Keep studying", onClick: onResume, busy: false }
+        : offer !== undefined
+          ? { label: offer.action, onClick: onMore, busy: loadingMore }
+          : undefined;
   return (
     <>
       <div className="mx-auto flex w-full max-w-xl flex-1 flex-col items-center justify-center gap-8 px-6 pt-6 pb-10 text-center">
         <h1 className="text-sm font-medium tracking-wide text-muted-foreground uppercase">
-          {left ? "Session paused" : "Session done"}
+          {ended !== undefined ? "Session ended" : left ? "Session paused" : "Session done"}
         </h1>
         <div className="flex flex-col items-center gap-2">
           <span className="text-[5.5rem] leading-none font-semibold tracking-[-0.05em] text-primary tabular-nums lg:text-[7rem]">

@@ -144,6 +144,7 @@ describe("next", () => {
           gradingNotes: 'Accept "hi" too.',
           createdAt: START.toISOString(),
           updatedAt: START.toISOString(),
+          studied: false,
         },
         schedule: {
           state: "new",

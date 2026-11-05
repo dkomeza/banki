@@ -12,6 +12,7 @@ import { apiError } from "../http/errors";
 import type { SignedInEnv } from "../http/require-signed-in";
 import type { CardRepository } from "../repositories/cards";
 import type { ReviewRepository } from "../repositories/reviews";
+import type { StudyRepository } from "../repositories/study";
 import { json } from "./json";
 
 const NOT_FOUND = apiError("not_found", "Card not found");
@@ -44,7 +45,10 @@ export function deckCardRoutes({ cards }: { cards: CardRepository }) {
  * an unknown one, another User's and one whose Deck is deleted all answer 404
  * `not_found`. A blank Front or Back, or one over 20,000 characters, answers 400
  * `invalid_request`, as does a Tag that isn't one word of 1 to 50 characters,
- * or more than 20 Tags. Tags given to `PATCH` replace the Card's.
+ * or more than 20 Tags. Tags given to `PATCH` replace the Card's, and its
+ * `resetProgress: true` puts a studied Card back to New, logging the
+ * Progress reset in the same transaction as the edit (a New Card stays as it
+ * is); every Card the routes answer says whether it is `studied`.
  *
  * `POST /move` Moves Cards to another Deck, and `POST /delete` deletes Cards
  * at once, each as a Deletion of its own, answering every `deletionId`. Each
@@ -52,16 +56,23 @@ export function deckCardRoutes({ cards }: { cards: CardRepository }) {
  * isn't live, or a Move's Deck that isn't, answers 404 `not_found`.
  *
  * `POST /:id/reviews` rates a Card: it records a Review of its Rating and
- * time spent, reschedules the Card, and answers 201 with the Review and the
- * Card's new schedule. A Rating that isn't one, or a duration that isn't a
+ * time spent (at most 2 minutes, `REVIEW_CAP_MS`: more is taken as the cap),
+ * reschedules the Card, and answers 201 with the Review and the Card's new
+ * schedule. A Rating that isn't one, or a duration that isn't a
  * whole number of milliseconds from 0, answers 400 `invalid_request`.
+ *
+ * `GET /:id/intervals` answers each Rating's Interval preview for a Card as
+ * it is now, as `study/next` would show them: the study screen asks for them
+ * after a Progress reset.
  */
 export function cardRoutes({
   cards,
   reviews,
+  study,
 }: {
   cards: CardRepository;
   reviews: ReviewRepository;
+  study: StudyRepository;
 }) {
   return new Hono<SignedInEnv>()
     .post("/move", json(MoveCardsRequest, "Invalid move"), (c) => {
@@ -81,6 +92,11 @@ export function cardRoutes({
       const rated = reviews.rate(c.var.user.id, c.req.param("id"), c.req.valid("json"));
       if (rated === "not_found") return c.json(NOT_FOUND, 404);
       return c.json(rated, 201);
+    })
+    .get("/:id/intervals", (c) => {
+      const intervals = study.intervals(c.var.user.id, c.req.param("id"));
+      if (intervals === "not_found") return c.json(NOT_FOUND, 404);
+      return c.json(intervals, 200);
     })
     .get("/:id", (c) => {
       const found = cards.find(c.var.user.id, c.req.param("id"));

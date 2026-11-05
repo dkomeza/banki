@@ -231,7 +231,7 @@ export const ACTIVE: ActiveRecord[] = [
   },
   {
     issue: "BAN-13",
-    kind: "review-round",
+    kind: "acceptance-fix",
     state: "paused",
     pid: null,
     sessionId: "sess-13",
@@ -240,7 +240,7 @@ export const ACTIVE: ActiveRecord[] = [
       {
         startedAt: at("24T05:00:00"),
         endedAt: at("24T06:10:00"),
-        log: log("BAN-13", "2026-10-24T05:00:00", "review-round"),
+        log: log("BAN-13", "2026-10-24T05:00:00", "acceptance-fix"),
         before: reading(0.4, "24T05:00:00"),
         after: reading(0.42, "24T06:10:00"),
         costUsd: 0.9,
@@ -332,7 +332,6 @@ const COMMENTS = [
     pr: null,
     headSha: null,
     pushed: true,
-    roundsEnded: null,
     routes: ["/decks"],
     variants: VARIANTS,
     wait: null,
@@ -412,9 +411,6 @@ export function github(): GitHub {
   const base = fakeGitHub({
     pr: { number: 38, headSha: "f".repeat(40), open: true, createdAt: at("24T07:00:00") },
     pushedAt: at("24T07:30:00"),
-    check: { status: "completed", conclusion: "success" },
-    summary: { sha: "fffffff", findings: [] },
-    openThreads: 0,
     preview: { state: "queued", description: "", url: null, createdAt: at("24T07:40:00") },
   });
   const slugs = [

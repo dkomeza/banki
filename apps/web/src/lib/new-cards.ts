@@ -3,11 +3,13 @@ import {
   LEARNING_LIMIT_MIN,
   NEW_CARD_BATCH_MAX,
   NEW_CARD_BATCH_MIN,
+  SESSION_TIMEOUT_MINUTES_MAX,
+  SESSION_TIMEOUT_MINUTES_MIN,
 } from "@banki/shared";
 
 // How New cards are paced (CONTEXT.md: New card, New-card batch, Learning
-// limit): the Settings → Advanced steppers, and the study screen's offer of
-// another batch.
+// limit) and when a Session ends (Session timeout): the Settings → Advanced
+// steppers, and the study screen's offer of another batch.
 
 /** A stepper's range, and how far one press moves it. */
 export type StepperRange = { min: number; max: number; step: number };
@@ -24,6 +26,13 @@ export const LEARNING_LIMIT_RANGE: StepperRange = {
   min: LEARNING_LIMIT_MIN,
   max: LEARNING_LIMIT_MAX,
   step: 1,
+};
+
+/** The Session timeout, 5–240 minutes, in fives. */
+export const SESSION_TIMEOUT_RANGE: StepperRange = {
+  min: SESSION_TIMEOUT_MINUTES_MIN,
+  max: SESSION_TIMEOUT_MINUTES_MAX,
+  step: 5,
 };
 
 /**

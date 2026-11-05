@@ -4,8 +4,10 @@ import { createCardRepository } from "../repositories/cards";
 import { createDeckRepository } from "../repositories/decks";
 import { createFolderRepository } from "../repositories/folders";
 import { createImageRepository, hasImages } from "../repositories/images";
-import { hasReviews } from "../repositories/reviews";
+import { hasProgressResets } from "../repositories/progress-resets";
+import { createReviewRepository, hasReviews } from "../repositories/reviews";
 import { setInitialMacros, setInitialTimezone } from "../repositories/settings";
+import type { Rating } from "@banki/shared";
 
 import { SEED_IDS, SEED_TIMEZONE } from "./seed-ids";
 
@@ -468,6 +470,30 @@ const TAGS: Readonly<Record<string, readonly string[]>> = {
 };
 
 /**
+ * The Seed data's Reviews, oldest first, each given this many hours before the
+ * seed time, so a fresh Preview has studied Cards (the Reset progress row, and
+ * Back to New after a Progress reset) without rating anything first. el
+ * desayuno graduated three days ago and lapsed two hours ago, so it is in its
+ * learning steps again and Spanish vocabulary's Session shows it first; la cuenta
+ * graduated four days ago and is due again; and the edit-card page's Card
+ * (`SEED_IDS.card`) took its first Rating nine hours ago. Written through the
+ * repository in this order, so they take their places in the Write order.
+ */
+const REVIEWS: readonly { cardId: string; hoursAgo: number; rating: Rating; durationMs: number }[] =
+  [
+    { cardId: spanish[1], hoursAgo: 100, rating: "good", durationMs: 6_400 },
+    { cardId: spanish[1], hoursAgo: 99.8, rating: "good", durationMs: 3_100 },
+    { cardId: spanish[0], hoursAgo: 74, rating: "good", durationMs: 5_200 },
+    { cardId: spanish[0], hoursAgo: 73.8, rating: "good", durationMs: 2_700 },
+    { cardId: calculus2[9], hoursAgo: 9, rating: "good", durationMs: 41_000 },
+    { cardId: spanish[0], hoursAgo: 2, rating: "again", durationMs: 9_800 },
+  ];
+
+/** The fixed ID of the Seed data's `n`th Review. */
+const reviewSeedId = (n: number) =>
+  `5eed0000-0000-4000-8000-${(0xe0000000000 + n).toString(16).padStart(12, "0")}`;
+
+/**
  * When the deleted things in the Seed data were created: after the live
  * Folders they were in, and before any of them was deleted.
  */
@@ -635,11 +661,23 @@ export function writeSeedData({
     if (typeof created === "string") throw new Error(`The seed Card ${id} is ${created}`);
   }
 
+  const reviews = createReviewRepository(db);
+  for (const [n, { cardId, hoursAgo, rating, durationMs }] of REVIEWS.entries()) {
+    const rated = reviews.rate(
+      userId,
+      cardId,
+      { rating, durationMs },
+      { id: reviewSeedId(n + 1), now: new Date(now.getTime() - hoursAgo * HOUR_MS) },
+    );
+    if (rated === "not_found") throw new Error(`The seed Review of ${cardId} found no Card`);
+  }
+
   deletions.rest();
 }
 
 /**
- * Whether the User owns any content (folders, decks, cards, images, reviews), in which
+ * Whether the User owns any content (folders, decks, cards, images, reviews,
+ * Progress resets), in which
  * case `banki seed` refuses. Deleted Folders, Decks and Cards count too: they
  * are still the User's until they are purged. Settings aren't content: seeding leaves a
  * stored choice alone instead.
@@ -650,6 +688,7 @@ export function userHasContent(db: Queryable, userId: string): boolean {
     createFolderRepository(db).any(userId) ||
     createCardRepository(db).any(userId) ||
     hasImages(db, userId) ||
-    hasReviews(db, userId)
+    hasReviews(db, userId) ||
+    hasProgressResets(db, userId)
   );
 }

@@ -98,7 +98,7 @@ describe("the ledger", () => {
       [],
     );
 
-    expect(round([estimates.implement, estimates.design, estimates["review-round"]])).toEqual([
+    expect(round([estimates.implement, estimates.design, estimates["acceptance-fix"]])).toEqual([
       0.03, 0.05, 0.05,
     ]);
   });
