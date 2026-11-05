@@ -10,24 +10,23 @@ const done = {
   stage: "implement",
   issue: "BAN-7",
   outcome: "done",
-  summary: "Opened PR #12. The review rounds come next.",
+  summary: "Opened PR #12. The PR Preview comes next.",
   nextStatus: "In Review",
   question: null,
   pr: 12,
   headSha: "4f1c0de",
   pushed: true,
-  roundsEnded: null,
   routes: [],
   variants: [],
   somethingElse: { kept: true },
 };
 const stopped = {
   ...done,
-  stage: "review-round",
+  stage: "acceptance-fix",
   outcome: "stopped",
-  summary: "Triaged 3 findings; fixed 2.",
-  question: "The gate fails on a major I dismissed. Override it?",
-  options: ["Override it with the admin bypass", "Fix it after all"],
+  summary: "Fixed 2 of the 3 Acceptance notes.",
+  question: "The third asks for a new screen. Split it out?",
+  options: ["Split it into a new issue", "Build it here after all"],
   keptCommits: [{ sha: "0123456789abcdef", worktree: "/work/banki-worktrees/ban-7-x" }],
 };
 
@@ -43,7 +42,7 @@ describe("the closing comment", () => {
     const body = closingComment(parseResult(done), done);
 
     expect(body).toStartWith("**Implement Stage: done.** The issue is In Review.");
-    expect(body).toContain("Opened PR #12. The review rounds come next.");
+    expect(body).toContain("Opened PR #12. The PR Preview comes next.");
     expect(body).toContain("+++ Stage result");
     expect(resultIn(body)).toEqual(parseResult(done));
   });
@@ -52,9 +51,9 @@ describe("the closing comment", () => {
     const body = closingComment(parseResult(stopped), stopped);
 
     expect(body).toContain("stopped on @dkomeza");
-    expect(body).toContain("**Question:** The gate fails on a major I dismissed. Override it?");
+    expect(body).toContain("**Question:** The third asks for a new screen. Split it out?");
     expect(body).toContain(
-      "1. Override it with the admin bypass (recommended)\n2. Fix it after all",
+      "1. Split it into a new issue (recommended)\n2. Build it here after all",
     );
     expect(body).toContain("`0123456` in `/work/banki-worktrees/ban-7-x`");
     expect(body).toContain("Reply in this comment's thread");
@@ -81,7 +80,7 @@ describe("the closing comment", () => {
     };
     const body = closingComment(parseResult(sneaky), sneaky);
 
-    expect(resultIn(body)).toMatchObject({ stage: "review-round", outcome: "stopped" });
+    expect(resultIn(body)).toMatchObject({ stage: "acceptance-fix", outcome: "stopped" });
     expect(body.split("\n").filter((line) => line.trim() === "+++ Stage result")).toHaveLength(1);
   });
 
@@ -129,6 +128,25 @@ describe("reading the closing comments back", () => {
         issue: "BAN-7",
       }),
     ).toEqual([]);
+  });
+
+  test("skips a closing comment of a Stage that no longer exists, such as a review round", () => {
+    const old = {
+      ...stopped,
+      stage: "review-round",
+      wait: "claude-review",
+      roundsEnded: false,
+      conflicted: false,
+    };
+    const closings = closingsOf(
+      [
+        comment({ id: "old", body: closingComment(parseResult(stopped), old) }),
+        comment({ id: "a", body, createdAt: "2026-10-24T03:00:00.000Z" }),
+      ],
+      { runner: RUNNER, issue: "BAN-7" },
+    );
+
+    expect(closings.map((closing) => closing.id)).toEqual(["a"]);
   });
 
   test("ignores anyone else's comment, a reply, and another issue's result", () => {

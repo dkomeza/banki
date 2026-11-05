@@ -1,6 +1,6 @@
 ---
 name: work-issue
-description: Take a Linear issue (BAN-N) through the pipeline - grill it into a spec, then run its Stages live (design, implement, PR review rounds, Acceptance fixes) or leave them to the Runner. Use when starting or resuming work on an issue.
+description: Take a Linear issue (BAN-N) through the pipeline - grill it into a spec, then run its Stages live (design, implement, Acceptance fixes) or leave them to the Runner. Use when starting or resuming work on an issue.
 argument-hint: BAN-N
 ---
 
@@ -69,7 +69,7 @@ Between Stages you do what the Dispatcher does headless, going by the Stage's re
 - **In Design**: run the design Stage, then the Design Review (`references/ui.md` § Live mode: Design Review).
 - **Design Review**: the Design Review, as above.
 - **Todo**: run the implement Stage.
-- **In Review**: run review rounds until one ends with `"roundsEnded": true` in its result; a round with `"pushed": true` is followed by another on the new head SHA (`stages/review-round.md`). Then wait until the head SHA's PR Preview is up (`references/stages.md` § Waits): the newest status of its `preview` deployment (`gh api 'repos/dkomeza/banki/deployments?environment=preview&sha=<head SHA>'`, then that deployment's `statuses`) is `success`. A `failure` or `inactive` status, or the deadline, goes to the Maintainer with its `description`: push an empty commit to rebuild it (which re-runs `claude-review`, so another round follows), wait longer, or go on to Acceptance without it. Then post the Acceptance hand-off comment (`references/stages.md` § Hand-offs) and move the issue to Acceptance.
-- **Acceptance**: give the Maintainer the same links, and ask with `AskUserQuestion` whether they have feedback. A non-UI issue has less to try, and the same question. Post their feedback on the issue as a top-level comment, in their words, move the issue back to In Review, run the Acceptance-fix Stage, and go on with the review rounds.
+- **In Review**: wait until the head SHA's PR Preview is up (`references/stages.md` § Waits): the newest status of its `preview` deployment (`gh api 'repos/dkomeza/banki/deployments?environment=preview&sha=<head SHA>'`, then that deployment's `statuses`) is `success`. A `failure` or `inactive` status, or the deadline, goes to the Maintainer with its `description`: push an empty commit to rebuild it, wait longer, or go on to Acceptance without it. Then post the Acceptance hand-off comment (`references/stages.md` § Hand-offs) and move the issue to Acceptance.
+- **Acceptance**: give the Maintainer the same links, and ask with `AskUserQuestion` whether they have feedback. A non-UI issue has less to try, and the same question. Post their feedback on the issue as a top-level comment, in their words, move the issue back to In Review, run the Acceptance-fix Stage, and go on as In Review.
 
-**Checkpoint 2.** When the Maintainer has no more feedback, leave the issue in Acceptance and unassign it. Hand over with the PR link and the state: the gate passing, no thread unresolved, and how many rounds it took. The Maintainer merges. Linear moves the issue to `Done`, and the next run's step 0 removes the worktree.
+**Checkpoint 2.** When the Maintainer has no more feedback, leave the issue in Acceptance and unassign it. Hand over with the PR link and the state of its checks. The Maintainer merges. Linear moves the issue to `Done`, and the next run's step 0 removes the worktree.

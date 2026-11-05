@@ -71,9 +71,9 @@ describe("a paused Stage's invocation", () => {
 
 describe("the Stage's prompt", () => {
   test("runs that Stage's prompt on the issue, headless", () => {
-    const prompt = stagePrompt("review-round", "BAN-94");
+    const prompt = stagePrompt("acceptance-fix", "BAN-94");
 
-    expect(prompt).toContain(".claude/skills/work-issue/stages/review-round.md");
+    expect(prompt).toContain(".claude/skills/work-issue/stages/acceptance-fix.md");
     expect(prompt).toContain("BAN-94");
     expect(prompt).toContain("headless");
     expect(prompt).toContain(".claude/skills/work-issue/references/stages.md");

@@ -7,22 +7,13 @@ import {
   isRecord,
   parseJson,
 } from "../lib/parse";
-import {
-  ACTIONS_APP,
-  CLAUDE_REVIEW_CHECK,
-  parseSummary,
-  startedByClaudeReview,
-  SUMMARY_AUTHOR,
-  SUMMARY_MARKER,
-} from "./review";
 import type { Deployment, ReviewFacts } from "./select";
 
 // The GitHub adapter for the Dispatcher, on `dkomeza/banki` with the Broker's
-// installation token. It reads what the waits need (the PR, `claude-review`'s
-// check, summary and threads, and the Previews' deployments) and, for
-// housekeeping, takes a Slug Preview down; and, for the Dashboard, the
-// newest Previews' deployments. It trusts `claude-review` alone (review.ts),
-// never anyone's comments.
+// installation token. It reads what the waits need (the PR, its push, and
+// the Previews' deployments) and, for housekeeping, takes a Slug Preview
+// down; and, for the Dashboard, the newest Previews' deployments. It reads
+// no one's comments.
 
 const API = "https://api.github.com";
 const OWNER = "dkomeza";
@@ -97,14 +88,6 @@ export function github(token: () => Promise<string>, options: { fetch?: Fetch } 
     return items;
   }
 
-  async function graphql(query: string, variables: Record<string, unknown>) {
-    const res = await call("POST", "/graphql", { query, variables });
-    const body = asObject(parseJson(await res.text(), "GitHub GraphQL"), "GitHub GraphQL");
-    if (body.errors !== undefined)
-      throw new Error(`GitHub GraphQL: ${JSON.stringify(body.errors).slice(0, 300)}`);
-    return asObject(body.data, "GitHub GraphQL data");
-  }
-
   /** A deployment's newest status. */
   async function newestStatus(id: number): Promise<Deployment> {
     const statuses = asArray(
@@ -123,61 +106,6 @@ export function github(token: () => Promise<string>, options: { fetch?: Fetch } 
     };
   }
 
-  async function unresolvedThreads(pr: number): Promise<number> {
-    let count = 0;
-    let after: string | null = null;
-    for (;;) {
-      const data = await graphql(
-        `
-          query ($owner: String!, $name: String!, $pr: Int!, $after: String) {
-            repository(owner: $owner, name: $name) {
-              pullRequest(number: $pr) {
-                reviewThreads(first: 100, after: $after) {
-                  nodes {
-                    isResolved
-                    comments(first: 1) {
-                      nodes {
-                        author {
-                          login
-                          kind: __typename
-                        }
-                      }
-                    }
-                  }
-                  pageInfo {
-                    hasNextPage
-                    endCursor
-                  }
-                }
-              }
-            }
-          }
-        `,
-        { owner: OWNER, name: NAME, pr, after },
-      );
-      const threads = asObject(
-        asObject(asObject(data.repository, "repository").pullRequest, "pullRequest").reviewThreads,
-        "reviewThreads",
-      );
-      for (const thread of asArray(threads.nodes, "reviewThreads.nodes").filter(isRecord)) {
-        const first =
-          isRecord(thread.comments) && Array.isArray(thread.comments.nodes)
-            ? thread.comments.nodes[0]
-            : undefined;
-        if (
-          thread.isResolved !== true &&
-          isRecord(first) &&
-          startedByClaudeReview(isRecord(first.author) ? first.author : null)
-        ) {
-          count += 1;
-        }
-      }
-      const info = asObject(threads.pageInfo, "pageInfo");
-      if (info.hasNextPage !== true) return count;
-      after = asString(info.endCursor, "pageInfo.endCursor");
-    }
-  }
-
   return {
     /** What the In Review waits read, on the branch's pull request. */
     async review(branch: string): Promise<ReviewFacts> {
@@ -188,15 +116,7 @@ export function github(token: () => Promise<string>, options: { fetch?: Fetch } 
         "pulls",
       ).filter(isRecord);
       const pull = pulls.find((found) => found.state === "open") ?? pulls[0];
-      const empty: ReviewFacts = {
-        pr: null,
-        pushedAt: null,
-        check: null,
-        summary: null,
-        openThreads: 0,
-        preview: null,
-        mergeable: null,
-      };
+      const empty: ReviewFacts = { pr: null, pushedAt: null, preview: null };
       if (pull === undefined) return empty;
       const number = asNumber(pull.number, "pull.number");
       const headSha = asString(asObject(pull.head, "pull.head").sha, "pull.head.sha");
@@ -207,9 +127,6 @@ export function github(token: () => Promise<string>, options: { fetch?: Fetch } 
         createdAt: asString(pull.created_at, "pull.created_at"),
       };
       if (!pr.open) return { ...empty, pr };
-      // Only a single pull says whether it merges, once GitHub has worked it out.
-      const single = asObject(await get(`/repos/${REPO}/pulls/${number}`), "pull");
-      const mergeable = typeof single.mergeable === "boolean" ? single.mergeable : null;
 
       const suites = (
         await pages(
@@ -220,27 +137,6 @@ export function github(token: () => Promise<string>, options: { fetch?: Fetch } 
         .filter(fromActions)
         .map((suite) => asString(suite.created_at, "check_suite.created_at"))
         .toSorted();
-      const runs = (
-        await pages(
-          `/repos/${REPO}/commits/${headSha}/check-runs?check_name=${CLAUDE_REVIEW_CHECK}&per_page=100`,
-          (page) => asObject(page, "check-runs").check_runs,
-        )
-      )
-        .filter(fromActions)
-        .toSorted((a, b) => asNumber(b.id, "check_run.id") - asNumber(a.id, "check_run.id"));
-      const run = runs[0];
-
-      const summaryComment = (
-        await pages(`/repos/${REPO}/issues/${number}/comments?per_page=100`)
-      ).find(
-        (comment) =>
-          isRecord(comment.user) &&
-          comment.user.login === SUMMARY_AUTHOR &&
-          comment.user.type === "Bot" &&
-          typeof comment.body === "string" &&
-          comment.body.startsWith(SUMMARY_MARKER),
-      );
-
       const deployments = (
         await pages(`/repos/${REPO}/deployments?environment=preview&sha=${headSha}&per_page=100`)
       ).toSorted(
@@ -252,18 +148,6 @@ export function github(token: () => Promise<string>, options: { fetch?: Fetch } 
       return {
         pr,
         pushedAt: suites[0] ?? null,
-        check:
-          run === undefined
-            ? null
-            : {
-                status: String(run.status),
-                conclusion: typeof run.conclusion === "string" ? run.conclusion : null,
-              },
-        summary:
-          typeof summaryComment?.body === "string"
-            ? (parseSummary(summaryComment.body) ?? null)
-            : null,
-        openThreads: await unresolvedThreads(number),
         preview:
           newest === undefined
             ? null
@@ -271,7 +155,6 @@ export function github(token: () => Promise<string>, options: { fetch?: Fetch } 
                 ...(await newestStatus(asNumber(newest.id, "deployment.id"))),
                 createdAt: asString(newest.created_at, "deployment.created_at"),
               },
-        mergeable,
       };
     },
 
@@ -368,8 +251,9 @@ export function github(token: () => Promise<string>, options: { fetch?: Fetch } 
   };
 }
 
+// Only GitHub Actions' check suites date a push: anyone's app can add one.
 const fromActions = (item: Record<string, unknown>) =>
-  isRecord(item.app) && item.app.slug === ACTIONS_APP;
+  isRecord(item.app) && item.app.slug === "github-actions";
 
 /** A Slug's newest deployment, of those given, at `sha` when one is named. */
 export function newestFor(

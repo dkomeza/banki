@@ -361,7 +361,7 @@ describe("a supervised Stage", () => {
       return { exitCode: 143, timedOut: true };
     });
 
-    await supervise("review-round", "BAN-1", { log, resume: false }, deps);
+    await supervise("acceptance-fix", "BAN-1", { log, resume: false }, deps);
 
     expect(linear.calls).toEqual([
       "BAN-1 → In Progress",
@@ -372,7 +372,7 @@ describe("a supervised Stage", () => {
     expect(issue.comments[0]?.body).toContain("3 hours");
     expect(issue.comments[0]?.body).toContain("claude exited 143");
     expect(resultIn(issue.comments[0]?.body ?? "")).toMatchObject({
-      stage: "review-round",
+      stage: "acceptance-fix",
       outcome: "stopped",
       wait: null,
     });
@@ -383,11 +383,11 @@ describe("a supervised Stage", () => {
     const tip = "c".repeat(40);
     const { deps, log } = setup(
       issue,
-      () => ({ result: { ...done, stage: "review-round", headSha: "abc", pushed: true } }),
+      () => ({ result: { ...done, stage: "acceptance-fix", headSha: "abc", pushed: true } }),
       { heads: [tip, tip] },
     );
 
-    await supervise("review-round", "BAN-1", { log, resume: false }, deps);
+    await supervise("acceptance-fix", "BAN-1", { log, resume: false }, deps);
 
     expect(resultIn(issue.comments[0]?.body ?? "")).toMatchObject({ headSha: tip, pushed: false });
   });
@@ -397,11 +397,11 @@ describe("a supervised Stage", () => {
     const tipsOf: string[] = [];
     const { deps, log } = setup(
       issue,
-      () => ({ result: { ...done, stage: "review-round", headSha: null, pushed: false } }),
+      () => ({ result: { ...done, stage: "acceptance-fix", headSha: null, pushed: false } }),
       { branches: ["main", "dkomeza/ban-1-x"], tipsOf },
     );
 
-    await supervise("review-round", "BAN-1", { log, resume: false }, deps);
+    await supervise("acceptance-fix", "BAN-1", { log, resume: false }, deps);
 
     expect(tipsOf).toEqual(["dkomeza/ban-1-x", "dkomeza/ban-1-x"]);
   });
@@ -410,11 +410,11 @@ describe("a supervised Stage", () => {
     const issue = fakeIssue("BAN-1", { status: "In Review" });
     const { deps, log } = setup(
       issue,
-      () => ({ result: { ...done, stage: "review-round", headSha: null, pushed: false } }),
+      () => ({ result: { ...done, stage: "acceptance-fix", headSha: null, pushed: false } }),
       { heads: ["a".repeat(40), "b".repeat(40)] },
     );
 
-    await supervise("review-round", "BAN-1", { log, resume: false }, deps);
+    await supervise("acceptance-fix", "BAN-1", { log, resume: false }, deps);
 
     expect(resultIn(issue.comments[0]?.body ?? "")).toMatchObject({
       headSha: "b".repeat(40),

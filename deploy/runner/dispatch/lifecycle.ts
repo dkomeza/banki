@@ -138,6 +138,9 @@ export function ending(input: {
         problem = `its result is for the ${result.stage} Stage on ${result.issue}`;
       } else if (bad !== undefined) {
         problem = bad;
+      } else if (result.wait !== null) {
+        // Only the Dispatcher's own stops are on a wait.
+        problem = `its result names the wait ${result.wait}`;
       } else {
         return { type: "closing", result, json: asObject(input.result, "result") };
       }
@@ -187,8 +190,6 @@ export function crashStop(input: {
     pr: null,
     headSha: null,
     pushed: false,
-    roundsEnded: null,
-    conflicted: null,
     routes: [],
     variants: [],
     wait: null,

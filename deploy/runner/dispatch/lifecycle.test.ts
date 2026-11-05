@@ -76,6 +76,14 @@ describe("how a run ends", () => {
     expect(outcome.type === "crash" ? outcome.why : "").toContain('nextStatus is "Acceptance"');
   });
 
+  test("as a crash when its result names a wait, which only the Dispatcher's stops do", () => {
+    const stopped = { ...result, outcome: "stopped", wait: "pr-preview" };
+    const outcome = end({ result: stopped });
+
+    expect(outcome).toMatchObject({ type: "crash", outcome: "no-result" });
+    expect(outcome.type === "crash" ? outcome.why : "").toContain("the wait pr-preview");
+  });
+
   test("as a crash without a result, or with another Stage's", () => {
     expect(end({ exitCode: 1 })).toMatchObject({ type: "crash", outcome: "no-result" });
     const other = end({ result: { ...result, stage: "design" } });
@@ -276,13 +284,13 @@ describe("after a crash", () => {
   test("the stop is the Stage's own, so a reply runs it again", () => {
     expect(
       crashStop({
-        kind: "review-round",
+        kind: "acceptance-fix",
         issue: "BAN-7",
         status: STATUS.inReview,
         why: "It crashed.",
       }),
     ).toMatchObject({
-      stage: "review-round",
+      stage: "acceptance-fix",
       outcome: "stopped",
       nextStatus: STATUS.inReview,
       wait: null,

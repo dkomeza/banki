@@ -229,7 +229,7 @@ The person who plans, reviews and merges changes to Banki. Not the User of an in
 _Avoid_: user, developer, owner
 
 **Stage**:
-One piece of work on an issue that an agent does unattended: building a prototype's Variants, implementing the spec, a round against `claude-review`, or fixing after Acceptance feedback. An issue's status says which Stage comes next.
+One piece of work on an issue that an agent does unattended: building a prototype's Variants, implementing the spec, or fixing after Acceptance feedback. An issue's status says which Stage comes next.
 _Avoid_: job, task, step
 
 **Runner**:

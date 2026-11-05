@@ -1,6 +1,6 @@
 # Acceptance-fix Stage
 
-Fixes what the Maintainer found trying the PR Preview in Acceptance. It runs in In Review, after they moved the issue back from Acceptance with their feedback, and the review rounds follow it before the next Acceptance.
+Fixes what the Maintainer found trying the PR Preview in Acceptance. It runs in In Review, after they moved the issue back from Acceptance with their feedback, and the hand-off to Acceptance follows it once the PR Preview is up.
 
 Follow [`../references/stages.md`](../references/stages.md) (paths, input, questions and stops, the result) throughout. A run after a stop reads the same feedback again, and what an earlier run already pushed or wrote into the spec is done.
 
@@ -28,8 +28,8 @@ Done when every point is fixed and the checks are green.
 
 ## 5. Push
 
-Push **once** with `git push origin <branch>`. On a UI issue, refresh the PR body's shots (`ui.md` § Refreshing the shots).
+When the PR conflicts with `main` (`gh pr view <pr> --json mergeable` says `CONFLICTING`), rebase first: `git fetch origin` and `git rebase origin/main` in `<wt>`, never a merge, resolving each conflict so both `main`'s change and the issue's survive (one that can't is a spec question: `git rebase --abort` and stop), then the root checks again. Push **once**, with `git push --force-with-lease origin <branch>` after a rebase and `git push origin <branch>` otherwise. On a UI issue, refresh the PR body's shots (`ui.md` § Refreshing the shots).
 
 ## 6. End
 
-As `stages.md` § End: the issue stays In Review, and the review rounds come next.
+As `stages.md` § End: the issue stays In Review, and the hand-off to Acceptance comes next.

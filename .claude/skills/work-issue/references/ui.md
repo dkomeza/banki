@@ -85,7 +85,7 @@ When opening the PR, add one `--attach ./.ui/pr/<file>.png` per PNG in `.ui/pr/`
 
 ## Refreshing the shots
 
-After a review round or an Acceptance fix that touched `apps/web/` has pushed, refresh the shots from `<wt>`: `gh pr view <pr> --json body --jq .body > .ui/pr-body.md`, `bun run ui compare --body .ui/pr-body.md`, then `gh pr edit <pr> --body-file .ui/pr-body.md --attach ./.ui/pr/<file>.png …` for each PNG in `.ui/pr/`.
+After an Acceptance fix that touched `apps/web/` has pushed, refresh the shots from `<wt>`: `gh pr view <pr> --json body --jq .body > .ui/pr-body.md`, `bun run ui compare --body .ui/pr-body.md`, then `gh pr edit <pr> --body-file .ui/pr-body.md --attach ./.ui/pr/<file>.png …` for each PNG in `.ui/pr/`.
 
 ## Live mode: Design Review
 
