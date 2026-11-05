@@ -338,7 +338,7 @@ describe("POST /api/cards/:cardId/grade", () => {
     }
   });
 
-  test("asks the User's Model, at temperature 0, for strict structured output from providers that honour it", async () => {
+  test("asks the User's Model, for strict structured output from providers that honour it, at temperature 0 if it takes one", async () => {
     const { app, cookie, stub } = await signedIn();
     await send(app, "PATCH", "/api/settings", { model: "openai/gpt-6-luna" }, cookie);
     const { card } = await aCard(app, cookie);
@@ -351,10 +351,11 @@ describe("POST /api/cards/:cardId/grade", () => {
     expect(chat?.body).toMatchObject({
       model: "openai/gpt-6-luna",
       stream: false,
-      temperature: 0,
       response_format: { type: "json_schema", json_schema: { strict: true } },
       provider: { require_parameters: true },
     });
+    // GPT-6 Luna takes no temperature; with require_parameters, sending one leaves OpenRouter no endpoint (404).
+    expect(chat?.body).not.toHaveProperty("temperature");
     expect(chat?.body.messages[0].content).toContain("ignore");
   });
 

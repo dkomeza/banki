@@ -24,6 +24,7 @@ const ModelGrade = z.object({
 /** The part of a chat completion the Grader reads: the first choice's message. */
 const ChatCompletion = z.object({
   choices: z.array(z.object({ message: z.object({ content: z.string() }) })).min(1),
+  usage: z.object({ cost: z.number().optional() }).optional(),
 });
 
 /** Why grading failed: OpenRouter answered an error status, couldn't be reached, took too long, or answered something that doesn't fit the schema. */
@@ -44,12 +45,15 @@ export async function grade(
     fetch,
     readImage,
     timeoutMs = TIMEOUT_MS,
+    onCost,
   }: {
     apiKey: string;
     model: ModelId;
     fetch: OpenRouterFetch;
     readImage: ReadImage;
     timeoutMs?: number;
+    /** Told what OpenRouter charged, in US dollars, for a completion that answered. */
+    onCost?: (usd: number) => void;
   },
 ): Promise<GradeResponse | { failed: GradingFailure }> {
   const request = gradingRequest(input, model, readImage);
@@ -82,6 +86,8 @@ export async function grade(
   }
 
   const completion = ChatCompletion.safeParse(body);
+  const cost = completion.success ? completion.data.usage?.cost : undefined;
+  if (cost !== undefined) onCost?.(cost);
   let answered: z.infer<typeof ModelGrade> | undefined;
   if (completion.success) {
     try {

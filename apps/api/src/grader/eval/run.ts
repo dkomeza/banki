@@ -1,7 +1,7 @@
 import { appendFileSync } from "node:fs";
 import { MODELS, modelById, DEFAULT_MODEL_ID } from "@banki/shared";
 import { configure, getConsoleSink } from "@logtape/logtape";
-import { report, runEval } from "./evaluate";
+import { report, runEval, staleTemperatureFlags } from "./evaluate";
 import { SAMPLES } from "./samples";
 
 // The Grader's eval: every curated Model over the samples, on the real
@@ -31,15 +31,23 @@ await configure({
   ],
 });
 
-const results = await runEval({
+const { results, costs } = await runEval({
   apiKey,
   fetch: (input, init) => fetch(input, init),
   models: MODELS,
   samples: SAMPLES,
 });
-const { table, failures } = report(results, MODELS, SAMPLES);
+const { table, failures } = report(results, MODELS, SAMPLES, costs);
 console.log(table);
 summary(`## The Grader's eval\n\n${table}\n`);
+
+const stale = await staleTemperatureFlags((input, init) => fetch(input, init), MODELS);
+if (stale.length > 0) {
+  const message = `A Model's temperature flag in models.ts is stale:\n${stale.map((s) => `- ${s}`).join("\n")}`;
+  console.error(message);
+  summary(message);
+  process.exitCode = 1;
+}
 
 const model = modelById(DEFAULT_MODEL_ID).name;
 // A sample the default Model couldn't grade doesn't fail the eval, but says so.

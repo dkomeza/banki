@@ -53,4 +53,20 @@ describe("grade", () => {
 
     expect(graded).toEqual({ failed: "timeout" });
   });
+
+  test("tells what OpenRouter charged", async () => {
+    const content = JSON.stringify({ rating: "good", feedback: "ok", missing: [], mistakes: [] });
+    const costs: number[] = [];
+    const graded = await grade(INPUT, {
+      apiKey: "sk-or-v1-test",
+      model: "anthropic/claude-haiku-5.5",
+      fetch: async () =>
+        Response.json({ choices: [{ message: { content } }], usage: { cost: 0.0042 } }),
+      readImage: () => undefined,
+      onCost: (usd) => costs.push(usd),
+    });
+
+    expect(graded).toMatchObject({ rating: "good" });
+    expect(costs).toEqual([0.0042]);
+  });
 });
