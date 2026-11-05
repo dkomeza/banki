@@ -28,7 +28,11 @@ const readSampleImage: ReadImage = (file) => {
   }
 };
 
-/** Grades every sample with every Model, on the real OpenRouter. */
+/**
+ * Grades every sample with every Model, on the real OpenRouter: one Model at
+ * a time, its samples at once, so one key isn't sent a burst it is
+ * rate-limited for.
+ */
 export async function runEval({
   apiKey,
   fetch,
@@ -40,9 +44,11 @@ export async function runEval({
   models: readonly EvalModel[];
   samples: readonly EvalSample[];
 }): Promise<EvalResults> {
-  const graded = await Promise.all(
-    models.map(async (model) => {
-      const suggestions = await Promise.all(
+  const results: EvalResults = new Map();
+  for (const model of models) {
+    results.set(
+      model.id,
+      await Promise.all(
         samples.map(async (sample): Promise<Suggestion> => {
           const result = await grade(sample, {
             apiKey,
@@ -52,11 +58,10 @@ export async function runEval({
           });
           return "failed" in result ? "failed" : result.rating;
         }),
-      );
-      return [model.id, suggestions] as const;
-    }),
-  );
-  return new Map(graded);
+      ),
+    );
+  }
+  return results;
 }
 
 /** A table cell: the suggestion, with ⚠ when it is two or more steps off. */

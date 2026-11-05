@@ -54,11 +54,11 @@ export async function grade(
 ): Promise<GradeResponse | { failed: GradingFailure }> {
   const request = gradingRequest(input, model, readImage);
   const failed = (failure: GradingFailure, status: number | null = null) => {
-    logger.warning("Grading failed ({failure}): OpenRouter answered {status} for {model}", {
-      failure,
-      status,
-      model,
-    });
+    const message =
+      status === null
+        ? "Grading failed ({failure}) with {model}: no answer from OpenRouter"
+        : "Grading failed ({failure}) with {model}: OpenRouter answered {status}";
+    logger.warning(message, { failure, status, model });
     return { failed: failure };
   };
 

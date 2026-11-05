@@ -42,10 +42,17 @@ console.log(table);
 summary(`## The Grader's eval\n\n${table}\n`);
 
 const model = modelById(DEFAULT_MODEL_ID).name;
+// A sample the default Model couldn't grade doesn't fail the eval, but says so.
+const unsure = (results.get(DEFAULT_MODEL_ID) ?? []).filter((s) => s === "failed").length;
+if (unsure > 0) {
+  const warning = `⚠ ${model}, the default Model, failed to grade ${unsure} of ${SAMPLES.length} samples (see the log for OpenRouter's status).`;
+  console.warn(warning);
+  summary(warning);
+}
 if (failures.length > 0) {
   const message = `${model}, the default Model, is two or more steps off on:\n${failures.map((f) => `- ${f}`).join("\n")}`;
   console.error(message);
   summary(message);
   process.exit(1);
 }
-console.log(`${model}, the default Model, is within a step on every sample.`);
+console.log(`${model}, the default Model, is within a step on every sample it graded.`);

@@ -1001,7 +1001,7 @@ Run it from the repo root with an OpenRouter key of your own; it spends a little
 OPENROUTER_API_KEY=sk-or-v1-… bun run --cwd apps/api grader:eval
 ```
 
-It fails (exit code 1) when the default Model is two or more steps off on any sample; the other Models' results are for reading only, and a sample a Model failed to grade shows as `failed` without failing it. With no `OPENROUTER_API_KEY` it skips with a note.
+It fails (exit code 1) when the default Model is two or more steps off on any sample; the other Models' results are for reading only, and a sample a Model failed to grade shows as `failed` without failing it (when the default Model fails some, a warning under the table says how many). With no `OPENROUTER_API_KEY` it skips with a note.
 
 The `Grader eval` workflow runs it on pull requests that change `apps/api/src/grader/**` or the Model list (`packages/shared/src/models.ts`), weekly on Mondays, and by hand (Actions → Grader eval → Run workflow), with the table in the job summary. It reads the key from the `OPENROUTER_API_KEY` repository secret, which the Maintainer adds (Settings → Secrets and variables → Actions); without it (before it is added, on Dependabot's pull requests and on forks) the job skips with a note and passes.
 
