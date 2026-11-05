@@ -43,7 +43,6 @@ export function defuse(text: string): string {
 export const TITLES: Record<StageKind, string> = {
   design: "Design",
   implement: "Implement",
-  "review-round": "Review round",
   "acceptance-fix": "Acceptance fix",
 };
 

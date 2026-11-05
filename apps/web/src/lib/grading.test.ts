@@ -20,6 +20,7 @@ const SETTINGS = {
   desiredRetention: 90,
   newCardBatch: 20,
   learningLimit: 10,
+  sessionTimeoutMinutes: 30,
   macros: [],
 } as const;
 

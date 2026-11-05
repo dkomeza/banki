@@ -13,7 +13,7 @@ describe("runner's arguments", () => {
   });
 
   test("take every kind of Stage there is a prompt for", () => {
-    for (const kind of ["design", "implement", "review-round", "acceptance-fix"]) {
+    for (const kind of ["design", "implement", "acceptance-fix"]) {
       expect(parseArgs(["stage", kind, "BAN-1"])).toMatchObject({ command: "stage", kind });
     }
   });
@@ -25,7 +25,7 @@ describe("runner's arguments", () => {
   test("refuse a kind with no prompt, naming the kinds", () => {
     expect(parseArgs(["stage", "deploy", "BAN-1"])).toEqual({
       command: "error",
-      message: "No Stage deploy: it is one of design, implement, review-round, acceptance-fix.",
+      message: "No Stage deploy: it is one of design, implement, acceptance-fix.",
     });
   });
 

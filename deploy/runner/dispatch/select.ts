@@ -14,7 +14,6 @@ export { RUNS_IN, STATUS } from "./statuses";
 /** How long each wait may take (`references/stages.md` § Waits). */
 export const DEADLINES_MS: Record<Wait, number> = {
   "slug-previews": 60 * 60_000,
-  "claude-review": 45 * 60_000,
   "pr-preview": 60 * 60_000,
 };
 
@@ -54,22 +53,12 @@ export type WaitOn = {
   deployments: { name: string; deployment: Deployment | null }[];
 };
 
-export type Finding = { status: string; severity: string };
-
 export type ReviewFacts = {
   pr: { number: number; headSha: string; open: boolean; createdAt: string } | null;
   /** When the head SHA was pushed: its check suite's creation. */
   pushedAt: string | null;
-  /** The `claude-review` check run on the head SHA, or null before there is one. */
-  check: { status: string; conclusion: string | null } | null;
-  /** The summary comment: the commit it is at (as it names it, 7 characters) and its findings. */
-  summary: { sha: string; findings: Finding[] } | null;
-  /** Unresolved review threads `claude-review` started. */
-  openThreads: number;
   /** The newest `preview` deployment on the head SHA. */
   preview: Deployment | null;
-  /** Whether GitHub can merge the PR into `main`: false when they conflict, null while it works it out. */
-  mergeable: boolean | null;
 };
 
 /** Each Variant's newest `slug-preview` deployment at its commit, by Slug. */
@@ -96,8 +85,6 @@ export type Decision =
 const MINUTE = 60_000;
 const AGENT_STATUSES: readonly string[] = [STATUS.todo, STATUS.inDesign, STATUS.inReview];
 const short = (sha: string) => sha.slice(0, 7);
-const sameSha = (a: string | null, b: string) =>
-  a !== null && a.length >= 7 && (a.startsWith(b) || b.startsWith(a));
 const later = (a: string, b: string | undefined) => (b !== undefined && b > a ? b : a);
 const SIGN_IN =
   "Sign in with the Preview's Email and Password (README § Setting up the server, in `deploy/preview/bootstrap`).";
@@ -255,161 +242,80 @@ function inReview(
   }
   if (review === undefined) return { type: "need", what: "review" };
 
-  const fitsNone = (summary: string): Decision => ({
+  const pushes = issue.closings.filter(
+    (closing) => closing.result.stage === "implement" || closing.result.stage === "acceptance-fix",
+  );
+  // A stop here is on the PR Preview wait, so a reply waits again rather than
+  // running a Stage; it names the Stage that last pushed to the PR.
+  const pusher = pushes.at(-1)?.result.stage ?? "implement";
+  const stop = (summary: string, options: string[]): Decision => ({
     type: "stop",
-    stop: dispatcherStop(issue, "review-round", null, summary, [
-      "Reply here to run a review round again",
-      "Move the issue to Acceptance yourself",
-      "Push a fix, or an empty commit, to start over on a new head SHA",
-    ]),
+    stop: dispatcherStop(issue, pusher, "pr-preview", summary, options),
   });
-  const failedWait = (wait: Wait, summary: string, options: string[]): Decision => ({
-    type: "stop",
-    stop: dispatcherStop(issue, "review-round", wait, summary, options),
-  });
+  const moveYourself = "Move the issue to Acceptance yourself, without the PR Preview";
 
   const { pr } = review;
   if (pr === null)
-    return fitsNone(`The issue is In Review, but \`${issue.branch}\` has no pull request.`);
-  if (!pr.open) return fitsNone(`The issue is In Review, but PR #${pr.number} is closed.`);
+    return stop(`The issue is In Review, but \`${issue.branch}\` has no pull request.`, [
+      "Open the pull request, then reply here to wait for its PR Preview",
+      moveYourself,
+    ]);
+  if (!pr.open)
+    return stop(`The issue is In Review, but PR #${pr.number} is closed.`, [
+      "Reopen the pull request, then reply here to wait for its PR Preview",
+      moveYourself,
+    ]);
   const head = pr.headSha;
   // Without GitHub's check suite, the push is no earlier than the PR, nor than
-  // the newest Stage that pushes to it, so the deadlines still hold.
+  // the newest Stage that pushes to it, so the deadline still holds.
   const pushedAt =
-    review.pushedAt ??
-    issue.closings
-      .filter(
-        (closing) =>
-          closing.result.stage === "implement" || closing.result.stage === "acceptance-fix",
-      )
-      .reduce((latest, closing) => later(latest, closing.at), pr.createdAt);
+    review.pushedAt ?? pushes.reduce((latest, closing) => later(latest, closing.at), pr.createdAt);
   const pushed = later(pushedAt, replyAt);
 
-  // A round that pushed nothing is on this SHA if it says so, or if it came
-  // after this SHA's push: its headSha is the Stage's own, and may be wrong.
-  const round = issue.closings.findLast(
-    (closing) =>
-      ran(closing, "review-round") &&
-      !closing.result.pushed &&
-      (sameSha(closing.result.headSha, head) || closing.at > pushedAt),
-  );
-
-  // GitHub runs no `claude-review` on a PR that conflicts with `main`: a
-  // round rebases it first (`review-round.md` § 2). One that found it
-  // conflicting on this head and pushed nothing couldn't, so it isn't tried
-  // again; an earlier round, from before `main` moved, doesn't count.
-  if (review.mergeable === false) {
-    if (round?.result.conflicted === true) {
-      return fitsNone(
-        `PR #${pr.number} conflicts with \`main\`, and the review round that found it conflicting on \`${short(head)}\` pushed nothing.`,
-      );
-    }
-    return {
-      type: "stage",
-      stage: "review-round",
-      why: `PR #${pr.number} conflicts with \`main\`, so it is rebased`,
-    };
-  }
-
-  const { check } = review;
-  if (check === null || check.status !== "completed") {
-    if (now.getTime() > Date.parse(pushed) + DEADLINES_MS["claude-review"]) {
-      return failedWait(
-        "claude-review",
-        `\`claude-review\` hadn't finished on \`${short(head)}\` ${DEADLINES_MS["claude-review"] / MINUTE} minutes after the push (${check === null ? "no check yet" : check.status}).`,
-        [
-          "Re-run the `claude-review` check (`gh run rerun`), then reply here to wait again",
-          "Reply here to wait another 45 minutes",
-        ],
-      );
-    }
-    return {
-      type: "wait",
-      why: `waiting for \`claude-review\` on \`${short(head)}\``,
-      on: {
-        wait: "claude-review",
-        since: pushed,
-        deadlineMs: DEADLINES_MS["claude-review"],
-        deployments: [],
-      },
-    };
-  }
-  if (check.conclusion !== "success" && check.conclusion !== "failure") {
-    return failedWait(
-      "claude-review",
-      `\`claude-review\` ended ${check.conclusion ?? "with no conclusion"} on \`${short(head)}\`, so it didn't review it.`,
-      ["Re-run the `claude-review` check (`gh run rerun`), then reply here to wait again"],
+  if (issue.history.some((change) => change.to === STATUS.acceptance && change.at > pushedAt)) {
+    return stop(
+      `\`${short(head)}\` was handed off to Acceptance already, and the issue is back In Review with no new push and no Acceptance fix to make.`,
+      [
+        "Push a fix, then reply here to wait for its PR Preview",
+        "Move the issue back to Acceptance yourself",
+      ],
     );
   }
-
-  const findings =
-    review.summary !== null && sameSha(review.summary.sha, head)
-      ? review.summary.findings.filter(
-          (finding) => finding.status === "new" || finding.status === "open",
-        )
-      : [];
-  const toTriage = findings.length > 0 || review.openThreads > 0;
-  if (round === undefined && toTriage) {
+  const preview = review.preview;
+  const options = [
+    "Push an empty commit to rebuild the PR Preview, then reply here to wait for it",
+    "Reply here to wait another 60 minutes",
+    moveYourself,
+  ];
+  if (preview?.state === "success") {
     return {
-      type: "stage",
-      stage: "review-round",
-      why: `${findings.length} findings and ${review.openThreads} open threads on \`${short(head)}\``,
+      type: "hand-off",
+      to: STATUS.acceptance,
+      comment: acceptanceHandOff(pr.number, preview),
     };
   }
-
-  // After a round on this SHA, summary-only findings don't hold it back: the
-  // round triaged them and answered them in its PR comment.
-  if (check.conclusion === "success" && review.openThreads === 0) {
-    if (issue.history.some((change) => change.to === STATUS.acceptance && change.at > pushedAt)) {
-      return fitsNone(
-        `\`${short(head)}\` was handed off to Acceptance already, and the issue is back In Review with no new push and no Acceptance fix to make.`,
-      );
-    }
-    const preview = review.preview;
-    const options = [
-      "Push an empty commit to rebuild the PR Preview (it re-runs `claude-review`, so a review round follows)",
-      "Reply here to wait another 60 minutes",
-      "Move the issue to Acceptance yourself, without the PR Preview",
-    ];
-    if (preview?.state === "success") {
-      return {
-        type: "hand-off",
-        to: STATUS.acceptance,
-        comment: acceptanceHandOff(pr.number, preview),
-      };
-    }
-    if (preview?.state === "failure" || preview?.state === "inactive") {
-      return failedWait(
-        "pr-preview",
-        `The PR Preview of \`${short(head)}\` is ${preview.state}${preview.description === "" ? "" : `: ${preview.description}`}.`,
-        options,
-      );
-    }
-    if (now.getTime() > Date.parse(pushed) + DEADLINES_MS["pr-preview"]) {
-      return failedWait(
-        "pr-preview",
-        `The PR Preview of \`${short(head)}\` wasn't up ${DEADLINES_MS["pr-preview"] / MINUTE} minutes after the push (${preview?.state ?? "no deployment yet"}).`,
-        options,
-      );
-    }
-    return {
-      type: "wait",
-      why: `waiting for the PR Preview of \`${short(head)}\``,
-      on: {
-        wait: "pr-preview",
-        since: pushed,
-        deadlineMs: DEADLINES_MS["pr-preview"],
-        deployments: [{ name: `PR #${pr.number}`, deployment: preview }],
-      },
-    };
+  if (preview?.state === "failure" || preview?.state === "inactive") {
+    return stop(
+      `The PR Preview of \`${short(head)}\` is ${preview.state}${preview.description === "" ? "" : `: ${preview.description}`}.`,
+      options,
+    );
   }
-
-  const state = `\`claude-review\` ${check.conclusion === "success" ? "passes" : "fails"} on \`${short(head)}\`, with ${findings.length} new or open findings and ${review.openThreads} unresolved threads`;
-  return fitsNone(
-    round === undefined
-      ? `${state}, and nothing for a review round to triage.`
-      : `A review round ran on \`${short(head)}\` and pushed nothing, and the rounds haven't ended: ${state}.`,
-  );
+  if (now.getTime() > Date.parse(pushed) + DEADLINES_MS["pr-preview"]) {
+    return stop(
+      `The PR Preview of \`${short(head)}\` wasn't up ${DEADLINES_MS["pr-preview"] / MINUTE} minutes after the push (${preview?.state ?? "no deployment yet"}).`,
+      options,
+    );
+  }
+  return {
+    type: "wait",
+    why: `waiting for the PR Preview of \`${short(head)}\``,
+    on: {
+      wait: "pr-preview",
+      since: pushed,
+      deadlineMs: DEADLINES_MS["pr-preview"],
+      deployments: [{ name: `PR #${pr.number}`, deployment: preview }],
+    },
+  };
 }
 
 function dispatcherStop(
@@ -431,8 +337,6 @@ function dispatcherStop(
     pr: null,
     headSha: null,
     pushed: false,
-    roundsEnded: null,
-    conflicted: null,
     routes: [],
     variants: [],
     wait,

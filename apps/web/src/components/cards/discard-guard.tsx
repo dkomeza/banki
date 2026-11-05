@@ -1,45 +1,83 @@
 import { AlertDialog } from "@base-ui/react/alert-dialog";
 import { useBlocker } from "@tanstack/react-router";
-import { useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { OUTLINE_PILL, PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+
+/** Where a 401 sends the User (`goToSignIn`). */
+const SIGN_IN = "/login";
 
 /**
  * Asks "Discard changes?" before leaving a card editor while `unsaved`: by a
  * link, the breadcrumb, Cancel or back. Closing or reloading the tab gets the
  * browser's own prompt instead. With nothing unsaved it leaves without asking.
  * Renders the dialog in `dialog`; `release` lets the next navigation through,
- * for a save or a delete that leaves on purpose.
+ * for a save or a delete that leaves on purpose. While `holding` (a save or a
+ * delete on its way, whose answer can still land), nothing leaves, unasked,
+ * but the sign-in page: a 401 sends the User there, and signed out, nothing
+ * on its way can land, so it goes as it would with nothing on its way, asking
+ * first while something is unsaved.
  */
-export function useDiscardGuard(unsaved: boolean) {
-  // A ref, so a save that navigates straight after can let itself through
+export function useDiscardGuard(unsaved: boolean, holding = false) {
+  // Refs, so a save that navigates straight after can let itself through
   // before React has rendered the saved state.
   const guarded = useRef(unsaved);
+  const held = useRef(holding);
   useLayoutEffect(() => {
     guarded.current = unsaved;
-  }, [unsaved]);
+    held.current = holding;
+  }, [unsaved, holding]);
   const blocker = useBlocker({
-    shouldBlockFn: () => guarded.current,
-    enableBeforeUnload: () => guarded.current,
+    shouldBlockFn: ({ next }) => (held.current && next.pathname !== SIGN_IN) || guarded.current,
+    enableBeforeUnload: () => guarded.current || held.current,
     withResolver: true,
   });
+  const action =
+    blocker.status === "blocked"
+      ? blockedAction({ holding, unsaved, toSignIn: blocker.next?.pathname === SIGN_IN })
+      : undefined;
+  useEffect(() => {
+    if (action === "stay") blocker.reset?.();
+    if (action === "go") blocker.proceed?.();
+  }, [action, blocker]);
 
   return {
     dialog: (
       <DiscardDialog
-        open={blocker.status === "blocked"}
+        open={action === "ask"}
         onKeep={() => blocker.reset?.()}
         onDiscard={() => blocker.proceed?.()}
       />
     ),
     release: () => {
       guarded.current = false;
+      held.current = false;
     },
   };
 }
 
-function DiscardDialog({
+/**
+ * What a navigation the guard blocked does, as the page now renders: held
+ * by a save or a delete on its way, it stays, unasked (but for the sign-in
+ * page); with something unsaved, it asks; with nothing (the hold that blocked
+ * it ended meanwhile), it goes.
+ */
+export function blockedAction({
+  holding,
+  unsaved,
+  toSignIn,
+}: {
+  holding: boolean;
+  unsaved: boolean;
+  toSignIn: boolean;
+}): "stay" | "ask" | "go" {
+  if (holding && !toSignIn) return "stay";
+  return unsaved ? "ask" : "go";
+}
+
+/** "Discard changes?", with Keep editing and Discard. */
+export function DiscardDialog({
   open,
   onKeep,
   onDiscard,
@@ -62,7 +100,7 @@ function DiscardDialog({
             Discard changes?
           </AlertDialog.Title>
           <AlertDialog.Description className="text-[0.95rem] text-muted-foreground">
-            What you've written on this card hasn't been saved.
+            Your changes to this card haven't been saved.
           </AlertDialog.Description>
           <div className="mt-2 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <AlertDialog.Close render={<Button variant="outline" className={OUTLINE_PILL} />}>

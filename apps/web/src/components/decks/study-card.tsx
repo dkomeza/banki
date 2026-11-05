@@ -4,8 +4,10 @@ import { Link } from "@tanstack/react-router";
 import { Play } from "lucide-react";
 import { OUTLINE_PILL, PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
+import { openProgress } from "@/lib/session-store";
 import { settingsQueryOptions } from "@/lib/settings";
 import {
+  FRESH,
   type StudyOverview,
   estimateLabel,
   nextDueLabel,
@@ -19,34 +21,61 @@ import { cn } from "@/lib/utils";
 // today, large in the accent, with `12 due · 20 new · ~9 min` as its caption,
 // and the Study pill closing the row (under it, full width, on phones).
 // Nothing to study says so in the figure's place, with when the next Cards
-// come, and the pill is disabled.
+// come, and the pill is disabled. With an open Session (ADR-0027) the pill
+// reads Continue, and the counts are what resuming it brings; one with only
+// New cards held back by its batch says they are waiting, and Continue
+// opens its end, which offers another batch.
 
-/** The deck page's Study card, from the Deck's overview, refetched each time the page shows. */
+/**
+ * The deck page's Study card, from the Deck's overview for its open Session
+ * (or a fresh one), refetched each time the page shows.
+ */
 export function StudyCard({ deckId }: { deckId: string }) {
-  const overview = useQuery({ ...studyOverviewQueryOptions(deckId), refetchOnMount: "always" });
   const settings = useQuery(settingsQueryOptions()).data?.settings;
+  const open = openProgress(deckId, settings?.sessionTimeoutMinutes);
+  const overview = useQuery({
+    ...studyOverviewQueryOptions(deckId, open ?? FRESH),
+    refetchOnMount: "always",
+  });
   const today = todayOf({
     timezone: settings?.timezone ?? null,
     dayStartHour: settings?.dayStartHour ?? DEFAULT_DAY_START_HOUR,
   });
-  return <StudyCardView deckId={deckId} overview={overview.data ?? undefined} today={today} />;
+  return (
+    <StudyCardView
+      deckId={deckId}
+      overview={overview.data ?? undefined}
+      today={today}
+      resuming={open !== undefined}
+    />
+  );
 }
+
+/** "Nothing due · 37 new waiting": an open Session with only New cards held back by its batch. */
+export const waitingLabel = (newTotal: number) => `Nothing due · ${newTotal} new waiting`;
 
 /**
  * The Study card for `overview`; while it loads (or when it can't), just the
  * Study pill. `today` is the User's Study day, to word the next due day.
- * Exported for its tests.
+ * `resuming` is whether the Deck has an open Session. Exported for its tests.
  */
 export function StudyCardView({
   deckId,
   overview,
   today,
+  resuming = false,
 }: {
   deckId: string;
   overview: StudyOverview | undefined;
   today: string;
+  resuming?: boolean;
 }) {
-  const nothing = overview !== undefined && nothingToStudy(overview);
+  const empty = overview !== undefined && nothingToStudy(overview);
+  // New cards held back by the open Session's batch: its end offers another.
+  const waiting = empty && resuming && overview.newTotal > 0;
+  const nothing = empty && !waiting;
+  // Nothing at all to study, the pill is as without an open Session.
+  const label = resuming ? "Continue" : "Study";
   const next = overview === undefined ? undefined : nextDueLabel(overview.nextDue, today);
   return (
     <section
@@ -56,9 +85,11 @@ export function StudyCardView({
       {overview === undefined ? (
         // Holds the figure's height, so the page doesn't move when it arrives.
         <div aria-hidden className="hidden h-10 sm:block" />
-      ) : nothing ? (
+      ) : empty ? (
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <p className="text-lg font-semibold tracking-[-0.01em]">Nothing to study</p>
+          <p className="text-lg font-semibold tracking-[-0.01em] tabular-nums">
+            {waiting ? waitingLabel(overview.newTotal) : "Nothing to study"}
+          </p>
           {next !== undefined && (
             <p className="text-sm text-muted-foreground tabular-nums">Next {next}</p>
           )}
@@ -90,7 +121,7 @@ export function StudyCardView({
           nativeButton={false}
         >
           <Play aria-hidden />
-          Study
+          {label}
         </Button>
       )}
     </section>

@@ -2,6 +2,7 @@ import { sortTags } from "@banki/shared";
 import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { type KeyboardEvent, useId, useRef, useState } from "react";
+import { STACKED_LABEL, STACKED_ROW } from "@/components/cards/stacked";
 import { suggestTags, tagOf, tagProblem, tagsQueryOptions } from "@/lib/tags";
 import { cn } from "@/lib/utils";
 
@@ -124,18 +125,24 @@ export function TagField({
   input,
   readOnly = false,
   onSave,
+  stacked = false,
 }: {
   input: TagInput;
   readOnly?: boolean;
   onSave: () => void;
+  /** Its label above the field again from 1024 px, in a narrow form (`STACKED_ROW`). */
+  stacked?: boolean;
 }) {
   const id = useId();
   const ref = useRef<HTMLInputElement>(null);
   return (
-    <div className="flex flex-col gap-1 sm:flex-row sm:gap-6">
+    <div className={cn("flex flex-col gap-1 sm:flex-row sm:gap-6", stacked && STACKED_ROW)}>
       <label
         htmlFor={id}
-        className="pt-1 text-xs font-semibold tracking-[0.08em] text-muted-foreground uppercase sm:w-16 sm:shrink-0 sm:pt-3 sm:text-right"
+        className={cn(
+          "pt-1 text-xs font-semibold tracking-[0.08em] text-muted-foreground uppercase sm:w-16 sm:shrink-0 sm:pt-3 sm:text-right",
+          stacked && STACKED_LABEL,
+        )}
       >
         Tags
       </label>
@@ -188,6 +195,10 @@ export function TagField({
               if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
                 event.preventDefault();
                 onSave();
+              } else if (readOnly) {
+                // Read-only while a Save is on its way: no key changes the Tags,
+                // and Enter still never submits the form by itself.
+                if (event.key === "Enter") event.preventDefault();
               } else input.keyDown(event);
             }}
             onBlur={input.blur}

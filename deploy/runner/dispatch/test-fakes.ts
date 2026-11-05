@@ -128,11 +128,7 @@ export function fakeGitHub(review: Partial<ReviewFacts> = {}): GitHub {
     review: async () => ({
       pr: null,
       pushedAt: null,
-      check: null,
-      summary: null,
-      openThreads: 0,
       preview: null,
-      mergeable: true,
       ...review,
     }),
     slugDeployments: async () => [],
