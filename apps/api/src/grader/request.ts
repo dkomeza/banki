@@ -8,6 +8,7 @@ import {
   type MappedText,
   mappedBuilder,
   type ModelId,
+  modelById,
   RATINGS,
   sourceRange,
 } from "@banki/shared";
@@ -85,7 +86,7 @@ export type ChatRequest = {
   model: ModelId;
   messages: [{ role: "system"; content: string }, { role: "user"; content: ContentPart[] }];
   stream: false;
-  temperature: 0;
+  temperature?: 0;
   response_format: {
     type: "json_schema";
     json_schema: { name: string; strict: true; schema: typeof GRADE_JSON_SCHEMA };
@@ -191,7 +192,7 @@ export function gradingRequest(
         { role: "user", content },
       ],
       stream: false,
-      temperature: 0,
+      ...(modelById(model).temperature ? { temperature: 0 as const } : {}),
       response_format: {
         type: "json_schema",
         json_schema: { name: "grade", strict: true, schema: GRADE_JSON_SCHEMA },

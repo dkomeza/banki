@@ -20,6 +20,12 @@ export type Model = {
   speed: ModelScore;
   /** 1 is the cheapest. */
   cost: ModelScore;
+  /**
+   * Whether OpenRouter lists `temperature` for it. The Grader asks for 0 only of
+   * these: with `require_parameters`, a Model that doesn't take it has no
+   * endpoint left, and OpenRouter answers 404.
+   */
+  temperature: boolean;
 };
 
 /**
@@ -30,7 +36,7 @@ export type Model = {
  * study (arXiv 2605.19043) and Roboflow's OCR evals; cost from OpenRouter's
  * prices, at roughly 2k tokens in and 500 out per answer; speed is a judgment
  * call, since OpenRouter publishes no latency figures for these (checked
- * 2026-10-24).
+ * 2026-10-24); temperature from OpenRouter's supported parameters (2026-11-05).
  */
 export const MODELS = [
   {
@@ -42,6 +48,7 @@ export const MODELS = [
     handwriting: 2,
     speed: 3,
     cost: 1,
+    temperature: false,
   },
   {
     id: "openai/gpt-6-luna",
@@ -51,6 +58,7 @@ export const MODELS = [
     handwriting: 2,
     speed: 3,
     cost: 1,
+    temperature: false,
   },
   {
     id: "z-ai/glm-5.3-flash",
@@ -60,6 +68,7 @@ export const MODELS = [
     handwriting: "untested",
     speed: 2,
     cost: 1,
+    temperature: true,
   },
   {
     id: "google/gemini-3.8-flash",
@@ -69,6 +78,7 @@ export const MODELS = [
     handwriting: 3,
     speed: 2,
     cost: 3,
+    temperature: true,
   },
 ] as const satisfies readonly Model[];
 

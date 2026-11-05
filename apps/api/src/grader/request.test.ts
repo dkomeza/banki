@@ -26,6 +26,14 @@ describe("GRADER_PROMPT", () => {
 });
 
 describe("gradingRequest", () => {
+  test("asks for temperature 0 only of a Model that takes one", () => {
+    const input = { front: "f", back: "b", gradingNotes: null, answer: "a", macros: [] };
+    const bodyOf = (model: Parameters<typeof gradingRequest>[1]) =>
+      gradingRequest(input, model, () => undefined).body;
+    expect(bodyOf("google/gemini-3.8-flash").temperature).toBe(0);
+    expect(bodyOf("anthropic/claude-haiku-5.5")).not.toHaveProperty("temperature");
+  });
+
   test("asks for every key of the answer, in a schema strict mode takes", () => {
     expect(GRADE_JSON_SCHEMA.required).toEqual(["rating", "feedback", "missing", "mistakes"]);
     expect(GRADE_JSON_SCHEMA.properties.rating.enum).toEqual([...RATINGS]);

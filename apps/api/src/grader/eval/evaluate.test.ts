@@ -10,7 +10,13 @@ import {
 } from "@banki/shared";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { type EvalResults, report, stepsApart, type Suggestion } from "./evaluate";
+import {
+  type EvalResults,
+  report,
+  staleTemperatureFlags,
+  stepsApart,
+  type Suggestion,
+} from "./evaluate";
 import { type EvalSample, SAMPLES } from "./samples";
 
 describe("SAMPLES", () => {
@@ -71,6 +77,12 @@ describe("report", () => {
     expect(table).toContain("| Second | again | failed | hard |");
   });
 
+  test("ends with each Model's cost, n/a when it reported none", () => {
+    const costs = new Map([[DEFAULT_MODEL_ID, 0.01234]]);
+    const { table } = report(results(["good", "again"]), models, samples, costs);
+    expect(table.split("\n").at(-1)).toBe("| Cost | | $0.0123 | n/a |");
+  });
+
   test("passes the default Model a step off, or failing to grade", () => {
     expect(report(results(["hard", "failed"]), models, samples).failures).toEqual([]);
   });
@@ -82,5 +94,39 @@ describe("report", () => {
 
     const { failures } = report(results(["good", "good"]), models, samples);
     expect(failures).toEqual(["Second: expected again, got good"]);
+  });
+});
+
+/** An OpenRouter whose catalog lists these Models, by whether each takes `temperature`. */
+const catalog = (listed: Record<string, boolean>) => async () =>
+  Response.json({
+    data: Object.entries(listed).map(([id, takes]) => ({
+      id,
+      supported_parameters: takes ? ["temperature", "max_tokens"] : ["max_tokens"],
+    })),
+  });
+
+describe("staleTemperatureFlags", () => {
+  test("is empty when every flag matches the catalog", async () => {
+    const listed = Object.fromEntries(MODELS.map((m) => [m.id, m.temperature]));
+    expect(await staleTemperatureFlags(catalog(listed), MODELS)).toEqual([]);
+  });
+
+  test("names a Model whose flag is stale, or that is gone", async () => {
+    const [first, second] = MODELS;
+    const stale = await staleTemperatureFlags(
+      catalog({ [first?.id ?? ""]: !first?.temperature }),
+      [first, second].flatMap((m) => (m ? [m] : [])),
+    );
+    expect(stale).toEqual([
+      `${first?.id}: temperature is ${first?.temperature} here, ${!first?.temperature} on OpenRouter`,
+      `${second?.id}: no longer on OpenRouter`,
+    ]);
+  });
+
+  test("is no evidence when the catalog can't be read", async () => {
+    expect(
+      await staleTemperatureFlags(async () => new Response("", { status: 500 }), MODELS),
+    ).toEqual([]);
   });
 });
