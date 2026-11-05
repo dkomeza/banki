@@ -14,6 +14,8 @@ export const SEED_IDS = {
   card: "5eed0000-0000-4000-8000-0000000c0205",
   image: "5eed0000-0000-4000-8000-00000000a001",
   folder: "5eed0000-0000-4000-8000-0000000000f3",
+  /** The confirmed Import into the seed Deck, whose report /imports/$importId shows. */
+  import: "5eed0000-0000-4000-8000-0000000001a1",
   folders: {
     languages: "5eed0000-0000-4000-8000-0000000000f1",
     maths: "5eed0000-0000-4000-8000-0000000000f2",

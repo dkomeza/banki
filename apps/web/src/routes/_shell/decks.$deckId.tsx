@@ -1,6 +1,6 @@
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
-import { CornerDownRight, Pencil, Settings2, Trash2 } from "lucide-react";
+import { CornerDownRight, FileUp, Pencil, Settings2, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { DeckMacros } from "@/components/cards/deck-macros";
 import { deleteAllWithUndo, showMovedToast } from "@/components/cards/card-toasts";
@@ -39,7 +39,7 @@ import { cn } from "@/lib/utils";
 // the Deck's stack, its cover on top, beside the name and the whole
 // description, a line saying when it was created, how many Cards it has and
 // the Desired retention it schedules with (a link to its settings page), the
-// Study card (what Study will bring, StudyCard), and Edit, Settings, Move… and
+// Study card (what Study will bring, StudyCard), and Edit, Settings, Import, Move… and
 // Delete under them. Edit opens the same dialog as
 // create; Delete asks in a dialog, naming how many Cards go with it. The Cards follow below, on a timeline (CardTimeline), searched and
 // filtered by Tag through the URL (`?q=…&tags=verb,irregular`), so Back from a
@@ -194,6 +194,15 @@ function DeckBody({ deck }: { deck: Deck }) {
             >
               <Settings2 aria-hidden />
               Settings
+            </Button>
+            <Button
+              variant="outline"
+              className={cn(OUTLINE_PILL, "h-11 text-foreground no-underline")}
+              render={<Link to="/decks/$deckId/import" params={{ deckId: deck.id }} />}
+              nativeButton={false}
+            >
+              <FileUp aria-hidden />
+              Import
             </Button>
             <Button
               variant="outline"
