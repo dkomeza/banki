@@ -90,6 +90,7 @@ describe("create", () => {
       gradingNotes: null,
       createdAt: "2026-10-01T10:00:00.000Z",
       updatedAt: "2026-10-01T10:00:00.000Z",
+      studied: false,
     });
     expect(frontsIn(deckId)).toEqual(["  el desayuno \n"]);
     expect(cards.find(USER, "card-1")?.front).toBe("  el desayuno \n");

@@ -15,6 +15,7 @@ const SETTINGS: SettingsResponse = {
   desiredRetention: 90,
   newCardBatch: 20,
   learningLimit: 10,
+  sessionTimeoutMinutes: 30,
   macros: [],
 };
 
@@ -57,7 +58,7 @@ const disabled = (markup: string, label: string) =>
   / disabled=""/.test(markup.match(new RegExp(`<[^>]*aria-label="${label}"[^>]*>`))?.[0] ?? "");
 
 describe("AdvancedCard", () => {
-  test("is the Advanced section, with both steppers at their stored values and what they mean", () => {
+  test("is the Advanced section, with its three steppers at their stored values and what they mean", () => {
     const out = render(clientWith().queryClient);
 
     expect(out).toContain('id="advanced"');
@@ -74,6 +75,11 @@ describe("AdvancedCard", () => {
     expect(out).toMatch(
       /role="spinbutton"[^>]*aria-valuenow="10"[^>]*aria-valuemin="5"[^>]*aria-valuemax="50"/,
     );
+    expect(text(out)).toContain("Session timeout");
+    expect(text(out)).toContain("A session ends after this many minutes without activity.");
+    expect(out).toMatch(
+      /role="spinbutton"[^>]*aria-valuenow="30"[^>]*aria-valuemin="5"[^>]*aria-valuemax="240"/,
+    );
   });
 
   test("names each spinbutton by its label and describes it by its hint", () => {
@@ -85,19 +91,27 @@ describe("AdvancedCard", () => {
       expect(out).toContain(`id="${label}"`);
       expect(out).toContain(`id="${hint}"`);
     }
-    expect(out.match(/role="spinbutton"/g)).toHaveLength(2);
+    expect(out.match(/role="spinbutton"/g)).toHaveLength(3);
   });
 
   test("disables − at the lowest value and + at the highest", () => {
-    const low = render(clientWith({ newCardBatch: 5, learningLimit: 5 }).queryClient);
+    const low = render(
+      clientWith({ newCardBatch: 5, learningLimit: 5, sessionTimeoutMinutes: 5 }).queryClient,
+    );
     expect(disabled(low, "Fewer new cards per batch")).toBe(true);
     expect(disabled(low, "Lower learning limit")).toBe(true);
+    expect(disabled(low, "Shorter session timeout")).toBe(true);
     expect(disabled(low, "More new cards per batch")).toBe(false);
+    expect(disabled(low, "Longer session timeout")).toBe(false);
 
-    const high = render(clientWith({ newCardBatch: 100, learningLimit: 50 }).queryClient);
+    const high = render(
+      clientWith({ newCardBatch: 100, learningLimit: 50, sessionTimeoutMinutes: 240 }).queryClient,
+    );
     expect(disabled(high, "More new cards per batch")).toBe(true);
     expect(disabled(high, "Higher learning limit")).toBe(true);
+    expect(disabled(high, "Longer session timeout")).toBe(true);
     expect(disabled(high, "Lower learning limit")).toBe(false);
+    expect(disabled(high, "Shorter session timeout")).toBe(false);
   });
 
   test("shows a change at once, saving, then saved", async () => {
@@ -131,6 +145,39 @@ describe("AdvancedCard", () => {
     expect(out).toMatch(/aria-valuenow="10"[^>]*aria-valuemin="5"[^>]*aria-valuemax="50"/);
     expect(out).toContain('role="alert"');
     expect(text(out)).toContain("The change to 11 didn't save, so it's still 10.");
+    expect(text(out)).toContain("Try again");
+  });
+
+  test("autosaves the Session timeout in steps of 5, saving, then saved", async () => {
+    let answer: ((settings: SettingsResponse) => void) | undefined;
+    const sent: SettingsPatch[] = [];
+    const { queryClient, saver } = clientWith({}, (patch) => {
+      sent.push(patch);
+      return new Promise((resolve) => (answer = resolve));
+    });
+
+    saver.change({ field: "sessionTimeoutMinutes", attempted: 35 });
+    const saving = render(queryClient);
+    expect(saving).toMatch(/aria-valuenow="35"[^>]*aria-valuemin="5"[^>]*aria-valuemax="240"/);
+    expect(text(saving)).toContain("Saving");
+    expect(sent).toEqual([{ sessionTimeoutMinutes: 35 }]);
+
+    answer?.({ ...SETTINGS, sessionTimeoutMinutes: 35 });
+    await flush();
+    expect(text(render(queryClient))).toContain("Saved");
+  });
+
+  test("a Session timeout that didn't save goes back, with an inline error and Try again", async () => {
+    const { queryClient, saver } = clientWith({}, async () => {
+      throw new Error("offline");
+    });
+
+    saver.change({ field: "sessionTimeoutMinutes", attempted: 45 });
+    await flush();
+    const out = render(queryClient);
+
+    expect(out).toMatch(/aria-valuenow="30"[^>]*aria-valuemin="5"[^>]*aria-valuemax="240"/);
+    expect(text(out)).toContain("The change to 45 didn't save, so it's still 30.");
     expect(text(out)).toContain("Try again");
   });
 });

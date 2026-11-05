@@ -106,6 +106,20 @@
       "when": 1793374563717,
       "tag": "0014_grading_notes",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1793711610733,
+      "tag": "0015_progress_resets",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1793797070274,
+      "tag": "0016_session_timeout",
+      "breakpoints": true
     }
   ]
 }

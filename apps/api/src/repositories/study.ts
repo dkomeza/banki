@@ -1,7 +1,9 @@
 import {
   DEFAULT_LEARNING_LIMIT,
   DEFAULT_NEW_CARD_BATCH,
+  type IntervalPreviews,
   type StudyNextResponse,
+  type StudyOverviewQuery,
   type StudyOverviewResponse,
   type UndoReviewResponse,
   addStudyDays,
@@ -9,12 +11,14 @@ import {
   studyDayOf,
 } from "@banki/shared";
 import { and, eq, gte, isNull, lt, ne, or, sql } from "drizzle-orm";
+import type { z } from "zod";
 import type { Queryable } from "../db/database";
 import { card, review, user_settings } from "../db/schema";
 import { ESTIMATE_WINDOW_DAYS, cardDayAverages, estimateMs } from "../scheduling/estimate";
 import { previewIntervals, restore, scheduleOf } from "../scheduling/fsrs";
 import { type QueueLimits, type QueueProgress, nextInQueue } from "../scheduling/queue";
 import { findIn, isLiveDeck } from "./cards";
+import { hasProgressResetSince } from "./progress-resets";
 import {
   MEMORY_COLUMNS,
   deckRetentionOf,
@@ -108,17 +112,47 @@ export function createStudyRepository(db: Queryable) {
     },
 
     /**
+     * Each Rating's Interval preview for the User's Card `cardId` at `now`,
+     * from its memory state as it is and its Deck's Desired retention: what
+     * `next` would answer for it. "not_found" unless it is a live Card in a
+     * live Deck of the User's. `now` is for tests.
+     */
+    intervals(
+      userId: string,
+      cardId: string,
+      { now = new Date() }: { now?: Date } = {},
+    ): IntervalPreviews | "not_found" {
+      return db.transaction((tx) => {
+        const found = findIn(tx, userId, cardId);
+        if (found === undefined) return "not_found";
+        const memory = tx
+          .select(MEMORY_COLUMNS)
+          .from(card)
+          .where(and(eq(card.userId, userId), eq(card.id, cardId)))
+          .get();
+        if (memory === undefined) return "not_found";
+        return previewIntervals(cardId, memory, {
+          now,
+          desiredRetention: deckRetentionOf(tx, userId, found.deckId),
+          studyDay: schedulingSettingsOf(tx, userId).studyDay,
+        });
+      });
+    },
+
+    /**
      * What Study on the User's Deck `deckId` brings at `now`, from its live
      * Cards and the Timezone, Day start and New-card batch as they are now:
      * the review Cards due before the next Day start plus every Card in its
-     * learning steps, the New cards a Session introduces (at most a batch) of
-     * all its New cards, how long they will take (`cardDayAverages` over the
+     * learning steps, the New cards a Session introduces of all its New cards
+     * (at most what its `batches` New-card batches leave after the `newShown`
+     * it has shown, so an open Session's counts are what resuming it brings), how long they will take (`cardDayAverages` over the
      * User's Reviews in every Deck), and the first Study day after today with
      * review Cards due, with how many. `now` is for tests.
      */
     overview(
       userId: string,
       deckId: string,
+      { newShown, batches }: z.output<typeof StudyOverviewQuery> = { newShown: 0, batches: 1 },
       { now = new Date() }: { now?: Date } = {},
     ): StudyOverviewResponse | "not_found" {
       return db.transaction((tx) => {
@@ -144,7 +178,8 @@ export function createStudyRepository(db: Queryable) {
             later.set(day, (later.get(day) ?? 0) + 1);
           }
         }
-        const fresh = Math.min(newTotal, queueLimitsOf(tx, userId).newCardBatch);
+        const left = queueLimitsOf(tx, userId).newCardBatch * batches - newShown;
+        const fresh = Math.max(0, Math.min(newTotal, left));
         const nextDay = [...later.keys()].toSorted()[0];
 
         const since = studyDayBounds(addStudyDays(today, -(ESTIMATE_WINDOW_DAYS - 1)), studyDay);
@@ -175,15 +210,19 @@ export function createStudyRepository(db: Queryable) {
      * Card's memory state back to the one it kept from before it, rescheduled
      * when the Deck's Desired retention changed since (`restore`). Answers the
      * Card, its restored schedule and each Rating's Interval preview at `now`.
-     * "not_newest" when the Card has a newer Review; "not_found" for a missing
-     * Review, another User's, or one whose Card is deleted or in a deleted
-     * Deck. `now` is for tests.
+     * "not_newest" when the Card has a newer Review;
+     * "before_progress_reset" when, its newest, it was given before the Card's
+     * newest Progress reset (ADR-0026), whose state restoring it would undo
+     * too. Both go by the User's Write order (`seq`), never by clocks, which
+     * can tie or step back. "not_found" for a missing Review, another User's,
+     * or one whose Card is deleted or in a deleted Deck.
+     * `now` is for tests.
      */
     undo(
       userId: string,
       reviewId: string,
       { now = new Date() }: { now?: Date } = {},
-    ): UndoReviewResponse | "not_found" | "not_newest" {
+    ): UndoReviewResponse | "not_found" | "not_newest" | "before_progress_reset" {
       return db.transaction(
         (tx) => {
           const undone = tx
@@ -194,7 +233,11 @@ export function createStudyRepository(db: Queryable) {
           if (undone === undefined) return "not_found";
           const found = findIn(tx, userId, undone.cardId);
           if (found === undefined) return "not_found";
-          if (lastReviewOf(tx, userId, undone.cardId)?.id !== reviewId) return "not_newest";
+          const newest = lastReviewOf(tx, userId, undone.cardId);
+          if (newest?.id !== reviewId) return "not_newest";
+          if (hasProgressResetSince(tx, userId, undone.cardId, newest.seq)) {
+            return "before_progress_reset";
+          }
 
           tx.delete(review)
             .where(and(eq(review.userId, userId), eq(review.id, reviewId)))
@@ -215,7 +258,8 @@ export function createStudyRepository(db: Queryable) {
             .where(and(eq(card.userId, userId), eq(card.id, undone.cardId)))
             .run();
           return {
-            card: found,
+            // As it is now, so `studied` reads the restored state.
+            card: findIn(tx, userId, undone.cardId) ?? found,
             schedule: scheduleOf(restored),
             intervals: previewIntervals(undone.cardId, restored, settings),
           };

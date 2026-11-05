@@ -715,7 +715,7 @@ It is one Compose project, `banki-runner`, with three containers from one image:
 
 The broker and the runner share only the volume holding the Broker's socket, which the Dashboard mounts too. A Stage runs `claude` with permission prompts skipped and reads untrusted text, so it could be talked into sending whatever it can read: it can mint tokens through the socket, but it can't read the key that makes them, and every token it can get dies on its own. A GitHub token lasts an hour. A Linear token is minted when its Stage starts and revoked when it ends, or 4 hours after it was minted, whichever comes first.
 
-A Stage still holds the Claude, GitHub and Linear tokens while it runs, and has open internet access: there is no egress allowlist (ADR-0012 records the trade-off). The host's firewall rules for the runner's network keep a Stage from the home server's ports and the home LAN ([below](#keeping-it-off-the-host-and-the-lan)), and the Previews' internal networks keep it from the Previews, but nothing keeps it from sending what it reads, so the Stages and the Dispatcher take input only from the Maintainer in Linear, and from `claude-review` on GitHub: its check, its summary comment by `github-actions[bot]` and its inline threads by `claude[bot]` (`.claude/skills/work-issue/references/stages.md` § Input).
+A Stage still holds the Claude, GitHub and Linear tokens while it runs, and has open internet access: there is no egress allowlist (ADR-0012 records the trade-off). The host's firewall rules for the runner's network keep a Stage from the home server's ports and the home LAN ([below](#keeping-it-off-the-host-and-the-lan)), and the Previews' internal networks keep it from the Previews, but nothing keeps it from sending what it reads, so the Stages and the Dispatcher take input only from the Maintainer in Linear (`.claude/skills/work-issue/references/stages.md` § Input).
 
 | Path                          | What it is                                                                                                                                                               |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -765,8 +765,6 @@ On GitHub the Runner is a private App installed on this repo only. In **Settings
 5. **Install App**, on `dkomeza/banki` only (**Only select repositories**).
 
 The Broker finds the installation itself. Every token it mints is for this repo alone, with the App's permissions, and lasts an hour; it mints a new one when under 15 minutes remain. Stages commit and push as `banki-runner[bot]`, with its noreply email, and `gh` and git ask the Broker for a token on every call, so a Stage outlives any one token.
-
-`claude-review` runs for the App's pushes: `.github/workflows/claude-review.yml` names it in `allowed_bots`, and no other bot.
 
 ### GitHub: the merge guard
 
@@ -881,13 +879,13 @@ An image built without `BANKI_RUNNER_COMMIT` counts as behind, since nothing say
 
 Each tick, the Dispatcher looks at the issues of project Banki and decides each one's next move from its status, its assignee, its closing comments and GitHub, with no LLM ([ADR-0013](docs/adr/0013-linear-statuses-drive-the-stages-through-a-dispatcher-without-an-llm.md); `docs/agents/issue-tracker.md` § Statuses):
 
-| Status    | Next                                                                                                                                                                                                                                                                                                                                  |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Todo      | The implement Stage                                                                                                                                                                                                                                                                                                                   |
-| In Design | The design Stage, unless a round is built since the issue came in from Backlog or Design Review: then the wait for its Variants' Slug Previews, and the hand-off to Design Review                                                                                                                                                     |
-| In Review | The Acceptance fix, after a move back from Acceptance. Otherwise a review round, once `claude-review` has finished on the head SHA, with something to triage and no round on that SHA yet. Otherwise the wait for the PR Preview, and the hand-off to Acceptance, once `claude-review` passes and every thread it started is resolved |
+| Status    | Next                                                                                                                                                                              |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Todo      | The implement Stage                                                                                                                                                               |
+| In Design | The design Stage, unless a round is built since the issue came in from Backlog or Design Review: then the wait for its Variants' Slug Previews, and the hand-off to Design Review |
+| In Review | The Acceptance fix, after a move back from Acceptance. Otherwise the wait for the PR Preview, and the hand-off to Acceptance                                                      |
 
-It leaves alone any issue that is assigned, and any In Progress issue none of its supervisors started. The waits, the hand-offs and the stops cost no tokens, so they happen on every tick, in or out of the window; a wait that fails, or runs past its deadline (`.claude/skills/work-issue/references/stages.md` § Waits), is a stop on you. A state that fits none of the rows, such as a round that ran on this head SHA without the rounds ending, is a stop too, saying what it found.
+It leaves alone any issue that is assigned, and any In Progress issue none of its supervisors started. The waits, the hand-offs and the stops cost no tokens, so they happen on every tick, in or out of the window; a wait that fails, or runs past its deadline (`.claude/skills/work-issue/references/stages.md` § Waits), is a stop on you. A state that fits none of the rows, such as an In Review issue whose pull request is closed, is a stop too, saying what it found.
 
 Ready Stages start closest to Done first (In Review, then Todo, then In Design), then by Linear priority, then oldest. Each one runs under a **supervisor**, a detached `runner supervise`, which outlives the tick: it takes the gate's reading, looks at the issue again (and starts nothing if it was assigned or moved since the tick looked), sets it In Progress, runs the Stage as `runner stage` does for at most 3 hours of running time (SIGTERM to `claude` and everything it started, then SIGKILL a minute later), takes the reading again, and posts the Stage's closing comment and sets the next status from its result. At most `BANKI_RUNNER_MAX_STAGES` (2) run at once, paused ones included, and never two on one issue.
 
@@ -971,7 +969,7 @@ In Design Review and Acceptance a comment alone starts nothing: moving the issue
 ### Running one Stage by hand
 
 ```sh
-docker compose -f deploy/runner/compose.yaml exec runner runner stage <design|implement|review-round|acceptance-fix> BAN-N
+docker compose -f deploy/runner/compose.yaml exec runner runner stage <design|implement|acceptance-fix> BAN-N
 ```
 
 It runs the Stage's prompt (`.claude/skills/work-issue/stages/<kind>.md`) on the issue, headless, in the clone of `main`, as a Dispatcher-started one would. It gets a Linear token from the Broker for this Stage alone and gives `claude` a per-run MCP config (`0600`, deleted afterwards) whose one server is `linear-banki`, then runs `claude -p --output-format stream-json --verbose --dangerously-skip-permissions --strict-mcp-config --mcp-config <file> --add-dir /work/banki-worktrees` with the Claude token and no `ANTHROPIC_API_KEY`. It runs in the foreground and prints one line per event, prints the Stage's result (`<wt>/.ui/stage-result.json`) at the end, and revokes the Linear token whatever happens, Ctrl-C included. It never changes the issue's status or assignee, and posts no closing comment: that is the Dispatcher's job, so prefer `run-now`. `exec -d` instead of `exec` runs it detached.

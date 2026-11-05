@@ -3,6 +3,7 @@ import { describe, expect, test, vi } from "vitest";
 import { createApiClient } from "./api";
 import {
   type Card,
+  type CardOutcome,
   cardCountLabel,
   cardQueryOptions,
   cardsQueryOptions,
@@ -16,6 +17,9 @@ import {
   hasUnsavedChanges,
   moveCards,
   sideProblem,
+  editUnsaved,
+  resetOnSave,
+  saveCardEdit,
   updateCard,
 } from "./cards";
 import { CANT_REACH } from "./decks";
@@ -30,6 +34,7 @@ const card = (id: string, front = "f", back = "b", tags: string[] = []): Card =>
   gradingNotes: null,
   createdAt: "2026-10-01T10:00:00.000Z",
   updatedAt: "2026-10-01T10:00:00.000Z",
+  studied: false,
 });
 
 /** A client answering every request with `res()`, recording the URL and body of each. */
@@ -204,9 +209,9 @@ describe("updateCard", () => {
     const changed = card("c1", "new", "new back", ["noun"]);
     const { client, sent } = answering(() => Response.json(changed));
 
-    expect(await updateCard(queryClient, "c1", sides("new", "new back"), ["noun"], client)).toEqual(
-      { ok: true, card: changed },
-    );
+    expect(
+      await updateCard(queryClient, "c1", sides("new", "new back"), ["noun"], {}, client),
+    ).toEqual({ ok: true, card: changed });
     expect(sent[0]?.body).toEqual({
       front: "new",
       back: "new back",
@@ -224,10 +229,143 @@ describe("updateCard", () => {
       "c1",
       { ...sides("f", "b"), gradingNotes: " \n" },
       [],
+      {},
       client,
     );
 
     expect(sent[0]?.body).toMatchObject({ gradingNotes: null });
+  });
+
+  test("answers that Banki can't be reached when the answer drops while it comes in", async () => {
+    const { client } = answering(
+      () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.error(new TypeError("network error"));
+            },
+          }),
+        ),
+    );
+
+    expect(await updateCard(new QueryClient(), "c1", sides("f", "b"), [], {}, client)).toEqual({
+      ok: false,
+      message: CANT_REACH,
+    });
+  });
+
+  test("answers that it couldn't save when the answer isn't JSON (a proxy's page)", async () => {
+    const { client } = answering(() => new Response("<html>", { status: 200 }));
+
+    expect(await updateCard(new QueryClient(), "c1", sides("f", "b"), [], {}, client)).toEqual({
+      ok: false,
+      message: "Banki couldn't save the card. Try again.",
+    });
+  });
+
+  test("answers that it couldn't save when the answer isn't a Card", async () => {
+    const { client } = answering(() => Response.json({ id: "c1" }));
+
+    expect(await updateCard(new QueryClient(), "c1", sides("f", "b"), [], {}, client)).toEqual({
+      ok: false,
+      message: "Banki couldn't save the card. Try again.",
+    });
+  });
+
+  test("sends resetProgress only when asked", async () => {
+    const { client, sent } = answering(() => Response.json(card("c1")));
+
+    await updateCard(new QueryClient(), "c1", sides("f", "b"), [], { resetProgress: true }, client);
+    await updateCard(new QueryClient(), "c1", sides("f", "b"), [], {}, client);
+
+    expect(sent[0]?.body).toMatchObject({ resetProgress: true });
+    expect(sent[1]?.body).not.toHaveProperty("resetProgress");
+  });
+});
+
+describe("resetOnSave", () => {
+  test("resets only a studied Card with Reset progress ticked", () => {
+    const studied = { ...card("c1"), studied: true };
+    expect(resetOnSave(studied, true)).toBe(true);
+    expect(resetOnSave(studied, false)).toBe(false);
+    expect(resetOnSave(card("c1"), true)).toBe(false);
+  });
+});
+
+describe("editUnsaved", () => {
+  const studied = { ...card("c1", "f", "b", ["food"]), studied: true };
+  const as = (changes: Partial<Parameters<typeof editUnsaved>[1]>) =>
+    editUnsaved(studied, {
+      fieldsUnsaved: false,
+      tags: ["food"],
+      draft: "",
+      ticked: false,
+      ...changes,
+    });
+
+  test("nothing changed is nothing unsaved", () => {
+    expect(as({})).toBe(false);
+    expect(as({ draft: "  " })).toBe(false);
+  });
+
+  test("a changed field, Tag or Tag being typed is unsaved", () => {
+    expect(as({ fieldsUnsaved: true })).toBe(true);
+    expect(as({ tags: ["food", "verbs"] })).toBe(true);
+    expect(as({ draft: "verbs" })).toBe(true);
+  });
+
+  test("a ticked Reset progress is unsaved on a studied Card only", () => {
+    expect(as({ ticked: true })).toBe(true);
+    expect(
+      editUnsaved(card("c1"), { fieldsUnsaved: false, tags: [], draft: "", ticked: true }),
+    ).toBe(false);
+  });
+});
+
+function cardSaving(outcome: CardOutcome) {
+  const sent: { resetProgress: boolean }[] = [];
+  const saved: [string, boolean][] = [];
+  return {
+    sent,
+    saved,
+    update: async (options: { resetProgress: boolean }) => {
+      sent.push(options);
+      return outcome;
+    },
+    onSaved: async (savedCard: Card, progressReset: boolean) => {
+      saved.push([savedCard.front, progressReset]);
+    },
+  };
+}
+
+describe("saveCardEdit", () => {
+  const studied = { ...card("c1"), studied: true };
+
+  test("sends a Progress reset when ticked on a studied Card, and says so once saved", async () => {
+    const s = cardSaving({ ok: true, card: card("c1", "f2") });
+    await saveCardEdit(studied, true, s.update, s.onSaved);
+    expect(s.sent).toEqual([{ resetProgress: true }]);
+    expect(s.saved).toEqual([["f2", true]]);
+  });
+
+  test("sends none unticked, or on a New Card", async () => {
+    const unticked = cardSaving({ ok: true, card: studied });
+    await saveCardEdit(studied, false, unticked.update, unticked.onSaved);
+    expect(unticked.sent).toEqual([{ resetProgress: false }]);
+    expect(unticked.saved).toEqual([["f", false]]);
+
+    const fresh = cardSaving({ ok: true, card: card("c1") });
+    await saveCardEdit(card("c1"), true, fresh.update, fresh.onSaved);
+    expect(fresh.sent).toEqual([{ resetProgress: false }]);
+  });
+
+  test("one that didn't save answers why, and goes nowhere", async () => {
+    const s = cardSaving({ ok: false, message: "offline" });
+    expect(await saveCardEdit(studied, true, s.update, s.onSaved)).toEqual({
+      ok: false,
+      message: "offline",
+    });
+    expect(s.saved).toEqual([]);
   });
 });
 

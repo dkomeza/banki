@@ -73,7 +73,7 @@ Bringing a Deletion back where it was. A Deck or Folder whose place is gone come
 _Avoid_: undelete, recover
 
 **Removal**:
-The permanent end of a Deletion: 30 days after it, or sooner when the User deletes it permanently. What it took is gone for good, but the Reviews of its Cards still count.
+The permanent end of a Deletion: 30 days after it, or sooner when the User deletes it permanently. What it took is gone for good, but the Reviews of its Cards still count, and their Progress resets stay logged.
 _Avoid_: purge, hard delete
 
 **Root**:
@@ -81,8 +81,12 @@ The top of the folder tree, where Home lists what isn't in any Folder. It is not
 _Avoid_: top level, home folder
 
 **Session**:
-One sitting of studying one deck. It can be resumed, and it ends after a period of inactivity.
+One sitting of studying one Deck, in the browser it started in. Leaving it, finishing its Queue or closing the tab doesn't end it: studying the Deck again in that browser resumes it, at the Card it showed. Only the Session timeout ends it.
 _Avoid_: using "session" for being signed in
+
+**Session timeout**:
+How long a Session goes without activity before it ends, after which studying the Deck starts a new one. A Setting, 30 minutes unless the User changes it.
+_Avoid_: idle limit, session length
 
 **Rating**:
 How well the User recalled a Card: Again, Hard, Good or Easy. The User always gives it, by self-rating or by confirming the Grader's suggestion.
@@ -97,11 +101,19 @@ What the User writes for a Card's Front in write-and-grade, typed or, later, han
 _Avoid_: answer (alone), response, attempt
 
 **Review**:
-One Rating of one Card at one moment, with the time the User spent on it and whether it was self-rated or graded. Reviews are the Card's history: they are what FSRS learns from, and they outlive the Card. Undoing a Rating takes its Review back as if it had never been given.
+One Rating of one Card at one moment, with the time the User spent studying it, at most 2 minutes (time spent editing it is left out), and whether it was self-rated or graded. Reviews, with the Card's Progress resets among them, are the Card's history: they are what FSRS learns from (since the Card's newest Progress reset), and they outlive the Card. Undoing a Rating takes its Review back as if it had never been given.
 _Avoid_: answer, attempt, repetition
 
+**Progress reset**:
+Putting a studied Card back to New, which the User may choose only while editing it, and never by default. Its Reviews stay and still count in statistics, but FSRS learns about the Card again from its newest Progress reset, and a Rating given before it can't be undone. Each one is kept, so a Card's history shows every Progress reset in its place. "Before" and "newest" go by the Write order, not by their moments.
+_Avoid_: forget, reset (alone, which is Edge's), relearn
+
+**Write order**:
+The order in which the User's Reviews and Progress resets were written, one place each, shared by both. "Before", "newest" and a Card's history go by it rather than by moments, which a clock can tie or step back. An Undo takes its Review out of the Write order, which can leave a place in it unused. Reviews given before it existed took their places in it by their moments, as well as Banki could tell.
+_Avoid_: sequence, seq (outside the code)
+
 **Due**:
-A Card is due on the Study day FSRS scheduled it for, from that day's Day start, and stays due until it is reviewed. A Card still in its learning steps is due at an exact moment instead, minutes after its last Review.
+A Card is due on the Study day FSRS scheduled it for, from that day's Day start, and stays due until it is reviewed, or until a Progress reset puts it back to New. A Card still in its learning steps is due at an exact moment instead, minutes after its last Review.
 _Avoid_: scheduled, pending
 
 **Interval**:
@@ -113,7 +125,7 @@ The order in which a Session shows a Deck's Cards: due Cards most at risk first,
 _Avoid_: playlist, deck order, schedule
 
 **New card**:
-A Card with no Review: never rated, or every Rating of it undone. A Session introduces New cards a New-card batch at a time.
+A Card with no Review since its newest Progress reset: never rated, every Rating of it undone, or put back to New by a Progress reset. A Session introduces New cards a New-card batch at a time.
 _Avoid_: unseen card, fresh card
 
 **New-card batch**:
@@ -133,7 +145,7 @@ The share of its Cards the User wants to still remember when they come due, from
 _Avoid_: target retention (except for a Plan's), retention rate, success rate
 
 **Recall rate**:
-The share of the review Cards a Session showed that the User recalled the first time: their first Rating in it wasn't Again. New Cards and Cards in their learning steps don't count, so it measures what Desired retention aims at. A Session with no review Card has none.
+The share of the review Cards a Session showed that the User recalled the first time: their first Rating in it wasn't Again. New Cards and Cards in their learning steps don't count, so it measures what Desired retention aims at. A Card counts by how it first came in the Session, so a review Card the User then puts back to New (Progress reset) and rates still counts. A Session with no review Card has none.
 _Avoid_: accuracy, score, retention (alone)
 
 **Email**:
@@ -229,7 +241,7 @@ The person who plans, reviews and merges changes to Banki. Not the User of an in
 _Avoid_: user, developer, owner
 
 **Stage**:
-One piece of work on an issue that an agent does unattended: building a prototype's Variants, implementing the spec, a round against `claude-review`, or fixing after Acceptance feedback. An issue's status says which Stage comes next.
+One piece of work on an issue that an agent does unattended: building a prototype's Variants, implementing the spec, or fixing after Acceptance feedback. An issue's status says which Stage comes next.
 _Avoid_: job, task, step
 
 **Runner**:
