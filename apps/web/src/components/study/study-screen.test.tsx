@@ -66,6 +66,12 @@ const DONE: StudyState = {
   skipping: false,
   refreshing: false,
   endedAfterMs: 0,
+  mode: "self-rate",
+  draft: "",
+  written: undefined,
+  dontKnow: false,
+  switchable: false,
+  checkable: false,
 };
 
 /** The end screen's markup for `state`, with the Settings' New-card batch at `batch` (none loaded when null). */

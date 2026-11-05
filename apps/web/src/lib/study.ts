@@ -1,4 +1,6 @@
 import {
+  type AnswerMode,
+  DEFAULT_ANSWER_MODE,
   type IntervalPreview,
   type IntervalPreviews,
   type QueueKind,
@@ -27,7 +29,9 @@ import {
 // Card, and keeps the Ratings it gave so Undo can take them back, newest
 // first. Where the Queue ends with New cards held back, it can take another
 // batch and carry on. The shown Card can be edited without leaving it, and a
-// studied one put back to New (a Progress reset). Left early, or at the end
+// studied one put back to New (a Progress reset). Each Card is answered in
+// the Session's Answer mode: self-rate (reveal, then rate) or write-and-grade
+// (a Written answer, then Check and rate, or I don't know). Left early, or at the end
 // of the Queue, it sums up the Ratings still standing (the summary). It
 // saves itself to the browser on every change and resumes from there, until
 // it goes a Session timeout without activity (ADR-0027). Nothing here
@@ -168,6 +172,9 @@ export function studyApi(deckId: string, client: ApiClient = api): StudyApi {
   };
 }
 
+/** Whether a Written answer is blank: nothing but whitespace. */
+export const isBlank = (text: string) => text.trim() === "";
+
 export const RATE_FAILED = "Couldn't save your rating. Check your connection.";
 export const NEXT_FAILED = "Couldn't load the next card. Check your connection.";
 export const CARD_GONE = "That card was deleted elsewhere, so it was skipped.";
@@ -287,6 +294,18 @@ export type StudyState = {
   refreshing: boolean;
   /** In the `ended` phase, the Session timeout that ended it, in ms; else 0. */
   endedAfterMs: number;
+  /** The Session's Answer mode, which every Card after the switch is answered in. */
+  mode: AnswerMode;
+  /** The shown Card's Written answer as typed so far, in write-and-grade. */
+  draft: string;
+  /** The Written answer the shown Card was checked with, shown read-only beside the Back; else undefined. */
+  written: string | undefined;
+  /** Set once I don't know rated the shown Card Again (while it saves too), until the next Card shows. */
+  dontKnow: boolean;
+  /** Whether the Answer mode can switch now: a Card is shown, not revealed yet, the editor closed. */
+  switchable: boolean;
+  /** Whether Check can reveal now: write-and-grade, a Written answer that isn't blank, nothing on its way. */
+  checkable: boolean;
 };
 
 /**
@@ -322,6 +341,9 @@ const standing = (given: readonly Given[]): StandingRating[] =>
  * standing (`ended`, until `restart`), or quietly starts afresh without one.
  * Each Card's time is at most `REVIEW_CAP_MS`.
  */
+/** A Card not answered yet: no draft, no Written answer, no I don't know. */
+const UNANSWERED = { draft: "", written: undefined, dontKnow: false } as const;
+
 export function createStudySession({
   studyApi: client,
   notify,
@@ -329,6 +351,7 @@ export function createStudySession({
   transition = (update) => update(),
   store = NO_STORE,
   timeoutMs = () => timeoutMsOf(undefined),
+  answerMode = () => DEFAULT_ANSWER_MODE,
 }: {
   studyApi: StudyApi;
   notify: (message: string) => void;
@@ -339,6 +362,8 @@ export function createStudySession({
   store?: SessionStore;
   /** The Session timeout as it is now, in ms. */
   timeoutMs?: () => number;
+  /** The Deck's Answer mode as it is now, which a new Session starts in. */
+  answerMode?: () => AnswerMode;
 }) {
   let state: StudyState = {
     phase: "loading",
@@ -362,6 +387,12 @@ export function createStudySession({
     skipping: false,
     refreshing: false,
     endedAfterMs: 0,
+    mode: answerMode(),
+    draft: "",
+    written: undefined,
+    dontKnow: false,
+    switchable: false,
+    checkable: false,
   };
   const listeners = new Set<() => void>();
   const given: Given[] = [];
@@ -392,7 +423,7 @@ export function createStudySession({
   // What Try again does: save the Rating again, load the next Card again, or
   // load a reset Card's previews again.
   let failed:
-    | { kind: "rate"; rating: Rating; durationMs: number }
+    | { kind: "rate"; rating: Rating; durationMs: number; wait: boolean }
     | { kind: "next"; after: string | undefined }
     | { kind: "intervals"; cardId: string }
     | undefined;
@@ -452,8 +483,11 @@ export function createStudySession({
               revealed: state.revealed,
               undone: state.undone,
               elapsedMs: elapsed(),
+              draft: state.draft,
+              checked: state.written !== undefined,
             }),
       activeAt,
+      mode: state.mode,
     };
   };
 
@@ -498,10 +532,17 @@ export function createStudySession({
     given.push(...stored.given);
     activeAt = stored.activeAt;
     resuming = stored.shown ?? undefined;
+    // Stored before Answer modes, it is in the Deck's.
+    if (stored.mode !== undefined) state = { ...state, mode: stored.mode };
   };
 
   const set = (
-    patch: Partial<Omit<StudyState, "rated" | "undoable" | "ratable" | "summary" | "editable">>,
+    patch: Partial<
+      Omit<
+        StudyState,
+        "rated" | "undoable" | "ratable" | "summary" | "editable" | "switchable" | "checkable"
+      >
+    >,
   ) => {
     if (stopped) return;
     const next = { ...state, ...patch };
@@ -517,6 +558,7 @@ export function createStudySession({
       ratable:
         next.phase === "card" &&
         next.revealed &&
+        !next.dontKnow &&
         next.saving === undefined &&
         !next.undoing &&
         !next.editing &&
@@ -527,11 +569,23 @@ export function createStudySession({
       // Not on a Card whose Rating saved, waiting for the next one: it is done.
       editable:
         next.phase === "card" &&
+        !next.dontKnow &&
         next.saving === undefined &&
         !next.undoing &&
         !next.editing &&
         !next.skipping &&
         !next.refreshing &&
+        failed?.kind !== "next",
+      switchable: next.phase === "card" && !next.revealed && !next.editing,
+      checkable:
+        next.phase === "card" &&
+        next.mode === "write" &&
+        !next.revealed &&
+        !isBlank(next.draft) &&
+        next.saving === undefined &&
+        !next.undoing &&
+        !next.editing &&
+        !next.skipping &&
         failed?.kind !== "next",
     };
     persist();
@@ -568,6 +622,7 @@ export function createStudySession({
         turning: false,
         skipping: false,
         refreshing: false,
+        ...UNANSWERED,
         // Closed a frame ago (closeEditor), it doesn't open on what follows.
         editing: state.editing && editorOpen,
       });
@@ -597,6 +652,7 @@ export function createStudySession({
       turning: false,
       skipping: false,
       refreshing: false,
+      ...UNANSWERED,
       // Closed a frame ago (closeEditor), it doesn't open on the next Card.
       editing: state.editing && editorOpen,
     });
@@ -690,6 +746,9 @@ export function createStudySession({
       previewedAt: now(),
       revealed: stored.revealed,
       undone: stored.undone,
+      draft: stored.draft,
+      written: stored.checked ? stored.draft : undefined,
+      dontKnow: false,
       saving: undefined,
       failure: undefined,
       loadingMore: false,
@@ -755,6 +814,8 @@ export function createStudySession({
     editorOpen = false;
     starts += 1;
     set({
+      mode: answerMode(),
+      ...UNANSWERED,
       phase: "loading",
       shown: undefined,
       revealed: false,
@@ -806,6 +867,7 @@ export function createStudySession({
     set({
       phase: "ended",
       endedAfterMs: timeout,
+      ...UNANSWERED,
       shown: undefined,
       revealed: false,
       saving: undefined,
@@ -891,7 +953,12 @@ export function createStudySession({
     }
   };
 
-  const save = async (rating: Rating, durationMs: number) => {
+  /**
+   * Saves `rating` of the shown Card, then shows the next Card, or with
+   * `wait` (I don't know) stays on it until Next; one deleted meanwhile
+   * goes on to the next Card either way.
+   */
+  const save = async (rating: Rating, durationMs: number, wait: boolean) => {
     const shown = state.shown;
     if (shown === undefined) return;
     set({ saving: rating, failure: undefined });
@@ -902,7 +969,7 @@ export function createStudySession({
     } catch {
       // Started again since, the Rating was another Session's.
       if (mine !== starts) return;
-      failed = { kind: "rate", rating, durationMs };
+      failed = { kind: "rate", rating, durationMs, wait };
       set({ saving: undefined, failure: RATE_FAILED });
       return;
     }
@@ -924,8 +991,16 @@ export function createStudySession({
     // Stored at once, so a tab closed before the next Card shows keeps the
     // Rating, and so does one closed before it was answered.
     write();
+    if (wait && saved !== "gone") {
+      failed = undefined;
+      set({ saving: undefined });
+      return;
+    }
     await loadNext(shown.card.id);
   };
+
+  /** The shown Card's time on screen, capped, as its Review records it. */
+  const durationOf = () => Math.min(REVIEW_CAP_MS, Math.max(0, Math.round(now() - shownAt)));
 
   return {
     getState: (): StudyState => state,
@@ -937,10 +1012,10 @@ export function createStudySession({
     },
     /** Loads the first Card; once stopped, starts again from there. */
     start,
-    /** Shows the Back of the Card shown. */
+    /** Shows the Back of the Card shown, in self-rate: write-and-grade reveals by Check or I don't know. */
     reveal() {
       if (timeOut()) return;
-      if (state.phase === "card" && !state.revealed && !editorOpen) {
+      if (state.phase === "card" && state.mode === "self-rate" && !state.revealed && !editorOpen) {
         touch();
         set({ revealed: true });
       }
@@ -949,7 +1024,51 @@ export function createStudySession({
     rate(rating: Rating) {
       if (timeOut() || !state.ratable || editorOpen) return;
       touch();
-      void save(rating, Math.min(REVIEW_CAP_MS, Math.max(0, Math.round(now() - shownAt))));
+      void save(rating, durationOf(), false);
+    },
+    /**
+     * Switches the Answer mode, for the shown Card and every Card after it,
+     * until switched again; only before the reveal. The draft stays.
+     */
+    setMode(mode: AnswerMode) {
+      if (timeOut() || !state.switchable || editorOpen || mode === state.mode) return;
+      touch();
+      set({ mode });
+    },
+    /** Keeps the shown Card's Written answer as typed so far, until the reveal; typing is activity. */
+    setDraft(draft: string) {
+      if (state.phase !== "card" || state.revealed || draft === state.draft) return;
+      if (timeOut()) return;
+      touch();
+      set({ draft });
+    },
+    /** Check: reveals the Back beside the Written answer, to rate; not while it is blank. */
+    check() {
+      if (timeOut() || !state.checkable || editorOpen) return;
+      touch();
+      set({ revealed: true, written: state.draft });
+    },
+    /**
+     * I don't know, in write-and-grade: rates the shown Card Again at once,
+     * its draft discarded, and shows its Back until Next; the Rating saves as
+     * any does, with Try again when it fails.
+     */
+    dontKnow() {
+      if (timeOut() || state.phase !== "card" || state.mode !== "write" || state.revealed) return;
+      if (busy() || failed?.kind === "next") return;
+      touch();
+      const durationMs = durationOf();
+      set({ revealed: true, dontKnow: true, draft: "", written: undefined });
+      void save("again", durationMs, true);
+    },
+    /** Next, after I don't know saved: shows the next Card. */
+    next() {
+      const shown = state.shown;
+      if (timeOut() || shown === undefined || !state.dontKnow) return;
+      if (busy() || failed !== undefined || state.phase !== "card") return;
+      touch();
+      set({ skipping: true });
+      void loadNext(shown.card.id);
     },
     /**
      * Tries again what failed: the Rating, loading the next Card, or loading a
@@ -963,7 +1082,7 @@ export function createStudySession({
         return;
       }
       const what = failed;
-      if (what?.kind === "rate") void save(what.rating, what.durationMs);
+      if (what?.kind === "rate") void save(what.rating, what.durationMs, what.wait);
       if (what?.kind === "next") {
         // Its answer replaces the Card shown, so nothing else may change it meanwhile.
         set({ failure: undefined, skipping: true });
@@ -1035,6 +1154,8 @@ export function createStudySession({
           revealed: true,
           undone: true,
           elapsedMs: last.durationMs,
+          draft: "",
+          checked: false,
         });
       }
       if (!current) return set({});
@@ -1053,6 +1174,8 @@ export function createStudySession({
         undone: true,
         progressReset: false,
         turning: false,
+        // Its Written answer went with the Rating.
+        ...UNANSWERED,
       });
     },
     /**
@@ -1284,6 +1407,8 @@ export type KeyAction =
   | { type: "rate"; rating: Rating }
   | { type: "undo" }
   | { type: "edit" }
+  /** Next, after I don't know. */
+  | { type: "next" }
   | { type: "leave" }
   /** Keeps the key from doing what it would: Space or Enter on a focused rating button. */
   | { type: "block" }
@@ -1295,6 +1420,8 @@ export type KeyAction =
  * once revealed, 1 to 4 rate (Again, Hard, Good, Easy); E edits a shown Card,
  * revealed or not; Ctrl/⌘+Z undoes; Esc leaves. Space and Enter never rate, not even on a focused rating button, and
  * on another focused control (a link, a button) they do what they do there.
+ * In write-and-grade (`writing`, before the reveal) Space and Enter reveal
+ * nothing; after I don't know (`waiting`) they press Next, and 1 to 4 rate nothing.
  */
 export function keyAction(
   key: { key: string; code?: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean },
@@ -1303,12 +1430,18 @@ export function keyAction(
     revealed,
     focus,
     editing = false,
+    writing = false,
+    waiting = false,
   }: {
     showing: boolean;
     revealed: boolean;
     focus: "rating" | "control" | undefined;
     /** While the editor is open, every key is its own, Esc included. */
     editing?: boolean;
+    /** A Card shown in write-and-grade, not revealed yet: Check and I don't know reveal it. */
+    writing?: boolean;
+    /** The Back shown after I don't know, until Next. */
+    waiting?: boolean;
   },
 ): KeyAction {
   if (editing) return { type: "none" };
@@ -1320,10 +1453,12 @@ export function keyAction(
   if (isEditKey(key)) return showing ? { type: "edit" } : { type: "none" };
   if (key.key === " " || key.key === "Enter") {
     if (focus === "rating") return { type: "block" };
-    if (focus === "control" || !showing || revealed) return { type: "none" };
+    if (focus === "control" || !showing) return { type: "none" };
+    if (waiting) return { type: "next" };
+    if (revealed || writing) return { type: "none" };
     return { type: "reveal" };
   }
-  if (!revealed) return { type: "none" };
+  if (!revealed || waiting) return { type: "none" };
   const rating = RATINGS.find((r) => RATING_KEYS[r] === key.key);
   return rating === undefined ? { type: "none" } : { type: "rate", rating };
 }

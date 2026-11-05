@@ -1,9 +1,10 @@
-import { DEFAULT_SESSION_TIMEOUT_MINUTES, QueueKind, Rating } from "@banki/shared";
+import { AnswerMode, DEFAULT_SESSION_TIMEOUT_MINUTES, QueueKind, Rating } from "@banki/shared";
 import { z } from "zod";
 
 // Where a study Session lives between visits (ADR-0027): the browser's
-// localStorage, one entry per Deck, holding IDs, counts and timings only,
-// never a Card's content. Storage the browser blocks, fills up or hands back
+// localStorage, one entry per Deck, holding IDs, counts and timings, its
+// Answer mode and the shown Card's draft: never a Card's content, only the
+// User's own Written answer as typed so far. Storage the browser blocks, fills up or hands back
 // unreadable is no storage: the Session studies as before, without resume.
 // Every read and write here is guarded, so none of it ever throws.
 
@@ -16,6 +17,10 @@ const StoredShown = z.object({
   undone: z.boolean(),
   /** The time it had been on screen when stored, editing left out. */
   elapsedMs: z.number().nonnegative(),
+  /** Its Written answer as typed so far; "" for none (and stored before Answer modes). */
+  draft: z.string().default(""),
+  /** Whether it was revealed by Check, its Written answer shown beside the Back. */
+  checked: z.boolean().default(false),
 });
 
 /** A Session as it is stored. */
@@ -50,6 +55,8 @@ const StoredSession = z.object({
   shown: StoredShown.nullable(),
   /** When the Session was last active, ms since the epoch. */
   activeAt: z.number(),
+  /** The Answer mode it is in; missing when stored before Answer modes, for the Deck's. */
+  mode: AnswerMode.optional(),
 });
 export type StoredSession = z.infer<typeof StoredSession>;
 export type StoredShown = z.infer<typeof StoredShown>;

@@ -106,7 +106,7 @@ export function useCardForm(saved0: CardFields, { onChange }: { onChange?: () =>
 export type CardForm = ReturnType<typeof useCardForm>;
 
 /** Ctrl+Enter, or Cmd+Enter on a Mac, the shortcut that saves. */
-const SAVE_KEY =
+export const SAVE_KEY =
   typeof navigator !== "undefined" && /Mac|iP/.test(navigator.platform) ? "⌘" : "Ctrl";
 
 /** One field on ruled lines, its label in the margin from 640 px. */
