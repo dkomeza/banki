@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { CreateDeckRequest, UpdateDeckRequest, deckNameKey, nextFreeName } from "./decks";
+import {
+  CreateDeckRequest,
+  DEFAULT_ANSWER_MODE,
+  UpdateDeckRequest,
+  deckAnswerMode,
+  deckNameKey,
+  nextFreeName,
+} from "./decks";
 
 describe("CreateDeckRequest", () => {
   test("trims the name and the description, keeping the description's line breaks", () => {
@@ -71,6 +78,17 @@ describe("UpdateDeckRequest", () => {
     }
   });
 
+  test("takes an Answer mode of its own, or null to follow Settings", () => {
+    expect(UpdateDeckRequest.parse({ answerMode: "write" })).toEqual({ answerMode: "write" });
+    expect(UpdateDeckRequest.parse({ answerMode: "self-rate" })).toEqual({
+      answerMode: "self-rate",
+    });
+    expect(UpdateDeckRequest.parse({ answerMode: null })).toEqual({ answerMode: null });
+    for (const answerMode of ["grade", "", 1, "Write"]) {
+      expect(UpdateDeckRequest.safeParse({ answerMode }).success).toBe(false);
+    }
+  });
+
   test("refuses onClash without a move", () => {
     expect(UpdateDeckRequest.safeParse({ name: "B", onClash: "replace" }).success).toBe(false);
   });
@@ -79,6 +97,15 @@ describe("UpdateDeckRequest", () => {
     expect(UpdateDeckRequest.safeParse({}).success).toBe(false);
     expect(UpdateDeckRequest.safeParse({ name: " " }).success).toBe(false);
     expect(UpdateDeckRequest.safeParse({ description: "d".repeat(1001) }).success).toBe(false);
+  });
+});
+
+describe("deckAnswerMode", () => {
+  test("is the Deck's own Answer mode, or the default while it follows Settings", () => {
+    expect(DEFAULT_ANSWER_MODE).toBe("self-rate");
+    expect(deckAnswerMode({ answerMode: "write" })).toBe("write");
+    expect(deckAnswerMode({ answerMode: "self-rate" })).toBe("self-rate");
+    expect(deckAnswerMode({ answerMode: null })).toBe(DEFAULT_ANSWER_MODE);
   });
 });
 

@@ -24,6 +24,7 @@ const deck = (name: string, createdAt: string, id = name): Deck => ({
   cardCount: 0,
   desiredRetention: null,
   macros: [],
+  answerMode: null,
 });
 
 const DECKS = [

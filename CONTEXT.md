@@ -92,6 +92,14 @@ _Avoid_: idle limit, session length
 How well the User recalled a Card: Again, Hard, Good or Easy. The User always gives it, by self-rating or by confirming the Grader's suggestion.
 _Avoid_: grade, score, ease
 
+**Answer mode**:
+How the User answers a Card in a Session: **self-rate** (reveal the Back, then give a Rating) or **write-and-grade** (write an answer first, for the Grader). Settings hold one for every Deck, self-rate, and a Deck follows it until it is given its own. A Session starts in its Deck's and keeps whichever the User last switched to, Card after Card.
+_Avoid_: study mode, review mode
+
+**Written answer**:
+What the User writes for a Card's Front in write-and-grade, typed or, later, handwritten: what the Grader compares with the Back. It is never stored with the Review. A half-written one is kept with the Session until its Card is rated.
+_Avoid_: answer (alone), response, attempt
+
 **Review**:
 One Rating of one Card at one moment, with the time the User spent studying it, at most 2 minutes (time spent editing it is left out), and whether it was self-rated or graded. Reviews, with the Card's Progress resets among them, are the Card's history: they are what FSRS learns from (since the Card's newest Progress reset), and they outlive the Card. Undoing a Rating takes its Review back as if it had never been given.
 _Avoid_: answer, attempt, repetition

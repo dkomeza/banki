@@ -36,6 +36,7 @@ const DECK: Deck = {
   cardCount: 40,
   desiredRetention: null,
   macros: [],
+  answerMode: null,
 };
 
 const SETTINGS: SettingsResponse = {
@@ -93,7 +94,15 @@ const STORED: StoredSession = {
       settled: false,
     },
   ],
-  shown: { cardId: "c1", kind: "review", revealed: false, undone: false, elapsedMs: 4000 },
+  shown: {
+    cardId: "c1",
+    kind: "review",
+    revealed: false,
+    undone: false,
+    elapsedMs: 4000,
+    draft: "",
+    checked: false,
+  },
   activeAt: NOW,
 };
 

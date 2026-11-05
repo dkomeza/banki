@@ -136,6 +136,22 @@ describe("banki seed's Macros", () => {
     expect(SettingsResponse.parse(await res.json()).macros).toEqual(mine);
   });
 
+  test("makes Calculus 2 write-and-grade, and leaves the other Decks following Settings", async () => {
+    await setup();
+    await seed();
+
+    const { app } = boot();
+    const cookie = cookiesFrom(await signIn(app));
+    const decks = DeckListResponse.parse(await (await get(app, "/api/decks", cookie)).json());
+    expect(Object.fromEntries(decks.map((deck) => [deck.id, deck.answerMode]))).toEqual({
+      [SEED_IDS.decks.spanish]: null,
+      [SEED_IDS.decks.calculus2]: "write",
+      [SEED_IDS.decks.kanji]: null,
+      [SEED_IDS.decks.chemistry]: null,
+      [SEED_IDS.decks.calculus10]: null,
+    });
+  });
+
   test("gives Calculus 2 its own \\d and an \\eps over Settings', and Cards that use them", async () => {
     await setup();
     await seed();

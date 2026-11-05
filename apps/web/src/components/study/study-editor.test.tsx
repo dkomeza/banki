@@ -27,6 +27,7 @@ const DECK: Deck = {
   cardCount: 1,
   desiredRetention: null,
   macros: [],
+  answerMode: null,
 };
 
 const card = (studied: boolean): Card => ({

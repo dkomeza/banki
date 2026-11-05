@@ -1,12 +1,13 @@
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { Flag, PencilLine } from "lucide-react";
+import { Flag } from "lucide-react";
 import { type ReactNode, useId, useSyncExternalStore } from "react";
 import { Breadcrumb } from "@/components/folders/breadcrumb";
 import { usePlaceActions } from "@/components/folders/place-actions";
 import { useLibrary } from "@/components/folders/use-library";
 import { DeckNotFound } from "@/components/not-found";
 import { Page } from "@/components/page";
+import { AnswerModeCard } from "@/components/settings/answer-mode-card";
 import { DeckMacrosCard } from "@/components/settings/macros-card";
 import { SaveState } from "@/components/settings/parts";
 import { DeckRetentionPicker, RetentionError } from "@/components/settings/retention-picker";
@@ -20,8 +21,8 @@ import { settingsQueryOptions } from "@/lib/settings";
 import { useHiddenScrollbar } from "@/lib/use-hidden-scrollbar";
 
 // A Deck's settings, on a page of their own built like Settings: the setting
-// the page is about first, full width, then its Math macros, and a card for
-// each setting to come, which shows the page holds them. Desired retention is one picker whose first
+// the page is about first, full width, then its Math macros and Answer mode,
+// and a card for each setting to come, which shows the page holds them. Desired retention is one picker whose first
 // choice is Follow Settings, and a picture of ten cards coming due.
 
 export const Route = createFileRoute("/_shell/decks/$deckId_/settings")({
@@ -89,14 +90,7 @@ function Body({ deck }: { deck: Deck }) {
         <RetentionSection deck={deck} />
         <div className="gap-x-5 md:columns-2 lg:gap-x-6 [&>section]:mb-5 [&>section]:break-inside-avoid lg:[&>section]:mb-6">
           <DeckMacrosCard deck={deck} />
-          <Later
-            id="answer-mode"
-            title="Answer mode"
-            icon={<PencilLine aria-hidden className="size-4" />}
-            follows="Rate yourself"
-          >
-            Whether this deck asks you to write your answers for the Grader, or to rate yourself.
-          </Later>
+          <AnswerModeCard deck={deck} />
           <Later
             id="plan"
             title="Plan"

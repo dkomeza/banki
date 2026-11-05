@@ -34,6 +34,8 @@ export {
   tagOf,
 } from "./tags";
 export {
+  ANSWER_MODES,
+  AnswerMode,
   CreateDeckRequest,
   DECK_DESCRIPTION_MAX_LENGTH,
   DECK_NAME_MAX_LENGTH,
@@ -41,7 +43,9 @@ export {
   DeckListResponse,
   DeckName,
   deckNameKey,
+  deckAnswerMode,
   DeckResponse,
+  DEFAULT_ANSWER_MODE,
   NameClashError,
   nextFreeName,
   OnClash,

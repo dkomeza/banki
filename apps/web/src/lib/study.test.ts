@@ -1,4 +1,10 @@
-import { type IntervalPreviews, type QueueKind, REVIEW_CAP_MS, type Rating } from "@banki/shared";
+import {
+  type AnswerMode,
+  type IntervalPreviews,
+  type QueueKind,
+  REVIEW_CAP_MS,
+  type Rating,
+} from "@banki/shared";
 import { describe, expect, test, vi } from "vitest";
 import { createApiClient } from "./api";
 import type { Card, CardOutcome } from "./cards";
@@ -2414,11 +2420,13 @@ const TIMEOUT = 30 * MINUTE;
  * would run them across reloads: `session` is the one open now, and `reload`
  * stops it and opens the next, which resumes from the storage.
  */
-function browsing(queue: NextCard[], storage = memoryStorage()) {
+function browsing(queue: NextCard[], storage = memoryStorage(), mode: AnswerMode = "self-rate") {
   const server = fakeApi(queue);
   const messages: string[] = [];
   let time = NOW;
   const timeout = { ms: TIMEOUT };
+  /** The Deck's Answer mode, as a new Session reads it. */
+  const deck: { mode: AnswerMode } = { mode };
   const open = () =>
     createStudySession({
       studyApi: server.api,
@@ -2426,12 +2434,14 @@ function browsing(queue: NextCard[], storage = memoryStorage()) {
       now: () => time,
       store: sessionStore("d1", storage),
       timeoutMs: () => timeout.ms,
+      answerMode: () => deck.mode,
     });
   const t = {
     ...server,
     storage,
     messages,
     timeout,
+    deck,
     session: open(),
     state: () => t.session.getState(),
     shownId: () => t.session.getState().shown?.card.id,
@@ -3297,5 +3307,444 @@ describe("the session store", () => {
       batches: 1,
     });
     expect(openProgress("d1", 30, { now: NOW, storage: undefined })).toBeUndefined();
+  });
+});
+
+/** Storage the browser blocks: every read and write throws. */
+const blockedStorage = (): ReturnType<typeof memoryStorage> => ({
+  map: new Map<string, string>(),
+  get length(): number {
+    throw new Error("SecurityError");
+  },
+  key: () => {
+    throw new Error("SecurityError");
+  },
+  getItem: () => {
+    throw new Error("SecurityError");
+  },
+  setItem: () => {
+    throw new Error("QuotaExceededError");
+  },
+  removeItem: () => {
+    throw new Error("SecurityError");
+  },
+});
+
+/** Opens a Session on a Deck in write-and-grade. */
+async function writing(queue: NextCard[], storage?: ReturnType<typeof memoryStorage>) {
+  const t = browsing(queue, storage, "write");
+  await t.session.start();
+  return t;
+}
+
+describe("the Answer mode", () => {
+  test("a Session starts in its Deck's", async () => {
+    const own = browsing([next("a")]);
+    await own.session.start();
+    expect(own.state().mode).toBe("self-rate");
+
+    const t = await writing([next("a")]);
+    expect(t.state()).toMatchObject({ mode: "write", draft: "", checkable: false });
+  });
+
+  test("a switch holds for the shown Card and every Card after it, until switched again", async () => {
+    const t = browsing([next("a"), next("b"), next("c")]);
+    await t.session.start();
+
+    t.session.setMode("write");
+    expect(t.state()).toMatchObject({ mode: "write", revealed: false });
+    t.session.setDraft("x");
+    t.session.check();
+    t.session.rate("good");
+    await flush();
+
+    expect(t.shownId()).toBe("b");
+    expect(t.state().mode).toBe("write");
+    t.session.setMode("self-rate");
+    await rateIn(t, "good");
+    expect(t.shownId()).toBe("c");
+    expect(t.state().mode).toBe("self-rate");
+  });
+
+  test("switches only until the Card is revealed, by Show answer, Check or I don't know", async () => {
+    const t = browsing([next("a"), next("b"), next("c")]);
+    await t.session.start();
+    t.session.reveal();
+    t.session.setMode("write");
+    expect(t.state()).toMatchObject({ mode: "self-rate", switchable: false });
+    t.session.rate("good");
+    await flush();
+
+    // The next Card takes it.
+    t.session.setMode("write");
+    expect(t.state()).toMatchObject({ mode: "write", switchable: true });
+    t.session.setDraft("answer");
+    t.session.check();
+    t.session.setMode("self-rate");
+    expect(t.state()).toMatchObject({ mode: "write", switchable: false });
+    t.session.rate("good");
+    await flush();
+
+    t.session.dontKnow();
+    t.session.setMode("self-rate");
+    expect(t.state().mode).toBe("write");
+  });
+
+  test("switching keeps the draft", async () => {
+    const t = await writing([next("a")]);
+    t.session.setDraft("half an answer");
+
+    t.session.setMode("self-rate");
+    expect(t.state()).toMatchObject({ mode: "self-rate", draft: "half an answer" });
+    t.session.setMode("write");
+    expect(t.state()).toMatchObject({ mode: "write", draft: "half an answer", checkable: true });
+  });
+
+  test("a new Session starts in the Deck's again; a resumed one keeps its own", async () => {
+    const t = browsing([next("a"), next("b"), next("c")]);
+    await t.session.start();
+    t.session.setMode("write");
+    await t.reload();
+    expect(t.state().mode).toBe("write");
+
+    t.wait(TIMEOUT);
+    await t.reload();
+    expect(t.state().mode).toBe("self-rate");
+  });
+
+  test("a Session the timeout ends on a screen still open starts the next one in the Deck's", async () => {
+    const t = browsing([next("a"), next("b"), next("c")]);
+    await t.session.start();
+    t.session.setMode("write");
+    t.session.setDraft("x");
+    t.session.check();
+    t.session.rate("good");
+    await flush();
+    t.wait(TIMEOUT);
+    t.session.checkTimeout();
+    expect(t.state()).toMatchObject({ phase: "ended", draft: "" });
+
+    t.session.restart();
+    await flush();
+    expect(t.state()).toMatchObject({ phase: "card", mode: "self-rate", draft: "" });
+  });
+});
+
+describe("write-and-grade", () => {
+  test("reveals by Check, not by Show answer: Space, Enter and a tap reveal nothing", async () => {
+    const t = await writing([next("a")]);
+
+    t.session.reveal();
+    expect(t.state().revealed).toBe(false);
+  });
+
+  test("Check waits for a Written answer that isn't blank, then reveals it beside the Back", async () => {
+    const t = await writing([next("a"), next("b")]);
+    for (const blank of ["", "   ", "\n\t "]) {
+      t.session.setDraft(blank);
+      expect(t.state().checkable).toBe(false);
+      t.session.check();
+      expect(t.state().revealed).toBe(false);
+    }
+
+    t.session.setDraft("  el desayuno $x$ ");
+    expect(t.state().checkable).toBe(true);
+    t.session.check();
+    expect(t.state()).toMatchObject({
+      revealed: true,
+      written: "  el desayuno $x$ ",
+      ratable: true,
+      checkable: false,
+    });
+  });
+
+  test("a Rating after Check saves as any, and the next Card starts blank", async () => {
+    const t = await writing([next("a"), next("b")]);
+    t.wait(3000);
+    t.session.setDraft("an answer");
+    t.session.check();
+    t.session.rate("hard");
+    await flush();
+
+    expect(t.calls.rate).toEqual([{ cardId: "a", rating: "hard", durationMs: 3000 }]);
+    expect(t.shownId()).toBe("b");
+    expect(t.state()).toMatchObject({ draft: "", written: undefined, revealed: false });
+  });
+
+  test("Undo of a write-and-grade Rating brings the Card back revealed, without its Written answer", async () => {
+    const t = await writing([next("a"), next("b")]);
+    t.session.setDraft("an answer");
+    t.session.check();
+    t.session.rate("good");
+    await flush();
+
+    await t.session.undo();
+    expect(t.shownId()).toBe("a");
+    expect(t.state()).toMatchObject({
+      revealed: true,
+      undone: true,
+      ratable: true,
+      draft: "",
+      written: undefined,
+    });
+  });
+});
+
+describe("I don't know", () => {
+  test("saves Again at once, discards the draft, and shows the Back until Next", async () => {
+    const t = await writing([next("a"), next("b")]);
+    t.wait(4000);
+    t.session.setDraft("no idea");
+    t.session.dontKnow();
+    expect(t.state()).toMatchObject({ revealed: true, dontKnow: true, saving: "again", draft: "" });
+    await flush();
+
+    expect(t.calls.rate).toEqual([{ cardId: "a", rating: "again", durationMs: 4000 }]);
+    expect(t.shownId()).toBe("a");
+    expect(t.state()).toMatchObject({
+      revealed: true,
+      dontKnow: true,
+      saving: undefined,
+      ratable: false,
+      editable: false,
+      rated: 1,
+    });
+    // Its Back shows: no Rating, no other Rating, no next Card till Next.
+    t.session.rate("good");
+    await flush();
+    expect(t.calls.rate).toHaveLength(1);
+    expect(t.calls.next).toHaveLength(1);
+
+    t.session.next();
+    expect(t.state().skipping).toBe(true);
+    await flush();
+    expect(t.shownId()).toBe("b");
+    expect(t.state()).toMatchObject({ dontKnow: false, revealed: false, mode: "write" });
+    expect(t.calls.next.at(-1)).toMatchObject({ after: "a" });
+  });
+
+  test("is write-and-grade's only: in self-rate it does nothing", async () => {
+    const t = browsing([next("a")]);
+    await t.session.start();
+    t.session.dontKnow();
+    await flush();
+    expect(t.calls.rate).toEqual([]);
+    expect(t.state().revealed).toBe(false);
+  });
+
+  test("a Rating that didn't save says so, with Try again, and Next waits for it", async () => {
+    const t = await writing([next("a"), next("b")]);
+    t.fail.rate = true;
+    t.session.dontKnow();
+    await flush();
+    expect(t.state()).toMatchObject({ failure: RATE_FAILED, dontKnow: true, rated: 0 });
+
+    t.session.next();
+    await flush();
+    expect(t.shownId()).toBe("a");
+
+    t.fail.rate = false;
+    t.session.retry();
+    await flush();
+    expect(t.calls.rate.map((rated) => rated.rating)).toEqual(["again", "again"]);
+    // Saved, it still waits for Next.
+    expect(t.shownId()).toBe("a");
+    expect(t.state()).toMatchObject({ failure: undefined, dontKnow: true, rated: 1 });
+    t.session.next();
+    await flush();
+    expect(t.shownId()).toBe("b");
+  });
+
+  test("a Card deleted elsewhere says so and goes on to the next one", async () => {
+    const t = await writing([next("a"), next("b")]);
+    t.fail.rate = "gone";
+    t.session.dontKnow();
+    await flush();
+
+    expect(t.messages).toEqual([CARD_GONE]);
+    expect(t.shownId()).toBe("b");
+    expect(t.state()).toMatchObject({ dontKnow: false, rated: 0 });
+  });
+
+  test("a next Card that doesn't load says so, and Try again loads it", async () => {
+    const t = await writing([next("a"), next("b")]);
+    t.session.dontKnow();
+    await flush();
+    t.fail.next = true;
+    t.session.next();
+    await flush();
+    expect(t.state()).toMatchObject({ failure: NEXT_FAILED, skipping: false });
+
+    t.fail.next = false;
+    t.session.retry();
+    await flush();
+    expect(t.shownId()).toBe("b");
+  });
+
+  test("Undo takes it back like any Rating: the Card comes back revealed, to rate", async () => {
+    const t = await writing([next("a"), next("b")]);
+    t.session.setDraft("no idea");
+    t.session.dontKnow();
+    await flush();
+
+    await t.session.undo();
+    expect(t.calls.undo).toEqual(["r1"]);
+    expect(t.shownId()).toBe("a");
+    expect(t.state()).toMatchObject({
+      revealed: true,
+      undone: true,
+      dontKnow: false,
+      ratable: true,
+      rated: 0,
+      draft: "",
+      written: undefined,
+    });
+  });
+
+  test("waits while an Undo or the editor is on its way", async () => {
+    const t = await writing([next("a")]);
+    expect(t.session.edit()).toBe(true);
+    t.session.dontKnow();
+    await flush();
+    expect(t.calls.rate).toEqual([]);
+  });
+});
+
+describe("the draft, kept with the Session", () => {
+  test("is stored as it changes, with the mode, and a reload resumes the Card with it", async () => {
+    const t = await writing([next("a"), next("b")]);
+    t.session.setDraft("half of $x^2$");
+
+    expect(t.stored()).toMatchObject({
+      mode: "write",
+      shown: { cardId: "a", draft: "half of $x^2$" },
+    });
+    await t.reload();
+
+    expect(t.shownId()).toBe("a");
+    expect(t.state()).toMatchObject({
+      mode: "write",
+      revealed: false,
+      draft: "half of $x^2$",
+      checkable: true,
+    });
+  });
+
+  test("a reload after Check resumes the Card revealed, with its Written answer", async () => {
+    const t = await writing([next("a"), next("b")]);
+    t.session.setDraft("an answer");
+    t.session.check();
+
+    await t.reload();
+    expect(t.state()).toMatchObject({ revealed: true, written: "an answer", ratable: true });
+  });
+
+  test("in self-rate, a switched Session resumes in self-rate with the draft kept", async () => {
+    const t = await writing([next("a")]);
+    t.session.setDraft("kept");
+    t.session.setMode("self-rate");
+
+    await t.reload();
+    expect(t.state()).toMatchObject({ mode: "self-rate", draft: "kept" });
+  });
+
+  test("goes when its Card is rated: after Check, or by I don't know", async () => {
+    const t = await writing([next("a"), next("b"), next("c")]);
+    t.session.setDraft("first");
+    t.session.check();
+    t.session.rate("good");
+    await flush();
+    expect(t.stored()?.shown).toMatchObject({ cardId: "b", draft: "" });
+
+    t.session.setDraft("second");
+    t.session.dontKnow();
+    await flush();
+    // Rated, its Card is stored as none: a reload goes on to the next.
+    expect(t.stored()?.shown).toBeNull();
+    expect(JSON.stringify(t.stored())).not.toContain("second");
+    await t.reload();
+    expect(t.shownId()).toBe("c");
+    expect(t.state().draft).toBe("");
+  });
+
+  test("goes when the Session ends, and on sign-out", async () => {
+    const t = await writing([next("a"), next("b")]);
+    t.session.setDraft("draft");
+    t.wait(TIMEOUT);
+    await t.reload();
+    expect(t.state().draft).toBe("");
+
+    t.session.setDraft("another");
+    // Signing out leaves the study screen first.
+    t.session.stop();
+    clearStoredSessions(t.storage);
+    expect(t.stored()).toBeUndefined();
+    await t.reload();
+    expect(t.state().draft).toBe("");
+  });
+
+  test("a Session stored before Answer modes resumes in the Deck's, with no draft", async () => {
+    const t = browsing([next("a"), next("b")]);
+    await t.session.start();
+    t.session.stop();
+    const raw = JSON.parse(t.storage.getItem("banki.session.d1") ?? "{}");
+    delete raw.mode;
+    delete raw.shown.draft;
+    delete raw.shown.checked;
+    t.storage.setItem("banki.session.d1", JSON.stringify(raw));
+    t.deck.mode = "write";
+
+    await t.reload();
+    expect(t.shownId()).toBe("a");
+    expect(t.state()).toMatchObject({ mode: "write", draft: "", written: undefined });
+  });
+
+  test("in blocked storage, write-and-grade still studies, without a draft kept", async () => {
+    const t = await writing([next("a"), next("b"), next("c")], blockedStorage());
+    t.session.setDraft("draft");
+    expect(t.state().draft).toBe("draft");
+    t.session.check();
+    t.session.rate("good");
+    await flush();
+    expect(t.shownId()).toBe("b");
+    t.session.dontKnow();
+    await flush();
+    t.session.next();
+    await flush();
+    expect(t.shownId()).toBe("c");
+
+    await t.reload();
+    expect(t.state()).toMatchObject({ draft: "", mode: "write" });
+  });
+});
+
+describe("keyAction in write-and-grade", () => {
+  test("before the reveal, Space and Enter reveal nothing; E and Esc work as ever", () => {
+    const writingCard = { showing: true, revealed: false, focus: undefined, writing: true };
+    for (const key of [" ", "Enter"]) {
+      expect(keyAction(press(key), writingCard)).toEqual({ type: "none" });
+    }
+    expect(keyAction(press("e"), writingCard)).toEqual({ type: "edit" });
+    expect(keyAction(press("Escape"), writingCard)).toEqual({ type: "leave" });
+  });
+
+  test("after I don't know, Space and Enter press Next, and 1 to 4 rate nothing", () => {
+    const waiting = { showing: true, revealed: true, focus: undefined, waiting: true };
+    for (const key of [" ", "Enter"]) {
+      expect(keyAction(press(key), waiting)).toEqual({ type: "next" });
+      expect(keyAction(press(key), { ...waiting, focus: "control" as const })).toEqual({
+        type: "none",
+      });
+    }
+    for (const key of ["1", "2", "3", "4"]) {
+      expect(keyAction(press(key), waiting)).toEqual({ type: "none" });
+    }
+    expect(keyAction({ ...press("z"), ctrlKey: true }, waiting)).toEqual({ type: "undo" });
+  });
+
+  test("after Check, 1 to 4 rate as ever", () => {
+    expect(
+      keyAction(press("3"), { showing: true, revealed: true, focus: undefined, writing: false }),
+    ).toEqual({ type: "rate", rating: "good" });
   });
 });

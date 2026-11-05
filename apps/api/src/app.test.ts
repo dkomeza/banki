@@ -131,6 +131,7 @@ describe("migrations", () => {
       "0014_grading_notes",
       "0015_progress_resets",
       "0016_session_timeout",
+      "0017_answer_mode",
     ]);
     first.close();
 

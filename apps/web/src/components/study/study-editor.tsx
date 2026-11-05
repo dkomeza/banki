@@ -67,7 +67,7 @@ export function ResetNote({ turning = false }: { turning?: boolean }) {
 }
 
 /** Keys that, pressed alone, leave an armed Esc as it is (as CodeMirror does). */
-const MODIFIER_KEYS = new Set(["Shift", "Control", "Alt", "Meta"]);
+export const MODIFIER_KEYS = new Set(["Shift", "Control", "Alt", "Meta"]);
 
 /** What the study screen asks of the open editor: closing it as Cancel would, from ×. */
 export type StudyEditorHandle = { cancel: () => void };

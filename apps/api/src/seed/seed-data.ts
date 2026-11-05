@@ -640,7 +640,11 @@ export function writeSeedData({
     );
     if (typeof created === "string") throw new Error(`The seed Deck ${name} is ${created}`);
   }
-  decks.update(userId, SEED_IDS.decks.calculus2, { macros: CALCULUS_2_MACROS });
+  // Calculus 2 is answered by writing, so a Preview shows write-and-grade as it opens.
+  decks.update(userId, SEED_IDS.decks.calculus2, {
+    macros: CALCULUS_2_MACROS,
+    answerMode: "write",
+  });
 
   const stored = createImageRepository(db, uploadsDir).store(userId, readFileSync(IMAGE.file), {
     id: IMAGE.id,

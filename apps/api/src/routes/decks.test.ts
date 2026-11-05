@@ -410,3 +410,79 @@ describe("A Deck's own Macros", () => {
     }
   });
 });
+
+describe("A Deck's own Answer mode", () => {
+  test("is null for a new Deck, which follows Settings", async () => {
+    const { app, cookie } = await signedIn();
+
+    expect((await createDeck(app, cookie, { name: "Calculus 2" })).answerMode).toBeNull();
+  });
+
+  test("PATCH sets it, or null to follow Settings again, and every route answers it", async () => {
+    const { app, cookie } = await signedIn();
+    const created = await createDeck(app, cookie, { name: "Calculus 2" });
+
+    const res = await send(
+      app,
+      "PATCH",
+      `/api/decks/${created.id}`,
+      { answerMode: "write" },
+      cookie,
+    );
+    expect(res.status).toBe(200);
+    expect(DeckResponse.parse(await res.json())).toEqual({ ...created, answerMode: "write" });
+    const read = DeckResponse.parse(
+      await (await get(app, `/api/decks/${created.id}`, cookie)).json(),
+    );
+    expect(read.answerMode).toBe("write");
+    const listed = DeckListResponse.parse(await (await get(app, "/api/decks", cookie)).json());
+    expect(listed.find((deck) => deck.id === created.id)?.answerMode).toBe("write");
+
+    await send(app, "PATCH", `/api/decks/${created.id}`, { answerMode: "self-rate" }, cookie);
+    const own = DeckResponse.parse(
+      await (await get(app, `/api/decks/${created.id}`, cookie)).json(),
+    );
+    expect(own.answerMode).toBe("self-rate");
+
+    const following = await send(
+      app,
+      "PATCH",
+      `/api/decks/${created.id}`,
+      { answerMode: null },
+      cookie,
+    );
+    expect(DeckResponse.parse(await following.json()).answerMode).toBeNull();
+  });
+
+  test("leaves the rest of the Deck as it is", async () => {
+    const { app, cookie } = await signedIn();
+    const created = await createDeck(app, cookie, { name: "Calculus 2", description: "About" });
+
+    const res = await send(
+      app,
+      "PATCH",
+      `/api/decks/${created.id}`,
+      { answerMode: "write" },
+      cookie,
+    );
+
+    const { answerMode, ...rest } = DeckResponse.parse(await res.json());
+    expect(answerMode).toBe("write");
+    expect(rest).toEqual({ ...created, answerMode: undefined } as typeof rest);
+  });
+
+  test("answers 400 invalid_request for anything but a mode or null", async () => {
+    const { app, cookie } = await signedIn();
+    const created = await createDeck(app, cookie, { name: "Calculus 2" });
+
+    for (const answerMode of ["grade", "", 1, true, "WRITE"]) {
+      const res = await send(app, "PATCH", `/api/decks/${created.id}`, { answerMode }, cookie);
+      expect(res.status).toBe(400);
+      expect(await codeOf(res)).toBe("invalid_request");
+    }
+    const read = DeckResponse.parse(
+      await (await get(app, `/api/decks/${created.id}`, cookie)).json(),
+    );
+    expect(read.answerMode).toBeNull();
+  });
+});

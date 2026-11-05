@@ -5,6 +5,7 @@
 // verifications) are generated from Banki's auth options into `auth-schema.ts`
 // by `bun run auth:generate`; never edit that file by hand.
 import {
+  ANSWER_MODES,
   CARD_STATES,
   DEFAULT_DAY_START_HOUR,
   DEFAULT_DESIRED_RETENTION,
@@ -161,11 +162,17 @@ export const deck = sqliteTable(
     desiredRetention: integer("desired_retention"),
     /** Its own Macros, on top of Settings': a JSON list of `{ name, definition }`. A deleted Deck keeps them. */
     macros: text("macros", { mode: "json" }).$type<Macro[]>().notNull().default([]),
+    /** Its own Answer mode; null while it follows Settings. */
+    answerMode: text("answer_mode", { enum: ANSWER_MODES }),
   },
   (table) => [
     check(
       "deck_desired_retention",
       sql`${table.desiredRetention} BETWEEN ${sql.raw(String(DESIRED_RETENTION_MIN))} AND ${sql.raw(String(DESIRED_RETENTION_MAX))}`,
+    ),
+    check(
+      "deck_answer_mode",
+      sql`${table.answerMode} IN (${sql.raw(ANSWER_MODES.map((mode) => `'${mode}'`).join(", "))})`,
     ),
     uniqueIndex("deck_user_folder_name_key")
       .on(table.userId, sql`coalesce(${table.folderId}, '')`, table.nameKey)
