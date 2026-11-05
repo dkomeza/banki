@@ -14,18 +14,39 @@ import { ApiRequestError } from "./query";
 
 export type StudyOverview = StudyOverviewResponse;
 
-/** What Study on a Deck brings now, from `GET /api/decks/:deckId/study/overview`; null for a Deck that is gone. */
-export const studyOverviewQueryOptions = (deckId: string, client: ApiClient = api) =>
+/** How far an open Session has gone into its New cards: what resuming it leaves out. */
+export type SessionProgress = { newShown: number; batches: number };
+
+/** A fresh Session's: nothing shown, one batch. */
+export const FRESH: SessionProgress = { newShown: 0, batches: 1 };
+
+/**
+ * What Study on a Deck brings now, from `GET /api/decks/:deckId/study/overview`,
+ * for a Session at `progress` (an open one's, or a fresh one's); null for a
+ * Deck that is gone. Every progress's answer sits under the Deck's key
+ * (`studyOverviewKey`), so invalidating it reaches them all.
+ */
+export const studyOverviewQueryOptions = (
+  deckId: string,
+  progress: SessionProgress = FRESH,
+  client: ApiClient = api,
+) =>
   queryOptions({
-    queryKey: ["decks", deckId, "study-overview"],
+    queryKey: [...studyOverviewKey(deckId), progress.newShown, progress.batches],
     queryFn: async (): Promise<StudyOverview | null> => {
-      const res = await client.api.decks[":deckId"].study.overview.$get({ param: { deckId } });
+      const res = await client.api.decks[":deckId"].study.overview.$get({
+        param: { deckId },
+        query: { newShown: String(progress.newShown), batches: String(progress.batches) },
+      });
       const status: number = res.status;
       if (status === 404) return null;
       if (!res.ok) throw new ApiRequestError(status);
       return StudyOverviewResponse.parse(await res.json());
     },
   });
+
+/** The key every Study overview of the Deck `deckId` sits under. */
+export const studyOverviewKey = (deckId: string) => ["decks", deckId, "study-overview"] as const;
 
 /** "~9 min", rounded to whole minutes; "<1 min" under a minute. */
 export function estimateLabel(ms: number): string {

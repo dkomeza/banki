@@ -39,7 +39,6 @@ export function ledger(stages: readonly StageRecord[], active: readonly ActiveRe
   const estimates: Record<StageKind, number> = {
     design: of("design"),
     implement: of("implement"),
-    "review-round": of("review-round"),
     "acceptance-fix": of("acceptance-fix"),
   };
   return { costs, estimates };

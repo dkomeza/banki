@@ -130,7 +130,7 @@ export function createApp(
     .route("/api/decks", deckRoutes({ decks }))
     .route("/api/decks", deckCardRoutes({ cards }))
     .route("/api/decks", studyRoutes({ study }))
-    .route("/api/cards", cardRoutes({ cards, reviews }))
+    .route("/api/cards", cardRoutes({ cards, reviews, study }))
     .route("/api/reviews", reviewRoutes({ study }))
     .route("/api/tags", tagRoutes({ cards }))
     .route("/api/folders", folderRoutes({ folders }))

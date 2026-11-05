@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   StudyNextQuery,
   StudyNextResponse,
+  StudyOverviewQuery,
   StudyOverviewResponse,
   UndoReviewResponse,
 } from "./study";
@@ -53,6 +54,31 @@ describe("StudyNextQuery", () => {
   });
 });
 
+describe("StudyOverviewQuery", () => {
+  test("is a fresh Session's when left out: nothing shown, one batch", () => {
+    expect(StudyOverviewQuery.parse({})).toEqual({ newShown: 0, batches: 1 });
+  });
+
+  test("takes the open Session's New cards shown and batches", () => {
+    expect(StudyOverviewQuery.parse({ newShown: "25", batches: "2" })).toEqual({
+      newShown: 25,
+      batches: 2,
+    });
+  });
+
+  test.each([
+    { newShown: "-1" },
+    { newShown: "1.5" },
+    { newShown: "" },
+    { batches: "0" },
+    { batches: "01" },
+    { batches: "" },
+    { batches: "99999999999999999999" },
+  ])("refuses %j", (query) => {
+    expect(StudyOverviewQuery.safeParse(query).success).toBe(false);
+  });
+});
+
 const preview = (state: string, scheduledDays: number) => ({
   state,
   scheduledDays,
@@ -69,6 +95,7 @@ describe("StudyNextResponse", () => {
     gradingNotes: null,
     createdAt: "2026-05-01T10:00:00.000Z",
     updatedAt: "2026-05-01T10:00:00.000Z",
+    studied: false,
   };
   const schedule = {
     state: "new",

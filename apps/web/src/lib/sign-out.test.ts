@@ -1,4 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
+import { memoryStorage } from "./memory-storage";
 import { signOut } from "./sign-out";
 
 describe("signOut", () => {
@@ -30,5 +31,25 @@ describe("signOut", () => {
 
     expect(ok).toBe(false);
     expect(signedOut).not.toHaveBeenCalled();
+  });
+
+  test("clears every Deck's stored study Session, and leaves the rest of storage", async () => {
+    const storage = memoryStorage({
+      "banki.session.d1": "{}",
+      "banki.session.d2": "{}",
+      "banki.theme": "dark",
+    });
+
+    await signOut(async () => ({ error: null }), vi.fn(), storage);
+
+    expect([...storage.map.keys()]).toEqual(["banki.theme"]);
+  });
+
+  test("keeps the stored Sessions when signing out fails", async () => {
+    const storage = memoryStorage({ "banki.session.d1": "{}" });
+
+    await signOut(async () => ({ error: { status: 403 } }), vi.fn(), storage);
+
+    expect([...storage.map.keys()]).toEqual(["banki.session.d1"]);
   });
 });

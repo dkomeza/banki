@@ -15,7 +15,6 @@ import {
 // stop, or nothing.
 
 const HEAD = "a".repeat(40);
-const NEXT = "b".repeat(40);
 const NOW = new Date("2026-10-24T03:00:00.000Z");
 /** A time `minutes` before NOW. */
 const ago = (minutes: number) => new Date(NOW.getTime() - minutes * 60_000).toISOString();
@@ -67,11 +66,7 @@ function review(fields: Partial<ReviewFacts> = {}): ReviewFacts {
   return {
     pr: { number: 12, headSha: HEAD, open: true, createdAt: ago(600) },
     pushedAt: ago(30),
-    check: { status: "completed", conclusion: "success" },
-    summary: { sha: HEAD.slice(0, 7), findings: [] },
-    openThreads: 0,
     preview: { state: "success", description: "", url: "https://pr-12.banki.dkomeza.com" },
-    mergeable: true,
     ...fields,
   };
 }
@@ -99,9 +94,6 @@ const inReview = (fields: Partial<IssueFacts> = {}) =>
     history: [moved(ago(300), STATUS.inProgress, STATUS.inReview)],
     ...fields,
   });
-const roundOn = (sha: string, pushed: boolean) =>
-  closing(ago(20), { stage: "review-round", nextStatus: STATUS.inReview, headSha: sha, pushed });
-
 const round = (at: string) =>
   closing(at, {
     stage: "design",
@@ -110,11 +102,11 @@ const round = (at: string) =>
     variants: [variant("a"), variant("b")],
   });
 
-/** Review facts with no check suite yet, on a PR opened `minutes` ago. */
+/** Review facts with no check suite nor PR Preview yet, on a PR opened `minutes` ago. */
 const unchecked = (minutes: number) =>
   review({
     pushedAt: null,
-    check: null,
+    preview: null,
     pr: { number: 12, headSha: HEAD, open: true, createdAt: ago(minutes) },
   });
 
@@ -208,11 +200,11 @@ describe("whose move it is", () => {
   test("a reply to an older stop doesn't, once a newer one is waiting", () => {
     const older = closing(
       ago(300),
-      { stage: "review-round", outcome: "stopped", nextStatus: "In Review" },
+      { stage: "acceptance-fix", outcome: "stopped", nextStatus: "In Review" },
       [{ createdAt: ago(200) }],
     );
     const newer = closing(ago(100), {
-      stage: "review-round",
+      stage: "acceptance-fix",
       outcome: "stopped",
       nextStatus: "In Review",
     });
@@ -232,16 +224,16 @@ describe("whose move it is", () => {
   test("once handed back, the stopped Stage runs again", () => {
     const stopped = closing(
       ago(60),
-      { stage: "review-round", outcome: "stopped", nextStatus: "In Review", headSha: HEAD },
+      { stage: "acceptance-fix", outcome: "stopped", nextStatus: "In Review", headSha: HEAD },
       [{ createdAt: ago(5) }],
     );
 
-    // A round ran on HEAD, which would be a stop; the hand-back runs it again.
+    // The PR Preview is up, which would be a hand-off; the hand-back runs the fix again.
     expect(
       stageOf(
         decide(issue({ status: STATUS.inReview, closings: [stopped] }), NOW, { review: review() }),
       ),
-    ).toBe("review-round");
+    ).toBe("acceptance-fix");
   });
 });
 
@@ -398,10 +390,10 @@ describe("In Review", () => {
     const waitStop = closing(
       ago(50),
       {
-        stage: "review-round",
+        stage: "acceptance-fix",
         outcome: "stopped",
         nextStatus: STATUS.inReview,
-        wait: "claude-review",
+        wait: "pr-preview",
       },
       [{ createdAt: ago(5) }],
     );
@@ -421,240 +413,23 @@ describe("In Review", () => {
     expect(stageOf(decide(inReview({ history }), NOW))).toBe("acceptance-fix");
   });
 
-  test("waits for claude-review to finish on the head SHA", () => {
-    expect(
-      decide(inReview(), NOW, {
-        review: review({ check: { status: "in_progress", conclusion: null } }),
-      }).type,
-    ).toBe("wait");
-    expect(decide(inReview(), NOW, { review: review({ check: null }) }).type).toBe("wait");
-  });
-
-  // GitHub builds no merge for a PR that conflicts with main, so claude-review never runs on it.
-  test("is a review round, to rebase, when the PR conflicts with main, however long ago the push", () => {
-    const conflicting = review({ mergeable: false, check: null, pushedAt: ago(120) });
-    const decision = decide(inReview(), NOW, { review: conflicting });
-
-    expect(stageOf(decision)).toBe("review-round");
-    expect(decision.type === "stage" && decision.why).toContain("conflicts with `main`");
-  });
-
-  test("stops when the review round that found the head conflicting pushed nothing", () => {
-    const tried = closing(ago(20), {
-      stage: "review-round",
-      nextStatus: STATUS.inReview,
-      headSha: HEAD,
-      pushed: false,
-      conflicted: true,
-    });
-    const stop = stopOf(
-      decide(inReview({ closings: [tried] }), NOW, {
-        review: review({ mergeable: false, check: null }),
-      }),
-    );
-
-    expect(stop).toMatchObject({ stage: "review-round", wait: null });
-    expect(stop.summary).toContain("found it conflicting");
-  });
-
-  test("rebases all the same after a round on this head from before main moved", () => {
-    const decision = decide(inReview({ closings: [roundOn(HEAD, false)] }), NOW, {
-      review: review({ mergeable: false, check: null }),
-    });
-
-    expect(stageOf(decision)).toBe("review-round");
-  });
-
-  test("waits for claude-review while GitHub hasn't worked out whether the PR merges", () => {
-    expect(decide(inReview(), NOW, { review: review({ mergeable: null, check: null }) }).type).toBe(
-      "wait",
-    );
-  });
-
-  test("stops when claude-review hasn't finished 45 minutes after the push", () => {
-    const stop = stopOf(
-      decide(inReview(), NOW, {
-        review: review({ pushedAt: ago(46), check: { status: "queued", conclusion: null } }),
-      }),
-    );
-
-    expect(stop).toMatchObject({ stage: "review-round", wait: "claude-review" });
-  });
-
-  test("stops when claude-review was cancelled or skipped", () => {
-    for (const conclusion of ["cancelled", "skipped"]) {
-      const stop = stopOf(
-        decide(inReview(), NOW, { review: review({ check: { status: "completed", conclusion } }) }),
-      );
-
-      expect(stop.summary).toContain(conclusion);
-    }
-  });
-
-  test("is a review round when there is a new or open finding in the summary", () => {
-    const summary = {
-      sha: HEAD.slice(0, 7),
-      findings: [
-        { status: "fixed", severity: "major" },
-        { status: "open", severity: "minor" },
-      ],
-    };
-
-    expect(stageOf(decide(inReview(), NOW, { review: review({ summary }) }))).toBe("review-round");
-  });
-
-  test("is a review round when a thread claude-review started is unresolved", () => {
-    expect(stageOf(decide(inReview(), NOW, { review: review({ openThreads: 1 }) }))).toBe(
-      "review-round",
-    );
-  });
-
-  test("ignores a summary that is for another commit", () => {
-    const summary = { sha: NEXT.slice(0, 7), findings: [{ status: "new", severity: "major" }] };
-
-    expect(decide(inReview(), NOW, { review: review({ summary }) }).type).toBe("hand-off");
-  });
-
-  test("is no round when one ran on the head SHA and pushed nothing", () => {
-    const decision = decide(inReview({ closings: [roundOn(HEAD, false)] }), NOW, {
-      review: review({ openThreads: 1 }),
-    });
-
-    expect(stopOf(decision).summary).toContain("the rounds haven't ended");
-  });
-
-  test("counts a round that pushed nothing since the push as a round on its SHA, whatever headSha it wrote", () => {
-    for (const headSha of [null, "abc"]) {
-      const written = closing(ago(10), {
-        stage: "review-round",
-        nextStatus: STATUS.inReview,
-        headSha,
-        pushed: false,
-      });
-      const decision = decide(inReview({ closings: [written] }), NOW, {
-        review: review({ openThreads: 1, pushedAt: ago(30) }),
-      });
-
-      expect(stopOf(decision).summary).toContain("the rounds haven't ended");
-    }
-  });
-
-  test("doesn't count a Dispatcher's stop on the head SHA as a round that ran", () => {
-    // claude-review was cancelled, the Dispatcher stopped on the wait, and the
-    // Maintainer re-ran the check and replied: the first round is still to run.
-    const waitStop = closing(
-      ago(20),
-      {
-        stage: "review-round",
-        outcome: "stopped",
-        nextStatus: STATUS.inReview,
-        wait: "claude-review",
-        pushed: false,
-      },
-      [{ createdAt: ago(5) }],
-    );
-    const summary = { sha: HEAD.slice(0, 7), findings: [{ status: "new", severity: "major" }] };
-
-    expect(
-      stageOf(
-        decide(inReview({ closings: [waitStop] }), NOW, {
-          review: review({ check: { status: "completed", conclusion: "failure" }, summary }),
-        }),
-      ),
-    ).toBe("review-round");
-  });
-
-  test("doesn't count a stopped round on the head SHA as one that ran, once a newer stop is on the issue", () => {
-    const stoppedRound = closing(ago(25), {
-      stage: "review-round",
-      outcome: "stopped",
-      nextStatus: STATUS.inReview,
-      headSha: HEAD,
-      pushed: false,
-    });
-    const waitStop = closing(
-      ago(20),
-      {
-        stage: "review-round",
-        outcome: "stopped",
-        nextStatus: STATUS.inReview,
-        wait: "claude-review",
-      },
-      [{ createdAt: ago(5) }],
-    );
-
-    expect(
-      stageOf(
-        decide(inReview({ closings: [stoppedRound, waitStop] }), NOW, {
-          review: review({ openThreads: 1 }),
-        }),
-      ),
-    ).toBe("review-round");
-  });
-
-  test("goes on to the PR Preview and Acceptance after a round that pushed nothing, while the summary still lists findings but no thread is open", () => {
-    // The round triaged them, and answered the summary-only ones in its PR comment.
-    const summary = { sha: HEAD.slice(0, 7), findings: [{ status: "open", severity: "minor" }] };
-    const closings = [roundOn(HEAD, false)];
-    const building = { state: "in_progress", description: "", url: null };
-
-    expect(
-      decide(inReview({ closings }), NOW, { review: review({ summary, openThreads: 0 }) }).type,
-    ).toBe("hand-off");
-    expect(
-      decide(inReview({ closings }), NOW, {
-        review: review({ summary, openThreads: 0, preview: building }),
-      }).type,
-    ).toBe("wait");
-  });
-
-  test("doesn't count a round from before the push as one on the new SHA", () => {
-    const older = closing(ago(60), {
-      stage: "review-round",
-      nextStatus: STATUS.inReview,
-      headSha: null,
-      pushed: false,
-    });
-
-    expect(
-      stageOf(
-        decide(inReview({ closings: [older] }), NOW, {
-          review: review({ openThreads: 1, pushedAt: ago(30) }),
-        }),
-      ),
-    ).toBe("review-round");
-  });
-
-  test("without GitHub's push time, counts the claude-review deadline from the PR's creation", () => {
-    expect(decide(inReview(), NOW, { review: unchecked(40) }).type).toBe("wait");
-    expect(stopOf(decide(inReview(), NOW, { review: unchecked(50) }))).toMatchObject({
-      wait: "claude-review",
+  test("without GitHub's push time, counts the PR Preview deadline from the PR's creation", () => {
+    expect(decide(inReview(), NOW, { review: unchecked(50) }).type).toBe("wait");
+    expect(stopOf(decide(inReview(), NOW, { review: unchecked(70) }))).toMatchObject({
+      wait: "pr-preview",
     });
   });
 
   test("without it, counts from the newest implement or Acceptance-fix closing comment when that is later", () => {
     const fix = closing(ago(20), { stage: "acceptance-fix", nextStatus: STATUS.inReview });
-    const facts = review({
-      pushedAt: null,
-      check: null,
-      pr: { number: 12, headSha: HEAD, open: true, createdAt: ago(600) },
-    });
+    const facts = unchecked(600);
 
+    expect(decide(inReview(), NOW, { review: facts }).type).toBe("stop");
     expect(decide(inReview({ closings: [fix] }), NOW, { review: facts }).type).toBe("wait");
   });
 
-  test("is a round on the new head SHA after a round that pushed", () => {
-    const decision = decide(inReview({ closings: [roundOn(HEAD, true)] }), NOW, {
-      review: review({ openThreads: 1 }),
-    });
-
-    expect(stageOf(decision)).toBe("review-round");
-  });
-
-  test("hands off to Acceptance once claude-review passes, every thread is resolved and the PR Preview is up", () => {
-    const decision = decide(inReview({ closings: [roundOn(HEAD, false)] }), NOW, {
-      review: review(),
-    });
+  test("hands off to Acceptance once the PR Preview is up", () => {
+    const decision = decide(inReview(), NOW, { review: review() });
 
     if (decision.type !== "hand-off") throw new Error(`expected a hand-off, got ${decision.type}`);
     expect(decision.to).toBe(STATUS.acceptance);
@@ -677,13 +452,9 @@ describe("In Review", () => {
     });
   });
 
-  test("says what its waits are on, from the push: claude-review, then the PR Preview", () => {
+  test("says what its wait is on, from the push: the PR Preview", () => {
     const building = { state: "queued", description: "", url: null, createdAt: ago(20) };
 
-    expect(decide(inReview(), NOW, { review: review({ check: null }) })).toMatchObject({
-      type: "wait",
-      on: { wait: "claude-review", since: ago(30), deadlineMs: 45 * 60_000, deployments: [] },
-    });
     expect(decide(inReview(), NOW, { review: review({ preview: building }) })).toMatchObject({
       type: "wait",
       on: {
@@ -722,37 +493,51 @@ describe("In Review", () => {
     ).toContain("handed off to Acceptance already");
   });
 
-  test("stops, saying what it found, when claude-review fails with nothing to triage", () => {
-    const decision = decide(inReview(), NOW, {
-      review: review({ check: { status: "completed", conclusion: "failure" } }),
-    });
-
-    expect(stopOf(decision)).toMatchObject({ stage: "review-round", wait: null });
-    expect(stopOf(decision).summary).toContain("fails");
-  });
-
   test("stops when the branch has no open pull request", () => {
     expect(stopOf(decide(inReview(), NOW, { review: review({ pr: null }) })).summary).toContain(
       "no pull request",
     );
+    const closed = { number: 12, headSha: HEAD, open: false, createdAt: ago(600) };
+    expect(stopOf(decide(inReview(), NOW, { review: review({ pr: closed }) })).summary).toContain(
+      "PR #12 is closed",
+    );
   });
 
-  test("counts the claude-review deadline from the hand-back reply when that is later", () => {
+  test("stops on the PR Preview wait, naming the Stage that last pushed to the PR", () => {
+    const failed = review({ preview: { state: "failure", description: "", url: null } });
+    const implemented = closing(ago(200), { stage: "implement", nextStatus: STATUS.inReview });
+    const fix = closing(ago(100), { stage: "acceptance-fix", nextStatus: STATUS.inReview });
+
+    expect(stopOf(decide(inReview(), NOW, { review: failed }))).toMatchObject({
+      stage: "implement",
+      wait: "pr-preview",
+      nextStatus: STATUS.inReview,
+    });
+    expect(
+      stopOf(decide(inReview({ closings: [implemented, fix] }), NOW, { review: failed })),
+    ).toMatchObject({ stage: "acceptance-fix", wait: "pr-preview" });
+    expect(stopOf(decide(inReview(), NOW, { review: review({ pr: null }) }))).toMatchObject({
+      stage: "implement",
+      wait: "pr-preview",
+    });
+  });
+
+  test("counts the PR Preview deadline from the hand-back reply, and runs no Stage again", () => {
     const stopped = closing(
       ago(50),
       {
-        stage: "review-round",
+        stage: "acceptance-fix",
         outcome: "stopped",
         nextStatus: STATUS.inReview,
-        wait: "claude-review",
+        wait: "pr-preview",
       },
       [{ createdAt: ago(5) }],
     );
     const decision = decide(inReview({ closings: [stopped] }), NOW, {
-      review: review({ pushedAt: ago(120), check: { status: "queued", conclusion: null } }),
+      review: review({ pushedAt: ago(120), preview: null }),
     });
 
-    expect(decision.type).toBe("wait");
+    expect(decision).toMatchObject({ type: "wait", on: { wait: "pr-preview", since: ago(5) } });
   });
 });
 

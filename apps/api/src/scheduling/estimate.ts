@@ -1,4 +1,4 @@
-import { type StudyDaySettings, addStudyDays, studyDayOf } from "@banki/shared";
+import { REVIEW_CAP_MS, type StudyDaySettings, addStudyDays, studyDayOf } from "@banki/shared";
 
 // How long a Session will take, from the User's own Reviews: what one Card
 // has taken them in a Study day, per kind, over the last 30 Study days.
@@ -14,8 +14,6 @@ export type TimedReview = {
 
 /** How many Study days of Reviews the averages look back over, today included. */
 export const ESTIMATE_WINDOW_DAYS = 30;
-/** The time one Review counts for at most. */
-export const REVIEW_CAP_MS = 2 * 60_000;
 /** How many Card-days of a kind its average needs before it replaces the default. */
 export const MIN_CARD_DAYS = 20;
 /** What one review Card takes in a Study day, until there are enough Card-days. */

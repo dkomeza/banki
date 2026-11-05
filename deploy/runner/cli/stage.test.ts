@@ -171,7 +171,7 @@ describe("a Stage", () => {
         }),
     });
 
-    const run = runStage("review-round", "BAN-1", deps);
+    const run = runStage("design", "BAN-1", deps);
     await tick();
     process.emit("SIGHUP", "SIGHUP");
 

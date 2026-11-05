@@ -1,4 +1,4 @@
-import { StudyNextQuery } from "@banki/shared";
+import { StudyNextQuery, StudyOverviewQuery } from "@banki/shared";
 import { Hono } from "hono";
 import { apiError } from "../http/errors";
 import type { SignedInEnv } from "../http/require-signed-in";
@@ -23,8 +23,11 @@ const DECK_NOT_FOUND = apiError("not_found", "Deck not found");
  * `GET /:deckId/study/overview` answers what Study brings now: the Cards due
  * (reviews due today and every Card in its learning steps), the New cards a
  * Session introduces of all the Deck's, an estimate of the time they take,
- * and the next Study day with review Cards due. It reads the Timezone, Day
- * start and New-card batch from the Settings on every call, and answers 404
+ * and the next Study day with review Cards due. Its optional `newShown` and
+ * `batches` are an open Session's, as `next` takes them, so `new` and the
+ * estimate leave out what its batches have used; bad ones answer 400
+ * `invalid_request` as `next` does. It reads the Timezone, Day start and
+ * New-card batch from the Settings on every call, and answers 404
  * `not_found` as `next` does.
  */
 export function studyRoutes({ study }: { study: StudyRepository }) {
@@ -34,8 +37,8 @@ export function studyRoutes({ study }: { study: StudyRepository }) {
       if (next === "not_found") return c.json(DECK_NOT_FOUND, 404);
       return c.json(next, 200);
     })
-    .get("/:deckId/study/overview", (c) => {
-      const overview = study.overview(c.var.user.id, c.req.param("deckId"));
+    .get("/:deckId/study/overview", query(StudyOverviewQuery, "Invalid study progress"), (c) => {
+      const overview = study.overview(c.var.user.id, c.req.param("deckId"), c.req.valid("query"));
       if (overview === "not_found") return c.json(DECK_NOT_FOUND, 404);
       return c.json(overview, 200);
     });

@@ -17,7 +17,7 @@ export type Variant = {
 };
 
 /** A wait a stop came from: the reply restarts it, rather than a Stage. */
-export const WAITS = ["slug-previews", "claude-review", "pr-preview"] as const;
+export const WAITS = ["slug-previews", "pr-preview"] as const;
 export type Wait = (typeof WAITS)[number];
 
 export type KeptCommit = { sha: string; worktree: string };
@@ -36,9 +36,6 @@ export type StageResult = {
   pr: number | null;
   headSha: string | null;
   pushed: boolean;
-  roundsEnded: boolean | null;
-  /** Review round only: whether the PR conflicted with `main` as the round started. */
-  conflicted: boolean | null;
   routes: string[];
   variants: Variant[];
   /** Only on a stop the Dispatcher made when a wait failed. */
@@ -82,8 +79,6 @@ export function parseResult(value: unknown): StageResult {
     pr: typeof body.pr === "number" && Number.isInteger(body.pr) ? body.pr : null,
     headSha: optionalString(body.headSha),
     pushed: body.pushed === true,
-    roundsEnded: typeof body.roundsEnded === "boolean" ? body.roundsEnded : null,
-    conflicted: typeof body.conflicted === "boolean" ? body.conflicted : null,
     routes: strings(body.routes),
     variants: Array.isArray(body.variants)
       ? body.variants.filter(isRecord).flatMap((variant) => {

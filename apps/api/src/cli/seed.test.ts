@@ -1,3 +1,4 @@
+import { Database as SQLite } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -11,6 +12,7 @@ import {
   FolderResponse,
   RestoreResponse,
   SettingsResponse,
+  StudyNextResponse,
   TagListResponse,
 } from "@banki/shared";
 import { SEED_IDS } from "../seed/seed-ids";
@@ -28,6 +30,7 @@ const UNTOUCHED_DEFAULTS = {
   desiredRetention: 90,
   newCardBatch: 20,
   learningLimit: 10,
+  sessionTimeoutMinutes: 30,
   macros: [] as { name: string; definition: string }[],
 } as const;
 
@@ -412,6 +415,52 @@ describe("banki seed's Cards", () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("BANKI_SEED_NOW isn't a time: soon");
+  });
+});
+
+describe("banki seed's Reviews", () => {
+  test("studies el desayuno, la cuenta and the edit-card page's Card, el desayuno shown first", async () => {
+    await setup();
+    await seed();
+
+    const { app } = boot();
+    const cookie = cookiesFrom(await signIn(app));
+    const cardOf = async (id: string) =>
+      CardResponse.parse(await (await get(app, `/api/cards/${id}`, cookie)).json());
+    const { spanish } = SEED_IDS.cards;
+
+    for (const id of [spanish[0], spanish[1], SEED_IDS.card]) {
+      expect((await cardOf(id)).studied).toBe(true);
+    }
+    expect((await cardOf(spanish[2])).studied).toBe(false);
+
+    const next = StudyNextResponse.parse(
+      await (
+        await get(
+          app,
+          `/api/decks/${SEED_IDS.decks.spanish}/study/next?reviewsShown=0&newShown=0&batches=1`,
+          cookie,
+        )
+      ).json(),
+    ).next;
+    expect(next?.card.id).toBe(spanish[0]);
+    expect(next?.kind).toBe("learning");
+    expect(next?.schedule.lapses).toBe(1);
+  });
+
+  test("take their places in the Write order oldest first", async () => {
+    await setup();
+    await seed();
+
+    const sqlite = new SQLite(join(dataDir(), "banki.db"), { readonly: true });
+    const moments = sqlite
+      .query<{ reviewed_at: number }, []>("SELECT reviewed_at FROM review ORDER BY seq")
+      .all()
+      .map((r) => r.reviewed_at);
+    sqlite.close();
+
+    expect(moments.length).toBeGreaterThan(1);
+    expect(moments).toEqual(moments.toSorted((a, b) => a - b));
   });
 });
 

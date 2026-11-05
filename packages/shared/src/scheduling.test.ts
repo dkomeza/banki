@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { DesiredRetention, ReviewRequest } from "./scheduling";
+import { DesiredRetention, REVIEW_CAP_MS, ReviewRequest } from "./scheduling";
 
 describe("DesiredRetention", () => {
   test.each([70, 90, 97])("takes %d", (value) => {
@@ -16,7 +16,13 @@ describe("ReviewRequest", () => {
     for (const rating of ["again", "hard", "good", "easy"] as const) {
       expect(ReviewRequest.parse({ rating, durationMs: 0 })).toEqual({ rating, durationMs: 0 });
     }
-    expect(ReviewRequest.parse({ rating: "good", durationMs: 600_000 }).durationMs).toBe(600_000);
+    expect(ReviewRequest.parse({ rating: "good", durationMs: 120_000 }).durationMs).toBe(120_000);
+  });
+
+  test("takes a duration above the cap as the cap, 2 minutes", () => {
+    expect(REVIEW_CAP_MS).toBe(120_000);
+    expect(ReviewRequest.parse({ rating: "good", durationMs: 120_001 }).durationMs).toBe(120_000);
+    expect(ReviewRequest.parse({ rating: "good", durationMs: 600_000 }).durationMs).toBe(120_000);
   });
 
   test.each([
