@@ -20,6 +20,7 @@ const DECK: Deck = {
   cardCount: 30,
   desiredRetention: null,
   macros: [],
+  answerMode: null,
 };
 
 // Saturday 31 October 2026.

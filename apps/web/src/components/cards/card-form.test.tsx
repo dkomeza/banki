@@ -27,6 +27,7 @@ const DECK: Deck = {
   cardCount: 0,
   desiredRetention: null,
   macros: [],
+  answerMode: null,
 };
 
 const SETTINGS: SettingsResponse = {

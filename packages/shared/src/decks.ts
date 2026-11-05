@@ -2,6 +2,21 @@ import { z } from "zod";
 import { Macro, MacroList } from "./macros";
 import { DesiredRetention } from "./scheduling";
 
+/**
+ * How the User answers a Card in a Session: `self-rate` (reveal the Back,
+ * then give a Rating) or `write` (write-and-grade: a Written answer first).
+ */
+export const ANSWER_MODES = ["self-rate", "write"] as const;
+export const AnswerMode = z.enum(ANSWER_MODES);
+export type AnswerMode = z.infer<typeof AnswerMode>;
+
+/** The Answer mode a Deck follows until it has its own (a Setting from BAN-44). */
+export const DEFAULT_ANSWER_MODE: AnswerMode = "self-rate";
+
+/** A Deck's effective Answer mode: its own, or the one it follows. */
+export const deckAnswerMode = (deck: { answerMode: AnswerMode | null }): AnswerMode =>
+  deck.answerMode ?? DEFAULT_ANSWER_MODE;
+
 /** The longest Deck name, after trimming. */
 export const DECK_NAME_MAX_LENGTH = 100;
 
@@ -80,6 +95,7 @@ export type NameClashError = z.infer<typeof NameClashError>;
  * the Root. `createdAt` is an ISO 8601 time. `cardCount` counts its live Cards.
  * `desiredRetention` is its own, or null while it follows Settings. `macros`
  * are its own Macros, [] for none, which its Cards use on top of Settings'.
+ * `answerMode` is its own Answer mode, or null while it follows Settings.
  */
 export const DeckResponse = z.object({
   id: z.string(),
@@ -90,6 +106,7 @@ export const DeckResponse = z.object({
   cardCount: z.number().int().nonnegative(),
   desiredRetention: z.number().int().nullable(),
   macros: z.array(Macro),
+  answerMode: AnswerMode.nullable(),
 });
 export type DeckResponse = z.infer<typeof DeckResponse>;
 
@@ -111,8 +128,8 @@ export type CreateDeckRequest = z.input<typeof CreateDeckRequest>;
 /**
  * The body of `PATCH /api/decks/:id`: a new name, a new description, a Folder
  * to move it to (null for the Root), a Desired retention of its own (null to
- * follow Settings), its own Macros (the whole list, replaced as given), or
- * any of them together. `onClash` says what a move does
+ * follow Settings), its own Macros (the whole list, replaced as given), an
+ * Answer mode of its own (null to follow Settings), or any of them together. `onClash` says what a move does
  * about a name clash, and goes only with `folderId`.
  */
 export const UpdateDeckRequest = z
@@ -123,6 +140,7 @@ export const UpdateDeckRequest = z
     onClash: OnClash.optional(),
     desiredRetention: DesiredRetention.nullable().optional(),
     macros: MacroList.optional(),
+    answerMode: AnswerMode.nullable().optional(),
   })
   .refine(
     (patch) =>
@@ -130,8 +148,9 @@ export const UpdateDeckRequest = z
       patch.description !== undefined ||
       patch.folderId !== undefined ||
       patch.desiredRetention !== undefined ||
-      patch.macros !== undefined,
-    "Expected a name, a description, a folder, a Desired retention or macros",
+      patch.macros !== undefined ||
+      patch.answerMode !== undefined,
+    "Expected a name, a description, a folder, a Desired retention, macros or an Answer mode",
   )
   .refine(
     (patch) => patch.onClash === undefined || patch.folderId !== undefined,

@@ -81,6 +81,7 @@ describe("create", () => {
       cardCount: 0,
       desiredRetention: null,
       macros: [],
+      answerMode: null,
     });
     expect(decks.find(USER, "deck-1")).toEqual(decks.list(USER)[0]);
   });
@@ -185,6 +186,7 @@ describe("update", () => {
       cardCount: 0,
       desiredRetention: null,
       macros: [],
+      answerMode: null,
     });
   });
 
