@@ -161,7 +161,7 @@ EOF
   cat >&2 <<'EOF'
 2. Add two HTTP resources under the banki.dkomeza.com domain, both on that new
    site and both with SSO off (Banki's own sign-in is the gate):
-     Banki Edge        at subdomain preview  ->  http  banki-edge-web-1        port 8080
+     Banki Edge        at subdomain edge     ->  http  banki-edge-web-1        port 8080
      Banki Production  at the base domain    ->  http  banki-production-web-1  port 8080
 EOF
   wait_for_enter

@@ -130,7 +130,7 @@ const deployAction = (overrides: Partial<LongLivedDeployAction> = {}): LongLived
   ...overrides,
 });
 
-const EDGE_URL = "https://preview.banki.dkomeza.com";
+const EDGE_URL = "https://edge.banki.dkomeza.com";
 
 let quiet: { mockRestore: () => void }[] = [];
 beforeEach(() => {

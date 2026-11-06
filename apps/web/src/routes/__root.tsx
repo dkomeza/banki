@@ -1,6 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { Outlet, createRootRouteWithContext, redirect, useRouter } from "@tanstack/react-router";
 import { FullScreen } from "@/components/auth-card";
+import { StatePill } from "@/components/state-pill";
 import { Button } from "@/components/ui/button";
 import { guardRedirect } from "@/lib/guard";
 import { signedInQueryOptions, setupStatusQueryOptions } from "@/lib/signed-in";
@@ -22,7 +23,12 @@ export const Route = createRootRouteWithContext<RouterContext>()({
     });
     if (target !== undefined) throw redirect({ href: target, replace: true });
   },
-  component: () => <Outlet />,
+  component: () => (
+    <>
+      <Outlet />
+      <StatePill />
+    </>
+  ),
   errorComponent: CantReachBanki,
 });
 
