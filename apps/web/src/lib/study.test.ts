@@ -1,5 +1,6 @@
 import {
   type AnswerMode,
+  type GradeResponse,
   type IntervalPreviews,
   type QueueKind,
   REVIEW_CAP_MS,
@@ -128,6 +129,15 @@ const next = (id: string, kind: QueueKind = "new"): NextCard => ({
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 type UndoAnswer = Awaited<ReturnType<StudyApi["undo"]>>;
+type GradeAnswer = Awaited<ReturnType<StudyApi["grade"]>>;
+
+/** The fake Grader's grade, unless a test gives another. */
+const GRADED: GradeResponse = {
+  rating: "good",
+  feedback: "Mostly right: **one** step is missing.",
+  missing: [{ from: 0, to: 1 }],
+  mistakes: [{ from: 0, to: 2, note: "Not quite." }],
+};
 
 /** A promise the test answers when it likes. */
 function deferred<T>() {
@@ -150,6 +160,25 @@ function fakeApi(queue: NextCard[]) {
     undo: [] as string[],
     intervals: [] as string[],
     card: [] as string[],
+    grade: [] as { cardId: string; answer: string; signal: AbortSignal }[],
+  };
+  /**
+   * The fake Grader: it answers `answer` ("offline" throws), once `gate`
+   * (if any) opens. A test opens it with `grader.open()`.
+   */
+  const grader = {
+    answer: GRADED as GradeAnswer | "offline",
+    gate: undefined as Promise<void> | undefined,
+    open: () => {},
+    /** From now on, each request waits for `open`. */
+    hold() {
+      const gate = deferred<void>();
+      grader.gate = gate.promise;
+      grader.open = () => {
+        grader.gate = undefined;
+        gate.resolve();
+      };
+    },
   };
   let reviews = 0;
   const fail = {
@@ -196,8 +225,14 @@ function fakeApi(queue: NextCard[]) {
       if (fail.card) throw new Error("offline");
       return missing.has(cardId) ? "gone" : card(cardId);
     },
+    grade: async (cardId, answer, signal) => {
+      calls.grade.push({ cardId, answer, signal });
+      await grader.gate;
+      if (grader.answer === "offline") throw new Error("offline");
+      return grader.answer;
+    },
   };
-  return { api, calls, fail, held, queue, missing };
+  return { api, calls, fail, held, queue, missing, grader };
 }
 
 function setUp(queue: NextCard[]) {
@@ -3355,6 +3390,7 @@ describe("the Answer mode", () => {
     expect(t.state()).toMatchObject({ mode: "write", revealed: false });
     t.session.setDraft("x");
     t.session.check();
+    await flush();
     t.session.rate("good");
     await flush();
 
@@ -3382,6 +3418,7 @@ describe("the Answer mode", () => {
     t.session.check();
     t.session.setMode("self-rate");
     expect(t.state()).toMatchObject({ mode: "write", switchable: false });
+    await flush();
     t.session.rate("good");
     await flush();
 
@@ -3418,6 +3455,7 @@ describe("the Answer mode", () => {
     t.session.setMode("write");
     t.session.setDraft("x");
     t.session.check();
+    await flush();
     t.session.rate("good");
     await flush();
     t.wait(TIMEOUT);
@@ -3463,6 +3501,7 @@ describe("write-and-grade", () => {
     t.wait(3000);
     t.session.setDraft("an answer");
     t.session.check();
+    await flush();
     t.session.rate("hard");
     await flush();
 
@@ -3475,6 +3514,7 @@ describe("write-and-grade", () => {
     const t = await writing([next("a"), next("b")]);
     t.session.setDraft("an answer");
     t.session.check();
+    await flush();
     t.session.rate("good");
     await flush();
 
@@ -3652,6 +3692,7 @@ describe("the draft, kept with the Session", () => {
     const t = await writing([next("a"), next("b"), next("c")]);
     t.session.setDraft("first");
     t.session.check();
+    await flush();
     t.session.rate("good");
     await flush();
     expect(t.stored()?.shown).toMatchObject({ cardId: "b", draft: "" });
@@ -3704,6 +3745,7 @@ describe("the draft, kept with the Session", () => {
     t.session.setDraft("draft");
     expect(t.state().draft).toBe("draft");
     t.session.check();
+    await flush();
     t.session.rate("good");
     await flush();
     expect(t.shownId()).toBe("b");
@@ -3746,5 +3788,529 @@ describe("keyAction in write-and-grade", () => {
     expect(
       keyAction(press("3"), { showing: true, revealed: true, focus: undefined, writing: false }),
     ).toEqual({ type: "rate", rating: "good" });
+  });
+});
+
+/** A Session in write-and-grade with Card "a" checked with `answer`, the Grader held until `open`. */
+async function checked(queue: NextCard[], answer = "  my answer $x$ ", storage?: ReturnType<typeof memoryStorage>) {
+  const t = await writing(queue, storage);
+  t.grader.hold();
+  t.session.setDraft(answer);
+  t.session.check();
+  return t;
+}
+
+describe("grading after Check", () => {
+  test("Check reveals at once and sends the Grader the Written answer as typed", async () => {
+    const t = await checked([next("a"), next("b")]);
+
+    expect(t.state()).toMatchObject({
+      revealed: true,
+      written: "  my answer $x$ ",
+      ratable: true,
+      grade: { status: "grading", selected: undefined },
+    });
+    expect(t.calls.grade.map(({ cardId, answer }) => ({ cardId, answer }))).toEqual([
+      { cardId: "a", answer: "  my answer $x$ " },
+    ]);
+  });
+
+  test("the result fills in the grade: the Feedback, the Highlights and the suggestion", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.grader.open();
+    await flush();
+
+    expect(t.state().grade).toEqual({ status: "graded", result: GRADED, selected: undefined });
+  });
+
+  test("before the suggestion, a tap or 1–4 only selects, and Confirm saves the selection", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.session.rate("hard");
+    t.session.rate("easy");
+    await flush();
+    expect(t.calls.rate).toEqual([]);
+    expect(t.state().grade).toEqual({ status: "grading", selected: "easy" });
+
+    t.session.confirm();
+    await flush();
+    expect(t.calls.rate.map((r) => r.rating)).toEqual(["easy"]);
+    expect(t.shownId()).toBe("b");
+  });
+
+  test("Confirm before the suggestion cancels the request, and its late result is ignored", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.session.rate("hard");
+    t.session.confirm();
+    expect(t.calls.grade[0]?.signal.aborted).toBe(true);
+    expect(t.state().grade).toEqual({ status: "skipped", selected: "hard" });
+
+    t.grader.open();
+    await flush();
+    expect(t.shownId()).toBe("b");
+    expect(t.state().grade).toBeUndefined();
+  });
+
+  test("Confirm with nothing selected before the suggestion does nothing", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.session.confirm();
+    await flush();
+
+    expect(t.calls.rate).toEqual([]);
+    expect(t.calls.grade[0]?.signal.aborted).toBe(false);
+    expect(t.state().grade?.status).toBe("grading");
+  });
+
+  test("a selection made before the suggestion survives its arrival, and Confirm saves it", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.session.rate("again");
+    t.grader.open();
+    await flush();
+    expect(t.state().grade).toMatchObject({ status: "graded", selected: "again" });
+
+    t.session.confirm();
+    await flush();
+    expect(t.calls.rate.map((r) => r.rating)).toEqual(["again"]);
+  });
+
+  test("after the suggestion, a tap saves any Rating at once", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.grader.open();
+    await flush();
+
+    t.session.rate("hard");
+    await flush();
+    expect(t.calls.rate.map((r) => r.rating)).toEqual(["hard"]);
+    expect(t.shownId()).toBe("b");
+  });
+
+  test("after the suggestion, Confirm with nothing selected saves the suggested Rating", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.grader.answer = { ...GRADED, rating: "easy" };
+    t.grader.open();
+    await flush();
+
+    t.session.confirm();
+    await flush();
+    expect(t.calls.rate.map((r) => r.rating)).toEqual(["easy"]);
+  });
+
+  test("a Rating that fails to save after Confirm says so, and Try again saves it", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.session.rate("good");
+    t.fail.rate = true;
+    t.session.confirm();
+    await flush();
+    expect(t.state()).toMatchObject({ failure: RATE_FAILED, grade: { status: "skipped" } });
+
+    t.fail.rate = false;
+    t.session.retry();
+    await flush();
+    expect(t.calls.rate.map((r) => r.rating)).toEqual(["good", "good"]);
+    expect(t.shownId()).toBe("b");
+  });
+
+  test("another Card showing cancels the request: an Undo while the Grader works", async () => {
+    const t = await writing([next("a"), next("b")]);
+    t.session.setDraft("first");
+    t.session.check();
+    await flush();
+    t.session.rate("good");
+    await flush();
+    t.grader.hold();
+    t.session.setDraft("second");
+    t.session.check();
+
+    await t.session.undo();
+    expect(t.calls.grade[1]?.signal.aborted).toBe(true);
+    t.grader.open();
+    await flush();
+    expect(t.shownId()).toBe("a");
+    expect(t.state()).toMatchObject({ written: undefined, grade: undefined, undone: true });
+  });
+
+  test("leaving the Session cancels the request; back from the summary, no grade is coming", async () => {
+    const t = await writing([next("a"), next("b"), next("c")]);
+    t.session.setDraft("first");
+    t.session.check();
+    await flush();
+    t.session.rate("good");
+    await flush();
+    t.grader.hold();
+    t.session.setDraft("second");
+    t.session.check();
+    t.session.rate("hard");
+
+    expect(t.session.leave()).toBe("summary");
+    expect(t.calls.grade[1]?.signal.aborted).toBe(true);
+    t.grader.open();
+    await flush();
+    t.session.resume();
+    expect(t.state()).toMatchObject({
+      phase: "card",
+      written: "second",
+      grade: { status: "failed", failure: "not_graded", selected: "hard" },
+    });
+  });
+
+  test("the screen going (stop) cancels the request", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.session.stop();
+
+    expect(t.calls.grade[0]?.signal.aborted).toBe(true);
+  });
+
+  test("the Session ending by its timeout cancels the request", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.wait(TIMEOUT);
+    t.session.checkTimeout();
+
+    expect(t.calls.grade[0]?.signal.aborted).toBe(true);
+    t.grader.open();
+    await flush();
+    expect(t.state().grade).toBeUndefined();
+  });
+
+  test.each([
+    ["no_api_key", "no_api_key"],
+    ["grading_failed", "grading_failed"],
+    ["offline", "unreachable"],
+  ] as const)("a failure (%s) shows as such, and the ratings are one tap", async (answer, failure) => {
+    const t = await checked([next("a"), next("b")]);
+    t.grader.answer = answer;
+    t.grader.open();
+    await flush();
+    expect(t.state().grade).toEqual({ status: "failed", failure, selected: undefined });
+
+    t.session.rate("good");
+    await flush();
+    expect(t.calls.rate.map((r) => r.rating)).toEqual(["good"]);
+  });
+
+  test("Try again after a failure sends the same Written answer again, back to select-then-confirm", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.grader.answer = "grading_failed";
+    t.grader.open();
+    await flush();
+
+    t.grader.answer = GRADED;
+    t.grader.hold();
+    t.session.regrade();
+    expect(t.calls.grade.map((c) => c.answer)).toEqual(["  my answer $x$ ", "  my answer $x$ "]);
+    expect(t.state().grade).toEqual({ status: "grading", selected: undefined });
+    t.session.rate("hard");
+    expect(t.calls.rate).toEqual([]);
+
+    t.grader.open();
+    await flush();
+    expect(t.state().grade).toMatchObject({ status: "graded", selected: "hard" });
+  });
+
+  test("Try again does nothing unless the Grader failed", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.session.regrade();
+    t.grader.open();
+    await flush();
+    t.session.regrade();
+
+    expect(t.calls.grade).toHaveLength(1);
+  });
+
+  test("a Card deleted elsewhere (404) toasts and moves on to the next Card", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.grader.answer = "gone";
+    t.grader.open();
+    await flush();
+
+    expect(t.messages).toEqual([CARD_GONE]);
+    expect(t.shownId()).toBe("b");
+    expect(t.state().grade).toBeUndefined();
+  });
+
+  test("Edit is disabled while the Grader works", async () => {
+    const t = await checked([next("a"), next("b")]);
+    expect(t.state().editable).toBe(false);
+    expect(t.session.edit()).toBe(false);
+
+    t.grader.open();
+    await flush();
+    expect(t.state().editable).toBe(true);
+  });
+
+  test("an edit after the result drops the Highlights and keeps the Feedback and the suggestion", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.grader.open();
+    await flush();
+
+    t.session.edit();
+    await t.session.saveEdit({ ...card("a"), back: "a new back" }, { progressReset: false });
+    expect(t.state().grade).toEqual({
+      status: "graded",
+      result: { ...GRADED, missing: [], mistakes: [] },
+      selected: undefined,
+    });
+  });
+
+  test("an edit cancelled keeps the Highlights", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.grader.open();
+    await flush();
+
+    t.session.edit();
+    t.session.cancelEdit();
+    expect(t.state().grade).toMatchObject({ result: GRADED });
+  });
+
+  test("I don't know calls no Grader", async () => {
+    const t = await writing([next("a"), next("b")]);
+    t.session.setDraft("half");
+    t.session.dontKnow();
+    await flush();
+
+    expect(t.calls.grade).toEqual([]);
+    expect(t.state().grade).toBeUndefined();
+  });
+
+  test("Undo of a Rating given after Check brings the Card back with one-tap ratings, without the grade", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.grader.open();
+    await flush();
+    t.session.rate("good");
+    await flush();
+
+    await t.session.undo();
+    expect(t.state()).toMatchObject({ revealed: true, written: undefined, grade: undefined });
+    t.session.rate("hard");
+    await flush();
+    expect(t.calls.rate.map((r) => r.rating)).toEqual(["good", "hard"]);
+  });
+});
+
+describe("the grade, kept with the Session", () => {
+  test("is stored once it arrives, and a reload resumes the Card with it, without a second call", async () => {
+    const t = await checked([next("a"), next("b")]);
+    expect(t.stored()?.shown?.grade).toBeUndefined();
+    t.grader.open();
+    await flush();
+    expect(t.stored()?.shown).toMatchObject({ cardId: "a", checked: true, grade: GRADED });
+
+    await t.reload();
+    expect(t.state()).toMatchObject({
+      revealed: true,
+      written: "  my answer $x$ ",
+      grade: { status: "graded", result: GRADED },
+    });
+    expect(t.calls.grade).toHaveLength(1);
+  });
+
+  test("a Card reloaded while the Grader worked resumes in the failure state, with no re-grade", async () => {
+    const t = await checked([next("a"), next("b")]);
+    await t.reload();
+
+    expect(t.state()).toMatchObject({
+      revealed: true,
+      written: "  my answer $x$ ",
+      grade: { status: "failed", failure: "not_graded" },
+    });
+    expect(t.calls.grade).toHaveLength(1);
+    t.session.rate("good");
+    await flush();
+    expect(t.calls.rate.map((r) => r.rating)).toEqual(["good"]);
+  });
+
+  test("a Card reloaded after a failure resumes in the failure state, and Try again re-sends", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.grader.answer = "grading_failed";
+    t.grader.open();
+    await flush();
+    await t.reload();
+
+    expect(t.state().grade).toMatchObject({ status: "failed" });
+    t.grader.answer = GRADED;
+    t.session.regrade();
+    await flush();
+    expect(t.calls.grade.map((c) => c.answer)).toEqual(["  my answer $x$ ", "  my answer $x$ "]);
+    expect(t.state().grade).toMatchObject({ status: "graded" });
+  });
+
+  test("goes when its Card is rated", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.grader.open();
+    await flush();
+    t.session.rate("good");
+    await flush();
+
+    expect(t.stored()?.shown).toMatchObject({ cardId: "b" });
+    expect(t.stored()?.shown?.grade).toBeUndefined();
+  });
+
+  test("goes when the Session ends, and on sign-out", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.grader.open();
+    await flush();
+    clearStoredSessions(t.storage);
+    expect(t.stored()).toBeUndefined();
+
+    const ended = await checked([next("a"), next("b")]);
+    ended.grader.open();
+    await flush();
+    ended.wait(TIMEOUT);
+    ended.session.checkTimeout();
+    expect(ended.stored()?.shown?.grade).toBeUndefined();
+  });
+
+  test("blocked storage keeps no grade and still studies", async () => {
+    const t = await checked([next("a"), next("b")], "an answer", blockedStorage());
+    t.grader.open();
+    await flush();
+    expect(t.state().grade).toMatchObject({ status: "graded" });
+
+    t.session.confirm();
+    await flush();
+    expect(t.calls.rate.map((r) => r.rating)).toEqual(["good"]);
+    expect(t.shownId()).toBe("b");
+  });
+});
+
+describe("a checked Card's time", () => {
+  test("leaves out the wait for the Grader, from Check to its result", async () => {
+    const t = await writing([next("a"), next("b")]);
+    t.grader.hold();
+    t.wait(3000);
+    t.session.setDraft("an answer");
+    t.session.check();
+    t.wait(5000);
+    t.grader.open();
+    await flush();
+    t.wait(2000);
+    t.session.rate("good");
+    await flush();
+
+    expect(t.calls.rate[0]?.durationMs).toBe(5000);
+  });
+
+  test("leaves out the wait to a failure, and to an answer Try again asked for", async () => {
+    const t = await writing([next("a"), next("b")]);
+    t.grader.hold();
+    t.wait(1000);
+    t.session.setDraft("an answer");
+    t.session.check();
+    t.wait(4000);
+    t.grader.answer = "grading_failed";
+    t.grader.open();
+    await flush();
+    t.wait(1000);
+    t.grader.answer = GRADED;
+    t.grader.hold();
+    t.session.regrade();
+    t.wait(6000);
+    t.grader.open();
+    await flush();
+    t.wait(500);
+    t.session.rate("good");
+    await flush();
+
+    expect(t.calls.rate[0]?.durationMs).toBe(2500);
+  });
+
+  test("leaves out the wait to a Rating confirmed first", async () => {
+    const t = await writing([next("a"), next("b")]);
+    t.grader.hold();
+    t.wait(3000);
+    t.session.setDraft("an answer");
+    t.session.check();
+    t.wait(4000);
+    t.session.rate("hard");
+    t.wait(1000);
+    t.session.confirm();
+    await flush();
+
+    expect(t.calls.rate[0]?.durationMs).toBe(3000);
+  });
+
+  test("is stored without the wait, and goes on from there after a reload", async () => {
+    const t = await writing([next("a"), next("b")]);
+    t.grader.hold();
+    t.wait(3000);
+    t.session.setDraft("an answer");
+    t.session.check();
+    t.wait(4000);
+    t.session.persist();
+    expect(t.stored()?.shown?.elapsedMs).toBe(3000);
+
+    await t.reload();
+    t.wait(1000);
+    t.session.rate("good");
+    await flush();
+    expect(t.calls.rate[0]?.durationMs).toBe(4000);
+  });
+});
+
+describe("keyAction after Check", () => {
+  const confirming = { showing: true, revealed: true, focus: undefined, confirming: true } as const;
+
+  test("Enter confirms, on a focused rating button too", () => {
+    expect(keyAction(press("Enter"), confirming)).toEqual({ type: "confirm" });
+    expect(keyAction(press("Enter"), { ...confirming, focus: "rating" })).toEqual({
+      type: "confirm",
+    });
+  });
+
+  test("Enter on another control is that control's; Space confirms nothing", () => {
+    expect(keyAction(press("Enter"), { ...confirming, focus: "control" })).toEqual({
+      type: "none",
+    });
+    expect(keyAction(press(" "), confirming)).toEqual({ type: "none" });
+    expect(keyAction(press(" "), { ...confirming, focus: "rating" })).toEqual({ type: "block" });
+  });
+
+  test("1 to 4 rate (or select) as ever", () => {
+    expect(keyAction(press("2"), confirming)).toEqual({ type: "rate", rating: "hard" });
+  });
+});
+
+describe("studyApi's grade", () => {
+  const grading = (status: number, body: unknown) =>
+    studyApi(
+      "d1",
+      createApiClient(async (input, init) => {
+        expect(String(input)).toContain("/api/cards/a/grade");
+        expect(init?.method).toBe("POST");
+        return new Response(JSON.stringify(body), {
+          status,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    ).grade("a", "an answer", new AbortController().signal);
+
+  test("answers the grade on 200", async () => {
+    expect(await grading(200, GRADED)).toEqual(GRADED);
+  });
+
+  test.each([
+    [404, "gone"],
+    [409, "no_api_key"],
+    [502, "grading_failed"],
+    [500, "grading_failed"],
+  ] as const)("answers %s as %s", async (status, answer) => {
+    expect(await grading(status, { error: { code: "x", message: "x" } })).toBe(answer);
+  });
+
+  test("a 200 that isn't a grade is a failure", async () => {
+    expect(await grading(200, { rating: "perfect" })).toBe("grading_failed");
+  });
+
+  test("sends the Written answer as typed, with the signal", async () => {
+    const controller = new AbortController();
+    let sent: { body: unknown; signal: AbortSignal | null | undefined } | undefined;
+    await studyApi(
+      "d1",
+      createApiClient(async (_input, init) => {
+        sent = { body: JSON.parse(String(init?.body)), signal: init?.signal };
+        return new Response(JSON.stringify(GRADED), { status: 200 });
+      }),
+    ).grade("a", "  as typed ", controller.signal);
+
+    expect(sent?.body).toEqual({ answer: "  as typed " });
+    expect(sent?.signal).toBe(controller.signal);
   });
 });

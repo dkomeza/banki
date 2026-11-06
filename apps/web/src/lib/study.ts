@@ -6,6 +6,7 @@ import {
   type QueueKind,
   IntervalPreviews as IntervalPreviewsSchema,
   CardResponse,
+  GradeResponse,
   RATINGS,
   REVIEW_CAP_MS,
   RateCardResponse,
@@ -115,6 +116,16 @@ export type StudyApi = {
   intervals: (cardId: string) => Promise<IntervalPreviews | "gone">;
   /** A Card as it is now, or "gone" when it was deleted or moved to another Deck meanwhile. */
   card: (cardId: string) => Promise<Card | "gone">;
+  /**
+   * Asks the Grader to grade the Written answer `answer` of a Card: its
+   * grade, "gone" when the Card was deleted meanwhile, or why it couldn't
+   * grade. Aborted by `signal`; throws when Banki can't be reached.
+   */
+  grade: (
+    cardId: string,
+    answer: string,
+    signal: AbortSignal,
+  ) => Promise<GradeResponse | "gone" | "no_api_key" | "grading_failed">;
 };
 
 /** The study API over HTTP. */
@@ -169,6 +180,18 @@ export function studyApi(deckId: string, client: ApiClient = api): StudyApi {
       const card = CardResponse.parse(await res.json());
       return card.deckId === deckId ? card : "gone";
     },
+    grade: async (cardId, answer, signal) => {
+      const res = await client.api.cards[":cardId"].grade.$post(
+        { param: { cardId }, json: { answer } },
+        { init: { signal } },
+      );
+      const status: number = res.status;
+      if (status === 404) return "gone";
+      if (status === 409) return "no_api_key";
+      if (status !== 200) return "grading_failed";
+      const graded = GradeResponse.safeParse(await res.json().catch(() => undefined));
+      return graded.success ? graded.data : "grading_failed";
+    },
   };
 }
 
@@ -183,6 +206,39 @@ export const UNDO_FAILED = "Couldn't undo. Check your connection.";
 export const MORE_FAILED = "Couldn't load more cards. Check your connection.";
 export const INTERVALS_FAILED = "Couldn't load the card's new intervals. Check your connection.";
 export const EDITOR_FAILED = "Couldn't open the editor. Check your connection.";
+
+/**
+ * Why a checked Card has no grade, and no grade is coming: no API key, the
+ * Grader failed, Banki out of reach, or the request didn't finish (stopped
+ * by leaving, or by a reload before it answered).
+ */
+export type GradeFailure = "no_api_key" | "grading_failed" | "unreachable" | "not_graded";
+
+/** What each GradeFailure says. */
+export const GRADE_FAILURES: Record<GradeFailure, string> = {
+  no_api_key: "Add your OpenRouter API key in Settings to grade answers.",
+  grading_failed: "Couldn't grade this answer. Try again, or rate it yourself.",
+  unreachable: "Can't reach Banki. Check your connection and try again.",
+  not_graded: "This answer wasn't graded. Try again, or rate it yourself.",
+};
+
+/**
+ * The Grader's part in a Card checked in write-and-grade: `grading` while
+ * it works, `graded` once its result is in, `failed` with none coming
+ * (Try again asks again), or `skipped` when a Rating was confirmed before the
+ * result came. `selected` is the Rating tapped while it worked, to confirm.
+ */
+export type Grade =
+  | { status: "grading"; selected: Rating | undefined }
+  | { status: "graded"; result: GradeResponse; selected: Rating | undefined }
+  | { status: "failed"; failure: GradeFailure; selected: Rating | undefined }
+  | { status: "skipped"; selected: Rating };
+
+/** The grade with its Highlights dropped, as after an edit: their ranges point into the old text. */
+const withoutHighlights = (grade: Grade | undefined): Grade | undefined =>
+  grade?.status === "graded"
+    ? { ...grade, result: { ...grade.result, missing: [], mistakes: [] } }
+    : grade;
 
 /**
  * Where the Session is: loading its first Card, showing one, done after
@@ -306,6 +362,8 @@ export type StudyState = {
   switchable: boolean;
   /** Whether Check can reveal now: write-and-grade, a Written answer that isn't blank, nothing on its way. */
   checkable: boolean;
+  /** The shown Card's grade, once Check sent its Written answer to the Grader; else undefined. */
+  grade: Grade | undefined;
 };
 
 /**
@@ -341,8 +399,8 @@ const standing = (given: readonly Given[]): StandingRating[] =>
  * standing (`ended`, until `restart`), or quietly starts afresh without one.
  * Each Card's time is at most `REVIEW_CAP_MS`.
  */
-/** A Card not answered yet: no draft, no Written answer, no I don't know. */
-const UNANSWERED = { draft: "", written: undefined, dontKnow: false } as const;
+/** A Card not answered yet: no draft, no Written answer, no I don't know, no grade. */
+const UNANSWERED = { draft: "", written: undefined, dontKnow: false, grade: undefined } as const;
 
 export function createStudySession({
   studyApi: client,
@@ -393,6 +451,7 @@ export function createStudySession({
     dontKnow: false,
     switchable: false,
     checkable: false,
+    grade: undefined,
   };
   const listeners = new Set<() => void>();
   const given: Given[] = [];
@@ -446,6 +505,12 @@ export function createStudySession({
   // The shown Card once it is done with (rated, or found gone), until the next
   // shows: stored as none, so a resume never shows it to rate again.
   let doneWith: string | undefined;
+  // The Grader's request on its way, aborted once it no longer counts. Each
+  // request counts, so only the newest one's answer shows. And since when the
+  // shown Card has waited for it, to leave the wait out of the Card's time.
+  let grading: AbortController | undefined;
+  let grades = 0;
+  let waitedSince: number | undefined;
   const say = (message: string) => {
     if (!stopped) notify(message);
   };
@@ -453,10 +518,25 @@ export function createStudySession({
     activeAt = now();
   };
 
-  /** The shown Card's time on screen so far, its editor's and while left out. */
+  /** The shown Card's time on screen so far, its editor's, the Grader's and while left out. */
   const elapsed = () => {
     if (state.phase === "left") return pausedFor;
-    return Math.max(0, (editorOpen ? editedAt : now()) - shownAt);
+    return Math.max(0, (editorOpen ? editedAt : (waitedSince ?? now())) - shownAt);
+  };
+
+  /** The wait for the Grader is over: its time is left out of the Card's. */
+  const endWait = () => {
+    if (waitedSince === undefined) return;
+    shownAt += now() - waitedSince;
+    waitedSince = undefined;
+  };
+
+  /** Stops the Grader's request on its way, if any: its answer changes nothing. */
+  const cancelGrade = () => {
+    grades += 1;
+    grading?.abort();
+    grading = undefined;
+    endWait();
   };
 
   const snapshot = (): Omit<StoredSession, "writeId"> => {
@@ -485,6 +565,7 @@ export function createStudySession({
               elapsedMs: elapsed(),
               draft: state.draft,
               checked: state.written !== undefined,
+              grade: state.grade?.status === "graded" ? state.grade.result : undefined,
             }),
       activeAt,
       mode: state.mode,
@@ -555,6 +636,7 @@ export function createStudySession({
       summary: summaryOf(standing(given)),
       // A Rating that failed can be given again, or another one instead; a
       // Card whose Rating saved, waiting for the next one, can't.
+      // While the Grader works, a Rating only selects (`rate`).
       ratable:
         next.phase === "card" &&
         next.revealed &&
@@ -570,6 +652,7 @@ export function createStudySession({
       editable:
         next.phase === "card" &&
         !next.dontKnow &&
+        next.grade?.status !== "grading" &&
         next.saving === undefined &&
         !next.undoing &&
         !next.editing &&
@@ -604,6 +687,7 @@ export function createStudySession({
   /** Shows the next Card, or the end of the Queue; while left, keeps it for Keep studying. */
   const show = ({ next: served, newHeld }: NextAnswer) => {
     failed = undefined;
+    cancelGrade();
     const kind = served === null ? undefined : resetKinds.get(served.card.id);
     const next = served === null || kind === undefined ? served : { ...served, kind };
     if (next === null) {
@@ -748,6 +832,12 @@ export function createStudySession({
       undone: stored.undone,
       draft: stored.draft,
       written: stored.checked ? stored.draft : undefined,
+      // Checked with no grade kept, none is coming: it shows as failed, with Try again.
+      grade: !stored.checked
+        ? undefined
+        : stored.grade === undefined
+          ? { status: "failed", failure: "not_graded", selected: undefined }
+          : { status: "graded", result: stored.grade, selected: undefined },
       dontKnow: false,
       saving: undefined,
       failure: undefined,
@@ -812,6 +902,7 @@ export function createStudySession({
     resuming = undefined;
     failed = undefined;
     editorOpen = false;
+    cancelGrade();
     starts += 1;
     set({
       mode: answerMode(),
@@ -864,6 +955,7 @@ export function createStudySession({
     if (stored !== undefined) store.clear();
     starts += 1;
     failed = undefined;
+    cancelGrade();
     set({
       phase: "ended",
       endedAfterMs: timeout,
@@ -1000,7 +1092,46 @@ export function createStudySession({
   };
 
   /** The shown Card's time on screen, capped, as its Review records it. */
-  const durationOf = () => Math.min(REVIEW_CAP_MS, Math.max(0, Math.round(now() - shownAt)));
+  const durationOf = () =>
+    Math.min(REVIEW_CAP_MS, Math.max(0, Math.round((waitedSince ?? now()) - shownAt)));
+
+  /**
+   * Sends the Grader the shown Card's Written answer `answer`, and shows the
+   * grade or why there is none; the Card deleted meanwhile is skipped for the
+   * next. Its wait is left out of the Card's time. Cancelled meanwhile, or the
+   * Card moved on, its answer changes nothing.
+   */
+  const askGrader = async (cardId: string, answer: string) => {
+    cancelGrade();
+    const mine = grades;
+    const controller = new AbortController();
+    grading = controller;
+    waitedSince = now();
+    let answered: Awaited<ReturnType<StudyApi["grade"]>> | "unreachable";
+    try {
+      answered = await client.grade(cardId, answer, controller.signal);
+    } catch {
+      answered = "unreachable";
+    }
+    if (mine !== grades || stopped) return;
+    grading = undefined;
+    endWait();
+    const grade = state.grade;
+    if (state.shown?.card.id !== cardId || grade?.status !== "grading") return;
+    if (answered === "gone" && !busy()) {
+      say(CARD_GONE);
+      set(skipGone(cardId));
+      await loadNext(cardId);
+      return;
+    }
+    const { selected } = grade;
+    set({
+      grade:
+        typeof answered !== "string"
+          ? { status: "graded", result: answered, selected }
+          : { status: "failed", failure: answered === "gone" ? "grading_failed" : answered, selected },
+    });
+  };
 
   return {
     getState: (): StudyState => state,
@@ -1024,7 +1155,39 @@ export function createStudySession({
     rate(rating: Rating) {
       if (timeOut() || !state.ratable || editorOpen) return;
       touch();
+      const grade = state.grade;
+      if (grade?.status === "grading") {
+        set({ grade: { ...grade, selected: rating } });
+        return;
+      }
       void save(rating, durationOf(), false);
+    },
+    /**
+     * Confirm (or Enter) after Check: saves the Rating selected, else, once
+     * it is in, the suggested one; with neither, nothing. Before the
+     * suggestion, the Grader's request is cancelled, its wait ending here.
+     */
+    confirm() {
+      if (timeOut() || !state.ratable || editorOpen) return;
+      const grade = state.grade;
+      if (grade === undefined) return;
+      const rating = grade.selected ?? (grade.status === "graded" ? grade.result.rating : undefined);
+      if (rating === undefined) return;
+      touch();
+      if (grade.status === "grading") {
+        cancelGrade();
+        set({ grade: { status: "skipped", selected: rating } });
+      }
+      void save(rating, durationOf(), false);
+    },
+    /** Try again once the Grader failed: sends it the same Written answer, the Card back to waiting. */
+    regrade() {
+      const { shown, written, grade } = state;
+      if (timeOut() || state.phase !== "card" || shown === undefined || written === undefined) return;
+      if (grade?.status !== "failed" || busy() || failed !== undefined) return;
+      touch();
+      set({ grade: { status: "grading", selected: undefined } });
+      void askGrader(shown.card.id, written);
     },
     /**
      * Switches the Answer mode, for the shown Card and every Card after it,
@@ -1044,9 +1207,12 @@ export function createStudySession({
     },
     /** Check: reveals the Back beside the Written answer, to rate; not while it is blank. */
     check() {
-      if (timeOut() || !state.checkable || editorOpen) return;
+      const shown = state.shown;
+      if (timeOut() || !state.checkable || editorOpen || shown === undefined) return;
       touch();
-      set({ revealed: true, written: state.draft });
+      const written = state.draft;
+      set({ revealed: true, written, grade: { status: "grading", selected: undefined } });
+      void askGrader(shown.card.id, written);
     },
     /**
      * I don't know, in write-and-grade: rates the shown Card Again at once,
@@ -1161,6 +1327,7 @@ export function createStudySession({
       if (!current) return set({});
       failed = undefined;
       doneWith = undefined;
+      cancelGrade();
       // The re-rated Review's time is the undone one's plus the time since.
       shownAt = now() - last.durationMs;
       set({
@@ -1217,7 +1384,7 @@ export function createStudySession({
       if (!editorOpen || state.shown === undefined) return;
       touch();
       if (!progressReset) {
-        closeEditor({ shown: { ...state.shown, card } });
+        closeEditor({ shown: { ...state.shown, card }, grade: withoutHighlights(state.grade) });
         return;
       }
       for (const g of given) if (g.cardId === card.id) g.settled = true;
@@ -1243,6 +1410,7 @@ export function createStudySession({
       closeEditor({
         // Previews that failed are the old ones, still counted from when they came.
         shown: { ...shown, card, intervals: fresh ?? shown.intervals },
+        grade: withoutHighlights(state.grade),
         previewedAt: fresh === undefined ? state.previewedAt : now(),
         revealed: true,
         undone: false,
@@ -1274,8 +1442,16 @@ export function createStudySession({
       if (editorOpen) return "stay";
       if (timeOut()) return state.phase === "ended" ? "summary" : "away";
       if (state.phase !== "card" || given.length === 0) return "away";
+      // The Grader's request stops with it: no grade is coming.
+      const grade = state.grade;
+      if (grade?.status === "grading") cancelGrade();
       pausedFor = now() - shownAt;
-      set({ phase: "left" });
+      set({
+        phase: "left",
+        ...(grade?.status === "grading"
+          ? { grade: { status: "failed", failure: "not_graded", selected: grade.selected } }
+          : {}),
+      });
       return "summary";
     },
     /** Keep studying: back from the summary to the Card shown when it was left, its time going on. */
@@ -1289,6 +1465,7 @@ export function createStudySession({
     stop() {
       persist();
       stopped = true;
+      cancelGrade();
     },
     /**
      * Checks the Session timeout, as on focus or on a timer: past it, ends the
@@ -1409,6 +1586,8 @@ export type KeyAction =
   | { type: "edit" }
   /** Next, after I don't know. */
   | { type: "next" }
+  /** Confirm, after Check: the Rating selected, or the suggested one. */
+  | { type: "confirm" }
   | { type: "leave" }
   /** Keeps the key from doing what it would: Space or Enter on a focused rating button. */
   | { type: "block" }
@@ -1422,6 +1601,7 @@ export type KeyAction =
  * on another focused control (a link, a button) they do what they do there.
  * In write-and-grade (`writing`, before the reveal) Space and Enter reveal
  * nothing; after I don't know (`waiting`) they press Next, and 1 to 4 rate nothing.
+ * After Check (`confirming`), Enter confirms, on a focused rating button too.
  */
 export function keyAction(
   key: { key: string; code?: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean },
@@ -1432,6 +1612,7 @@ export function keyAction(
     editing = false,
     writing = false,
     waiting = false,
+    confirming = false,
   }: {
     showing: boolean;
     revealed: boolean;
@@ -1442,6 +1623,8 @@ export function keyAction(
     writing?: boolean;
     /** The Back shown after I don't know, until Next. */
     waiting?: boolean;
+    /** The Back shown after Check, the Grader asked: Enter confirms. */
+    confirming?: boolean;
   },
 ): KeyAction {
   if (editing) return { type: "none" };
@@ -1452,6 +1635,9 @@ export function keyAction(
   if (key.key === "Escape") return { type: "leave" };
   if (isEditKey(key)) return showing ? { type: "edit" } : { type: "none" };
   if (key.key === " " || key.key === "Enter") {
+    if (key.key === "Enter" && confirming && showing && revealed && focus !== "control") {
+      return { type: "confirm" };
+    }
     if (focus === "rating") return { type: "block" };
     if (focus === "control" || !showing) return { type: "none" };
     if (waiting) return { type: "next" };
