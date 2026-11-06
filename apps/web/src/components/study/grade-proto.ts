@@ -1,5 +1,6 @@
 import type { Rating } from "@banki/shared";
-import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { useLocation } from "@tanstack/react-router";
+import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import type { Highlight } from "@/components/cards/card-text";
 import type { StudySession, StudyState } from "@/lib/study";
 
@@ -220,6 +221,21 @@ function grade(session: StudySession, id: string) {
  */
 export function useGradeProto(session: StudySession, state: StudyState) {
   const proto = useSyncExternalStore(store.subscribe, store.get);
+  // The state pill changes `?state=` in place: start the Session afresh in it.
+  const asked = useLocation({
+    select: (l) => {
+      const search: Record<string, unknown> = l.search;
+      return typeof search["state"] === "string" ? search["state"] : undefined;
+    },
+  });
+  const firstAsked = useRef(asked);
+  useEffect(() => {
+    if (asked === firstAsked.current) return;
+    for (const key of Object.keys(localStorage)) {
+      if (key.startsWith("banki.session.")) localStorage.removeItem(key);
+    }
+    window.location.reload();
+  }, [asked]);
   const cardId = state.phase === "card" ? state.shown?.card.id : undefined;
   const written = state.written;
   useEffect(() => {
