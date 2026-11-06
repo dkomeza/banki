@@ -16,6 +16,7 @@ import {
 } from "@banki/shared";
 import { type ApiClient, api } from "./api";
 import { type Card, type CardOutcome, saveCardEdit } from "./cards";
+import { CANT_REACH } from "./decks";
 import {
   NO_STORE,
   type SessionStore,
@@ -218,7 +219,7 @@ export type GradeFailure = "no_api_key" | "grading_failed" | "unreachable" | "no
 export const GRADE_FAILURES: Record<GradeFailure, string> = {
   no_api_key: "Add your OpenRouter API key in Settings to grade answers.",
   grading_failed: "Couldn't grade this answer. Try again, or rate it yourself.",
-  unreachable: "Can't reach Banki. Check your connection and try again.",
+  unreachable: CANT_REACH,
   not_graded: "This answer wasn't graded. Try again, or rate it yourself.",
 };
 

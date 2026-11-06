@@ -62,13 +62,15 @@ export type Highlight = { from: number; to: number; kind: "missing" | "mistake";
 
 const NO_HIGHLIGHTS: readonly Highlight[] = [];
 
-/** The Highlights that overlap `from`–`to`. */
+/** The Highlights that overlap `from`–`to`, the narrowest first, so one inside another still shows. */
 const touching = (cx: Context, from: number, to: number) =>
-  cx.highlights.filter((h) => h.from < to && h.to > from);
+  cx.highlights
+    .filter((h) => h.from < to && h.to > from)
+    .toSorted((a, b) => a.to - a.from - (b.to - b.from));
 
 /**
  * A piece rendered as a whole (a Formula, code, an Image): marked whole by the
- * first Highlight that touches any of it. Its mark is a box of its own
+ * narrowest Highlight that touches any of it. Its mark is a box of its own
  * (`data-whole`), a block around a display Formula, so all of it, between
  * KaTeX's glyphs too, is the mark's to point at or tap.
  */

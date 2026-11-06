@@ -46,8 +46,9 @@ const UNDER_TOP_BAR = "top-[calc(3.5rem+env(safe-area-inset-top))]";
 const MISSING_MARKS =
   "[&_mark[data-highlight=missing]]:rounded-[0.2em] [&_mark[data-highlight=missing]]:bg-primary/15 [&_mark[data-highlight=missing]]:text-inherit [&_mark[data-highlight=missing]]:underline [&_mark[data-highlight=missing]]:decoration-primary [&_mark[data-highlight=missing]]:decoration-dashed [&_mark[data-highlight=missing]]:underline-offset-[0.3em] [&_mark[data-highlight=missing]]:[box-decoration-break:clone]";
 
+// Below 1024 px a mistake is tapped: its hit area reaches 44 px tall, past its line.
 const MISTAKE_MARKS =
-  "[&_mark[data-highlight=mistake]]:cursor-pointer [&_mark[data-highlight=mistake]]:rounded-t-[0.2em] [&_mark[data-highlight=mistake]]:bg-destructive/10 [&_mark[data-highlight=mistake]]:text-inherit [&_mark[data-highlight=mistake]]:shadow-[inset_0_-2px_0_var(--destructive)] [&_mark[data-highlight=mistake]]:outline-none [&_mark[data-highlight=mistake]]:transition-colors [&_mark[data-highlight=mistake]]:[box-decoration-break:clone] [&_mark[data-highlight=mistake]:hover]:bg-destructive/20 [&_mark[data-highlight=mistake][data-open]]:bg-destructive/20 [&_mark[data-highlight=mistake]:focus-visible]:outline-2 [&_mark[data-highlight=mistake]:focus-visible]:outline-offset-2 [&_mark[data-highlight=mistake]:focus-visible]:outline-ring";
+  "max-lg:[&_mark[data-highlight=mistake]]:relative max-lg:[&_mark[data-highlight=mistake]]:after:absolute max-lg:[&_mark[data-highlight=mistake]]:after:inset-x-0 max-lg:[&_mark[data-highlight=mistake]]:after:-inset-y-2.5 max-lg:[&_mark[data-highlight=mistake]]:after:content-[''] [&_mark[data-highlight=mistake]]:cursor-pointer [&_mark[data-highlight=mistake]]:rounded-t-[0.2em] [&_mark[data-highlight=mistake]]:bg-destructive/10 [&_mark[data-highlight=mistake]]:text-inherit [&_mark[data-highlight=mistake]]:shadow-[inset_0_-2px_0_var(--destructive)] [&_mark[data-highlight=mistake]]:outline-none [&_mark[data-highlight=mistake]]:transition-colors [&_mark[data-highlight=mistake]]:[box-decoration-break:clone] [&_mark[data-highlight=mistake]:hover]:bg-destructive/20 [&_mark[data-highlight=mistake][data-open]]:bg-destructive/20 [&_mark[data-highlight=mistake]:focus-visible]:outline-2 [&_mark[data-highlight=mistake]:focus-visible]:outline-offset-2 [&_mark[data-highlight=mistake]:focus-visible]:outline-ring";
 
 /** The grade's result, once it is in. */
 const resultOf = (grade: Grade) => (grade.status === "graded" ? grade.result : undefined);
@@ -152,12 +153,27 @@ function YourAnswer({
 }) {
   const box = useRef<HTMLDivElement>(null);
   const bubble = useRef<HTMLDivElement>(null);
-  const { shown, noteProps } = useMistakeNotes(
+  const { shown } = useMistakeNotes(
     box,
     bubble,
     (n) => `Mistake ${n + 1} of ${notes.length}: show why`,
   );
   const note = shown === undefined ? undefined : notes[shown.n];
+  // A mistake whose range has nothing to mark (only markup, a newline) has no
+  // mark to open its note from: its note is listed under your answer instead.
+  // (Your answer is new only with a new Card, which remounts this.)
+  const [unmarked, setUnmarked] = useState<number[]>([]);
+  useLayoutEffect(() => {
+    const root = box.current;
+    if (root === null) return;
+    const marked = new Set(
+      [...root.querySelectorAll<HTMLElement>("mark[data-highlight=mistake]")].map((m) =>
+        Number(m.dataset["n"]),
+      ),
+    );
+    const missing = mistakes.map((m) => m.n).filter((n) => !marked.has(n));
+    setUnmarked((old) => (old.join() === missing.join() ? old : missing));
+  }, [mistakes]);
   return (
     <section
       aria-label="Your answer"
@@ -185,9 +201,22 @@ function YourAnswer({
           className={cn("text-base leading-relaxed lg:text-lg", MISTAKE_MARKS)}
         />
         {shown !== undefined && note !== undefined && (
-          <Bubble ref={bubble} box={box} n={shown.n} note={note} {...noteProps} />
+          <Bubble ref={bubble} box={box} n={shown.n} note={note} />
         )}
       </div>
+      {unmarked.length > 0 && (
+        <ul aria-label="Other mistakes" className="flex flex-col gap-1.5 text-sm leading-relaxed">
+          {unmarked.map((n) => (
+            <li key={n} className="flex gap-2">
+              <span
+                aria-hidden
+                className="mt-[0.55em] size-1.5 shrink-0 rounded-full bg-destructive"
+              />
+              <CardText text={notes[n] ?? ""} />
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }
@@ -195,21 +224,18 @@ function YourAnswer({
 /**
  * A mistake's note, in a bubble just under the last line of its mark, its
  * point at the mark. Placed before it paints, it shows at once, where it
- * belongs.
+ * belongs. The pointer goes through it, to a mistake it covers.
  */
 function Bubble({
   ref,
   box,
   n,
   note,
-  ...pointer
 }: {
   ref: RefObject<HTMLDivElement | null>;
   box: RefObject<HTMLDivElement | null>;
   n: number;
   note: string;
-  onPointerEnter: () => void;
-  onPointerLeave: () => void;
 }) {
   const [at, setAt] = useState<{ top: number; left: number; point: number } | undefined>();
   useLayoutEffect(() => {
@@ -241,8 +267,7 @@ function Bubble({
       aria-live="polite"
       data-mistake-note={n}
       style={at ? { top: at.top, left: at.left } : { visibility: "hidden", top: 0, left: 0 }}
-      className="absolute z-20 w-[min(21rem,calc(100%-1rem))] rounded-xl border border-destructive/30 bg-card px-3.5 py-3 shadow-lg"
-      {...pointer}
+      className="pointer-events-none absolute z-20 w-[min(21rem,calc(100%-1rem))] rounded-xl border border-destructive/30 bg-card px-3.5 py-3 shadow-lg"
     >
       <span
         aria-hidden
@@ -368,7 +393,7 @@ function Feedback({
         {grade.failure === "no_api_key" ? (
           <Button
             variant="outline"
-            className={cn(PILL, "h-11 self-start text-foreground no-underline lg:h-9")}
+            className={cn(PILL, "h-11 self-start no-underline lg:h-9")}
             render={<Link to="/settings" />}
             nativeButton={false}
           >

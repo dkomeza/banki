@@ -21,8 +21,8 @@ const nOf = (mark: HTMLElement) => Number(mark.dataset["n"]);
 
 /**
  * The note shown for the mistakes marked in `box`. `note` is where the note
- * shows: the pointer can move into it without it going, and a tap in it
- * keeps it. `labelOf` names each mistake's control for screen readers.
+ * shows: a tap in it keeps it. `labelOf` names each mistake's control for
+ * screen readers.
  */
 export function useMistakeNotes(
   box: RefObject<HTMLElement | null>,
@@ -134,9 +134,7 @@ export function useMistakeNotes(
     };
   }, [shown, note]);
 
-  /** For the note: the pointer on it keeps it open. */
-  const noteProps = { onPointerEnter: stay, onPointerLeave: leave };
-  return { shown, noteProps };
+  return { shown };
 }
 
 /** Where mistake `n`'s marks sit in `box`: below their last line, and that line's left and right. */

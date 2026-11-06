@@ -386,6 +386,29 @@ describe("CardText's Highlights", () => {
     expect(out).toMatch(/<mark data-highlight="missing" data-n="1" data-whole="true"[^>]*><img/);
   });
 
+  test("a mistake inside another is marked too, the narrower one drawn over its part", () => {
+    const written = "Differentiate both sides with respect to t";
+    const out = marked(written, [
+      range(written, "Differentiate both sides with", "mistake", 0),
+      range(written, "both", "mistake", 1),
+    ]);
+
+    expect(out).toContain(
+      '<mark data-highlight="mistake" data-n="0">Differentiate </mark><mark data-highlight="mistake" data-n="1">both</mark><mark data-highlight="mistake" data-n="0"> sides with</mark>',
+    );
+  });
+
+  test("of two touching one Formula, the narrower marks it whole", () => {
+    const written = "so $x^2 + 1$ here";
+    const out = marked(written, [
+      range(written, "so $x^2", "mistake", 0),
+      range(written, "x^2", "mistake", 1),
+    ]);
+
+    expect(out).toContain('<mark data-highlight="mistake" data-n="1" data-whole="true"');
+    expect(out).toContain('<mark data-highlight="mistake" data-n="0">so </mark>');
+  });
+
   test("marks nothing without Highlights, and a range past the end only up to it", () => {
     expect(marked("plain", [])).not.toContain("<mark");
     expect(marked("short", [{ from: 2, to: 99, kind: "missing", n: 0 }])).toContain(

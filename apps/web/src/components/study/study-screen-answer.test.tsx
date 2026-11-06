@@ -456,6 +456,31 @@ describe("the Grader's result on the study screen", () => {
     expect(screen.queryByRole("note")).toBeNull();
   });
 
+  test("a mistake's note opens while it has the focus, and goes when the focus leaves", async () => {
+    await checkWith();
+    await screen.findByText(/Suggests/);
+    const [first, second] = marks();
+    expect(first?.tabIndex).toBe(0);
+    expect(first?.getAttribute("aria-label")).toBe("Mistake 1 of 2: show why");
+
+    act(() => second?.focus());
+    expect(screen.getByRole("note").getAttribute("data-mistake-note")).toBe("1");
+    act(() => second?.blur());
+    await waitFor(() => expect(screen.queryByRole("note")).toBeNull());
+  });
+
+  test("a mistake with nothing to mark has its note listed under your answer", async () => {
+    // "**" alone: markup, which renders as nothing.
+    grade = async () =>
+      json({ ...GRADED, mistakes: [{ from: 0, to: 2, note: "Only markup here." }] });
+    await checkWith("**breakfast**");
+    await screen.findByText(/Suggests/);
+
+    expect(marks()).toHaveLength(0);
+    const others = await screen.findByRole("list", { name: "Other mistakes" });
+    expect(others.textContent).toContain("Only markup here.");
+  });
+
   test("before the suggestion, a tap selects and Confirm saves the selection", async () => {
     const pending = held();
     grade = () => pending.response;
