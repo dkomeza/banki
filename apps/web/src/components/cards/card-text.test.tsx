@@ -318,14 +318,17 @@ describe("CardText with a Deck's Macros", () => {
   });
 });
 
-describe("CardText's Highlights", () => {
-  const marked = (text: string, highlights: Highlight[]) =>
-    outside(renderToStaticMarkup(<CardText text={text} highlights={highlights} />));
-  const range = (text: string, part: string, kind: Highlight["kind"], n = 0): Highlight => {
-    const from = text.indexOf(part);
-    return { from, to: from + part.length, kind, n };
-  };
+/** The markup of `text` with `highlights` marked, each piece of KaTeX's output as `{math}`. */
+const marked = (text: string, highlights: Highlight[]) =>
+  outside(renderToStaticMarkup(<CardText text={text} highlights={highlights} />));
 
+/** The Highlight of the first `part` of `text`. */
+function range(text: string, part: string, kind: Highlight["kind"], n = 0): Highlight {
+  const from = text.indexOf(part);
+  return { from, to: from + part.length, kind, n };
+}
+
+describe("CardText's Highlights", () => {
   test("marks a missing range of the Back as stored, with its kind and its n", () => {
     const back = "It is concave everywhere, and goes through the origin.";
     const out = marked(back, [range(back, "concave everywhere", "missing", 3)]);
@@ -348,7 +351,9 @@ describe("CardText's Highlights", () => {
     const written = "first line\nsecond line";
     const out = marked(written, [range(written, "second", "mistake")]);
 
-    expect(out).toContain('first line<br/><mark data-highlight="mistake" data-n="0">second</mark> line');
+    expect(out).toContain(
+      'first line<br/><mark data-highlight="mistake" data-n="0">second</mark> line',
+    );
   });
 
   test("a range inside part of a Formula marks the whole Formula, in a box of its own", () => {
@@ -365,12 +370,17 @@ describe("CardText's Highlights", () => {
     const out = marked(back, [range(back, "so\n$$x", "missing")]);
 
     expect(out).toMatch(/<mark data-highlight="missing" data-n="0">so<\/mark>/);
-    expect(out).toContain('<mark data-highlight="missing" data-n="0" data-whole="true" class="max-w-full block">');
+    expect(out).toContain(
+      '<mark data-highlight="missing" data-n="0" data-whole="true" class="max-w-full block">',
+    );
   });
 
   test("marks code and an Image whole", () => {
     const text = "Run `npm test` then ![a plot](plot.png)";
-    const out = marked(text, [range(text, "npm", "mistake", 0), range(text, "plot]", "missing", 1)]);
+    const out = marked(text, [
+      range(text, "npm", "mistake", 0),
+      range(text, "plot]", "missing", 1),
+    ]);
 
     expect(out).toMatch(/<mark data-highlight="mistake" data-n="0" data-whole="true"[^>]*><code/);
     expect(out).toMatch(/<mark data-highlight="missing" data-n="1" data-whole="true"[^>]*><img/);

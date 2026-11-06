@@ -75,7 +75,7 @@ const touching = (cx: Context, from: number, to: number) =>
 function whole(
   piece: ReactNode,
   cx: Context,
-  { from, to, key, block = false }: { from: number; to: number; key: string; block?: boolean },
+  { from, to, key, asBlock = false }: { from: number; to: number; key: string; asBlock?: boolean },
 ): ReactNode {
   const hit = touching(cx, from, to)[0];
   if (hit === undefined) return piece;
@@ -85,7 +85,7 @@ function whole(
       data-highlight={hit.kind}
       data-n={hit.n}
       data-whole
-      className={cn("max-w-full", block ? "block" : "inline-block")}
+      className={cn("max-w-full", asBlock ? "block" : "inline-block")}
     >
       {piece}
     </mark>
@@ -330,7 +330,7 @@ function inlineNode(node: CardNode, cx: Context): ReactNode {
           written={cx.interactive ? formulaWritten(node, doc) : undefined}
         />,
         cx,
-        { from: node.from, to: node.to, key, block: display && !cx.oneLine },
+        { from: node.from, to: node.to, key, asBlock: display && !cx.oneLine },
       );
     }
     case "Link": {
@@ -577,7 +577,7 @@ function block(node: CardNode, cx: Context): ReactNode {
           written={cx.interactive ? formulaWritten(node, doc) : undefined}
         />,
         cx,
-        { from: node.from, to: node.to, key, block: true },
+        { from: node.from, to: node.to, key, asBlock: true },
       );
     case "LinkReference":
       return null;

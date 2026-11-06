@@ -3791,8 +3791,16 @@ describe("keyAction in write-and-grade", () => {
   });
 });
 
+/** The Ratings saved so far, in order. */
+const ratingsIn = (t: { calls: { rate: { rating: Rating }[] } }) =>
+  t.calls.rate.map((saved) => saved.rating);
+
 /** A Session in write-and-grade with Card "a" checked with `answer`, the Grader held until `open`. */
-async function checked(queue: NextCard[], answer = "  my answer $x$ ", storage?: ReturnType<typeof memoryStorage>) {
+async function checked(
+  queue: NextCard[],
+  answer = "  my answer $x$ ",
+  storage?: ReturnType<typeof memoryStorage>,
+) {
   const t = await writing(queue, storage);
   t.grader.hold();
   t.session.setDraft(answer);
@@ -3833,7 +3841,7 @@ describe("grading after Check", () => {
 
     t.session.confirm();
     await flush();
-    expect(t.calls.rate.map((r) => r.rating)).toEqual(["easy"]);
+    expect(ratingsIn(t)).toEqual(["easy"]);
     expect(t.shownId()).toBe("b");
   });
 
@@ -3869,7 +3877,7 @@ describe("grading after Check", () => {
 
     t.session.confirm();
     await flush();
-    expect(t.calls.rate.map((r) => r.rating)).toEqual(["again"]);
+    expect(ratingsIn(t)).toEqual(["again"]);
   });
 
   test("after the suggestion, a tap saves any Rating at once", async () => {
@@ -3879,7 +3887,7 @@ describe("grading after Check", () => {
 
     t.session.rate("hard");
     await flush();
-    expect(t.calls.rate.map((r) => r.rating)).toEqual(["hard"]);
+    expect(ratingsIn(t)).toEqual(["hard"]);
     expect(t.shownId()).toBe("b");
   });
 
@@ -3891,7 +3899,7 @@ describe("grading after Check", () => {
 
     t.session.confirm();
     await flush();
-    expect(t.calls.rate.map((r) => r.rating)).toEqual(["easy"]);
+    expect(ratingsIn(t)).toEqual(["easy"]);
   });
 
   test("a Rating that fails to save after Confirm says so, and Try again saves it", async () => {
@@ -3905,7 +3913,7 @@ describe("grading after Check", () => {
     t.fail.rate = false;
     t.session.retry();
     await flush();
-    expect(t.calls.rate.map((r) => r.rating)).toEqual(["good", "good"]);
+    expect(ratingsIn(t)).toEqual(["good", "good"]);
     expect(t.shownId()).toBe("b");
   });
 
@@ -3974,17 +3982,20 @@ describe("grading after Check", () => {
     ["no_api_key", "no_api_key"],
     ["grading_failed", "grading_failed"],
     ["offline", "unreachable"],
-  ] as const)("a failure (%s) shows as such, and the ratings are one tap", async (answer, failure) => {
-    const t = await checked([next("a"), next("b")]);
-    t.grader.answer = answer;
-    t.grader.open();
-    await flush();
-    expect(t.state().grade).toEqual({ status: "failed", failure, selected: undefined });
+  ] as const)(
+    "a failure (%s) shows as such, and the ratings are one tap",
+    async (answer, failure) => {
+      const t = await checked([next("a"), next("b")]);
+      t.grader.answer = answer;
+      t.grader.open();
+      await flush();
+      expect(t.state().grade).toEqual({ status: "failed", failure, selected: undefined });
 
-    t.session.rate("good");
-    await flush();
-    expect(t.calls.rate.map((r) => r.rating)).toEqual(["good"]);
-  });
+      t.session.rate("good");
+      await flush();
+      expect(ratingsIn(t)).toEqual(["good"]);
+    },
+  );
 
   test("Try again after a failure sends the same Written answer again, back to select-then-confirm", async () => {
     const t = await checked([next("a"), next("b")]);
@@ -4081,7 +4092,7 @@ describe("grading after Check", () => {
     expect(t.state()).toMatchObject({ revealed: true, written: undefined, grade: undefined });
     t.session.rate("hard");
     await flush();
-    expect(t.calls.rate.map((r) => r.rating)).toEqual(["good", "hard"]);
+    expect(ratingsIn(t)).toEqual(["good", "hard"]);
   });
 });
 
@@ -4114,7 +4125,7 @@ describe("the grade, kept with the Session", () => {
     expect(t.calls.grade).toHaveLength(1);
     t.session.rate("good");
     await flush();
-    expect(t.calls.rate.map((r) => r.rating)).toEqual(["good"]);
+    expect(ratingsIn(t)).toEqual(["good"]);
   });
 
   test("a Card reloaded after a failure resumes in the failure state, and Try again re-sends", async () => {
@@ -4166,7 +4177,7 @@ describe("the grade, kept with the Session", () => {
 
     t.session.confirm();
     await flush();
-    expect(t.calls.rate.map((r) => r.rating)).toEqual(["good"]);
+    expect(ratingsIn(t)).toEqual(["good"]);
     expect(t.shownId()).toBe("b");
   });
 });
@@ -4268,20 +4279,23 @@ describe("keyAction after Check", () => {
   });
 });
 
-describe("studyApi's grade", () => {
-  const grading = (status: number, body: unknown) =>
-    studyApi(
-      "d1",
-      createApiClient(async (input, init) => {
-        expect(String(input)).toContain("/api/cards/a/grade");
-        expect(init?.method).toBe("POST");
-        return new Response(JSON.stringify(body), {
-          status,
-          headers: { "content-type": "application/json" },
-        });
-      }),
-    ).grade("a", "an answer", new AbortController().signal);
+/** What `studyApi`'s grade answers when the API answers `status` with `body`. */
+const grading = (status: number, body: unknown) =>
+  studyApi(
+    "d1",
+    createApiClient(async (input, init) => {
+      expect(input instanceof Request ? input.url : input.toString()).toContain(
+        "/api/cards/a/grade",
+      );
+      expect(init?.method).toBe("POST");
+      return new Response(JSON.stringify(body), {
+        status,
+        headers: { "content-type": "application/json" },
+      });
+    }),
+  ).grade("a", "an answer", new AbortController().signal);
 
+describe("studyApi's grade", () => {
   test("answers the grade on 200", async () => {
     expect(await grading(200, GRADED)).toEqual(GRADED);
   });
@@ -4305,7 +4319,10 @@ describe("studyApi's grade", () => {
     await studyApi(
       "d1",
       createApiClient(async (_input, init) => {
-        sent = { body: JSON.parse(String(init?.body)), signal: init?.signal };
+        sent = {
+          body: typeof init?.body === "string" ? JSON.parse(init.body) : init?.body,
+          signal: init?.signal,
+        };
         return new Response(JSON.stringify(GRADED), { status: 200 });
       }),
     ).grade("a", "  as typed ", controller.signal);

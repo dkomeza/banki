@@ -1129,7 +1129,11 @@ export function createStudySession({
       grade:
         typeof answered !== "string"
           ? { status: "graded", result: answered, selected }
-          : { status: "failed", failure: answered === "gone" ? "grading_failed" : answered, selected },
+          : {
+              status: "failed",
+              failure: answered === "gone" ? "grading_failed" : answered,
+              selected,
+            },
     });
   };
 
@@ -1171,7 +1175,8 @@ export function createStudySession({
       if (timeOut() || !state.ratable || editorOpen) return;
       const grade = state.grade;
       if (grade === undefined) return;
-      const rating = grade.selected ?? (grade.status === "graded" ? grade.result.rating : undefined);
+      const rating =
+        grade.selected ?? (grade.status === "graded" ? grade.result.rating : undefined);
       if (rating === undefined) return;
       touch();
       if (grade.status === "grading") {
@@ -1183,7 +1188,8 @@ export function createStudySession({
     /** Try again once the Grader failed: sends it the same Written answer, the Card back to waiting. */
     regrade() {
       const { shown, written, grade } = state;
-      if (timeOut() || state.phase !== "card" || shown === undefined || written === undefined) return;
+      if (timeOut() || state.phase !== "card" || shown === undefined || written === undefined)
+        return;
       if (grade?.status !== "failed" || busy() || failed !== undefined) return;
       touch();
       set({ grade: { status: "grading", selected: undefined } });
