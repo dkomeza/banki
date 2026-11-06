@@ -1,6 +1,6 @@
-# a: Spread
+# c: Compare
 
-After Check the Card spreads into columns read left to right (Your answer, the Back, the Grader's Feedback: three from 1024 px, two on a tablet with the Feedback across under them, one on a phone), the Feedback's place sketched in grey from Check so nothing moves when it lands; mistakes carry red footnote numbers with their notes listed under the answer, the missing part is shaded in the Back, and one status line above the ratings (Grading… / Hard selected + Confirm / The Grader suggests Good / the failure with Try again or Settings) keeps the dock one height in every state.
+The Grader's Feedback leads, right under the Front, in a box of fixed height from Check (its lines sketched while it grades, Read all to open it), and under it Your answer and the Back sit side by side from 768 px to compare line by line (stacked on a phone); a mistake gets the red pen, struck through with its note written inline right after it, the missing part of the Back is run over with a highlighter, and the dock is the ratings alone: the suggestion ringed in the accent, and before it a tap selects (the button then reads "Confirm Hard") and a second tap or Enter saves.
 
 States: grading, grading-selected, graded, graded-mistakes, grade-failed, no-key
 
