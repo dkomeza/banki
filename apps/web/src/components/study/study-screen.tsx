@@ -15,6 +15,15 @@ import {
   WriteToggle,
   WrittenAnswer,
 } from "@/components/study/answer";
+import { GradedCard, GradedRatings, REVEALED_WIDTH } from "@/components/study/grade-views";
+import {
+  type GradeActions,
+  type GradeProto,
+  gradeNow,
+  grading,
+  shownTexts,
+  useGradeProto,
+} from "@/components/study/grade-proto";
 import { morph } from "@/components/study/morph";
 import {
   EditButton,
@@ -152,6 +161,7 @@ export function StudyScreen({ deck }: { deck: Deck }) {
     return () => opener.stop();
   }, [opener]);
   const openEditor = opener.open;
+  const [proto, grade] = useGradeProto(session, state);
 
   // Desktop keys: Space / Enter reveal, 1–4 rate, E edits, Ctrl/⌘+Z undoes,
   // Esc leaves. While the editor is open, they are its own. In write-and-grade
@@ -192,6 +202,26 @@ export function StudyScreen({ deck }: { deck: Deck }) {
         escArmed = null;
       } else if (target?.closest("input, textarea, select, [contenteditable]")) return;
       const { phase, revealed, editing, mode, dontKnow } = session.getState();
+      // PROTOTYPE (BAN-40): after Check, 1–4 go through the grade (select, or
+      // save), Enter confirms, and E waits while the Grader works.
+      if (phase === "card" && revealed && !editing && grading(session.getState())) {
+        const plain = !event.ctrlKey && !event.metaKey && !event.altKey;
+        const rating = RATINGS.find((r) => RATING_KEYS[r] === event.key);
+        if (plain && rating !== undefined) {
+          event.preventDefault();
+          grade.tap(rating);
+          return;
+        }
+        if (plain && event.key === "Enter" && !target?.closest("a, button:not([data-rating])")) {
+          event.preventDefault();
+          grade.confirm();
+          return;
+        }
+        if (plain && isEditKey(event) && gradeNow().status === "grading") {
+          event.preventDefault();
+          return;
+        }
+      }
       const action = keyAction(event, {
         showing: phase === "card",
         revealed,
@@ -247,7 +277,7 @@ export function StudyScreen({ deck }: { deck: Deck }) {
       document.removeEventListener("pointerdown", onPointer);
       window.removeEventListener("blur", onBlur);
     };
-  }, [session, navigate, deck.id, openEditor]);
+  }, [session, navigate, deck.id, openEditor, grade]);
 
   return (
     <div className="flex min-h-svh flex-col pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] [--toast-bottom:calc(7.5rem+env(safe-area-inset-bottom))]">
@@ -258,10 +288,11 @@ export function StudyScreen({ deck }: { deck: Deck }) {
         onUndo={() => void session.undo()}
         onEdit={openEditor}
         onLeave={() => leaveOrCancelEdit(session, editor.current)}
+        gradeBusy={grading(state) && proto.status === "grading"}
       />
       <main className="flex flex-1 flex-col">
         {state.phase === "card" ? (
-          <CardView session={session} state={state} />
+          <CardView session={session} state={state} proto={proto} grade={grade} />
         ) : state.phase === "loading" ? null : (state.phase === "done" ||
             state.phase === "left" ||
             state.phase === "ended") &&
@@ -287,7 +318,9 @@ export function StudyScreen({ deck }: { deck: Deck }) {
           />
         )}
       </main>
-      {state.phase === "card" && session !== undefined && <Dock session={session} state={state} />}
+      {state.phase === "card" && session !== undefined && (
+        <Dock session={session} state={state} proto={proto} grade={grade} />
+      )}
       {state.editing && state.shown !== undefined && (
         <StudyEditor
           ref={editor}
@@ -310,12 +343,15 @@ function TopBar({
   onUndo,
   onEdit,
   onLeave,
+  gradeBusy,
 }: {
   deck: Deck;
   session: StudySession;
   state: StudyState;
   onUndo: () => void;
   onEdit: () => void;
+  /** PROTOTYPE (BAN-40): the Grader is working, so Edit waits. */
+  gradeBusy: boolean;
   /** Leaving: "away" to the deck page, else something else shows, or nothing happens. */
   onLeave: () => "summary" | "away" | "stay";
 }) {
@@ -352,7 +388,10 @@ function TopBar({
         {state.phase === "card" && <WriteToggle session={session} state={state} />}
         {state.phase === "card" && (
           // Open, it stays as it was: the editor it opened is in front.
-          <EditButton disabled={!state.editable && !state.editing} onClick={onEdit} />
+          <EditButton
+            disabled={(!state.editable || gradeBusy) && !state.editing}
+            onClick={onEdit}
+          />
         )}
         {state.rated > 0 && (
           <span className="hidden text-sm text-muted-foreground tabular-nums sm:inline">
@@ -388,9 +427,20 @@ function TopBar({
   );
 }
 
-function CardView({ session, state }: { session: StudySession; state: StudyState }) {
+function CardView({
+  session,
+  state,
+  proto,
+  grade,
+}: {
+  session: StudySession;
+  state: StudyState;
+  proto: GradeProto;
+  grade: GradeActions;
+}) {
   const card = state.shown?.card;
   if (card === undefined) return null;
+  const graded = state.revealed && grading(state);
   // Write-and-grade before the reveal: a tap on the Card reveals nothing.
   const writing = state.mode === "write" && !state.revealed;
   const onClick = (event: MouseEvent) => {
@@ -409,7 +459,8 @@ function CardView({ session, state }: { session: StudySession; state: StudyState
     <div
       onClick={onClick}
       className={cn(
-        "mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 pt-6 pb-10 sm:px-10 lg:pt-12",
+        "mx-auto flex w-full flex-1 flex-col px-6 pt-6 pb-10 sm:px-10 lg:pt-12",
+        graded ? REVEALED_WIDTH : "max-w-2xl",
         !state.revealed && !writing && "cursor-pointer",
         // From 1024 px the preview beside the editor is the Card, moved there.
         state.editing && "lg:invisible lg:**:[view-transition-name:none]!",
@@ -420,7 +471,7 @@ function CardView({ session, state }: { session: StudySession; state: StudyState
     >
       <CardText
         key={`${card.id}-front`}
-        text={card.front}
+        text={graded ? shownTexts(state, proto).front : card.front}
         interactive={state.revealed}
         className={cn(
           "font-medium tracking-[-0.015em] [view-transition-name:card-front]",
@@ -429,7 +480,9 @@ function CardView({ session, state }: { session: StudySession; state: StudyState
             : "text-[1.85rem] leading-tight lg:text-[2.6rem]",
         )}
       />
-      {state.revealed ? (
+      {graded ? (
+        <GradedCard state={state} proto={proto} grade={grade} />
+      ) : state.revealed ? (
         <>
           {state.written !== undefined && <WrittenAnswer text={state.written} />}
           <div
@@ -457,7 +510,18 @@ function CardView({ session, state }: { session: StudySession; state: StudyState
   );
 }
 
-export function Dock({ session, state }: { session: StudySession; state: StudyState }) {
+export function Dock({
+  session,
+  state,
+  proto,
+  grade,
+}: {
+  session: StudySession;
+  state: StudyState;
+  /** PROTOTYPE (BAN-40): the grade; without it the ratings are as before. */
+  proto?: GradeProto;
+  grade?: GradeActions;
+}) {
   const intervals = state.shown?.intervals;
   return (
     <div
@@ -496,6 +560,8 @@ export function Dock({ session, state }: { session: StudySession; state: StudySt
           <DontKnowDock session={session} state={state} />
         ) : !state.revealed && state.mode === "write" ? (
           <WriteDock session={session} state={state} />
+        ) : state.revealed && grading(state) && proto && grade ? (
+          <GradedRatings state={state} proto={proto} grade={grade} />
         ) : state.revealed ? (
           <div className="grid grid-cols-4 overflow-hidden rounded-2xl border bg-card">
             {RATINGS.map((rating, i) => (
