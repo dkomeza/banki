@@ -160,7 +160,7 @@ describe("bootstrap", () => {
 
     expect(result.stderr).toContain("new site of type Newt");
     expect(result.stderr).toMatch(
-      /Banki Edge +at subdomain preview +-> +http +banki-edge-web-1 +port 8080/,
+      /Banki Edge +at subdomain edge +-> +http +banki-edge-web-1 +port 8080/,
     );
     expect(result.stderr).toMatch(
       /Banki Production +at the base domain +-> +http +banki-production-web-1 +port 8080/,

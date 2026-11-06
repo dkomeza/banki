@@ -413,7 +413,7 @@ gh workflow run slug-preview.yml -f branch=proto/blue -f slug=blue -f ttl_hours=
 
 The workflow resolves the branch to its head now and builds that commit's images. The Slug Preview doesn't follow later pushes: dispatch it again to redeploy it at the branch's new head, from scratch. It refuses, before it builds or creates anything:
 
-- a Slug that isn't 2 to 40 lowercase letters, digits and single hyphens, starting with a letter and ending with a letter or digit; one starting with `pr-`; and the reserved `www`, `api`, `app`, `admin`, `auth`, `mail`, `status`, `preview`, `previews`, `prod`, `production`, `staging` and `banki`;
+- a Slug that isn't 2 to 40 lowercase letters, digits and single hyphens, starting with a letter and ending with a letter or digit; one starting with `pr-`; and the reserved `www`, `api`, `app`, `admin`, `auth`, `mail`, `status`, `preview`, `previews`, `edge`, `prod`, `production`, `staging`, `banki` and `runner`;
 - a branch that doesn't exist, and `dependabot/*` branches;
 - a `ttl_hours` that isn't a whole number from 1 to 336;
 - a Slug another branch holds: `slug <slug> is held by branch <branch>`. A Slug is held by the branch of its newest deployment until that one is inactive. Take it down first to give it to another branch.
@@ -556,7 +556,7 @@ The cookie was `__Secure-better-auth.session_token` before. The API ignores that
 
 ## Long-lived installations
 
-Beside the Previews, two [Long-lived installations](CONTEXT.md) run on the home server ([ADR-0017](docs/adr/0017-edge-follows-main-and-releases-promote-its-images-to-production.md)): [Edge](CONTEXT.md) at `preview.banki.dkomeza.com`, which runs the newest commit of `main`, and [Production](CONTEXT.md) at `banki.dkomeza.com`, which runs the newest [Release](#releases) and holds the User's real data. Unlike a Preview, each keeps its data across deploys and migrates it in place.
+Beside the Previews, two [Long-lived installations](CONTEXT.md) run on the home server ([ADR-0017](docs/adr/0017-edge-follows-main-and-releases-promote-its-images-to-production.md)): [Edge](CONTEXT.md) at `edge.banki.dkomeza.com`, which runs the newest commit of `main`, and [Production](CONTEXT.md) at `banki.dkomeza.com`, which runs the newest [Release](#releases) and holds the User's real data. Unlike a Preview, each keeps its data across deploys and migrates it in place.
 
 They have a Pangolin site of their own, with its own Newt, on the `banki-long-lived` network (internal, `172.31.254.0/24`, Newt at `172.31.254.2`, and the rest handed out from `172.31.254.128/25`). Edge's and Production's `web` join it; the pull agent and every Preview never do, so no Preview can reach either of them.
 
@@ -582,7 +582,7 @@ Run `bootstrap` before the agent takes the update that deploys Edge and Producti
 `bootstrap` first prints the steps to do by hand, waiting for Enter after each:
 
 - In Pangolin's dashboard, a new site of type Newt for the Long-lived installations only: never the Previews' site, never the homelab one.
-- Two HTTP resources under the `banki.dkomeza.com` domain, both on that site and with SSO off (Banki's own sign-in is the gate): `Banki Edge` at the subdomain `preview`, targeting `http`, `banki-edge-web-1`, port `8080`; and `Banki Production` at the base domain itself, targeting `http`, `banki-production-web-1`, port `8080`.
+- Two HTTP resources under the `banki.dkomeza.com` domain, both on that site and with SSO off (Banki's own sign-in is the gate): `Banki Edge` at the subdomain `edge`, targeting `http`, `banki-edge-web-1`, port `8080`; and `Banki Production` at the base domain itself, targeting `http`, `banki-production-web-1`, port `8080`.
 - On Cloudflare, a DNS record for `banki.dkomeza.com` itself pointing at the VPS, which `*.banki.dkomeza.com` doesn't cover, and a VPS certificate that covers it too.
 
 Then it asks for Newt's `PANGOLIN_ENDPOINT` (the Previews' Newt's by default), ID and secret, and for Edge's Email and Password. Edge's Password is yours to pick, 8 to 128 characters, typed twice; it can't be the Previews' shared Password, which every Preview can read.
@@ -591,7 +591,7 @@ It writes `long-lived-newt.env`, `edge-email` and `edge-password` to `$BANKI_PRE
 
 Run `bootstrap` again to change a value: each one it has is the default, so Enter keeps it, and it shows the Pangolin and DNS steps only when you ask. When Edge is running (`banki-edge-api-1`), a new Password is set in Edge first, with `banki reset-password --password-stdin`, and saved only once that worked, which signs out every Edge device. A new Email is saved too, but a running Edge keeps its current one until it's reset: `bootstrap` says so and prints the command ([Resetting Edge](#resetting-edge)). Run it as a user who can use Docker: when Docker can't say whether Edge is running, it stops without saving anything. After changing Newt's settings, run `docker compose -f deploy/long-lived/compose.yaml up -d` again.
 
-The two Pangolin resources are made by hand, and the agent has no business with them. Its org API key reaches the whole org, so its code is the guard: it only ever touches a resource at a Preview's host, and `preview` is a reserved Slug while the bare `banki.dkomeza.com` is no Slug at all.
+The two Pangolin resources are made by hand, and the agent has no business with them. Its org API key reaches the whole org, so its code is the guard: it only ever touches a resource at a Preview's host, and `edge` is a reserved Slug while the bare `banki.dkomeza.com` is no Slug at all.
 
 ### How the agent deploys them
 
@@ -606,7 +606,7 @@ A deploy, which the deployment shows `in_progress`, `starting <sha>`:
 1. **First boot**, when the volume doesn't exist: the agent creates it, labelled with the deployment. On Edge it then runs `banki setup` with `edge-email` and `edge-password` (the Password on stdin only) and `banki seed`. Production does neither: it starts empty, for your Setup (below).
 2. **Any later deploy**: it pulls the new images, stops the running api and web (a few seconds of downtime), and takes a **Snapshot** of `banki.db` with `VACUUM INTO`, so the Snapshot holds every write the old version made.
 3. It starts the new images with `up --wait`, so the api migrates the data in place, then checks that `/api/health` through `web` reports the deployment's commit.
-4. On success, the deployment shows `success`, `deployed <sha>`, linking to `https://preview.banki.dkomeza.com` or `https://banki.dkomeza.com`. The installation's older Snapshots beyond the newest five, and its local images other than this deploy's and the previous one's, are removed.
+4. On success, the deployment shows `success`, `deployed <sha>`, linking to `https://edge.banki.dkomeza.com` or `https://banki.dkomeza.com`. The installation's older Snapshots beyond the newest five, and its local images other than this deploy's and the previous one's, are removed.
 
 The agent never brings back an installation someone stopped, and never retries a deployment that ended. A deploy cut short by a restart, though, is done again, with the Snapshot it took before its first try. The agent keeps no state: the images to roll back to are the newest `success` deployment's.
 
