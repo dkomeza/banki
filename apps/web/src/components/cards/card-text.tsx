@@ -48,12 +48,69 @@ type Context = {
   words: readonly string[];
   /** Real links, and Formulas carrying their source to copy (the study screen, once revealed). */
   interactive?: boolean;
+  /** PROTOTYPE (BAN-40): ranges of `doc` to mark, a Formula or other whole piece marked whole. */
+  highlights: readonly Highlight[];
+  /** PROTOTYPE (BAN-40): what follows a Highlight's last mark, such as its note's number. */
+  after?: ((highlight: Highlight) => ReactNode) | undefined;
 };
+
+/**
+ * PROTOTYPE (BAN-40): a Highlight (CONTEXT.md), a range of the side as stored:
+ * `missing` in the Back, `mistake` in the Written answer, numbered `n` from 1.
+ */
+export type Highlight = { from: number; to: number; kind: "missing" | "mistake"; n: number };
+
+const NO_HIGHLIGHTS: readonly Highlight[] = [];
+
+/** The Highlights that overlap `from`–`to`. */
+const touching = (cx: Context, from: number, to: number) =>
+  cx.highlights.filter((h) => h.from < to && h.to > from);
+
+/** A piece rendered as a whole (a Formula, code, an Image): marked whole when a Highlight touches it. */
+function whole(piece: ReactNode, cx: Context, from: number, to: number, key: string): ReactNode {
+  const hits = touching(cx, from, to);
+  const first = hits[0];
+  if (first === undefined) return piece;
+  return (
+    <span key={`${key}-hl`} className="contents">
+      <mark data-highlight={first.kind} data-n={first.n} className="highlight">
+        {piece}
+      </mark>
+      {hits.filter((h) => h.to <= to).map((h) => cx.after?.(h))}
+    </span>
+  );
+}
 
 const NO_WORDS: readonly string[] = [];
 
-/** Text with the runs that match the search marked. */
-function marked(value: string, cx: Context, key: string): ReactNode[] {
+/** Text with the runs that match the search marked, and, given where it starts, its Highlights. */
+function marked(value: string, cx: Context, key: string, start?: number): ReactNode[] {
+  if (start !== undefined && touching(cx, start, start + value.length).length > 0) {
+    const cuts = new Set([0, value.length]);
+    for (const h of touching(cx, start, start + value.length)) {
+      cuts.add(Math.max(0, h.from - start));
+      cuts.add(Math.min(value.length, h.to - start));
+    }
+    const at = [...cuts].toSorted((a, b) => a - b);
+    const out: ReactNode[] = [];
+    for (let i = 0; i < at.length - 1; i++) {
+      const a = at[i] ?? 0;
+      const b = at[i + 1] ?? 0;
+      const run = value.slice(a, b);
+      const hit = cx.highlights.find((h) => h.from <= start + a && h.to >= start + b);
+      const inner = marked(run, cx, `${key}-r${a}`);
+      if (hit === undefined) out.push(...inner);
+      else {
+        out.push(
+          <mark key={`${key}-h${a}`} data-highlight={hit.kind} data-n={hit.n} className="highlight">
+            {inner}
+          </mark>,
+        );
+        if (hit.to === start + b) out.push(cx.after?.(hit));
+      }
+    }
+    return out;
+  }
   if (cx.words.length === 0) return [value];
   return highlight(value, cx.words).map((run, i) =>
     run.hit ? (
@@ -172,10 +229,13 @@ function isWebLink(url: string): boolean {
 }
 
 /** Text between nodes: each newline a line break, with the next line's indent dropped. */
-function text(value: string, cx: Context, key: string): ReactNode[] {
+function text(value: string, cx: Context, key: string, start?: number): ReactNode[] {
   const lines = value.split("\n");
   const out: ReactNode[] = [];
+  let lineStart = start ?? 0;
   lines.forEach((line, i) => {
+    const at = lineStart;
+    lineStart += line.length + 1;
     if (i > 0) {
       if (cx.oneLine) {
         cx.ended = true;
@@ -185,7 +245,8 @@ function text(value: string, cx: Context, key: string): ReactNode[] {
     }
     if (cx.ended) return;
     const shown = i > 0 ? line.replace(/^[ \t]+/, "") : line;
-    if (shown !== "") out.push(...marked(shown, cx, `${key}-l${i}`));
+    const from = start === undefined ? undefined : at + line.length - shown.length;
+    if (shown !== "") out.push(...marked(shown, cx, `${key}-l${i}`, from));
   });
   return out;
 }
@@ -197,12 +258,12 @@ function inline(node: CardNode, cx: Context, from = node.from, to = node.to): Re
   for (const child of childrenOf(node)) {
     if (cx.ended) break;
     if (child.to <= from || child.from >= to) continue;
-    if (child.from > pos) out.push(...text(cx.doc.slice(pos, child.from), cx, `t${pos}`));
+    if (child.from > pos) out.push(...text(cx.doc.slice(pos, child.from), cx, `t${pos}`, pos));
     if (cx.ended) break;
     out.push(inlineNode(child, cx));
     pos = child.to;
   }
-  if (!cx.ended && pos < to) out.push(...text(cx.doc.slice(pos, to), cx, `t${pos}`));
+  if (!cx.ended && pos < to) out.push(...text(cx.doc.slice(pos, to), cx, `t${pos}`, pos));
   return out;
 }
 
@@ -235,16 +296,20 @@ function inlineNode(node: CardNode, cx: Context): ReactNode {
         code.length > 2 && code.startsWith(" ") && code.endsWith(" ") && code.trim() !== ""
           ? code.slice(1, -1)
           : code;
-      return (
+      return whole(
         <code key={key} className="rounded bg-muted px-1 py-px font-mono text-[0.9em]">
           {marked(trimmed, cx, key)}
-        </code>
+        </code>,
+        cx,
+        node.from,
+        node.to,
+        key,
       );
     }
     case "InlineFormula":
     case "DisplayFormula": {
       const display = node.name === "DisplayFormula";
-      return (
+      return whole(
         <Formula
           key={key}
           source={formulaSource(node, doc)}
@@ -252,7 +317,11 @@ function inlineNode(node: CardNode, cx: Context): ReactNode {
           delimiter={display ? "$$" : "$"}
           atomic={cx.oneLine}
           written={cx.interactive ? formulaWritten(node, doc) : undefined}
-        />
+        />,
+        cx,
+        node.from,
+        node.to,
+        key,
       );
     }
     case "Link": {
@@ -307,14 +376,18 @@ function inlineNode(node: CardNode, cx: Context): ReactNode {
       const alt = doc.slice(marks[0]?.to ?? node.from, marks[1]?.from ?? node.to);
       const url = childNamed(node, "URL");
       if (cx.oneLine || url === null) return alt;
-      return (
+      return whole(
         <img
           key={key}
           src={imageSrc(doc.slice(url.from, url.to))}
           alt={alt}
           loading="lazy"
           className="inline-block h-auto max-w-full align-bottom"
-        />
+        />,
+        cx,
+        node.from,
+        node.to,
+        key,
       );
     }
     default:
@@ -487,15 +560,19 @@ function block(node: CardNode, cx: Context): ReactNode {
     case "HorizontalRule":
       return <hr key={key} className="my-1" />;
     case "DisplayFormulaBlock":
-      return (
+      return whole(
         <Formula
           key={key}
           source={formulaSource(node, doc)}
           display
-          delimiter="$$"
+          delimiter="$"
           atomic={false}
           written={cx.interactive ? formulaWritten(node, doc) : undefined}
-        />
+        />,
+        cx,
+        node.from,
+        node.to,
+        key,
       );
     case "LinkReference":
       return null;
@@ -567,10 +644,16 @@ export function CardText({
   text: side,
   words = NO_WORDS,
   interactive = false,
+  highlights = NO_HIGHLIGHTS,
+  after,
   className,
 }: {
   text: string;
   words?: readonly string[];
+  /** PROTOTYPE (BAN-40): the Highlights to mark. */
+  highlights?: readonly Highlight[];
+  /** PROTOTYPE (BAN-40): what follows each Highlight. */
+  after?: (highlight: Highlight) => ReactNode;
   /** Real links, and Formulas a click can copy: the study screen's revealed Card. */
   interactive?: boolean;
   className?: string;
@@ -586,8 +669,10 @@ export function CardText({
       ended: false,
       words: searched,
       interactive,
+      highlights,
+      after,
     });
-  }, [side, search, interactive]);
+  }, [side, search, interactive, highlights, after]);
   return (
     <div className={cn("card-text flex flex-col gap-2 [overflow-wrap:anywhere]", className)}>
       {content}
@@ -605,7 +690,13 @@ export function CardLine({ text: side, className }: { text: string; className?: 
     const leaf = firstLeaf(cardParser.parse(side).topNode);
     return leaf === null
       ? []
-      : firstLineOf(leaf, { doc: side, oneLine: true, ended: false, words: NO_WORDS });
+      : firstLineOf(leaf, {
+          doc: side,
+          oneLine: true,
+          ended: false,
+          words: NO_WORDS,
+          highlights: NO_HIGHLIGHTS,
+        });
   }, [side]);
   return <span className={cn("card-text block truncate", className)}>{content}</span>;
 }

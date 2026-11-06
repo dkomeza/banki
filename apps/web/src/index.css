@@ -308,3 +308,13 @@
     transform: scale(0.8);
   }
 }
+
+/* PROTOTYPE (BAN-40), Variant e: the highlighter run under the Back's missing part. */
+.slip-highlighter mark[data-highlight="missing"] {
+  background: linear-gradient(
+    transparent 60%,
+    color-mix(in oklab, var(--primary) 35%, transparent) 60%
+  );
+  color: inherit;
+  box-decoration-break: clone;
+}
