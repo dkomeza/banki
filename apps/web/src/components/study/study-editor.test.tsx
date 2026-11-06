@@ -51,6 +51,7 @@ function recordingSession() {
       undo: async () => "gone",
       intervals: async () => "gone",
       card: async () => "gone",
+      grade: async () => "gone",
     },
     notify: () => {},
   });
