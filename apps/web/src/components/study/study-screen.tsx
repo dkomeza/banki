@@ -8,13 +8,8 @@ import { CardText } from "@/components/cards/card-text";
 import { OUTLINE_PILL, PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
-import {
-  AnswerEditor,
-  DontKnowDock,
-  WriteDock,
-  WriteToggle,
-  WrittenAnswer,
-} from "@/components/study/answer";
+import { AnswerEditor, DontKnowDock, WriteDock, WriteToggle } from "@/components/study/answer";
+import { GRADED_WIDTH, GradedCard, GradedRatings } from "@/components/study/grade";
 import { morph } from "@/components/study/morph";
 import {
   EditButton,
@@ -61,7 +56,9 @@ import { cn } from "@/lib/utils";
 // Session. The Session is saved in the browser and resumes on the next visit
 // (ADR-0027); past its Session timeout, the summary says it ended. In
 // write-and-grade the answer editor sits under the Front, and the dock holds
-// I don't know and Check (answer.tsx).
+// I don't know and Check (answer.tsx); after Check, the Grader's result shows
+// with the Back, and the ratings wait for a confirm until its suggestion is in
+// (grade.tsx).
 
 /** How often a visible screen checks the Session timeout. */
 const TIMEOUT_CHECK_MS = 15_000;
@@ -191,13 +188,14 @@ export function StudyScreen({ deck }: { deck: Deck }) {
         }
         escArmed = null;
       } else if (target?.closest("input, textarea, select, [contenteditable]")) return;
-      const { phase, revealed, editing, mode, dontKnow } = session.getState();
+      const { phase, revealed, editing, mode, dontKnow, grade } = session.getState();
       const action = keyAction(event, {
         showing: phase === "card",
         revealed,
         editing,
         writing: mode === "write" && !revealed,
         waiting: dontKnow,
+        confirming: grade !== undefined,
         focus: target?.closest("[data-rating]")
           ? "rating"
           : target?.closest("a, button")
@@ -215,6 +213,10 @@ export function StudyScreen({ deck }: { deck: Deck }) {
         case "next":
           event.preventDefault();
           session.next();
+          break;
+        case "confirm":
+          event.preventDefault();
+          session.confirm();
           break;
         case "rate":
           session.rate(action.rating);
@@ -409,7 +411,8 @@ function CardView({ session, state }: { session: StudySession; state: StudyState
     <div
       onClick={onClick}
       className={cn(
-        "mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 pt-6 pb-10 sm:px-10 lg:pt-12",
+        "mx-auto flex w-full flex-1 flex-col px-6 pt-6 pb-10 sm:px-10 lg:pt-12",
+        state.grade === undefined ? "max-w-2xl" : GRADED_WIDTH,
         !state.revealed && !writing && "cursor-pointer",
         // From 1024 px the preview beside the editor is the Card, moved there.
         state.editing && "lg:invisible lg:**:[view-transition-name:none]!",
@@ -429,18 +432,14 @@ function CardView({ session, state }: { session: StudySession; state: StudyState
             : "text-[1.85rem] leading-tight lg:text-[2.6rem]",
         )}
       />
-      {state.revealed ? (
+      {state.revealed && state.grade !== undefined ? (
+        <GradedCard session={session} state={state} grade={state.grade} />
+      ) : state.revealed ? (
         <>
-          {state.written !== undefined && <WrittenAnswer text={state.written} />}
           <div
             aria-hidden
             className="my-6 h-px w-16 bg-border [view-transition-name:card-rule] lg:my-8"
           />
-          {state.written !== undefined && (
-            <h2 className="mb-2 text-xs font-semibold tracking-[0.08em] text-muted-foreground uppercase">
-              Answer
-            </h2>
-          )}
           <CardText
             key={`${card.id}-back`}
             text={card.back}
@@ -496,6 +495,8 @@ export function Dock({ session, state }: { session: StudySession; state: StudySt
           <DontKnowDock session={session} state={state} />
         ) : !state.revealed && state.mode === "write" ? (
           <WriteDock session={session} state={state} />
+        ) : state.revealed && state.grade !== undefined ? (
+          <GradedRatings session={session} state={state} grade={state.grade} />
         ) : state.revealed ? (
           <div className="grid grid-cols-4 overflow-hidden rounded-2xl border bg-card">
             {RATINGS.map((rating, i) => (

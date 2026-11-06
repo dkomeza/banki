@@ -88,15 +88,30 @@ const saved = async (cardId: string) =>
     201,
   );
 
+/** The Grader's grade of "breakfast $x$, lunch", as the API answers it. */
+const GRADED = {
+  rating: "good",
+  feedback: "Mostly right: the **dinner** is missing.",
+  missing: [{ from: 0, to: 2 }],
+  mistakes: [
+    { from: 0, to: 9, note: "Not breakfast." },
+    { from: 11, to: 12, note: "Not $x$." },
+  ],
+};
+
 let queue: string[] = [];
 let rated: { cardId: string; body: unknown }[] = [];
 let rate: (cardId: string) => Promise<Response>;
+let graded: { cardId: string; body: unknown }[] = [];
+let grade: (cardId: string) => Promise<Response>;
 
 beforeEach(() => {
   pointer.fine = true;
   queue = ["c1", "c2"];
   rated = [];
   rate = saved;
+  graded = [];
+  grade = async () => json(GRADED);
   vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : new Request(String(input), init);
     const path = new URL(request.url, "http://banki.test").pathname;
@@ -120,6 +135,18 @@ beforeEach(() => {
       const cardId = review[1] ?? "";
       rated.push({ cardId, body: await request.clone().json() });
       return rate(cardId);
+    }
+    const grading = path.match(/^\/api\/cards\/(\w+)\/grade$/);
+    if (grading !== null) {
+      const cardId = grading[1] ?? "";
+      graded.push({ cardId, body: await request.clone().json() });
+      return grade(cardId);
+    }
+    // Re-read as a stored Session resumes.
+    const reread = path.match(/^\/api\/cards\/(\w+)$/);
+    if (reread !== null) return json({ ...card(reread[1] ?? ""), schedule });
+    if (/^\/api\/cards\/\w+\/intervals$/.test(path)) {
+      return json({ again: preview, hard: preview, good: preview, easy: preview });
     }
     if (path === "/api/decks/d1/cards") return json([card("c1"), card("c2")]);
     return json([]);
@@ -230,7 +257,8 @@ describe("write-and-grade on the study screen", () => {
     expect(screen.getByRole("button", { name: /^Good/ })).toBeTruthy();
     expect(document.querySelector("[data-answer-editor]")).toBeNull();
 
-    // The Rating saves as any: self-rated, and the next Card starts blank.
+    // The Rating saves as any, once the suggestion is in: self-rated, and the next Card starts blank.
+    await screen.findByText(/Suggests/);
     press(document.body, "3");
     await waitFor(() => expect(rated).toHaveLength(1));
     expect(rated[0]).toMatchObject({ cardId: "c1", body: { rating: "good" } });
@@ -345,5 +373,243 @@ describe("I don't know on the study screen", () => {
     fireEvent.click(dontKnow());
 
     await waitFor(() => expect(screen.getByText("c2 front")).toBeTruthy());
+  });
+});
+
+/** A response the test answers when it likes. */
+function held() {
+  const box: { answer?: (response: Response) => void } = {};
+  const response = new Promise<Response>((resolve) => {
+    box.answer = resolve;
+  });
+  return { response, answer: (r: Response) => act(async () => box.answer?.(r)) };
+}
+
+/** Renders the screen and checks the first Card with `answer`. */
+async function checkWith(answer = "breakfast $x$, lunch") {
+  const router = renderScreen();
+  const view = await answerEditor();
+  type(view, answer);
+  fireEvent.click(check());
+  return router;
+}
+
+const rating = (name: string) =>
+  screen.getByRole<HTMLButtonElement>("button", { name: new RegExp(`^${name}`) });
+/** The mistakes marked in your answer. */
+const marks = () =>
+  screen
+    .getByRole("region", { name: "Your answer" })
+    .querySelectorAll<HTMLElement>('mark[data-highlight="mistake"]');
+const edit = () => screen.getByRole<HTMLButtonElement>("button", { name: /^Edit/ });
+
+describe("the Grader's result on the study screen", () => {
+  test("Check sends the Written answer; while the Grader works it says so, and Edit waits", async () => {
+    const pending = held();
+    grade = () => pending.response;
+    await checkWith();
+
+    await waitFor(() => expect(graded).toHaveLength(1));
+    expect(graded[0]).toEqual({ cardId: "c1", body: { answer: "breakfast $x$, lunch" } });
+    expect(screen.getByRole("status", { name: "Grading your answer" })).toBeTruthy();
+    expect(edit().disabled).toBe(true);
+
+    await pending.answer(json(GRADED));
+    expect(screen.queryByRole("status", { name: "Grading your answer" })).toBeNull();
+    expect(edit().disabled).toBe(false);
+  });
+
+  test("the result fills in the Feedback, the Highlights and the marked suggestion", async () => {
+    await checkWith();
+
+    await screen.findByText(/Suggests/);
+    const feedback = screen.getByRole("complementary", { name: "Feedback" });
+    expect(feedback.textContent).toContain("Mostly right: the dinner is missing.");
+    expect(feedback.querySelector("strong")?.textContent).toBe("dinner");
+    expect(rating("Good").getAttribute("aria-label")).toContain("suggested");
+    expect(rating("Hard").getAttribute("aria-label")).not.toContain("suggested");
+    const back = screen.getByRole("region", { name: "Answer" });
+    expect(back.querySelector('mark[data-highlight="missing"]')?.textContent).toBe("c1");
+    const yours = screen.getByRole("region", { name: "Your answer" });
+    expect(yours.textContent).toContain("2 mistakes");
+    const mistakes = yours.querySelectorAll('mark[data-highlight="mistake"]');
+    expect([...mistakes].map((m) => m.getAttribute("data-n"))).toEqual(["0", "1"]);
+    // The second covers a Formula: marked whole.
+    expect(mistakes[1]?.hasAttribute("data-whole")).toBe(true);
+  });
+
+  test("a mistake opens its note on a tap, one on a Formula too, and Escape puts it away", async () => {
+    await checkWith();
+    await screen.findByText(/Suggests/);
+
+    fireEvent.click(marks()[0] ?? document.body);
+    expect(screen.getByRole("note").textContent).toContain("Not breakfast.");
+    expect(marks()[0]?.getAttribute("aria-expanded")).toBe("true");
+
+    // A tap on the Formula's own glyphs, inside the mark.
+    fireEvent.pointerDown(marks()[1]?.querySelector(".katex") ?? document.body);
+    fireEvent.click(marks()[1]?.querySelector(".katex") ?? document.body);
+    expect(screen.getByRole("note").querySelector(".katex")).toBeTruthy();
+    expect(marks()[1]?.getAttribute("aria-expanded")).toBe("true");
+
+    press(document.body, "Escape");
+    expect(screen.queryByRole("note")).toBeNull();
+  });
+
+  test("a mistake's note opens while it has the focus, and goes when the focus leaves", async () => {
+    await checkWith();
+    await screen.findByText(/Suggests/);
+    const [first, second] = marks();
+    expect(first?.tabIndex).toBe(0);
+    expect(first?.getAttribute("aria-label")).toBe("Mistake 1 of 2: show why");
+
+    act(() => second?.focus());
+    expect(screen.getByRole("note").getAttribute("data-mistake-note")).toBe("1");
+    act(() => second?.blur());
+    await waitFor(() => expect(screen.queryByRole("note")).toBeNull());
+  });
+
+  test("a mistake with nothing to mark has its note listed under your answer", async () => {
+    // "**" alone: markup, which renders as nothing.
+    grade = async () =>
+      json({ ...GRADED, mistakes: [{ from: 0, to: 2, note: "Only markup here." }] });
+    await checkWith("**breakfast**");
+    await screen.findByText(/Suggests/);
+
+    expect(marks()).toHaveLength(0);
+    const others = await screen.findByRole("list", { name: "Other mistakes" });
+    expect(others.textContent).toContain("Only markup here.");
+  });
+
+  test("before the suggestion, a tap selects and Confirm saves the selection", async () => {
+    const pending = held();
+    grade = () => pending.response;
+    await checkWith();
+    await waitFor(() => expect(graded).toHaveLength(1));
+
+    fireEvent.click(rating("Hard"));
+    expect(rated).toEqual([]);
+    expect(rating("Hard").getAttribute("aria-pressed")).toBe("true");
+    press(document.body, "4");
+    expect(rated).toEqual([]);
+    expect(rating("Easy").getAttribute("aria-pressed")).toBe("true");
+
+    fireEvent.click(screen.getByRole("button", { name: /Confirm Easy/ }));
+    await waitFor(() => expect(rated).toHaveLength(1));
+    expect(rated[0]).toMatchObject({ cardId: "c1", body: { rating: "easy" } });
+    await pending.answer(json(GRADED));
+    await waitFor(() => expect(screen.getByText("c2 front")).toBeTruthy());
+  });
+
+  test("before the suggestion, Enter with nothing selected does nothing, and with one saves it", async () => {
+    const pending = held();
+    grade = () => pending.response;
+    await checkWith();
+    await waitFor(() => expect(graded).toHaveLength(1));
+
+    press(document.body, "Enter");
+    expect(rated).toEqual([]);
+    press(document.body, "1");
+    press(document.body, "Enter");
+    await waitFor(() => expect(rated).toHaveLength(1));
+    expect(rated[0]).toMatchObject({ body: { rating: "again" } });
+  });
+
+  test("a selection survives the suggestion's arrival, and Enter saves it", async () => {
+    const pending = held();
+    grade = () => pending.response;
+    await checkWith();
+    await waitFor(() => expect(graded).toHaveLength(1));
+    press(document.body, "2");
+
+    await pending.answer(json(GRADED));
+    await screen.findByText(/Suggests/);
+    expect(screen.queryByRole("button", { name: /Confirm/ })).toBeNull();
+    press(document.body, "Enter");
+    await waitFor(() => expect(rated).toHaveLength(1));
+    expect(rated[0]).toMatchObject({ body: { rating: "hard" } });
+  });
+
+  test("after the suggestion, Enter saves it, and a tap saves any Rating at once", async () => {
+    await checkWith();
+    await screen.findByText(/Suggests/);
+    press(document.body, "Enter");
+    await waitFor(() => expect(rated).toHaveLength(1));
+    expect(rated[0]).toMatchObject({ body: { rating: "good" } });
+
+    const view = await waitFor(async () => {
+      expect(screen.getByText("c2 front")).toBeTruthy();
+      return answerEditor();
+    });
+    type(view, "dinner");
+    fireEvent.click(check());
+    await screen.findByText(/Suggests/);
+    fireEvent.click(rating("Again"));
+    await waitFor(() => expect(rated).toHaveLength(2));
+    expect(rated[1]).toMatchObject({ cardId: "c2", body: { rating: "again" } });
+  });
+
+  test("409: the API-key message with a link to Settings, and one-tap ratings", async () => {
+    grade = async () => json({ error: { code: "no_api_key", message: "No key" } }, 409);
+    await checkWith();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(
+      "Add your OpenRouter API key in Settings to grade answers.",
+    );
+    expect(screen.getByRole("button", { name: "Open Settings" }).getAttribute("href")).toBe(
+      "/settings",
+    );
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    fireEvent.click(rating("Hard"));
+    await waitFor(() => expect(rated).toHaveLength(1));
+  });
+
+  test("502: its message with Try again, which sends the same Written answer again", async () => {
+    grade = async () => json({ error: { code: "grading_failed", message: "No" } }, 502);
+    await checkWith();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(
+      "Couldn't grade this answer. Try again, or rate it yourself.",
+    );
+    grade = async () => json(GRADED);
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await screen.findByText(/Suggests/);
+    expect(graded.map((g) => g.body)).toEqual([
+      { answer: "breakfast $x$, lunch" },
+      { answer: "breakfast $x$, lunch" },
+    ]);
+  });
+
+  test("a network error says Banki can't be reached, with Try again", async () => {
+    grade = async () => {
+      throw new TypeError("Failed to fetch");
+    };
+    await checkWith();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Can't reach Banki");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+  });
+
+  test("404: the Card was deleted elsewhere, so the next Card shows", async () => {
+    grade = async () => json({ error: { code: "not_found", message: "Card not found" } }, 404);
+    await checkWith();
+
+    await waitFor(() => expect(screen.getByText("c2 front")).toBeTruthy());
+    expect(rated).toEqual([]);
+  });
+
+  test("a reload resumes the Card with its result, without asking the Grader again", async () => {
+    await checkWith();
+    await screen.findByText(/Suggests/);
+    cleanup();
+    queue = ["c1", "c2"];
+
+    renderScreen();
+    await screen.findByText(/Suggests/);
+    expect(graded).toHaveLength(1);
+    expect(screen.getByRole("region", { name: "Your answer" }).textContent).toContain("breakfast");
   });
 });

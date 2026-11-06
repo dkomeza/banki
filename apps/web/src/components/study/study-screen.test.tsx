@@ -72,6 +72,7 @@ const DONE: StudyState = {
   dontKnow: false,
   switchable: false,
   checkable: false,
+  grade: undefined,
 };
 
 /** The end screen's markup for `state`, with the Settings' New-card batch at `batch` (none loaded when null). */

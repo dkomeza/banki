@@ -1,7 +1,6 @@
 import { DEFAULT_AUTO_CLOSE } from "@banki/shared";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, Check, LoaderCircle, TextCursorInput } from "lucide-react";
-import { CardText } from "@/components/cards/card-text";
 import { SAVE_KEY } from "@/components/cards/card-editor";
 import { LiveEditor } from "@/components/editor/live-editor";
 import { useFinePointer } from "@/components/folders/drag";
@@ -14,11 +13,11 @@ import { cn } from "@/lib/utils";
 // Write-and-grade on the study screen ("Sheet"): the Write toggle in the top
 // bar switches the Answer mode, and the Written answer is written on a ruled
 // sheet under the Front, like the card editor's fields. I don't know and
-// Check share the dock. After Check the Written answer sits on a dashed slip
-// above the Back, to compare the Back with; after I don't know the Back shows
-// with Next.
+// Check share the dock. After Check the Grader's result shows (grade.tsx);
+// after I don't know the Back shows with Next.
 
-const LABEL = "text-xs font-semibold tracking-[0.08em] text-muted-foreground uppercase";
+/** A section's label on the study screen: small capitals. */
+export const LABEL = "text-xs font-semibold tracking-[0.08em] text-muted-foreground uppercase";
 
 /** In the top bar, before Edit: pressed in write-and-grade; once the Card is revealed, it waits for the next. */
 export function WriteToggle({ session, state }: { session: StudySession; state: StudyState }) {
@@ -71,19 +70,6 @@ export function AnswerEditor({ session, state }: { session: StudySession; state:
         className="min-h-[8rem] w-full rounded-md bg-[repeating-linear-gradient(to_bottom,transparent_0,transparent_calc(2rem-1px),var(--border)_calc(2rem-1px),var(--border)_2rem)] text-lg leading-[2rem]"
       />
     </div>
-  );
-}
-
-/** After Check: the Written answer, rendered and read-only, on its slip above the Back. */
-export function WrittenAnswer({ text }: { text: string }) {
-  return (
-    <section
-      aria-label="Your answer"
-      className="mt-6 rounded-xl border border-dashed bg-muted/50 px-4 py-3 lg:mt-8 lg:px-5 lg:py-4"
-    >
-      <h2 className={cn(LABEL, "mb-1")}>Your answer</h2>
-      <CardText text={text} interactive className="text-base leading-relaxed lg:text-lg" />
-    </section>
   );
 }
 

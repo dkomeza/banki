@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
 import { effectiveMacros } from "@banki/shared";
 import { MacrosContext } from "@/lib/macros";
-import { CardLine, CardText } from "./card-text";
+import { CardLine, CardText, type Highlight } from "./card-text";
 
 const html = (text: string) => renderToStaticMarkup(<CardText text={text} />);
 const line = (text: string) => renderToStaticMarkup(<CardLine text={text} />);
@@ -315,5 +315,104 @@ describe("CardText with a Deck's Macros", () => {
 
     expect(first).toContain("Q");
     expect(second).toContain("ε");
+  });
+});
+
+/** The markup of `text` with `highlights` marked, each piece of KaTeX's output as `{math}`. */
+const marked = (text: string, highlights: Highlight[]) =>
+  outside(renderToStaticMarkup(<CardText text={text} highlights={highlights} />));
+
+/** The Highlight of the first `part` of `text`. */
+function range(text: string, part: string, kind: Highlight["kind"], n = 0): Highlight {
+  const from = text.indexOf(part);
+  return { from, to: from + part.length, kind, n };
+}
+
+describe("CardText's Highlights", () => {
+  test("marks a missing range of the Back as stored, with its kind and its n", () => {
+    const back = "It is concave everywhere, and goes through the origin.";
+    const out = marked(back, [range(back, "concave everywhere", "missing", 3)]);
+
+    expect(out).toContain(
+      'It is <mark data-highlight="missing" data-n="3">concave everywhere</mark>, and goes',
+    );
+  });
+
+  test("marks a mistake across emphasis as one run per piece of text", () => {
+    const written = "Differentiate **both** sides";
+    const out = marked(written, [range(written, "Differentiate **both", "mistake")]);
+
+    expect(out).toContain('<mark data-highlight="mistake" data-n="0">Differentiate </mark>');
+    expect(out).toContain('<strong><mark data-highlight="mistake" data-n="0">both</mark></strong>');
+    expect(out).toContain("</strong> sides");
+  });
+
+  test("marks the range on the line it is on, past a line break", () => {
+    const written = "first line\nsecond line";
+    const out = marked(written, [range(written, "second", "mistake")]);
+
+    expect(out).toContain(
+      'first line<br/><mark data-highlight="mistake" data-n="0">second</mark> line',
+    );
+  });
+
+  test("a range inside part of a Formula marks the whole Formula, in a box of its own", () => {
+    const written = "It converges for $-1 \\le x \\le 1$, since";
+    const out = marked(written, [range(written, "-1 \\le", "mistake", 1)]);
+
+    expect(out).toContain(
+      'for <mark data-highlight="mistake" data-n="1" data-whole="true" class="max-w-full inline-block"><span>{math}</span></mark>, since',
+    );
+  });
+
+  test("a range that only touches a display Formula marks the whole of it, as a block", () => {
+    const back = "so\n$$x = \\frac{1}{2}$$\nand on";
+    const out = marked(back, [range(back, "so\n$$x", "missing")]);
+
+    expect(out).toMatch(/<mark data-highlight="missing" data-n="0">so<\/mark>/);
+    expect(out).toContain(
+      '<mark data-highlight="missing" data-n="0" data-whole="true" class="max-w-full block">',
+    );
+  });
+
+  test("marks code and an Image whole", () => {
+    const text = "Run `npm test` then ![a plot](plot.png)";
+    const out = marked(text, [
+      range(text, "npm", "mistake", 0),
+      range(text, "plot]", "missing", 1),
+    ]);
+
+    expect(out).toMatch(/<mark data-highlight="mistake" data-n="0" data-whole="true"[^>]*><code/);
+    expect(out).toMatch(/<mark data-highlight="missing" data-n="1" data-whole="true"[^>]*><img/);
+  });
+
+  test("a mistake inside another is marked too, the narrower one drawn over its part", () => {
+    const written = "Differentiate both sides with respect to t";
+    const out = marked(written, [
+      range(written, "Differentiate both sides with", "mistake", 0),
+      range(written, "both", "mistake", 1),
+    ]);
+
+    expect(out).toContain(
+      '<mark data-highlight="mistake" data-n="0">Differentiate </mark><mark data-highlight="mistake" data-n="1">both</mark><mark data-highlight="mistake" data-n="0"> sides with</mark>',
+    );
+  });
+
+  test("of two touching one Formula, the narrower marks it whole", () => {
+    const written = "so $x^2 + 1$ here";
+    const out = marked(written, [
+      range(written, "so $x^2", "mistake", 0),
+      range(written, "x^2", "mistake", 1),
+    ]);
+
+    expect(out).toContain('<mark data-highlight="mistake" data-n="1" data-whole="true"');
+    expect(out).toContain('<mark data-highlight="mistake" data-n="0">so </mark>');
+  });
+
+  test("marks nothing without Highlights, and a range past the end only up to it", () => {
+    expect(marked("plain", [])).not.toContain("<mark");
+    expect(marked("short", [{ from: 2, to: 99, kind: "missing", n: 0 }])).toContain(
+      'sh<mark data-highlight="missing" data-n="0">ort</mark>',
+    );
   });
 });
