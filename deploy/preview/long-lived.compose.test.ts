@@ -129,11 +129,11 @@ describe.skipIf(!hasDocker)("the Long-lived template", () => {
     const production = await config(longLivedEnv(PRODUCTION), "banki-production");
 
     expect(edge.services.api?.environment).toEqual({
-      ORIGIN: "https://preview.banki.dkomeza.com",
+      ORIGIN: "https://edge.banki.dkomeza.com",
       RELEASE: "false",
     });
     expect(edge.services.web?.environment).toEqual({
-      BANKI_ORIGIN: "https://preview.banki.dkomeza.com",
+      BANKI_ORIGIN: "https://edge.banki.dkomeza.com",
       BANKI_TRUSTED_PROXIES: "172.31.254.2",
     });
     expect(production.services.api?.environment).toEqual({
