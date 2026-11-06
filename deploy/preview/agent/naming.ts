@@ -57,6 +57,8 @@ export const RESERVED_SLUGS: ReadonlySet<string> = new Set([
   "status",
   "preview",
   "previews",
+  // Edge, at edge.banki.dkomeza.com (ADR-0017).
+  "edge",
   "prod",
   "production",
   "staging",
@@ -166,7 +168,7 @@ export const longLivedProject = (environment: LongLivedEnvironment) => `banki-${
 export const longLivedVolume = (environment: LongLivedEnvironment) => `banki-${environment}-data`;
 
 export const longLivedHost = (environment: LongLivedEnvironment) =>
-  environment === "edge" ? `preview.${PREVIEW_DOMAIN}` : PREVIEW_DOMAIN;
+  environment === "edge" ? `edge.${PREVIEW_DOMAIN}` : PREVIEW_DOMAIN;
 
 export const longLivedUrl = (environment: LongLivedEnvironment) =>
   `https://${longLivedHost(environment)}`;
