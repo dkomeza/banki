@@ -1,7 +1,7 @@
-import { RATINGS, type Rating } from "@banki/shared";
+import { RATINGS } from "@banki/shared";
 import { Link } from "@tanstack/react-router";
 import { AlertCircle, Check, LoaderCircle, Sparkles } from "lucide-react";
-import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { CardText, type Highlight } from "@/components/cards/card-text";
 import { PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
@@ -15,21 +15,44 @@ import {
 import { RATING_KEYS, RATING_LABELS, type StudyState, formatInterval } from "@/lib/study";
 import { cn } from "@/lib/utils";
 
-// PROTOTYPE (BAN-40), Variant d, "Margin": the Card keeps its reading column
-// (Your answer, then the Back), and from 1024 px the Grader writes in a margin
-// beside it, like a marker on an essay: each mistake's note level with its
-// mistake, and the Feedback level with the Back it is about. The margin is
-// there from Check, so the column never moves when the result lands. Below
-// 1024 px there is no margin: the Feedback, with the notes, comes after the
-// Back, at the end of the page, so landing only lengthens it. In the dock the
-// suggested rating is filled in the accent; a selection before it is ringed
-// in ink, and a Confirm callout rises over the ratings above it.
+// PROTOTYPE (BAN-40), Variant i, "Facing pages": d's marks and notes, with
+// your answer and the Back facing each other. From 1024 px they are two equal
+// columns, so the comparison reads across; below it they stack. Each note sits
+// under the paragraph of its mistake at every size, so there is no margin to
+// keep in line. The Feedback comes after both, full width, its place held
+// from Check, so landing only lengthens the page. In the dock a selection
+// before the suggestion turns its own cell into Confirm: tap it again.
 
-export const REVEALED_WIDTH = "max-w-2xl lg:max-w-6xl";
+export const REVEALED_WIDTH = "max-w-2xl lg:max-w-7xl";
 
 const LABEL = "text-xs font-semibold tracking-[0.08em] text-muted-foreground uppercase";
 
 type Mistake = GradeResult["mistakes"][number];
+
+/** The Written answer's paragraphs, each with its own mistakes, shifted to start from it. */
+function paragraphs(text: string, mistakes: readonly Mistake[]) {
+  const out: { text: string; mistakes: Mistake[]; ending: Mistake[] }[] = [];
+  const gap = /\n[ \t]*\n/g;
+  let start = 0;
+  for (;;) {
+    const match = gap.exec(text);
+    const end = match === null ? text.length : match.index;
+    const inside = mistakes.filter((m) => m.from < end && m.to > start);
+    if (text.slice(start, end).trim() !== "") {
+      out.push({
+        text: text.slice(start, end),
+        mistakes: inside.map((m) => ({
+          ...m,
+          from: Math.max(0, m.from - start),
+          to: Math.min(end - start, m.to - start),
+        })),
+        ending: mistakes.filter((m) => m.to > start && m.to <= end),
+      });
+    }
+    if (match === null) return out;
+    start = match.index + match[0].length;
+  }
+}
 
 /** A mistake's tag, after its last mark: the number its margin note carries. */
 const tag = (h: Highlight) =>
@@ -46,7 +69,7 @@ const tag = (h: Highlight) =>
 const MISTAKE_MARKS =
   "[&_mark[data-highlight=mistake]]:bg-destructive/10 [&_mark[data-highlight=mistake]]:text-inherit [&_mark[data-highlight=mistake]]:shadow-[inset_0_-2px_0_var(--destructive)] [&_mark[data-highlight=mistake]]:[box-decoration-break:clone] [&_mark[data-highlight=mistake]]:rounded-t-[0.2em]";
 const MISSING_MARKS =
-  "[&_mark[data-highlight=missing]]:bg-primary/15 [&_mark[data-highlight=missing]]:text-inherit [&_mark[data-highlight=missing]]:[box-decoration-break:clone] [&_mark[data-highlight=missing]]:rounded-[0.2em] [&_mark[data-highlight=missing]]:underline [&_mark[data-highlight=missing]]:decoration-primary [&_mark[data-highlight=missing]]:decoration-dashed [&_mark[data-highlight=missing]]:underline-offset-[0.3em]";
+  "[&_mark[data-highlight=missing]]:bg-primary/12 [&_mark[data-highlight=missing]]:text-inherit [&_mark[data-highlight=missing]]:shadow-[inset_0_-2px_0_var(--primary)] [&_mark[data-highlight=missing]]:[box-decoration-break:clone]";
 
 export function GradedCard({
   state,
@@ -59,53 +82,46 @@ export function GradedCard({
 }) {
   const { back } = shownTexts(state, proto);
   const result = proto.status === "graded" ? proto.result : undefined;
-  const answer = useRef<HTMLDivElement>(null);
   return (
     <>
       <div
         aria-hidden
         className="my-6 h-px w-16 bg-border [view-transition-name:card-rule] lg:my-8"
       />
-      <div className="grid gap-x-12 gap-y-8 lg:grid-cols-[minmax(0,1fr)_19rem] xl:grid-cols-[minmax(0,1fr)_22rem]">
+      <div className="grid gap-x-10 gap-y-8 lg:grid-cols-2 xl:gap-x-14">
         <section aria-label="Your answer" className="flex min-w-0 flex-col gap-2">
           <div className="flex min-h-5 items-center justify-between gap-2">
             <h2 className={LABEL}>Your answer</h2>
             {result && result.mistakes.length > 0 && (
               <span className="text-xs font-medium text-destructive">
                 {result.mistakes.length} {result.mistakes.length === 1 ? "mistake" : "mistakes"}
-                <span className="lg:hidden"> · notes below</span>
               </span>
             )}
           </div>
-          <div
-            ref={answer}
-            className="rounded-xl border border-dashed bg-muted/50 px-4 py-3 lg:px-5 lg:py-4"
-          >
-            <CardText
-              text={state.written ?? ""}
-              interactive
-              highlights={result?.mistakes}
-              after={tag}
-              className={cn("text-base leading-relaxed lg:text-lg", MISTAKE_MARKS)}
-            />
+          <div className="flex flex-col gap-2 rounded-xl border border-dashed bg-muted/50 px-4 py-3 lg:px-5 lg:py-4">
+            {paragraphs(state.written ?? "", result?.mistakes ?? []).map((p, i) => (
+              <div key={i} className="flex flex-col gap-2">
+                <CardText
+                  text={p.text}
+                  interactive
+                  highlights={p.mistakes}
+                  after={tag}
+                  className={cn("text-base leading-relaxed lg:text-lg", MISTAKE_MARKS)}
+                />
+                {/* Each note under the paragraph of its mistake. */}
+                {p.ending.map((m) => (
+                  <Note key={m.n} mistake={m} />
+                ))}
+              </div>
+            ))}
           </div>
         </section>
-        {/* The margin beside the answer: each note level with its mistake. */}
-        <MarginNotes
-          key={state.shown?.card.id}
-          answer={answer}
-          mistakes={result?.mistakes ?? []}
-          status={proto.status}
-        />
         <section aria-label="Answer" className="flex min-w-0 flex-col gap-2">
           <div className="flex min-h-5 items-center justify-between gap-2">
             <h2 className={LABEL}>Answer</h2>
             {result && result.missing.length > 0 && (
               <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                <span
-                  aria-hidden
-                  className="h-3 w-4 rounded-[0.2em] border-b border-dashed border-primary bg-primary/15"
-                />
+                <span aria-hidden className="h-3 w-4 border-b-2 border-primary bg-primary/12" />
                 Missing from yours
               </span>
             )}
@@ -115,86 +131,25 @@ export function GradedCard({
             interactive
             highlights={result?.missing}
             className={cn(
-              "text-lg leading-relaxed [view-transition-name:card-back] lg:text-xl",
+              "text-lg leading-relaxed [view-transition-name:card-back]",
               MISSING_MARKS,
             )}
           />
         </section>
-        <aside aria-label="Feedback" className="flex min-w-0 flex-col gap-2">
-          <div className="flex min-h-5 items-center gap-2">
-            <h2 className={LABEL}>Feedback</h2>
-          </div>
-          <Feedback proto={proto} grade={grade} />
-        </aside>
       </div>
+      <aside aria-label="Feedback" className="mt-10 flex min-w-0 flex-col gap-2 lg:mt-12">
+        <div className="flex min-h-5 items-center gap-2">
+          <h2 className={LABEL}>Feedback</h2>
+        </div>
+        <Feedback proto={proto} grade={grade} />
+      </aside>
     </>
   );
 }
 
-/** From 1024 px: the notes in the margin, each as close to level with its mistake as the one above allows. */
-function MarginNotes({
-  answer,
-  mistakes,
-  status,
-}: {
-  answer: React.RefObject<HTMLDivElement | null>;
-  mistakes: readonly Mistake[];
-  status: GradeProto["status"];
-}) {
-  const box = useRef<HTMLDivElement>(null);
-  const [gaps, setGaps] = useState<number[]>([]);
-  useLayoutEffect(() => {
-    const margin = box.current;
-    const text = answer.current;
-    if (margin === null || text === null || mistakes.length === 0) return () => {};
-    const place = () => {
-      const top = margin.getBoundingClientRect().top;
-      const notes = [...margin.querySelectorAll<HTMLElement>("[data-note]")];
-      let y = 0;
-      const next: number[] = [];
-      mistakes.forEach((m, i) => {
-        const mark = text.querySelector<HTMLElement>(
-          `mark[data-highlight=mistake][data-n="${m.n}"]`,
-        );
-        const want = mark === null ? y : mark.getBoundingClientRect().top - top - 6;
-        const gap = Math.max(i === 0 ? 0 : 8, want - y);
-        next.push(gap);
-        y += gap + (notes[i]?.offsetHeight ?? 0);
-      });
-      setGaps((old) => (old.join() === next.join() ? old : next));
-    };
-    place();
-    const observer = new ResizeObserver(place);
-    observer.observe(text);
-    return () => observer.disconnect();
-  }, [answer, mistakes]);
+function Note({ mistake }: { mistake: Mistake }) {
   return (
-    <div ref={box} className="hidden min-w-0 flex-col lg:flex">
-      {status === "grading" && (
-        <p className="mt-9 flex items-center gap-2 border-l-2 border-dashed border-border pl-3 text-sm text-muted-foreground">
-          Notes on your answer go here.
-        </p>
-      )}
-      {status === "graded" && mistakes.length === 0 && (
-        <p className="mt-9 border-l-2 border-border pl-3 text-sm text-muted-foreground">
-          Nothing wrong in your answer.
-        </p>
-      )}
-      {mistakes.map((m, i) => (
-        <Note key={m.n} mistake={m} style={{ marginTop: gaps[i] ?? (i === 0 ? 0 : 8) }} />
-      ))}
-    </div>
-  );
-}
-
-function Note({ mistake, style }: { mistake: Mistake; style?: React.CSSProperties }) {
-  return (
-    <div
-      data-note
-      role="note"
-      style={style}
-      className="flex gap-2.5 border-l-2 border-destructive py-0.5 pl-3"
-    >
+    <div role="note" className="mb-1 flex gap-2.5 border-l-2 border-destructive py-0.5 pl-3">
       <span className="mt-0.5 inline-flex h-[1.15rem] min-w-[1.15rem] shrink-0 items-center justify-center rounded-[0.3rem] bg-destructive px-1 text-[0.65rem] font-semibold text-white">
         {mistake.n}
       </span>
@@ -203,7 +158,7 @@ function Note({ mistake, style }: { mistake: Mistake; style?: React.CSSPropertie
   );
 }
 
-/** The Feedback (with the notes, below 1024 px), its place held while the Grader works, or the failure. */
+/** The Feedback, its place held while the Grader works, or the failure. */
 function Feedback({ proto, grade }: { proto: GradeProto; grade: GradeActions }) {
   if (proto.status === "failed" && proto.failure) {
     return (
@@ -265,7 +220,7 @@ function Feedback({ proto, grade }: { proto: GradeProto; grade: GradeActions }) 
   const result = proto.result;
   if (result === undefined) return null;
   return (
-    <div className="flex flex-col gap-4 rounded-xl border bg-card p-4">
+    <div className="flex flex-col gap-4 rounded-xl border bg-card p-4 lg:p-6">
       <p className="flex items-center gap-2 text-sm">
         <Sparkles aria-hidden className="size-4 shrink-0 text-primary" />
         <span className="text-muted-foreground">
@@ -276,16 +231,8 @@ function Feedback({ proto, grade }: { proto: GradeProto; grade: GradeActions }) 
       <CardText
         text={result.feedback}
         interactive
-        className="text-sm leading-relaxed lg:text-[0.95rem] [&_ol]:flex [&_ol]:flex-col [&_ol]:gap-2"
+        className="max-w-3xl text-base leading-relaxed [&_ol]:flex [&_ol]:flex-col [&_ol]:gap-2"
       />
-      {result.mistakes.length > 0 && (
-        <div className="flex flex-col gap-3 border-t pt-4 lg:hidden">
-          <h3 className={LABEL}>Notes on your answer</h3>
-          {result.mistakes.map((m) => (
-            <Note key={m.n} mistake={m} />
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -309,9 +256,6 @@ export function GradedRatings({
         <Hint proto={proto} />
       </p>
       <div className="relative grid grid-cols-4 rounded-2xl border bg-card">
-        {confirming !== undefined && (
-          <ConfirmCallout rating={confirming} state={state} grade={grade} />
-        )}
         {RATINGS.map((rating, i) => {
           const selected = proto.selected === rating;
           const isSuggested = suggested === rating;
@@ -322,15 +266,18 @@ export function GradedRatings({
               data-rating={rating}
               aria-pressed={proto.status === "grading" ? selected : undefined}
               disabled={!state.ratable}
-              onClick={() => grade.tap(rating)}
-              aria-label={`${RATING_LABELS[rating]}${intervals ? `, ${formatInterval(intervals[rating], state.previewedAt)}` : ""}${isSuggested ? ", suggested" : ""}`}
+              onClick={() => (confirming === rating ? grade.confirm() : grade.tap(rating))}
+              aria-label={`${confirming === rating ? "Confirm " : ""}${RATING_LABELS[rating]}${intervals ? `, ${formatInterval(intervals[rating], state.previewedAt)}` : ""}${isSuggested ? ", suggested" : ""}`}
               className={cn(
                 "relative flex h-[4.5rem] flex-col items-center justify-center gap-0.5 outline-none transition-colors hover:bg-muted focus-visible:z-10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50 lg:h-16",
                 i > 0 && "border-l",
                 i === 0 && "rounded-l-2xl",
                 i === 3 && "rounded-r-2xl",
                 isSuggested && "bg-primary text-primary-foreground hover:bg-primary/90",
-                selected && "shadow-[inset_0_0_0_2px_var(--foreground)]",
+                confirming === rating && "bg-primary text-primary-foreground hover:bg-primary/90",
+                selected &&
+                  confirming === undefined &&
+                  "shadow-[inset_0_0_0_2px_var(--foreground)]",
               )}
             >
               <span className="flex h-7 items-center text-lg font-semibold tabular-nums">
@@ -342,20 +289,29 @@ export function GradedRatings({
               </span>
               <span
                 className={cn(
-                  "inline-flex items-center gap-1 text-xs font-medium text-muted-foreground",
+                  "inline-flex items-center gap-1 text-xs font-medium whitespace-nowrap text-muted-foreground",
                   rating === "again" && "text-destructive",
                   isSuggested && "text-primary-foreground",
-                  selected && !isSuggested && "text-foreground",
+                  confirming === rating && "text-primary-foreground",
+                  selected && confirming === undefined && !isSuggested && "text-foreground",
                 )}
               >
                 {isSuggested && <Sparkles aria-hidden className="size-3" />}
-                {RATING_LABELS[rating]}
+                {confirming === rating ? (
+                  <>
+                    <Check aria-hidden className="size-3.5" />
+                    Confirm
+                    <span className="hidden sm:inline">{RATING_LABELS[rating]}</span>
+                  </>
+                ) : (
+                  RATING_LABELS[rating]
+                )}
               </span>
               <kbd
                 aria-hidden
                 className={cn(
                   "absolute top-1.5 right-2 hidden font-sans text-[0.65rem] text-muted-foreground lg:block",
-                  isSuggested && "text-primary-foreground/80",
+                  (isSuggested || confirming === rating) && "text-primary-foreground/80",
                 )}
               >
                 {RATING_KEYS[rating]}
@@ -377,7 +333,9 @@ function Hint({ proto }: { proto: GradeProto }): ReactNode {
       </>
     ) : (
       <>
-        <span className="sr-only">Still grading</span>
+        <LoaderCircle aria-hidden className="size-3.5 animate-spin motion-reduce:animate-none" />
+        Still grading · tap {RATING_LABELS[proto.selected]} again to confirm it
+        <span className="hidden lg:inline">, or press Enter</span>
       </>
     );
   }
@@ -391,52 +349,5 @@ function Hint({ proto }: { proto: GradeProto }): ReactNode {
         · Enter takes {RATING_LABELS[proto.selected ?? proto.result.rating]}
       </span>
     </>
-  );
-}
-
-/** Over the ratings, above the one selected before the suggestion: Confirm, with Enter. */
-function ConfirmCallout({
-  rating,
-  state,
-  grade,
-}: {
-  rating: Rating;
-  state: StudyState;
-  grade: GradeActions;
-}) {
-  const at = RATINGS.indexOf(rating);
-  return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-full z-20 mb-2 grid grid-cols-4">
-      <div
-        style={{ gridColumnStart: at + 1 }}
-        className={cn(
-          "relative flex",
-          at === 0 ? "justify-start" : at === 3 ? "justify-end" : "justify-center",
-        )}
-      >
-        <Button
-          className={cn(
-            PILL,
-            "pointer-events-auto h-11 gap-1.5 px-5 whitespace-nowrap shadow-lg lg:h-9",
-          )}
-          disabled={!state.ratable}
-          onClick={grade.confirm}
-          onMouseDown={(event) => event.preventDefault()}
-        >
-          <Check aria-hidden className="size-4" />
-          Confirm {RATING_LABELS[rating]}
-          <kbd
-            aria-hidden
-            className="ml-0.5 hidden rounded border border-primary-foreground/30 px-1 font-sans text-[0.65rem] lg:inline"
-          >
-            Enter
-          </kbd>
-        </Button>
-        <span
-          aria-hidden
-          className="absolute -bottom-1 left-1/2 size-2.5 -translate-x-1/2 rotate-45 bg-primary"
-        />
-      </div>
-    </div>
   );
 }
