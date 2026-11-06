@@ -15,21 +15,45 @@ import {
 import { RATING_KEYS, RATING_LABELS, type StudyState, formatInterval } from "@/lib/study";
 import { cn } from "@/lib/utils";
 
-// PROTOTYPE (BAN-40), Variant d, "Margin": the Card keeps its reading column
-// (Your answer, then the Back), and from 1024 px the Grader writes in a margin
-// beside it, like a marker on an essay: each mistake's note level with its
-// mistake, and the Feedback level with the Back it is about. The margin is
-// there from Check, so the column never moves when the result lands. Below
-// 1024 px there is no margin: the Feedback, with the notes, comes after the
-// Back, at the end of the page, so landing only lengthens it. In the dock the
-// suggested rating is filled in the accent; a selection before it is ringed
-// in ink, and a Confirm callout rises over the ratings above it.
+// PROTOTYPE (BAN-40), Variant g, "Margin, in step": d's Margin, with the
+// Grader's notes kept beside what they are about at every size. From 1024 px
+// the margin is d's: each note level with its mistake, and the Feedback
+// beside the Back, held in view (sticky) while the Back scrolls past. Below
+// 1024 px each note drops in under the paragraph of its mistake, inside your
+// answer, and the Feedback comes straight after your answer, before the Back,
+// its place held from Check. Missing parts are one even tint with a solid
+// underline. The dock is d's: the suggestion filled, Confirm over a selection.
 
 export const REVEALED_WIDTH = "max-w-2xl lg:max-w-6xl";
 
 const LABEL = "text-xs font-semibold tracking-[0.08em] text-muted-foreground uppercase";
 
 type Mistake = GradeResult["mistakes"][number];
+
+/** The Written answer's paragraphs, each with its own mistakes, shifted to start from it. */
+function paragraphs(text: string, mistakes: readonly Mistake[]) {
+  const out: { text: string; mistakes: Mistake[]; ending: Mistake[] }[] = [];
+  const gap = /\n[ \t]*\n/g;
+  let start = 0;
+  for (;;) {
+    const match = gap.exec(text);
+    const end = match === null ? text.length : match.index;
+    const inside = mistakes.filter((m) => m.from < end && m.to > start);
+    if (text.slice(start, end).trim() !== "") {
+      out.push({
+        text: text.slice(start, end),
+        mistakes: inside.map((m) => ({
+          ...m,
+          from: Math.max(0, m.from - start),
+          to: Math.min(end - start, m.to - start),
+        })),
+        ending: mistakes.filter((m) => m.to > start && m.to <= end),
+      });
+    }
+    if (match === null) return out;
+    start = match.index + match[0].length;
+  }
+}
 
 /** A mistake's tag, after its last mark: the number its margin note carries. */
 const tag = (h: Highlight) =>
@@ -46,7 +70,7 @@ const tag = (h: Highlight) =>
 const MISTAKE_MARKS =
   "[&_mark[data-highlight=mistake]]:bg-destructive/10 [&_mark[data-highlight=mistake]]:text-inherit [&_mark[data-highlight=mistake]]:shadow-[inset_0_-2px_0_var(--destructive)] [&_mark[data-highlight=mistake]]:[box-decoration-break:clone] [&_mark[data-highlight=mistake]]:rounded-t-[0.2em]";
 const MISSING_MARKS =
-  "[&_mark[data-highlight=missing]]:bg-primary/15 [&_mark[data-highlight=missing]]:text-inherit [&_mark[data-highlight=missing]]:[box-decoration-break:clone] [&_mark[data-highlight=missing]]:rounded-[0.2em] [&_mark[data-highlight=missing]]:underline [&_mark[data-highlight=missing]]:decoration-primary [&_mark[data-highlight=missing]]:decoration-dashed [&_mark[data-highlight=missing]]:underline-offset-[0.3em]";
+  "[&_mark[data-highlight=missing]]:bg-primary/12 [&_mark[data-highlight=missing]]:text-inherit [&_mark[data-highlight=missing]]:shadow-[inset_0_-2px_0_var(--primary)] [&_mark[data-highlight=missing]]:[box-decoration-break:clone]";
 
 export function GradedCard({
   state,
@@ -73,21 +97,28 @@ export function GradedCard({
             {result && result.mistakes.length > 0 && (
               <span className="text-xs font-medium text-destructive">
                 {result.mistakes.length} {result.mistakes.length === 1 ? "mistake" : "mistakes"}
-                <span className="lg:hidden"> · notes below</span>
               </span>
             )}
           </div>
           <div
             ref={answer}
-            className="rounded-xl border border-dashed bg-muted/50 px-4 py-3 lg:px-5 lg:py-4"
+            className="flex flex-col gap-2 rounded-xl border border-dashed bg-muted/50 px-4 py-3 lg:px-5 lg:py-4"
           >
-            <CardText
-              text={state.written ?? ""}
-              interactive
-              highlights={result?.mistakes}
-              after={tag}
-              className={cn("text-base leading-relaxed lg:text-lg", MISTAKE_MARKS)}
-            />
+            {paragraphs(state.written ?? "", result?.mistakes ?? []).map((p, i) => (
+              <div key={i} className="flex flex-col gap-2">
+                <CardText
+                  text={p.text}
+                  interactive
+                  highlights={p.mistakes}
+                  after={tag}
+                  className={cn("text-base leading-relaxed lg:text-lg", MISTAKE_MARKS)}
+                />
+                {/* Below 1024 px, each note under the paragraph of its mistake. */}
+                {p.ending.map((m) => (
+                  <Note key={m.n} mistake={m} className="mb-1 lg:hidden" />
+                ))}
+              </div>
+            ))}
           </div>
         </section>
         {/* The margin beside the answer: each note level with its mistake. */}
@@ -97,15 +128,21 @@ export function GradedCard({
           mistakes={result?.mistakes ?? []}
           status={proto.status}
         />
-        <section aria-label="Answer" className="flex min-w-0 flex-col gap-2">
+        <aside
+          aria-label="Feedback"
+          className="flex min-w-0 flex-col gap-2 lg:sticky lg:top-[calc(4.5rem+env(safe-area-inset-top))] lg:order-4 lg:self-start"
+        >
+          <div className="flex min-h-5 items-center gap-2">
+            <h2 className={LABEL}>Feedback</h2>
+          </div>
+          <Feedback proto={proto} grade={grade} />
+        </aside>
+        <section aria-label="Answer" className="flex min-w-0 flex-col gap-2 lg:order-3">
           <div className="flex min-h-5 items-center justify-between gap-2">
             <h2 className={LABEL}>Answer</h2>
             {result && result.missing.length > 0 && (
               <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                <span
-                  aria-hidden
-                  className="h-3 w-4 rounded-[0.2em] border-b border-dashed border-primary bg-primary/15"
-                />
+                <span aria-hidden className="h-3 w-4 border-b-2 border-primary bg-primary/12" />
                 Missing from yours
               </span>
             )}
@@ -120,12 +157,6 @@ export function GradedCard({
             )}
           />
         </section>
-        <aside aria-label="Feedback" className="flex min-w-0 flex-col gap-2">
-          <div className="flex min-h-5 items-center gap-2">
-            <h2 className={LABEL}>Feedback</h2>
-          </div>
-          <Feedback proto={proto} grade={grade} />
-        </aside>
       </div>
     </>
   );
@@ -187,13 +218,21 @@ function MarginNotes({
   );
 }
 
-function Note({ mistake, style }: { mistake: Mistake; style?: React.CSSProperties }) {
+function Note({
+  mistake,
+  style,
+  className,
+}: {
+  mistake: Mistake;
+  style?: React.CSSProperties;
+  className?: string;
+}) {
   return (
     <div
-      data-note
+      data-note={className === undefined ? "" : undefined}
       role="note"
       style={style}
-      className="flex gap-2.5 border-l-2 border-destructive py-0.5 pl-3"
+      className={cn("flex gap-2.5 border-l-2 border-destructive py-0.5 pl-3", className)}
     >
       <span className="mt-0.5 inline-flex h-[1.15rem] min-w-[1.15rem] shrink-0 items-center justify-center rounded-[0.3rem] bg-destructive px-1 text-[0.65rem] font-semibold text-white">
         {mistake.n}
@@ -203,7 +242,7 @@ function Note({ mistake, style }: { mistake: Mistake; style?: React.CSSPropertie
   );
 }
 
-/** The Feedback (with the notes, below 1024 px), its place held while the Grader works, or the failure. */
+/** The Feedback, its place held while the Grader works, or the failure. */
 function Feedback({ proto, grade }: { proto: GradeProto; grade: GradeActions }) {
   if (proto.status === "failed" && proto.failure) {
     return (
@@ -278,14 +317,6 @@ function Feedback({ proto, grade }: { proto: GradeProto; grade: GradeActions }) 
         interactive
         className="text-sm leading-relaxed lg:text-[0.95rem] [&_ol]:flex [&_ol]:flex-col [&_ol]:gap-2"
       />
-      {result.mistakes.length > 0 && (
-        <div className="flex flex-col gap-3 border-t pt-4 lg:hidden">
-          <h3 className={LABEL}>Notes on your answer</h3>
-          {result.mistakes.map((m) => (
-            <Note key={m.n} mistake={m} />
-          ))}
-        </div>
-      )}
     </div>
   );
 }
