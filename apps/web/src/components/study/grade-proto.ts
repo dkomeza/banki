@@ -56,7 +56,9 @@ const MACLAURIN: ShownOverride = {
     "Integrate both sides from $0$ to $x$:",
     "$$\\ln(1+x) = \\int_0^x \\frac{dt}{1+t} = \\sum_{n=0}^{\\infty} (-1)^n \\frac{x^{n+1}}{n+1}$$",
     "so",
-    "$$\\ln(1+x) = x - \\frac{x^2}{2} + \\frac{x^3}{3} - \\frac{x^4}{4} + \\cdots$$",
+    "$\\ln(1+x) = x - \\frac{x^2}{2} + \\frac{x^3}{3} - \\frac{x^4}{4} + \\cdots$",
+    "![The partial sums closing in on ln(1 + x) between x = -1 and x = 1](/proto-ln-series.svg)",
+    "The partial sums close in on the curve only between the dashed lines.",
     "It converges for $-1 < x \\le 1$: at $x = 1$ by the alternating series test (giving $\\ln 2$), and it diverges at $x = -1$ (the harmonic series).",
   ].join("\n"),
 };
