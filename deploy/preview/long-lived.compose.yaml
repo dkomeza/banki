@@ -7,7 +7,7 @@
 #
 # The agent sets these for each run; none of them is a secret:
 #   LONG_LIVED_ENV       `edge` or `production`
-#   LONG_LIVED_HOST      preview.banki.dkomeza.com, or banki.dkomeza.com
+#   LONG_LIVED_HOST      edge.banki.dkomeza.com, or banki.dkomeza.com
 #   LONG_LIVED_VOLUME    banki-edge-data, or banki-production-data
 #   LONG_LIVED_SHA       the commit it runs
 #   LONG_LIVED_DEPLOYED_AT  when this deploy started (ISO 8601)

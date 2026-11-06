@@ -219,7 +219,7 @@ The fixed sample content a Preview, or a developer's local copy, starts with: th
 _Avoid_: fixtures, demo data
 
 **Edge**:
-The long-lived installation at `preview.banki.dkomeza.com` that runs the newest commit of `main`. Unlike a Preview, it keeps its data across deploys and migrates it in place, so a migration that breaks existing data shows there before a Release. It starts with Seed data and goes back to it only when it is reset.
+The long-lived installation at `edge.banki.dkomeza.com` that runs the newest commit of `main`. Unlike a Preview, it keeps its data across deploys and migrates it in place, so a migration that breaks existing data shows there before a Release. It starts with Seed data and goes back to it only when it is reset.
 _Avoid_: staging, main preview, nightly
 
 **Production**:
