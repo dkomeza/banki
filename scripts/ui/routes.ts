@@ -36,6 +36,8 @@ export const ROUTES: RouteManifest = {
   "/decks/$deckId/study": { path: `/decks/${SEED_IDS.decks.calculus2}/study` },
   "/decks/$deckId/settings": { path: `/decks/${SEED_IDS.deck}/settings` },
   "/decks/$deckId/cards/new": { path: `/decks/${SEED_IDS.deck}/cards/new` },
+  "/decks/$deckId/import": { path: `/decks/${SEED_IDS.deck}/import` },
+  "/imports/$importId": { path: `/imports/${SEED_IDS.import}` },
   "/cards/$cardId": { path: `/cards/${SEED_IDS.card}` },
   "/deleted": {},
 };

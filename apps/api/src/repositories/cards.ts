@@ -86,7 +86,7 @@ function tagsOf(db: Queryable, userId: string, cardIds: SQLWrapper | string[]) {
 }
 
 /** Gives the User's Card `cardId` exactly these Tags, already parsed (`CardTags`). */
-function writeTags(db: Queryable, userId: string, cardId: string, tags: readonly string[]) {
+export function writeTags(db: Queryable, userId: string, cardId: string, tags: readonly string[]) {
   db.delete(card_tag)
     .where(and(eq(card_tag.userId, userId), eq(card_tag.cardId, cardId)))
     .run();

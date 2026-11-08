@@ -20,6 +20,9 @@ export type OpenedDatabase = {
 /** Where the Images are stored in the data directory `dataDir`. */
 export const uploadsDirOf = (dataDir: string) => join(dataDir, "uploads");
 
+/** Where unconfirmed Imports stage their zip's images in the data directory `dataDir`. */
+export const importsDirOf = (dataDir: string) => join(dataDir, "imports");
+
 /**
  * Prepares the data directory (`<dataDir>/banki.db` and `<dataDir>/uploads/`),
  * creating whatever is missing, and opens the database with Banki's defaults.

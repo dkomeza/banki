@@ -205,6 +205,7 @@ The data directory holds everything Banki stores:
 ├── banki.db        SQLite database (with banki.db-wal and banki.db-shm beside it while running)
 ├── auth-secret     the secret sign-in cookies are signed with, unless AUTH_SECRET is set (mode 0600)
 ├── encryption-key  the key the API key is encrypted with, unless ENCRYPTION_KEY is set (mode 0600)
+├── imports/        an unconfirmed Import's zip images, one folder per Import, gone once it is confirmed or 24 hours old
 └── uploads/        the Images, byte for byte as uploaded, one file each (<id>.<ext>)
 ```
 

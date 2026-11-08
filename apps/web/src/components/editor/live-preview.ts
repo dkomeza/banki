@@ -14,6 +14,8 @@ import { autoCloseExtension } from "./auto-close";
 import { autoCloseChoice, formattingKeymap, previewCore, submitAction } from "./core";
 import { FORMATTING, type Format, INLINE_FORMATS } from "./formatting";
 import { formulaMacros } from "./formula-macros";
+import { imageFiles } from "./image-widget";
+import type { ImageFiles } from "@/lib/images";
 import { blockAt, livePreviewDecorations } from "./decorations";
 import { continueInGrid, enterGrid, focusFirstCell, TableWidget } from "./table-grid";
 
@@ -74,10 +76,11 @@ const followIntoGrid = EditorView.updateListener.of((update) => {
  * What the editor does for an auto-close choice, and the choice, for its
  * tables; and the Macros its Formulas are typeset with.
  */
-const settings = (choice: AutoClose, macros: readonly Macro[]) => [
+const settings = (choice: AutoClose, macros: readonly Macro[], files: ImageFiles) => [
   autoCloseChoice.of(choice),
   autoCloseExtension(choice),
   formulaMacros.of(macros),
+  imageFiles.of(files),
 ];
 
 /**
@@ -89,6 +92,7 @@ export function livePreview({
   onSubmit,
   autoClose,
   macros,
+  files,
   readOnly,
 }: {
   placeholder: string;
@@ -97,12 +101,15 @@ export function livePreview({
   autoClose: AutoClose;
   /** The Deck's effective Macros. */
   macros: readonly Macro[];
+  /** Where its Images load from. */
+  files: ImageFiles;
   readOnly: boolean;
 }): {
   extension: Extension;
   reconfigure: (to: {
     autoClose: AutoClose;
     macros: readonly Macro[];
+    files: ImageFiles;
     readOnly: boolean;
   }) => StateEffect<unknown>[];
 } {
@@ -119,7 +126,7 @@ export function livePreview({
       placeholder(hint),
       EditorView.contentAttributes.of({ "aria-multiline": "true" }),
       submitAction.of(onSubmit),
-      closing.of(settings(autoClose, macros)),
+      closing.of(settings(autoClose, macros, files)),
       editable.of(EditorState.readOnly.of(readOnly)),
       keymap.of([
         ...formattingKeymap,
@@ -136,7 +143,7 @@ export function livePreview({
       ]),
     ],
     reconfigure: (to) => [
-      closing.reconfigure(settings(to.autoClose, to.macros)),
+      closing.reconfigure(settings(to.autoClose, to.macros, to.files)),
       editable.reconfigure(EditorState.readOnly.of(to.readOnly)),
     ],
   };

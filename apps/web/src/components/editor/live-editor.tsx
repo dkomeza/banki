@@ -1,7 +1,8 @@
 import type { AutoClose } from "@banki/shared";
 import { Annotation, Compartment, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { type RefObject, useEffect, useRef, useState } from "react";
+import { type RefObject, useContext, useEffect, useRef, useState } from "react";
+import { ImageFilesContext } from "@/lib/images";
 import { useMacros } from "@/lib/macros";
 import { cn } from "@/lib/utils";
 import { Cheatsheet } from "./cheatsheet";
@@ -72,6 +73,7 @@ export function LiveEditor({
 }) {
   useKeyboardInset();
   const macros = useMacros();
+  const imageFiles = useContext(ImageFilesContext);
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const reconfigure = useRef<ReturnType<typeof livePreview>["reconfigure"]>(null);
@@ -113,6 +115,7 @@ export function LiveEditor({
       onSubmit: () => handlers.current.onSubmit(),
       autoClose,
       macros,
+      files: imageFiles,
       readOnly,
     });
     reconfigure.current = preview.reconfigure;
@@ -167,12 +170,12 @@ export function LiveEditor({
     if (current === null || reconfigure.current === null) return;
     current.dispatch({
       effects: [
-        ...reconfigure.current({ autoClose, macros, readOnly }),
+        ...reconfigure.current({ autoClose, macros, files: imageFiles, readOnly }),
         attributes.current.reconfigure(aria()),
       ],
     });
     // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoClose, macros, readOnly, labelledBy, describedBy, invalid]);
+  }, [autoClose, macros, imageFiles, readOnly, labelledBy, describedBy, invalid]);
 
   const format = (to: Format) => {
     if (view.current !== null) applyFormat(view.current, to, cell.current);

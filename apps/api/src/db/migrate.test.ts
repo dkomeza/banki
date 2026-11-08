@@ -59,6 +59,7 @@ const COMMITTED = [
   "0015_progress_resets",
   "0016_session_timeout",
   "0017_answer_mode",
+  "0018_imports",
 ];
 
 /** The tables the committed migrations create. */
@@ -71,6 +72,7 @@ const COMMITTED_TABLES = [
   "deck",
   "folder",
   "image",
+  "import",
   "progress_reset",
   "review",
   "user",
@@ -469,6 +471,44 @@ test("0017_answer_mode keeps every Deck and Card, each Deck following Settings",
   opened.db.run(sql`UPDATE deck SET answer_mode = 'write'`);
   opened.db.run(sql`UPDATE deck SET answer_mode = 'self-rate'`);
   expect(() => opened.db.run(sql`UPDATE deck SET answer_mode = 'grade'`)).toThrow();
+});
+
+test("0018_imports keeps every Card, from no Import, and an Import's removal leaves its Cards", () => {
+  const journalPath = join(folder, "meta", "_journal.json");
+  const full = readFileSync(journalPath, "utf8");
+  const journal = z
+    .looseObject({ entries: z.array(z.looseObject({ tag: z.string() })) })
+    .parse(JSON.parse(full));
+  writeFileSync(
+    journalPath,
+    JSON.stringify({
+      ...journal,
+      entries: journal.entries.filter((entry) => entry.tag < "0018_imports"),
+    }),
+  );
+  applyMigrations(opened.db, folder);
+  opened.db.run(
+    sql`INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES ('u', 'n', 'u@x.y', 1, 0, 0)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO deck (id, user_id, name, name_key, created_at, updated_at) VALUES ('d', 'u', 'D', 'd', 0, 0)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO card (id, user_id, deck_id, front, back, created_at, updated_at) VALUES ('c', 'u', 'd', 'f', 'b', 0, 0)`,
+  );
+
+  writeFileSync(journalPath, full);
+  expect(applyMigrations(opened.db, folder)).toEqual(["0018_imports"]);
+  expect(opened.db.values(sql`SELECT id, import_id FROM card`)).toEqual([["c", null]]);
+
+  opened.db.run(
+    sql`INSERT INTO import (id, user_id, deck_id, file_name, source, created_at) VALUES ('i', 'u', 'd', 'f.json', 'json', 0)`,
+  );
+  opened.db.run(sql`UPDATE card SET import_id = 'i'`);
+  expect(() => opened.db.run(sql`UPDATE import SET source = 'csv'`)).toThrow();
+  // Removing an Import leaves its Cards, from no Import.
+  opened.db.run(sql`DELETE FROM import`);
+  expect(opened.db.values(sql`SELECT id, import_id FROM card`)).toEqual([["c", null]]);
 });
 
 test("a Card's newest Review, its Progress resets since and the next place in the Write order are found through an index, not the User's whole history", () => {

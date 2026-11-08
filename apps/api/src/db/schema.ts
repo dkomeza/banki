@@ -14,6 +14,7 @@ import {
   DEFAULT_SESSION_TIMEOUT_MINUTES,
   DESIRED_RETENTION_MAX,
   DESIRED_RETENTION_MIN,
+  IMPORT_SOURCES,
   LEARNING_LIMIT_MAX,
   LEARNING_LIMIT_MIN,
   NEW_CARD_BATCH_MAX,
@@ -36,6 +37,7 @@ import {
   text,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
+import type { ImportReport, StagedImport } from "../imports/stored";
 import { user } from "./auth-schema";
 
 export * from "./auth-schema";
@@ -226,12 +228,17 @@ export const card = sqliteTable(
     /** Which learning step it is on, while in them. */
     learningStep: integer("learning_step").notNull().default(0),
     lastReviewAt: integer("last_review_at", { mode: "timestamp_ms" }),
+    /** The Import that added it; null for a Card made any other way, or whose Import is gone. */
+    importId: text("import_id").references((): AnySQLiteColumn => card_import.id, {
+      onDelete: "set null",
+    }),
   },
   (table) => [
     index("card_user_id").on(table.userId),
     index("card_deck_id").on(table.deckId),
     index("card_deletion_id").on(table.deletionId),
     index("card_deleted_at").on(table.deletedAt),
+    index("card_import_id").on(table.importId),
   ],
 );
 
@@ -339,5 +346,41 @@ export const progress_reset = sqliteTable(
   (table) => [
     index("progress_reset_card_id_user_id_seq").on(table.cardId, table.userId, table.seq),
     uniqueIndex("progress_reset_user_id_seq").on(table.userId, table.seq),
+  ],
+);
+
+/**
+ * The User's Imports (CONTEXT.md, ADR-0026): one row per Card file read into
+ * a Deck. Unconfirmed, `preview` holds what was read from the file (its Cards,
+ * invalid Cards, Macros and the zip's images, staged under
+ * `<dataDir>/imports/<id>/`), and the sweep removes it 24 hours after
+ * `createdAt`. Confirmed, `confirmedAt` is set, `preview` is null and `report`
+ * holds what it did, kept for good; the Cards it added carry its ID.
+ */
+export const card_import = sqliteTable(
+  "import",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    deckId: text("deck_id")
+      .notNull()
+      .references(() => deck.id, { onDelete: "cascade" }),
+    /** The file's name as uploaded, or "pasted JSON". */
+    fileName: text("file_name").notNull(),
+    source: text("source", { enum: IMPORT_SOURCES }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    confirmedAt: integer("confirmed_at", { mode: "timestamp_ms" }),
+    /** What was read from the file, as JSON (`StagedImport`, repositories/imports.ts); null once confirmed. */
+    preview: text("preview", { mode: "json" }).$type<StagedImport>(),
+    /** The report, as JSON (`ImportReport`, repositories/imports.ts); null until confirmed. */
+    report: text("report", { mode: "json" }).$type<ImportReport>(),
+  },
+  (table) => [
+    check("import_source", sql`${table.source} IN ('json', 'zip', 'paste')`),
+    index("import_user_id").on(table.userId),
+    index("import_deck_id").on(table.deckId),
+    index("import_created_at").on(table.createdAt),
   ],
 );

@@ -15,6 +15,12 @@ export const SEED_IDS = {
   card: "5eed0000-0000-4000-8000-0000000c0205",
   image: "5eed0000-0000-4000-8000-00000000a001",
   folder: "5eed0000-0000-4000-8000-0000000000f3",
+  /**
+   * The confirmed Import into the seed Deck, whose report /imports/$importId
+   * shows: a zip of market and café words, with a Duplicate, an invalid Card,
+   * one left out, Macros added and kept, and an image the zip didn't hold.
+   */
+  import: "5eed0000-0000-4000-8000-0000000001a1",
   folders: {
     languages: "5eed0000-0000-4000-8000-0000000000f1",
     maths: "5eed0000-0000-4000-8000-0000000000f2",
@@ -68,6 +74,14 @@ export const SEED_IDS = {
       "5eed0000-0000-4000-8000-0000000c0302",
       "5eed0000-0000-4000-8000-0000000c0303",
     ],
+    /** The Cards the Import added to Spanish vocabulary, by their number in its file. */
+    imported: {
+      1: "5eed0000-0000-4000-8000-0000000c0501",
+      2: "5eed0000-0000-4000-8000-0000000c0502",
+      5: "5eed0000-0000-4000-8000-0000000c0505",
+      6: "5eed0000-0000-4000-8000-0000000c0506",
+      8: "5eed0000-0000-4000-8000-0000000c0508",
+    },
     chemistry: [
       "5eed0000-0000-4000-8000-0000000c0400",
       "5eed0000-0000-4000-8000-0000000c0401",

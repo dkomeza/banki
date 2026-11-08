@@ -5,6 +5,9 @@ import { OUTLINE_PILL, PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
+/** What the dialog says would be lost, unless told otherwise. */
+const CARD_UNSAVED = "Your changes to this card haven't been saved.";
+
 /** Where a 401 sends the User (`goToSignIn`). */
 const SIGN_IN = "/login";
 
@@ -17,9 +20,9 @@ const SIGN_IN = "/login";
  * delete on its way, whose answer can still land), nothing leaves, unasked,
  * but the sign-in page: a 401 sends the User there, and signed out, nothing
  * on its way can land, so it goes as it would with nothing on its way, asking
- * first while something is unsaved.
+ * first while something is unsaved. `description` says what would be lost.
  */
-export function useDiscardGuard(unsaved: boolean, holding = false) {
+export function useDiscardGuard(unsaved: boolean, holding = false, description = CARD_UNSAVED) {
   // Refs, so a save that navigates straight after can let itself through
   // before React has rendered the saved state.
   const guarded = useRef(unsaved);
@@ -46,6 +49,7 @@ export function useDiscardGuard(unsaved: boolean, holding = false) {
     dialog: (
       <DiscardDialog
         open={action === "ask"}
+        description={description}
         onKeep={() => blocker.reset?.()}
         onDiscard={() => blocker.proceed?.()}
       />
@@ -79,10 +83,12 @@ export function blockedAction({
 /** "Discard changes?", with Keep editing and Discard. */
 export function DiscardDialog({
   open,
+  description = CARD_UNSAVED,
   onKeep,
   onDiscard,
 }: {
   open: boolean;
+  description?: string;
   onKeep: () => void;
   onDiscard: () => void;
 }) {
@@ -100,7 +106,7 @@ export function DiscardDialog({
             Discard changes?
           </AlertDialog.Title>
           <AlertDialog.Description className="text-[0.95rem] text-muted-foreground">
-            Your changes to this card haven't been saved.
+            {description}
           </AlertDialog.Description>
           <div className="mt-2 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <AlertDialog.Close render={<Button variant="outline" className={OUTLINE_PILL} />}>

@@ -1,7 +1,7 @@
 import { type CardNode, cardParser } from "@banki/shared";
-import { type ReactNode, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { typeset } from "@/lib/formula";
-import { imageSrc } from "@/lib/images";
+import { type ImageFiles, ImageFilesContext, imageSrc, imageUrl } from "@/lib/images";
 import { useMacros } from "@/lib/macros";
 import { highlight } from "@/lib/tags";
 import { cn } from "@/lib/utils";
@@ -50,6 +50,8 @@ type Context = {
   interactive?: boolean;
   /** The Highlights to mark, as ranges of `doc`. */
   highlights: readonly Highlight[];
+  /** Where its Images load from. */
+  imageFiles: ImageFiles;
 };
 
 /**
@@ -390,7 +392,7 @@ function inlineNode(node: CardNode, cx: Context): ReactNode {
       return whole(
         <img
           key={key}
-          src={imageSrc(doc.slice(url.from, url.to))}
+          src={imageSrc(doc.slice(url.from, url.to), cx.imageFiles)}
           alt={alt}
           loading="lazy"
           className="inline-block h-auto max-w-full align-bottom"
@@ -664,6 +666,7 @@ export function CardText({
 }) {
   // The words as one string, so a new array of the same words keeps the render.
   const search = words.join(" ");
+  const imageFiles = useContext(ImageFilesContext);
   const content = useMemo(() => {
     const tree = cardParser.parse(side);
     const searched = search === "" ? [] : search.split(" ");
@@ -674,8 +677,9 @@ export function CardText({
       words: searched,
       interactive,
       highlights,
+      imageFiles,
     });
-  }, [side, search, interactive, highlights]);
+  }, [side, search, interactive, highlights, imageFiles]);
   return (
     <div className={cn("card-text flex flex-col gap-2 [overflow-wrap:anywhere]", className)}>
       {content}
@@ -699,6 +703,8 @@ export function CardLine({ text: side, className }: { text: string; className?: 
           ended: false,
           words: NO_WORDS,
           highlights: NO_HIGHLIGHTS,
+          // One line shows no images.
+          imageFiles: imageUrl,
         });
   }, [side]);
   return <span className={cn("card-text block truncate", className)}>{content}</span>;

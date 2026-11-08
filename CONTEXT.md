@@ -60,6 +60,10 @@ _Avoid_: copy, clone, repeat
 A file in Banki's own versioned JSON format that holds Cards, their Tags and grading notes, and the macros their Formulas use. An import reads one, an export writes one, and the LLM prompt asks for one. It never names a Deck or holds Reviews.
 _Avoid_: deck file, export file, Banki JSON
 
+**Import**:
+One act of bringing the Cards of a Card file into one live Deck, and the Cards it added. It starts unconfirmed, while the User previews the file's Cards and picks which to keep; one never confirmed is gone after 24 hours. Confirming it adds the Cards, skipping Duplicates and invalid Cards, adds the file's Macros the Deck lacks, and keeps a report of what it did.
+_Avoid_: upload, batch
+
 **Deletion**:
 One act of deleting, and everything it took with it: a Card on its own, a Deck with its Cards, or a Folder with everything inside it. It is restored or removed as a whole. Something deleted earlier on its own keeps its own Deletion. Deleting several picked Cards at once makes one Deletion per Card, though the delete's Undo brings them all back.
 _Avoid_: trash item, deleted item

@@ -198,7 +198,7 @@ async function outcomeOf(
 }
 
 /** Has the Deck's list, its count, its Study overview and the User's Tags fetched again. */
-async function refreshDeck(queryClient: QueryClient, deckId: string) {
+export async function refreshDeck(queryClient: QueryClient, deckId: string) {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: ["tags"], exact: true }),
     queryClient.invalidateQueries({ queryKey: cardsQueryOptions(deckId).queryKey, exact: true }),
