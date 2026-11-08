@@ -1,4 +1,5 @@
-import { type GradeResponse, RATINGS, type Rating } from "@banki/shared";
+import { type GradeResponse, MODELS, RATINGS, type Rating } from "@banki/shared";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { AlertCircle, Check, ChevronDown, LoaderCircle, Sparkles } from "lucide-react";
 import {
@@ -15,9 +16,12 @@ import { PILL } from "@/components/settings/parts";
 import { LABEL } from "@/components/study/answer";
 import { lastLineOf, useMistakeNotes } from "@/components/study/mistake-notes";
 import { Button } from "@/components/ui/button";
+import { settingsQueryOptions } from "@/lib/settings";
 import {
-  GRADE_FAILURES,
+  GRADE_FAILURE_ACTIONS,
   type Grade,
+  type GradeFailure,
+  gradeFailureMessage,
   RATING_KEYS,
   RATING_LABELS,
   type StudySession,
@@ -372,7 +376,46 @@ function FeedbackTab({
   );
 }
 
-/** The Feedback, its place held while the Grader works, or why there is none, with Try again. */
+/** The User's Model's display name, for a failure that names it. */
+function useModelName(): string {
+  const id = useQuery(settingsQueryOptions()).data?.settings.model;
+  return MODELS.find((model) => model.id === id)?.name ?? "your Model";
+}
+
+/** Why there is no Feedback, with Open Settings, Try again or neither, as the failure calls for. */
+function GradeFailed({ session, failure }: { session: StudySession; failure: GradeFailure }) {
+  const model = useModelName();
+  const action = GRADE_FAILURE_ACTIONS[failure];
+  return (
+    <div role="alert" className="flex flex-col gap-3 rounded-xl border border-destructive/30 p-4">
+      <p className="flex items-start gap-2 text-sm leading-relaxed text-destructive">
+        <AlertCircle aria-hidden className="mt-0.5 size-4 shrink-0" />
+        {gradeFailureMessage(failure, model)}
+      </p>
+      {action === "settings" && (
+        <Button
+          variant="outline"
+          className={cn(PILL, "h-11 self-start no-underline lg:h-9")}
+          render={<Link to="/settings" />}
+          nativeButton={false}
+        >
+          Open Settings
+        </Button>
+      )}
+      {action === "retry" && (
+        <Button
+          variant="outline"
+          className={cn(PILL, "h-11 self-start lg:h-9")}
+          onClick={() => session.regrade()}
+        >
+          Try again
+        </Button>
+      )}
+    </div>
+  );
+}
+
+/** The Feedback, its place held while the Grader works, or why there is none. */
 function Feedback({
   session,
   grade,
@@ -383,34 +426,7 @@ function Feedback({
   /** Inside the tab, without its own frame or the suggestion the tab shows. */
   bare?: boolean;
 }) {
-  if (grade.status === "failed") {
-    return (
-      <div role="alert" className="flex flex-col gap-3 rounded-xl border border-destructive/30 p-4">
-        <p className="flex items-start gap-2 text-sm leading-relaxed text-destructive">
-          <AlertCircle aria-hidden className="mt-0.5 size-4 shrink-0" />
-          {GRADE_FAILURES[grade.failure]}
-        </p>
-        {grade.failure === "no_api_key" ? (
-          <Button
-            variant="outline"
-            className={cn(PILL, "h-11 self-start no-underline lg:h-9")}
-            render={<Link to="/settings" />}
-            nativeButton={false}
-          >
-            Open Settings
-          </Button>
-        ) : (
-          <Button
-            variant="outline"
-            className={cn(PILL, "h-11 self-start lg:h-9")}
-            onClick={() => session.regrade()}
-          >
-            Try again
-          </Button>
-        )}
-      </div>
-    );
-  }
+  if (grade.status === "failed") return <GradeFailed session={session} failure={grade.failure} />;
   if (grade.status === "grading") {
     return (
       <div

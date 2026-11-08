@@ -1,4 +1,5 @@
 import {
+  ApiError,
   type AnswerMode,
   DEFAULT_ANSWER_MODE,
   type IntervalPreview,
@@ -120,13 +121,14 @@ export type StudyApi = {
   /**
    * Asks the Grader to grade the Written answer `answer` of a Card: its
    * grade, "gone" when the Card was deleted meanwhile, or why it couldn't
-   * grade. Aborted by `signal`; throws when Banki can't be reached.
+   * grade, by the API's error code. Aborted by `signal`; throws when Banki
+   * can't be reached.
    */
   grade: (
     cardId: string,
     answer: string,
     signal: AbortSignal,
-  ) => Promise<GradeResponse | "gone" | "no_api_key" | "grading_failed">;
+  ) => Promise<GradeResponse | "gone" | GraderFailure>;
 };
 
 /** The study API over HTTP. */
@@ -186,12 +188,15 @@ export function studyApi(deckId: string, client: ApiClient = api): StudyApi {
         { param: { cardId }, json: { answer } },
         { init: { signal } },
       );
-      const status: number = res.status;
-      if (status === 404) return "gone";
-      if (status === 409) return "no_api_key";
-      if (status !== 200) return "grading_failed";
-      const graded = GradeResponse.safeParse(await res.json().catch(() => undefined));
-      return graded.success ? graded.data : "grading_failed";
+      const body: unknown = await res.json().catch(() => undefined);
+      if (res.ok) {
+        const graded = GradeResponse.safeParse(body);
+        return graded.success ? graded.data : "grading_failed";
+      }
+      // Told apart by code, not status: a proxy can answer a status of its own.
+      const code = ApiError.safeParse(body).data?.error.code;
+      if (code === "not_found") return "gone";
+      return GRADER_FAILURES.find((failure) => failure === code) ?? "grading_failed";
     },
   };
 }
@@ -209,18 +214,57 @@ export const INTERVALS_FAILED = "Couldn't load the card's new intervals. Check y
 export const EDITOR_FAILED = "Couldn't open the editor. Check your connection.";
 
 /**
- * Why a checked Card has no grade, and no grade is coming: no API key, the
- * Grader failed, Banki out of reach, or the request didn't finish (stopped
- * by leaving, or by a reload before it answered).
+ * Why the grade route said it couldn't grade, by its error code: no API key,
+ * OpenRouter refused the key, the account is out of credits, the Model can't
+ * be run, OpenRouter refused this answer, or grading failed (after the API's
+ * retries).
  */
-export type GradeFailure = "no_api_key" | "grading_failed" | "unreachable" | "not_graded";
+const GRADER_FAILURES = [
+  "no_api_key",
+  "api_key_refused",
+  "no_credits",
+  "model_unavailable",
+  "grading_refused",
+  "grading_failed",
+] as const;
+export type GraderFailure = (typeof GRADER_FAILURES)[number];
 
-/** What each GradeFailure says. */
+/**
+ * Why a checked Card has no grade, and no grade is coming: the grade route's
+ * failure, Banki out of reach, or the request didn't finish (stopped by
+ * leaving, or by a reload before it answered).
+ */
+export type GradeFailure = GraderFailure | "unreachable" | "not_graded";
+
+/** What each GradeFailure says; `{model}` stands for the User's Model's name (`gradeFailureMessage`). */
 export const GRADE_FAILURES: Record<GradeFailure, string> = {
   no_api_key: "Add your OpenRouter API key in Settings to grade answers.",
+  api_key_refused: "OpenRouter didn't accept your API key. Check it in Settings.",
+  no_credits: "Your OpenRouter account is out of credits. Add some, then try again.",
+  model_unavailable: "OpenRouter can't run {model} right now. Pick another Model in Settings.",
+  grading_refused: "OpenRouter refused to grade this answer. Rate it yourself.",
   grading_failed: "Couldn't grade this answer. Try again, or rate it yourself.",
   unreachable: CANT_REACH,
   not_graded: "This answer wasn't graded. Try again, or rate it yourself.",
+};
+
+/** What a GradeFailure says, naming `model`, the User's Model's display name. */
+export const gradeFailureMessage = (failure: GradeFailure, model: string) =>
+  GRADE_FAILURES[failure].replace("{model}", model);
+
+/**
+ * What the failure state offers for each GradeFailure: Open Settings where
+ * the fix is there, Try again where asking again may work, or neither.
+ */
+export const GRADE_FAILURE_ACTIONS: Record<GradeFailure, "settings" | "retry" | undefined> = {
+  no_api_key: "settings",
+  api_key_refused: "settings",
+  model_unavailable: "settings",
+  grading_failed: "retry",
+  no_credits: "retry",
+  unreachable: "retry",
+  not_graded: "retry",
+  grading_refused: undefined,
 };
 
 /**

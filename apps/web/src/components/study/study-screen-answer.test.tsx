@@ -582,6 +582,66 @@ describe("the Grader's result on the study screen", () => {
     ]);
   });
 
+  test.each([
+    [
+      "api_key_refused",
+      "OpenRouter didn't accept your API key. Check it in Settings.",
+      "Open Settings",
+    ],
+    [
+      "model_unavailable",
+      "OpenRouter can't run Claude Haiku 5.5 right now. Pick another Model in Settings.",
+      "Open Settings",
+    ],
+    [
+      "no_credits",
+      "Your OpenRouter account is out of credits. Add some, then try again.",
+      "Try again",
+    ],
+    ["grading_refused", "OpenRouter refused to grade this answer. Rate it yourself.", undefined],
+  ] as const)(
+    "502 %s: its message, %s or neither, and one-tap ratings",
+    async (code, message, action) => {
+      grade = async () => json({ error: { code, message: "From the API" } }, 502);
+      await checkWith();
+
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain(message);
+      const settings = screen.queryByRole("button", { name: "Open Settings" });
+      const retry = screen.queryByRole("button", { name: "Try again" });
+      if (action === "Open Settings") {
+        expect(settings?.getAttribute("href")).toBe("/settings");
+        expect(retry).toBeNull();
+      } else if (action === "Try again") {
+        expect(retry).toBeTruthy();
+        expect(settings).toBeNull();
+      } else {
+        expect(settings).toBeNull();
+        expect(retry).toBeNull();
+      }
+      fireEvent.click(rating("Hard"));
+      await waitFor(() => expect(rated).toHaveLength(1));
+      expect(rated[0]).toMatchObject({ body: { rating: "hard" } });
+    },
+  );
+
+  test("after a permanent error, the next Card checked asks the Grader again", async () => {
+    grade = async () => json({ error: { code: "no_credits", message: "No" } }, 502);
+    await checkWith();
+    await screen.findByRole("alert");
+    fireEvent.click(rating("Good"));
+
+    const view = await waitFor(async () => {
+      expect(screen.getByText("c2 front")).toBeTruthy();
+      return answerEditor();
+    });
+    type(view, "dinner");
+    grade = async () => json(GRADED);
+    fireEvent.click(check());
+    await screen.findByText(/Suggests/);
+    expect(graded.map((g) => g.cardId)).toEqual(["c1", "c2"]);
+  });
+
   test("a network error says Banki can't be reached, with Try again", async () => {
     grade = async () => {
       throw new TypeError("Failed to fetch");

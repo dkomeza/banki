@@ -3980,10 +3980,14 @@ describe("grading after Check", () => {
 
   test.each([
     ["no_api_key", "no_api_key"],
+    ["api_key_refused", "api_key_refused"],
+    ["no_credits", "no_credits"],
+    ["model_unavailable", "model_unavailable"],
+    ["grading_refused", "grading_refused"],
     ["grading_failed", "grading_failed"],
     ["offline", "unreachable"],
   ] as const)(
-    "a failure (%s) shows as such, and the ratings are one tap",
+    "a failure (%s) shows as such, the ratings are one tap, and the next Card checked asks the Grader again",
     async (answer, failure) => {
       const t = await checked([next("a"), next("b")]);
       t.grader.answer = answer;
@@ -3994,6 +3998,12 @@ describe("grading after Check", () => {
       t.session.rate("good");
       await flush();
       expect(ratingsIn(t)).toEqual(["good"]);
+
+      t.session.setDraft("another answer");
+      t.session.check();
+      await flush();
+      expect(t.calls.grade.map(({ cardId }) => cardId)).toEqual(["a", "b"]);
+      expect(t.state().mode).toBe("write");
     },
   );
 
@@ -4301,12 +4311,22 @@ describe("studyApi's grade", () => {
   });
 
   test.each([
-    [404, "gone"],
-    [409, "no_api_key"],
-    [502, "grading_failed"],
-    [500, "grading_failed"],
-  ] as const)("answers %s as %s", async (status, answer) => {
-    expect(await grading(status, { error: { code: "x", message: "x" } })).toBe(answer);
+    [404, "not_found", "gone"],
+    [409, "no_api_key", "no_api_key"],
+    [502, "api_key_refused", "api_key_refused"],
+    [502, "no_credits", "no_credits"],
+    [502, "model_unavailable", "model_unavailable"],
+    [502, "grading_refused", "grading_refused"],
+    [502, "grading_failed", "grading_failed"],
+    [502, "something_new", "grading_failed"],
+    [500, "internal_error", "grading_failed"],
+  ] as const)("answers %s %s as %s, by its code", async (status, code, answer) => {
+    expect(await grading(status, { error: { code, message: "x" } })).toBe(answer);
+  });
+
+  test("an error that isn't the API's is grading_failed, whatever its status", async () => {
+    expect(await grading(404, "<html>Not Found</html>")).toBe("grading_failed");
+    expect(await grading(409, { nope: true })).toBe("grading_failed");
   });
 
   test("a 200 that isn't a grade is a failure", async () => {
