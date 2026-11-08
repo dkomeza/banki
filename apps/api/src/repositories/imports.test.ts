@@ -224,6 +224,24 @@ describe("confirm", () => {
     expect(report).toMatchObject({ imported: 1, leftOut: 1, duplicates: [] });
   });
 
+  test("two Cards repeating each other, both unticked, are both left out, not Duplicates", () => {
+    const id = create(fileText([card("a"), card("a"), card("b")]));
+    const report = confirm(id, asRead(id, [3]));
+    expect(report).toMatchObject({ imported: 1, leftOut: 2, duplicates: [] });
+  });
+
+  test("rewrites a reference's destination, not the same words in its alt text", () => {
+    const id = create(
+      makeZip([
+        { name: "cards.json", data: fileText([card("![see images/a.png)](images/a.png)")]) },
+        { name: "images/a.png", data: PNG },
+      ]),
+    );
+    confirm(id, asRead(id));
+    const [added] = deckCards();
+    expect(added?.front).toMatch(/^!\[see images\/a\.png\)\]\(images\/[\w-]{36}\.png\)$/);
+  });
+
   test("is refused, adding nothing, once confirmed, for a deleted Deck, or for a card not in the file", () => {
     const id = create(fileText([card("a")]));
     expect(imports.confirm(USER, id, [{ number: 9, ...card("z") }])).toBe("unknown_card");

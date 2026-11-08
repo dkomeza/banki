@@ -235,7 +235,10 @@ export function ImportPreviewPage({
               onClick={() => p.tickAll(!p.allTicked)}
             >
               <CheckCheck aria-hidden />
-              {p.allTicked ? "Untick all" : "Tick all"}
+              {/* Only the icon on a phone, so the count has room. */}
+              <span className="sr-only sm:not-sr-only">
+                {p.allTicked ? "Untick all" : "Tick all"}
+              </span>
             </Button>
             <Button
               className={cn(PILL, "h-11 lg:h-9")}
@@ -256,7 +259,7 @@ export function ImportPreviewPage({
         >
           <Dialog.Portal>
             <Dialog.Backdrop className="fixed inset-0 z-40 bg-foreground/30 backdrop-blur-[2px] dark:bg-black/50" />
-            <Dialog.Popup className="fixed inset-x-0 bottom-0 z-50 flex max-h-[94svh] flex-col gap-5 overflow-y-auto rounded-t-[1.5rem] border bg-card px-4 py-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] text-card-foreground shadow-xl sm:top-1/2 sm:bottom-auto sm:left-1/2 sm:w-[min(46rem,calc(100vw-3rem))] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-[1.25rem] sm:px-6 sm:pb-6">
+            <Dialog.Popup className="fixed inset-x-0 bottom-0 z-50 flex max-h-[94svh] flex-col gap-5 overflow-y-auto rounded-t-[1.5rem] border bg-card px-4 py-5 pb-[calc(8rem+env(safe-area-inset-bottom))] text-card-foreground shadow-xl sm:top-1/2 sm:bottom-auto sm:left-1/2 sm:w-[min(46rem,calc(100vw-3rem))] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-[1.25rem] sm:px-6 sm:pb-6">
               <div className="flex items-center justify-between gap-3">
                 <Dialog.Title className="text-2xl font-semibold tracking-tight">
                   Edit card {editing}
@@ -359,12 +362,16 @@ function Entry({
           className={cn(
             "flex flex-col gap-1.5 rounded-xl border bg-card px-4 py-3 shadow-xs",
             locked && "border-dashed bg-transparent shadow-none",
-            !row.ticked && "opacity-60",
           )}
         >
           <div className="flex items-start gap-2">
+            {/* Not ticked, its Front fades to the Back's ink: still readable, never washed out. */}
             <div className="flex min-w-0 flex-1 flex-col gap-1">
-              <FadingCardText text={card.front} lines={2} className="font-medium" />
+              <FadingCardText
+                text={card.front}
+                lines={2}
+                className={cn("font-medium", !row.ticked && "text-muted-foreground")}
+              />
               <FadingCardText
                 text={card.back}
                 lines={6}
@@ -393,7 +400,9 @@ function Entry({
                 </span>
               ))}
               {!locked && card.tags.length > 0 && (
-                <span>{card.tags.map((t) => `#${t}`).join(" ")}</span>
+                <span className="min-w-0 [overflow-wrap:anywhere]">
+                  {card.tags.map((t) => `#${t}`).join(" ")}
+                </span>
               )}
             </div>
           )}

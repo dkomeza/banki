@@ -125,6 +125,14 @@ describe("readUpload", () => {
       expect(result.images.get("menu.heic")?.status).toBe("unsupported");
     });
 
+    test("reads a zip whose tool wrote \\ between folders", () => {
+      const zip = makeZip([
+        { name: "deck\\cards.json", data: fileText([card("a", "![](images/a.png)")]) },
+        { name: "deck\\images\\a.png", data: PNG },
+      ]);
+      expect(read(readUpload(zip, "file")).images.get("a.png")?.status).toBe("ok");
+    });
+
     test("with no .json, or two, it is refused", () => {
       expect(problems(readUpload(makeZip([{ name: "images/a.png", data: PNG }]), "file"))).toEqual([
         "file: The zip holds no .json Card file",

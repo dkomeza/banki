@@ -134,7 +134,10 @@ function readZip(bytes: Uint8Array): ReadFile | Refused {
         ],
       };
     }
-    const kept = entries.filter((entry) => !ignored(entry.name));
+    // Some Windows tools write \ between folders, where the format says /.
+    const kept = entries
+      .map((entry) => ({ ...entry, name: entry.name.replaceAll("\\", "/") }))
+      .filter((entry) => !ignored(entry.name));
     const json = kept.filter((entry) => entry.name.toLowerCase().endsWith(".json"));
     if (json.length === 0) return { problems: [problem("The zip holds no .json Card file")] };
     if (json.length > 1) {

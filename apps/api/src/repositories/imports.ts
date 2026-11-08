@@ -82,8 +82,12 @@ function rewriteReferences(text: string, renamed: ReadonlyMap<string, string>): 
     const to = renamed.get(reference.file);
     if (to === undefined) continue;
     const piece = text.slice(reference.start, reference.end);
+    // The destination is the reference's end: alt text may hold the same words.
+    const target = `images/${reference.file})`;
     out +=
-      text.slice(at, reference.start) + piece.replace(`images/${reference.file})`, `images/${to})`);
+      text.slice(at, reference.start) +
+      piece.slice(0, piece.length - target.length) +
+      `images/${to})`;
     at = reference.end;
   }
   return out + text.slice(at);
@@ -271,34 +275,25 @@ export function createImportRepository(db: Queryable, importsDir: string, upload
           const sent = new Map(ticked.map((one) => [one.number, one]));
           // The Cards to add: each ticked one but a Duplicate of the Deck or of
           // one added before it. One not ticked is reported as a Duplicate when
-          // its Front, as read, repeats the Deck or any Card before it, as the
-          // preview locked it, and as left out otherwise.
+          // its Front, as read, repeats the Deck or a Card added before it, as
+          // the preview locked it (by the Deck and the earlier ticked Cards),
+          // and as left out otherwise.
           const added: NumberedCard[] = [];
           const duplicates: SkippedDuplicate[] = [];
           const taken = new Set(deckKeys);
-          const before = new Set(deckKeys);
           let leftOut = 0;
           for (const original of preview.cards) {
             const chosen = sent.get(original.number);
-            if (chosen === undefined) {
-              const key = frontKey(original.front);
-              if (key !== "" && (before.has(key) || taken.has(key))) {
-                duplicates.push({ number: original.number, front: original.front });
-              } else {
-                leftOut += 1;
-              }
-              if (key !== "") before.add(key);
-              continue;
-            }
-            const key = frontKey(chosen.front);
-            if (key !== "" && taken.has(key)) {
-              duplicates.push({ number: chosen.number, front: chosen.front });
+            const key = frontKey((chosen ?? original).front);
+            const duplicate = key !== "" && taken.has(key);
+            if (duplicate) {
+              duplicates.push({ number: original.number, front: (chosen ?? original).front });
+            } else if (chosen === undefined) {
+              leftOut += 1;
             } else {
               added.push(chosen);
               if (key !== "") taken.add(key);
             }
-            const read = frontKey(original.front);
-            if (read !== "") before.add(read);
           }
 
           // The zip's images the added Cards refer to, each a new Image.
@@ -378,7 +373,11 @@ export function createImportRepository(db: Queryable, importsDir: string, upload
         { behavior: "immediate" },
       );
       if (refusal !== undefined) return refusal;
-      rmSync(stagedDir(id), { recursive: true, force: true });
+      try {
+        rmSync(stagedDir(id), { recursive: true, force: true });
+      } catch {
+        // Committed already: a folder left behind goes with the sweep.
+      }
       return find(userId, id) ?? "not_found";
     },
 
