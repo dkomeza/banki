@@ -484,6 +484,8 @@ export function Dock({ session, state }: { session: StudySession; state: StudySt
     <div
       className={cn(
         "sticky bottom-0 z-10 border-t bg-background/95 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur [view-transition-name:study-dock]",
+        // PROTOTYPE (BAN-42): on a phone, the chat's input sits on the formatting bar while it has the focus.
+        "max-sm:[body:has([data-chat-composer]:focus-within)_&]:pb-[calc(max(var(--keyboard-inset,0px),3.9rem+env(safe-area-inset-bottom))+4.25rem)]",
         // From 1024 px it sinks away while the editor is open beside the Card.
         state.editing && "lg:hidden",
       )}

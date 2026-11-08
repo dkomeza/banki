@@ -14,6 +14,7 @@ import {
 import { CardText, type Highlight } from "@/components/cards/card-text";
 import { PILL } from "@/components/settings/parts";
 import { LABEL } from "@/components/study/answer";
+import { DockAsk, ThreadBelow } from "@/components/study/chat-dock";
 import { lastLineOf, useMistakeNotes } from "@/components/study/mistake-notes";
 import { Button } from "@/components/ui/button";
 import { settingsQueryOptions } from "@/lib/settings";
@@ -138,6 +139,7 @@ export function GradedCard({
             )}
           />
         </section>
+        <ThreadBelow />
       </div>
       <FeedbackTab target={feedback} session={session} grade={grade} />
     </>
@@ -496,10 +498,12 @@ export function GradedRatings({
   const confirming = grade.status === "grading" ? grade.selected : undefined;
   return (
     <div className="flex flex-col gap-2">
-      <p className="flex min-h-5 items-center justify-center gap-1.5 text-center text-xs font-medium text-muted-foreground">
+      {/* PROTOTYPE (BAN-42): the line to ask on; while it has the focus on a phone, the ratings fold away. */}
+      <DockAsk />
+      <p className="max-lg:[body:has([data-chat-composer]:focus-within)_&]:hidden flex min-h-5 items-center justify-center gap-1.5 text-center text-xs font-medium text-muted-foreground">
         <Hint grade={grade} />
       </p>
-      <div className="relative grid grid-cols-4 rounded-2xl border bg-card">
+      <div className="relative grid grid-cols-4 rounded-2xl border bg-card max-lg:[body:has([data-chat-composer]:focus-within)_&]:hidden">
         {confirming !== undefined && (
           <ConfirmCallout rating={confirming} disabled={!state.ratable} session={session} />
         )}
