@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp } from "../app";
 import type { Config } from "../config";
+import type { Wait } from "../grader/grade";
 import type { OpenRouterFetch } from "../openrouter/check-api-key";
 
 export const ORIGIN = "http://localhost:5173";
@@ -32,11 +33,15 @@ export function bootApps() {
     dataDir: () => join(tempDir, "data"),
     /**
      * Boots an app. OpenRouter is stubbed: unless `openRouterFetch` says
-     * otherwise, it can't be reached, so no test calls the real service.
+     * otherwise, it can't be reached, so no test calls the real service. The
+     * Grader's retries wait `graderWait`, by default not at all.
      */
     boot: (
       overrides: Partial<Config> = {},
-      { openRouterFetch = unreachableOpenRouter }: { openRouterFetch?: OpenRouterFetch } = {},
+      {
+        openRouterFetch = unreachableOpenRouter,
+        graderWait = async () => {},
+      }: { openRouterFetch?: OpenRouterFetch; graderWait?: Wait } = {},
     ) => {
       const booted = createApp(
         {
@@ -51,7 +56,7 @@ export function bootApps() {
           release: false,
           ...overrides,
         },
-        { openRouterFetch },
+        { openRouterFetch, graderWait },
       );
       opened.push(booted);
       return booted;

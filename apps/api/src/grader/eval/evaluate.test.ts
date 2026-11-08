@@ -13,6 +13,7 @@ import { join } from "node:path";
 import {
   type EvalResults,
   report,
+  runEval,
   staleTemperatureFlags,
   stepsApart,
   type Suggestion,
@@ -87,6 +88,21 @@ describe("report", () => {
     expect(report(results(["hard", "failed"]), models, samples).failures).toEqual([]);
   });
 
+  test("shows a permanent error as that Model's error, failing only the default Model", () => {
+    const theirs = report(
+      results(["good", "again"], ["model_unavailable", "no_credits"]),
+      models,
+      samples,
+    );
+    expect(theirs.table).toContain("| First | good | good | failed: model_unavailable |");
+    expect(theirs.table).toContain("| Second | again | again | failed: no_credits |");
+    expect(theirs.failures).toEqual([]);
+
+    const mine = report(results(["api_key_refused", "again"]), models, samples);
+    expect(mine.table).toContain("| First | good | failed: api_key_refused |");
+    expect(mine.failures).toEqual(["First: OpenRouter answered api_key_refused"]);
+  });
+
   test("fails the default Model two or more steps off, but not another Model", () => {
     const theirsOff = report(results(["good", "again"], ["again", "easy"]), models, samples);
     expect(theirsOff.failures).toEqual([]);
@@ -94,6 +110,33 @@ describe("report", () => {
 
     const { failures } = report(results(["good", "good"]), models, samples);
     expect(failures).toEqual(["Second: expected again, got good"]);
+  });
+});
+
+describe("runEval", () => {
+  test("grades through the retrying grade(), reporting a permanent error as that Model's error", async () => {
+    const [first, second] = MODELS;
+    if (first === undefined || second === undefined) throw new Error("two Models");
+    const content = JSON.stringify({ rating: "good", feedback: "ok", missing: [], mistakes: [] });
+    let calls = 0;
+    const { results } = await runEval({
+      apiKey: "sk-or-v1-test",
+      // The first Model answers a 503 once, then its grade; the second one is unknown.
+      fetch: async (_url, init) => {
+        calls += 1;
+        if (typeof init.body === "string" && init.body.includes(`"model":"${second.id}"`))
+          return new Response("", { status: 404 });
+        return calls === 1
+          ? new Response("", { status: 503, headers: { "retry-after": "0" } })
+          : Response.json({ choices: [{ message: { content } }] });
+      },
+      models: [first, second],
+      samples: [sample("Only", "good")],
+    });
+
+    expect(results.get(first.id)).toEqual(["good"]);
+    expect(results.get(second.id)).toEqual(["model_unavailable"]);
+    expect(calls).toBe(3);
   });
 });
 

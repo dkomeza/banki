@@ -8,7 +8,9 @@ import { SAMPLES } from "./samples";
 // OpenRouter, with the key in OPENROUTER_API_KEY. It prints each Model's
 // Rating beside the expected one, adds the table to the GitHub job summary
 // when there is one, and fails when the default Model is two or more steps
-// off on any sample. With no key, it skips. README § The Grader's eval.
+// off on any sample, or fails one with a permanent error (an API key
+// OpenRouter refuses, no credits, a Model it can't run). With no key, it
+// skips. README § The Grader's eval.
 
 const summary = (text: string) => {
   const file = process.env.GITHUB_STEP_SUMMARY;
@@ -50,7 +52,7 @@ if (stale.length > 0) {
 }
 
 const model = modelById(DEFAULT_MODEL_ID).name;
-// A sample the default Model couldn't grade doesn't fail the eval, but says so.
+// A sample the default Model couldn't grade after its retries doesn't fail the eval, but says so.
 const unsure = (results.get(DEFAULT_MODEL_ID) ?? []).filter((s) => s === "failed").length;
 if (unsure > 0) {
   const warning = `⚠ ${model}, the default Model, failed to grade ${unsure} of ${SAMPLES.length} samples (see the log for OpenRouter's status).`;
@@ -58,7 +60,7 @@ if (unsure > 0) {
   summary(warning);
 }
 if (failures.length > 0) {
-  const message = `${model}, the default Model, is two or more steps off on:\n${failures.map((f) => `- ${f}`).join("\n")}`;
+  const message = `${model}, the default Model, is two or more steps off, or failed with a permanent error, on:\n${failures.map((f) => `- ${f}`).join("\n")}`;
   console.error(message);
   summary(message);
   process.exit(1);

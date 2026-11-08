@@ -28,6 +28,7 @@ import { cardRoutes, deckCardRoutes } from "./routes/cards";
 import { deckRoutes } from "./routes/decks";
 import { deletionRoutes } from "./routes/deletions";
 import { folderRoutes } from "./routes/folders";
+import type { Wait } from "./grader/grade";
 import { gradeRoutes } from "./routes/grade";
 import { healthRoutes } from "./routes/health";
 import { imageRoutes } from "./routes/images";
@@ -69,7 +70,8 @@ const signInLimiter = () =>
  * server announces. The server and the tests both boot the API through here.
  *
  * `openRouterFetch` is how the API reaches OpenRouter: the real `fetch`
- * unless a test stubs it.
+ * unless a test stubs it. `graderWait` is how the Grader waits before a
+ * retry: on a timer unless a test fakes it.
  *
  * Only `getLogger` is used inside, so the app logs nothing until the server
  * entry configures LogTape.
@@ -78,7 +80,8 @@ export function createApp(
   config: Config,
   {
     openRouterFetch = (input, init) => fetch(input, init),
-  }: { openRouterFetch?: OpenRouterFetch } = {},
+    graderWait,
+  }: { openRouterFetch?: OpenRouterFetch; graderWait?: Wait } = {},
 ) {
   const database = openDatabase(config.dataDir);
   let appliedMigrations: string[];
@@ -141,7 +144,10 @@ export function createApp(
     .route("/api/decks", deckImportRoutes({ imports }))
     .route("/api/imports", importRoutes({ imports }))
     .route("/api/cards", cardRoutes({ cards, reviews, study }))
-    .route("/api/cards", gradeRoutes({ cards, decks, settings, images, openRouterFetch }))
+    .route(
+      "/api/cards",
+      gradeRoutes({ cards, decks, settings, images, openRouterFetch, wait: graderWait }),
+    )
     .route("/api/reviews", reviewRoutes({ study }))
     .route("/api/tags", tagRoutes({ cards }))
     .route("/api/folders", folderRoutes({ folders }))
