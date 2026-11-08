@@ -14,6 +14,7 @@ import {
 import { CardText, type Highlight } from "@/components/cards/card-text";
 import { PILL } from "@/components/settings/parts";
 import { LABEL } from "@/components/study/answer";
+import { AskButton } from "@/components/study/chat-sheet";
 import { lastLineOf, useMistakeNotes } from "@/components/study/mistake-notes";
 import { Button } from "@/components/ui/button";
 import { settingsQueryOptions } from "@/lib/settings";
@@ -496,9 +497,13 @@ export function GradedRatings({
   const confirming = grade.status === "grading" ? grade.selected : undefined;
   return (
     <div className="flex flex-col gap-2">
-      <p className="flex min-h-5 items-center justify-center gap-1.5 text-center text-xs font-medium text-muted-foreground">
-        <Hint grade={grade} />
-      </p>
+      {/* PROTOTYPE (BAN-42): Ask about it beside the hint, once the grade is in. */}
+      <div className="flex min-h-5 items-center justify-center gap-3">
+        <p className="flex items-center justify-center gap-1.5 text-center text-xs font-medium text-muted-foreground">
+          <Hint grade={grade} />
+        </p>
+        <AskButton />
+      </div>
       <div className="relative grid grid-cols-4 rounded-2xl border bg-card">
         {confirming !== undefined && (
           <ConfirmCallout rating={confirming} disabled={!state.ratable} session={session} />

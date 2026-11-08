@@ -19,6 +19,7 @@ import {
   useProtoCheck,
   useStateReload,
 } from "@/components/study/chat-proto";
+import { ChatSheet, SHEET_ROOM, SheetShade } from "@/components/study/chat-sheet";
 import { morph } from "@/components/study/morph";
 import {
   EditButton,
@@ -277,7 +278,7 @@ export function StudyScreen({ deck }: { deck: Deck }) {
           onLeave={() => leaveOrCancelEdit(session, editor.current)}
           chatBusy={replying(chat[0])}
         />
-        <main className="flex flex-1 flex-col">
+        <main className={cn("flex flex-1 flex-col", chat[2] && chat[0].open && SHEET_ROOM)}>
           {state.phase === "card" ? (
             <CardView session={session} state={state} />
           ) : state.phase === "loading" ? null : (state.phase === "done" ||
@@ -306,8 +307,12 @@ export function StudyScreen({ deck }: { deck: Deck }) {
           )}
         </main>
         {state.phase === "card" && session !== undefined && (
-          <Dock session={session} state={state} />
+          <Dock session={session} state={state} room={chat[2] && chat[0].open} />
         )}
+        <SheetShade />
+        <ChatSheet
+          suggested={state.grade?.status === "graded" ? state.grade.result.rating : undefined}
+        />
         {state.editing && state.shown !== undefined && (
           <StudyEditor
             ref={editor}
@@ -478,12 +483,24 @@ function CardView({ session, state }: { session: StudySession; state: StudyState
   );
 }
 
-export function Dock({ session, state }: { session: StudySession; state: StudyState }) {
+export function Dock({
+  session,
+  state,
+  room = false,
+}: {
+  session: StudySession;
+  state: StudyState;
+  /** PROTOTYPE (BAN-42): the chat's side sheet is open, so from 1024 px it makes room. */
+  room?: boolean;
+}) {
   const intervals = state.shown?.intervals;
   return (
     <div
       className={cn(
         "sticky bottom-0 z-10 border-t bg-background/95 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur [view-transition-name:study-dock]",
+        // PROTOTYPE (BAN-42): below 1024 px it steps aside while the chat's input has the focus.
+        "max-lg:[body:has([data-chat-composer]:focus-within)_&]:hidden",
+        room && SHEET_ROOM,
         // From 1024 px it sinks away while the editor is open beside the Card.
         state.editing && "lg:hidden",
       )}
