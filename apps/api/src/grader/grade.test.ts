@@ -344,6 +344,13 @@ describe("grade", () => {
       expect(openRouter.calls()).toBe(0);
     });
 
+    test("the real wait doesn't start once the signal has aborted", async () => {
+      const { realWait } = await import("./grade");
+      const started = performance.now();
+      await realWait(10_000, AbortSignal.abort());
+      expect(performance.now() - started).toBeLessThan(1000);
+    });
+
     test("the real wait ends at once on an abort", async () => {
       const { realWait } = await import("./grade");
       const controller = new AbortController();

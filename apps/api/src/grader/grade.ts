@@ -54,9 +54,13 @@ export type GradingFailure =
 /** Waits `ms`, or until `signal` aborts, whichever comes first. */
 export type Wait = (ms: number, signal: AbortSignal | undefined) => Promise<void>;
 
-/** The real wait, on a timer. */
+/** The real wait, on a timer; none at all once `signal` has aborted. */
 export const realWait: Wait = (ms, signal) =>
   new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve();
+      return;
+    }
     const done = () => {
       clearTimeout(timer);
       signal?.removeEventListener("abort", done);
