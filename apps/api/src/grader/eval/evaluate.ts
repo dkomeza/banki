@@ -3,12 +3,26 @@ import { join } from "node:path";
 import { DEFAULT_MODEL_ID, type Model, type ModelId, RATINGS, type Rating } from "@banki/shared";
 import { z } from "zod";
 import type { OpenRouterFetch } from "../../openrouter/check-api-key";
-import { grade } from "../grade";
+import { type GradingFailure, grade } from "../grade";
 import type { ReadImage } from "../request";
 import type { EvalSample } from "./samples";
 
-/** What one Model suggested for one sample: a Rating, or `"failed"` when grading failed. */
-export type Suggestion = Rating | "failed";
+/** The permanent errors OpenRouter can answer a Model with: never retried, and named in the table. */
+export type PermanentError = Exclude<GradingFailure, "grading_failed" | "cancelled">;
+
+/**
+ * What one Model suggested for one sample: a Rating, `"failed"` when
+ * grading failed after its retries, or the permanent error it failed with.
+ */
+export type Suggestion = Rating | "failed" | PermanentError;
+
+/** Whether a suggestion is a Rating, not a failure. */
+const isRating = (suggestion: Suggestion | undefined): suggestion is Rating =>
+  (RATINGS as readonly string[]).includes(suggestion ?? "");
+
+/** Whether a suggestion is a permanent error. */
+const isPermanentError = (suggestion: Suggestion | undefined): suggestion is PermanentError =>
+  suggestion !== undefined && suggestion !== "failed" && !isRating(suggestion);
 
 /** A curated Model, by its ID on the list. */
 export type EvalModel = Model & { id: ModelId };
@@ -33,9 +47,9 @@ const readSampleImage: ReadImage = (file) => {
 };
 
 /**
- * Grades every sample with every Model, on the real OpenRouter: one Model at
- * a time, its samples at once, so one key isn't sent a burst it is
- * rate-limited for.
+ * Grades every sample with every Model, on the real OpenRouter, through the
+ * Grader's `grade()` and its retries: one Model at a time, its samples at
+ * once, so one key isn't sent a burst it is rate-limited for.
  */
 export async function runEval({
   apiKey,
@@ -62,7 +76,10 @@ export async function runEval({
             readImage: readSampleImage,
             onCost: (usd) => costs.set(model.id, (costs.get(model.id) ?? 0) + usd),
           });
-          return "failed" in result ? "failed" : result.rating;
+          if (!("failed" in result)) return result.rating;
+          return result.failed === "grading_failed" || result.failed === "cancelled"
+            ? "failed"
+            : result.failed;
         }),
       ),
     );
@@ -107,9 +124,10 @@ export async function staleTemperatureFlags(
   });
 }
 
-/** A table cell: the suggestion, with ⚠ when it is two or more steps off. */
+/** A table cell: the suggestion, with ⚠ when it is two or more steps off; a permanent error by its code. */
 const cell = (suggestion: Suggestion | undefined, expected: Rating) => {
-  if (suggestion === undefined || suggestion === "failed") return "failed";
+  if (isPermanentError(suggestion)) return `failed: ${suggestion}`;
+  if (!isRating(suggestion)) return "failed";
   return stepsApart(suggestion, expected) >= 2 ? `${suggestion} ⚠` : suggestion;
 };
 
@@ -117,7 +135,8 @@ const cell = (suggestion: Suggestion | undefined, expected: Rating) => {
  * The eval's table, in Markdown: a row per sample, with the expected Rating
  * and each Model's suggestion beside it, ⚠ on one two or more steps off, then
  * a row of what each Model cost over all the samples; and
- * the samples the default Model got two or more steps off, which fail it.
+ * the samples the default Model got two or more steps off, or failed with a
+ * permanent error, which fail it.
  */
 export function report(
   results: EvalResults,
@@ -146,7 +165,8 @@ export function report(
   ];
   const failures = samples.flatMap((sample, i) => {
     const suggestion = results.get(DEFAULT_MODEL_ID)?.[i];
-    if (suggestion === undefined || suggestion === "failed") return [];
+    if (isPermanentError(suggestion)) return [`${sample.name}: OpenRouter answered ${suggestion}`];
+    if (!isRating(suggestion)) return [];
     return stepsApart(suggestion, sample.expected) >= 2
       ? [`${sample.name}: expected ${sample.expected}, got ${suggestion}`]
       : [];

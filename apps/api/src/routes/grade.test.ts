@@ -1,7 +1,13 @@
 import { Database as SQLite } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { CardResponse, DeckResponse, GradeResponse, ImageUploadResponse } from "@banki/shared";
+import {
+  ApiError,
+  CardResponse,
+  DeckResponse,
+  GradeResponse,
+  ImageUploadResponse,
+} from "@banki/shared";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
 import { openDatabase } from "../db/database";
@@ -273,18 +279,16 @@ describe("POST /api/cards/:cardId/grade", () => {
   });
 
   describe("when OpenRouter fails", () => {
-    const failures: [string, () => Promise<Response> | Response, number | null][] = [
-      [
-        "an error status",
-        () => Response.json({ error: { message: "No credit" } }, { status: 402 }),
-        402,
-      ],
+    const temporary: [string, () => Promise<Response> | Response, number | null, number][] = [
+      ["a 500", () => Response.json({ error: { code: 500 } }, { status: 500 }), 500, 6],
+      ["a 429", () => Response.json({ error: { code: 429 } }, { status: 429 }), 429, 6],
       [
         "a network error",
         () => {
           throw new TypeError("fetch failed");
         },
         null,
+        6,
       ],
       [
         "the timeout",
@@ -292,23 +296,36 @@ describe("POST /api/cards/:cardId/grade", () => {
           throw new DOMException("The operation timed out.", "TimeoutError");
         },
         null,
+        1,
+      ],
+      [
+        "a 429 with a Retry-After over 8 s",
+        () =>
+          Response.json(
+            { error: { code: 429 } },
+            { status: 429, headers: { "retry-after": "30" } },
+          ),
+        429,
+        1,
       ],
       [
         "a response that isn't JSON",
         () => Response.json({ choices: [{ message: { content: "not json at all" } }] }),
         200,
+        6,
       ],
       [
         "a response that doesn't fit the schema",
         () => completion({ rating: "perfect", feedback: "x", missing: [], mistakes: [] }),
         200,
+        6,
       ],
-      ["a body with no choices", () => Response.json({ error: { code: 502 } }), 200],
+      ["a body with no choices", () => Response.json({ error: { code: 502 } }), 200, 6],
     ];
 
-    for (const [what, answer, status] of failures) {
-      test(`answers 502 grading_failed on ${what}, logging the status and the Model only`, async () => {
-        const { app, cookie } = await signedIn(openRouter(answer));
+    for (const [what, answer, status, attempts] of temporary) {
+      test(`answers 502 grading_failed on ${what} after ${attempts} attempt(s), logging the status and the Model only`, async () => {
+        const { app, cookie, stub } = await signedIn(openRouter(answer));
         await send(app, "PATCH", "/api/settings", { model: "google/gemini-3.8-flash" }, cookie);
         const deck = await createDeck(app, cookie);
         const card = await createCard(app, cookie, deck.id, {
@@ -321,9 +338,15 @@ describe("POST /api/cards/:cardId/grade", () => {
 
         expect(res.status).toBe(502);
         expect(await codeOf(res)).toBe("grading_failed");
-        const failure = logs.find((record) => record.category.join(".") === "banki.grader");
-        expect(failure?.level).toBe("warning");
-        expect(failure?.properties).toMatchObject({ status, model: "google/gemini-3.8-flash" });
+        expect(stub.chats).toHaveLength(attempts);
+        const failures = logs.filter((record) => record.category.join(".") === "banki.grader");
+        expect(failures).toHaveLength(attempts);
+        expect(failures.map((record) => record.level)).toEqual(Array(attempts).fill("warning"));
+        expect(failures.map((record) => record.properties)).toEqual(
+          failures.map((_, i) =>
+            expect.objectContaining({ attempt: i + 1, status, model: "google/gemini-3.8-flash" }),
+          ),
+        );
         const logged = JSON.stringify(logs.map((record) => [record.message, record.properties]));
         for (const secret of [
           "secret front",
@@ -336,6 +359,117 @@ describe("POST /api/cards/:cardId/grade", () => {
         }
       });
     }
+
+    test("answers the grade when a retry succeeds", async () => {
+      let calls = 0;
+      const { app, cookie, stub } = await signedIn(
+        openRouter(() => {
+          calls += 1;
+          return calls < 3 ? new Response("", { status: 503 }) : completion(GOOD);
+        }),
+      );
+      const { card } = await aCard(app, cookie);
+
+      const res = await gradeCard(app, cookie, card.id, "2x");
+
+      expect(res.status).toBe(200);
+      expect(GradeResponse.parse(await res.json()).rating).toBe("good");
+      expect(stub.chats).toHaveLength(3);
+    });
+
+    const permanent: [number, string, string][] = [
+      [401, "api_key_refused", "OpenRouter didn't accept your API key. Check it in Settings."],
+      [402, "no_credits", "Your OpenRouter account is out of credits. Add some, then try again."],
+      [
+        404,
+        "model_unavailable",
+        "OpenRouter can't run Gemini 3.8 Flash right now. Pick another Model in Settings.",
+      ],
+      [400, "grading_refused", "OpenRouter refused to grade this answer. Rate it yourself."],
+      [403, "grading_refused", "OpenRouter refused to grade this answer. Rate it yourself."],
+      [413, "grading_refused", "OpenRouter refused to grade this answer. Rate it yourself."],
+    ];
+
+    for (const [status, code, message] of permanent) {
+      test(`answers 502 ${code} on a ${status} at once, with no retry`, async () => {
+        const { app, cookie, stub } = await signedIn(
+          openRouter(() => Response.json({ error: { code: status } }, { status })),
+        );
+        await send(app, "PATCH", "/api/settings", { model: "google/gemini-3.8-flash" }, cookie);
+        const { card } = await aCard(app, cookie);
+
+        const res = await gradeCard(app, cookie, card.id, "2x");
+
+        expect(res.status).toBe(502);
+        expect(ApiError.parse(await res.json()).error).toEqual({ code, message });
+        expect(stub.chats).toHaveLength(1);
+      });
+    }
+
+    test("keeps the API key after a 401: still set, with its last four", async () => {
+      const { app, cookie } = await signedIn(
+        openRouter(() => Response.json({ error: { code: 401 } }, { status: 401 })),
+      );
+      const { card } = await aCard(app, cookie);
+
+      await gradeCard(app, cookie, card.id, "2x");
+
+      const res = await send(app, "GET", "/api/settings", undefined, cookie);
+      expect(await res.json()).toMatchObject({
+        apiKey: { state: "set", lastFour: API_KEY.slice(-4) },
+      });
+    });
+
+    test("asks OpenRouter again for the next Card after a permanent error", async () => {
+      const { app, cookie, stub } = await signedIn(
+        openRouter(() => Response.json({ error: { code: 402 } }, { status: 402 })),
+      );
+      const { deck, card } = await aCard(app, cookie);
+      const other = await createCard(app, cookie, deck.id, { front: "1 + 1", back: "2" });
+
+      expect(await codeOf(await gradeCard(app, cookie, card.id, "2x"))).toBe("no_credits");
+      expect(await codeOf(await gradeCard(app, cookie, other.id, "2"))).toBe("no_credits");
+      expect(stub.chats).toHaveLength(2);
+    });
+
+    test("stops retrying once the client aborts the request", async () => {
+      const controller = new AbortController();
+      const waits: number[] = [];
+      let calls = 0;
+      const booted = boot(
+        {},
+        {
+          openRouterFetch: async (url) => {
+            if (url === "https://openrouter.ai/api/v1/key") return Response.json({ data: {} });
+            calls += 1;
+            return new Response("", { status: 500 });
+          },
+          // The client gives up during the first wait, which ends with it.
+          graderWait: (ms, signal) => {
+            waits.push(ms);
+            controller.abort();
+            return signal?.aborted
+              ? Promise.resolve()
+              : new Promise((resolve) => signal?.addEventListener("abort", () => resolve()));
+          },
+        },
+      );
+      const cookie = await setUp(booted);
+      await send(booted.app, "PUT", "/api/settings/api-key", { apiKey: API_KEY }, cookie);
+      const { card } = await aCard(booted.app, cookie);
+
+      await Promise.resolve(
+        booted.app.request(`/api/cards/${card.id}/grade`, {
+          method: "POST",
+          headers: { "content-type": "application/json", origin: ORIGIN, cookie },
+          body: JSON.stringify({ answer: "2x" }),
+          signal: controller.signal,
+        }),
+      ).catch(() => undefined);
+
+      expect(calls).toBe(1);
+      expect(waits).toHaveLength(1);
+    });
   });
 
   test("asks the User's Model, for strict structured output from providers that honour it, at temperature 0 if it takes one", async () => {
