@@ -31,7 +31,8 @@ import { ensureLibrary, placePath } from "@/lib/folders";
 import { deckRetentionLabel } from "@/lib/retention";
 import { useSelection } from "@/lib/selection";
 import { settingsQueryOptions } from "@/lib/settings";
-import { studyOverviewQueryOptions } from "@/lib/study-overview";
+import { openProgress } from "@/lib/session-store";
+import { FRESH, studyOverviewQueryOptions } from "@/lib/study-overview";
 import { deckSearch, rememberDeckSearch } from "@/lib/tags";
 import { cn } from "@/lib/utils";
 
@@ -57,10 +58,17 @@ export const Route = createFileRoute("/_shell/decks/$deckId")({
     Promise.all([
       queryClient.ensureQueryData(deckQueryOptions(deckId)),
       queryClient.ensureQueryData(cardsQueryOptions(deckId)),
-      queryClient.ensureQueryData(settingsQueryOptions()),
       ensureLibrary(queryClient),
-      // Never thrown: without it, the Study card is just the Study pill.
-      queryClient.prefetchQuery(studyOverviewQueryOptions(deckId)),
+      // The overview is of the open Session, which the Session timeout says is open.
+      queryClient.ensureQueryData(settingsQueryOptions()).then(({ settings }) =>
+        // Never thrown: without it, the Study card is just the Study pill.
+        queryClient.prefetchQuery(
+          studyOverviewQueryOptions(
+            deckId,
+            openProgress(deckId, settings.sessionTimeoutMinutes) ?? FRESH,
+          ),
+        ),
+      ),
     ]),
   component: DeckPage,
 });

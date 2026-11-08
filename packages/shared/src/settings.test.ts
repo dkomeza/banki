@@ -61,6 +61,16 @@ describe("SettingsPatch's Learning limit", () => {
   });
 });
 
+describe("SettingsPatch's Session timeout", () => {
+  test.each([5, 30, 240])("takes %d", (sessionTimeoutMinutes) => {
+    expect(SettingsPatch.parse({ sessionTimeoutMinutes })).toEqual({ sessionTimeoutMinutes });
+  });
+
+  test.each([4, 241, 0, 12.5, "30", null])("refuses %j", (sessionTimeoutMinutes) => {
+    expect(SettingsPatch.safeParse({ sessionTimeoutMinutes }).success).toBe(false);
+  });
+});
+
 describe("SettingsPatch's model", () => {
   test("takes a Model on the list", () => {
     expect(SettingsPatch.parse({ model: "openai/gpt-6-luna" })).toEqual({

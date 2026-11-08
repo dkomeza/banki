@@ -413,7 +413,7 @@ gh workflow run slug-preview.yml -f branch=proto/blue -f slug=blue -f ttl_hours=
 
 The workflow resolves the branch to its head now and builds that commit's images. The Slug Preview doesn't follow later pushes: dispatch it again to redeploy it at the branch's new head, from scratch. It refuses, before it builds or creates anything:
 
-- a Slug that isn't 2 to 40 lowercase letters, digits and single hyphens, starting with a letter and ending with a letter or digit; one starting with `pr-`; and the reserved `www`, `api`, `app`, `admin`, `auth`, `mail`, `status`, `preview`, `previews`, `prod`, `production`, `staging` and `banki`;
+- a Slug that isn't 2 to 40 lowercase letters, digits and single hyphens, starting with a letter and ending with a letter or digit; one starting with `pr-`; and the reserved `www`, `api`, `app`, `admin`, `auth`, `mail`, `status`, `preview`, `previews`, `edge`, `prod`, `production`, `staging`, `banki` and `runner`;
 - a branch that doesn't exist, and `dependabot/*` branches;
 - a `ttl_hours` that isn't a whole number from 1 to 336;
 - a Slug another branch holds: `slug <slug> is held by branch <branch>`. A Slug is held by the branch of its newest deployment until that one is inactive. Take it down first to give it to another branch.
@@ -556,7 +556,7 @@ The cookie was `__Secure-better-auth.session_token` before. The API ignores that
 
 ## Long-lived installations
 
-Beside the Previews, two [Long-lived installations](CONTEXT.md) run on the home server ([ADR-0017](docs/adr/0017-edge-follows-main-and-releases-promote-its-images-to-production.md)): [Edge](CONTEXT.md) at `preview.banki.dkomeza.com`, which runs the newest commit of `main`, and [Production](CONTEXT.md) at `banki.dkomeza.com`, which runs the newest [Release](#releases) and holds the User's real data. Unlike a Preview, each keeps its data across deploys and migrates it in place.
+Beside the Previews, two [Long-lived installations](CONTEXT.md) run on the home server ([ADR-0017](docs/adr/0017-edge-follows-main-and-releases-promote-its-images-to-production.md)): [Edge](CONTEXT.md) at `edge.banki.dkomeza.com`, which runs the newest commit of `main`, and [Production](CONTEXT.md) at `banki.dkomeza.com`, which runs the newest [Release](#releases) and holds the User's real data. Unlike a Preview, each keeps its data across deploys and migrates it in place.
 
 They have a Pangolin site of their own, with its own Newt, on the `banki-long-lived` network (internal, `172.31.254.0/24`, Newt at `172.31.254.2`, and the rest handed out from `172.31.254.128/25`). Edge's and Production's `web` join it; the pull agent and every Preview never do, so no Preview can reach either of them.
 
@@ -582,7 +582,7 @@ Run `bootstrap` before the agent takes the update that deploys Edge and Producti
 `bootstrap` first prints the steps to do by hand, waiting for Enter after each:
 
 - In Pangolin's dashboard, a new site of type Newt for the Long-lived installations only: never the Previews' site, never the homelab one.
-- Two HTTP resources under the `banki.dkomeza.com` domain, both on that site and with SSO off (Banki's own sign-in is the gate): `Banki Edge` at the subdomain `preview`, targeting `http`, `banki-edge-web-1`, port `8080`; and `Banki Production` at the base domain itself, targeting `http`, `banki-production-web-1`, port `8080`.
+- Two HTTP resources under the `banki.dkomeza.com` domain, both on that site and with SSO off (Banki's own sign-in is the gate): `Banki Edge` at the subdomain `edge`, targeting `http`, `banki-edge-web-1`, port `8080`; and `Banki Production` at the base domain itself, targeting `http`, `banki-production-web-1`, port `8080`.
 - On Cloudflare, a DNS record for `banki.dkomeza.com` itself pointing at the VPS, which `*.banki.dkomeza.com` doesn't cover, and a VPS certificate that covers it too.
 
 Then it asks for Newt's `PANGOLIN_ENDPOINT` (the Previews' Newt's by default), ID and secret, and for Edge's Email and Password. Edge's Password is yours to pick, 8 to 128 characters, typed twice; it can't be the Previews' shared Password, which every Preview can read.
@@ -591,7 +591,7 @@ It writes `long-lived-newt.env`, `edge-email` and `edge-password` to `$BANKI_PRE
 
 Run `bootstrap` again to change a value: each one it has is the default, so Enter keeps it, and it shows the Pangolin and DNS steps only when you ask. When Edge is running (`banki-edge-api-1`), a new Password is set in Edge first, with `banki reset-password --password-stdin`, and saved only once that worked, which signs out every Edge device. A new Email is saved too, but a running Edge keeps its current one until it's reset: `bootstrap` says so and prints the command ([Resetting Edge](#resetting-edge)). Run it as a user who can use Docker: when Docker can't say whether Edge is running, it stops without saving anything. After changing Newt's settings, run `docker compose -f deploy/long-lived/compose.yaml up -d` again.
 
-The two Pangolin resources are made by hand, and the agent has no business with them. Its org API key reaches the whole org, so its code is the guard: it only ever touches a resource at a Preview's host, and `preview` is a reserved Slug while the bare `banki.dkomeza.com` is no Slug at all.
+The two Pangolin resources are made by hand, and the agent has no business with them. Its org API key reaches the whole org, so its code is the guard: it only ever touches a resource at a Preview's host, and `edge` is a reserved Slug while the bare `banki.dkomeza.com` is no Slug at all.
 
 ### How the agent deploys them
 
@@ -606,7 +606,7 @@ A deploy, which the deployment shows `in_progress`, `starting <sha>`:
 1. **First boot**, when the volume doesn't exist: the agent creates it, labelled with the deployment. On Edge it then runs `banki setup` with `edge-email` and `edge-password` (the Password on stdin only) and `banki seed`. Production does neither: it starts empty, for your Setup (below).
 2. **Any later deploy**: it pulls the new images, stops the running api and web (a few seconds of downtime), and takes a **Snapshot** of `banki.db` with `VACUUM INTO`, so the Snapshot holds every write the old version made.
 3. It starts the new images with `up --wait`, so the api migrates the data in place, then checks that `/api/health` through `web` reports the deployment's commit.
-4. On success, the deployment shows `success`, `deployed <sha>`, linking to `https://preview.banki.dkomeza.com` or `https://banki.dkomeza.com`. The installation's older Snapshots beyond the newest five, and its local images other than this deploy's and the previous one's, are removed.
+4. On success, the deployment shows `success`, `deployed <sha>`, linking to `https://edge.banki.dkomeza.com` or `https://banki.dkomeza.com`. The installation's older Snapshots beyond the newest five, and its local images other than this deploy's and the previous one's, are removed.
 
 The agent never brings back an installation someone stopped, and never retries a deployment that ended. A deploy cut short by a restart, though, is done again, with the Snapshot it took before its first try. The agent keeps no state: the images to roll back to are the newest `success` deployment's.
 
@@ -715,7 +715,7 @@ It is one Compose project, `banki-runner`, with three containers from one image:
 
 The broker and the runner share only the volume holding the Broker's socket, which the Dashboard mounts too. A Stage runs `claude` with permission prompts skipped and reads untrusted text, so it could be talked into sending whatever it can read: it can mint tokens through the socket, but it can't read the key that makes them, and every token it can get dies on its own. A GitHub token lasts an hour. A Linear token is minted when its Stage starts and revoked when it ends, or 4 hours after it was minted, whichever comes first.
 
-A Stage still holds the Claude, GitHub and Linear tokens while it runs, and has open internet access: there is no egress allowlist (ADR-0012 records the trade-off). The host's firewall rules for the runner's network keep a Stage from the home server's ports and the home LAN ([below](#keeping-it-off-the-host-and-the-lan)), and the Previews' internal networks keep it from the Previews, but nothing keeps it from sending what it reads, so the Stages and the Dispatcher take input only from the Maintainer in Linear, and from `claude-review` on GitHub: its check, its summary comment by `github-actions[bot]` and its inline threads by `claude[bot]` (`.claude/skills/work-issue/references/stages.md` § Input).
+A Stage still holds the Claude, GitHub and Linear tokens while it runs, and has open internet access: there is no egress allowlist (ADR-0012 records the trade-off). The host's firewall rules for the runner's network keep a Stage from the home server's ports and the home LAN ([below](#keeping-it-off-the-host-and-the-lan)), and the Previews' internal networks keep it from the Previews, but nothing keeps it from sending what it reads, so the Stages and the Dispatcher take input only from the Maintainer in Linear (`.claude/skills/work-issue/references/stages.md` § Input).
 
 | Path                          | What it is                                                                                                                                                               |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -765,8 +765,6 @@ On GitHub the Runner is a private App installed on this repo only. In **Settings
 5. **Install App**, on `dkomeza/banki` only (**Only select repositories**).
 
 The Broker finds the installation itself. Every token it mints is for this repo alone, with the App's permissions, and lasts an hour; it mints a new one when under 15 minutes remain. Stages commit and push as `banki-runner[bot]`, with its noreply email, and `gh` and git ask the Broker for a token on every call, so a Stage outlives any one token.
-
-`claude-review` runs for the App's pushes: `.github/workflows/claude-review.yml` names it in `allowed_bots`, and no other bot.
 
 ### GitHub: the merge guard
 
@@ -881,13 +879,13 @@ An image built without `BANKI_RUNNER_COMMIT` counts as behind, since nothing say
 
 Each tick, the Dispatcher looks at the issues of project Banki and decides each one's next move from its status, its assignee, its closing comments and GitHub, with no LLM ([ADR-0013](docs/adr/0013-linear-statuses-drive-the-stages-through-a-dispatcher-without-an-llm.md); `docs/agents/issue-tracker.md` § Statuses):
 
-| Status    | Next                                                                                                                                                                                                                                                                                                                                  |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Todo      | The implement Stage                                                                                                                                                                                                                                                                                                                   |
-| In Design | The design Stage, unless a round is built since the issue came in from Backlog or Design Review: then the wait for its Variants' Slug Previews, and the hand-off to Design Review                                                                                                                                                     |
-| In Review | The Acceptance fix, after a move back from Acceptance. Otherwise a review round, once `claude-review` has finished on the head SHA, with something to triage and no round on that SHA yet. Otherwise the wait for the PR Preview, and the hand-off to Acceptance, once `claude-review` passes and every thread it started is resolved |
+| Status    | Next                                                                                                                                                                              |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Todo      | The implement Stage                                                                                                                                                               |
+| In Design | The design Stage, unless a round is built since the issue came in from Backlog or Design Review: then the wait for its Variants' Slug Previews, and the hand-off to Design Review |
+| In Review | The Acceptance fix, after a move back from Acceptance. Otherwise the wait for the PR Preview, and the hand-off to Acceptance                                                      |
 
-It leaves alone any issue that is assigned, and any In Progress issue none of its supervisors started. The waits, the hand-offs and the stops cost no tokens, so they happen on every tick, in or out of the window; a wait that fails, or runs past its deadline (`.claude/skills/work-issue/references/stages.md` § Waits), is a stop on you. A state that fits none of the rows, such as a round that ran on this head SHA without the rounds ending, is a stop too, saying what it found.
+It leaves alone any issue that is assigned, and any In Progress issue none of its supervisors started. The waits, the hand-offs and the stops cost no tokens, so they happen on every tick, in or out of the window; a wait that fails, or runs past its deadline (`.claude/skills/work-issue/references/stages.md` § Waits), is a stop on you. A state that fits none of the rows, such as an In Review issue whose pull request is closed, is a stop too, saying what it found.
 
 Ready Stages start closest to Done first (In Review, then Todo, then In Design), then by Linear priority, then oldest. Each one runs under a **supervisor**, a detached `runner supervise`, which outlives the tick: it takes the gate's reading, looks at the issue again (and starts nothing if it was assigned or moved since the tick looked), sets it In Progress, runs the Stage as `runner stage` does for at most 3 hours of running time (SIGTERM to `claude` and everything it started, then SIGKILL a minute later), takes the reading again, and posts the Stage's closing comment and sets the next status from its result. At most `BANKI_RUNNER_MAX_STAGES` (2) run at once, paused ones included, and never two on one issue.
 
@@ -971,7 +969,7 @@ In Design Review and Acceptance a comment alone starts nothing: moving the issue
 ### Running one Stage by hand
 
 ```sh
-docker compose -f deploy/runner/compose.yaml exec runner runner stage <design|implement|review-round|acceptance-fix> BAN-N
+docker compose -f deploy/runner/compose.yaml exec runner runner stage <design|implement|acceptance-fix> BAN-N
 ```
 
 It runs the Stage's prompt (`.claude/skills/work-issue/stages/<kind>.md`) on the issue, headless, in the clone of `main`, as a Dispatcher-started one would. It gets a Linear token from the Broker for this Stage alone and gives `claude` a per-run MCP config (`0600`, deleted afterwards) whose one server is `linear-banki`, then runs `claude -p --output-format stream-json --verbose --dangerously-skip-permissions --strict-mcp-config --mcp-config <file> --add-dir /work/banki-worktrees` with the Claude token and no `ANTHROPIC_API_KEY`. It runs in the foreground and prints one line per event, prints the Stage's result (`<wt>/.ui/stage-result.json`) at the end, and revokes the Linear token whatever happens, Ctrl-C included. It never changes the issue's status or assignee, and posts no closing comment: that is the Dispatcher's job, so prefer `run-now`. `exec -d` instead of `exec` runs it detached.
@@ -992,6 +990,20 @@ The Broker logs every token it mints or revokes, by ID, never the token itself:
 ```sh
 docker compose -f deploy/runner/compose.yaml logs broker
 ```
+
+## The Grader's eval
+
+The Grader (`apps/api/src/grader/`) is checked against the real OpenRouter by an eval, never by a test: every test stubs OpenRouter. `apps/api/src/grader/eval/samples.ts` holds about ten Cards with a Written answer each and the Rating it should get (an equivalent form, a lost minus sign in a derivation, a Polish answer, a Card with an Image, a Grading note's "must", a blank-ish answer, a flawless one, and a few more). The eval grades every sample with every curated Model and prints a table of each Model's Rating beside the expected one, marking with ⚠ a Rating two or more steps off.
+
+Run it from the repo root with an OpenRouter key of your own; it spends a little of its credit:
+
+```sh
+OPENROUTER_API_KEY=sk-or-v1-… bun run --cwd apps/api grader:eval
+```
+
+It fails (exit code 1) when the default Model is two or more steps off on any sample; the other Models' results are for reading only, and a sample a Model failed to grade shows as `failed` without failing it (when the default Model fails some, a warning under the table says how many). With no `OPENROUTER_API_KEY` it skips with a note.
+
+The `Grader eval` workflow runs it on pull requests that change `apps/api/src/grader/**` or the Model list (`packages/shared/src/models.ts`), weekly on Mondays, and by hand (Actions → Grader eval → Run workflow), with the table in the job summary. It reads the key from the `OPENROUTER_API_KEY` repository secret, which the Maintainer adds (Settings → Secrets and variables → Actions); without it (before it is added, on Dependabot's pull requests and on forks) the job skips with a note and passes.
 
 ## Database migrations
 

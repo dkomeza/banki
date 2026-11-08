@@ -20,6 +20,7 @@ const DECK: Deck = {
   cardCount: 30,
   desiredRetention: null,
   macros: [],
+  answerMode: null,
 };
 
 // Saturday 31 October 2026.
@@ -98,6 +99,25 @@ describe("SummaryView", () => {
     expect(text(out)).toContain("20 still to study.");
     expect(out).toMatch(/<button[^>]*>[^<]*Keep studying<\/button>/);
     expect(text(out)).toContain("Back to deck");
+  });
+
+  test("ended by the Session timeout: says so, and offers only a new Session and Back to deck", () => {
+    const out = render({
+      ended: { minutes: 30 },
+      offer: undefined,
+      overview: { ...OVERVIEW, due: 12, new: 8 },
+    });
+
+    expect(text(out)).toContain("Session ended");
+    expect(text(out)).toContain("88%");
+    expect(text(out)).toContain("Session ended after 30 min without activity.");
+    expect(text(out)).not.toContain("Next:");
+    expect(text(out)).not.toContain("still to study");
+    expect(out).toMatch(/<button[^>]*>[^<]*Start a new session<\/button>/);
+    expect(text(out)).toContain("Back to deck");
+    expect(text(out)).not.toContain("Keep studying");
+    expect(text(out)).not.toContain("Learn");
+    expect(out.match(/<button/g)).toHaveLength(1);
   });
 
   test("a Session of New cards only leads with the Cards learned, and has no Recall rate", () => {

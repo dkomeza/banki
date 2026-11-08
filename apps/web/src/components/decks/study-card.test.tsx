@@ -17,11 +17,11 @@ const OVERVIEW: StudyOverview = {
   nextDue: { day: "2026-11-01", count: 14 },
 };
 
-function render(overview: StudyOverview | undefined) {
+function render(overview: StudyOverview | undefined, resuming = false) {
   const router = createRouter({ routeTree: createRootRoute(), history: createMemoryHistory() });
   return renderToStaticMarkup(
     <RouterContextProvider router={router}>
-      <StudyCardView deckId="d1" overview={overview} today="2026-10-31" />
+      <StudyCardView deckId="d1" overview={overview} today="2026-10-31" resuming={resuming} />
     </RouterContextProvider>,
   );
 }
@@ -65,6 +65,39 @@ describe("StudyCardView", () => {
     const out = render(undefined);
 
     expect(text(out)).not.toContain("today");
+    expect(out).toMatch(/<a[^>]*href="\/decks\/d1\/study"[^>]*>.*Study<\/a>/);
+  });
+
+  test("with an open Session, reads Continue, beside what resuming it brings", () => {
+    const out = render({ ...OVERVIEW, due: 3, new: 5 }, true);
+
+    expect(text(out)).toContain("8 cards today");
+    expect(text(out)).toContain("3 due · 5 new");
+    expect(out).toMatch(/<a[^>]*href="\/decks\/d1\/study"[^>]*>.*Continue<\/a>/);
+    expect(text(out)).not.toMatch(/\bStudy\b(?! card)/);
+  });
+
+  test("with an open Session holding only New cards back, stays enabled with the waiting line", () => {
+    const out = render({ ...OVERVIEW, due: 0, new: 0, newTotal: 37, estimateMs: 0 }, true);
+
+    expect(text(out)).toContain("Nothing due · 37 new waiting");
+    expect(text(out)).not.toContain("Nothing to study");
+    expect(out).not.toContain(' disabled=""');
+    expect(out).toMatch(/<a[^>]*href="\/decks\/d1\/study"[^>]*>.*Continue<\/a>/);
+  });
+
+  test("with an open Session and nothing at all to study, is as without one", () => {
+    const out = render({ ...OVERVIEW, due: 0, new: 0, newTotal: 0, estimateMs: 0 }, true);
+
+    expect(text(out)).toContain("Nothing to study");
+    expect(out).toMatch(/<button[^>]* disabled=""[^>]*>.*Study<\/button>/);
+    expect(text(out)).not.toContain("Continue");
+  });
+
+  test("without an open Session, reads Study", () => {
+    const out = render(OVERVIEW);
+
+    expect(text(out)).not.toContain("Continue");
     expect(out).toMatch(/<a[^>]*href="\/decks\/d1\/study"[^>]*>.*Study<\/a>/);
   });
 });

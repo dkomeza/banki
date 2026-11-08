@@ -12,7 +12,7 @@ const ready = (issue: string, status: string, fields: Partial<Ready> = {}): Read
   priority: 0,
   createdAt: "2026-10-01T00:00:00.000Z",
   stage:
-    status === STATUS.inReview ? "review-round" : status === STATUS.todo ? "implement" : "design",
+    status === STATUS.inReview ? "acceptance-fix" : status === STATUS.todo ? "implement" : "design",
   ...fields,
 });
 const reading = (sevenDay: number, fiveHour = 0.1): Reading => ({
@@ -23,7 +23,6 @@ const reading = (sevenDay: number, fiveHour = 0.1): Reading => ({
 const ESTIMATES: Record<StageKind, number> = {
   design: 0.05,
   implement: 0.1,
-  "review-round": 0.03,
   "acceptance-fix": 0.04,
 };
 const base = {
@@ -96,14 +95,14 @@ describe("what starts", () => {
   });
 
   test("lets a cheaper Stage start when the next one doesn't fit", () => {
-    // 0.5 + implement 0.1 is over 0.6; 0.5 + review-round 0.03 isn't.
+    // 0.5 + implement 0.1 is over 0.6; 0.5 + acceptance-fix 0.04 isn't.
     const verdicts = plan({
       ...base,
       reading: reading(0.5),
       ready: [
         ready("BAN-1", STATUS.todo, { priority: 2 }),
         ready("BAN-2", STATUS.inDesign),
-        ready("BAN-3", STATUS.inReview, { stage: "review-round" }),
+        ready("BAN-3", STATUS.inReview),
       ],
     });
 

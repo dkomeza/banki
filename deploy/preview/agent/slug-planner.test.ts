@@ -1016,11 +1016,18 @@ describe("Pangolin resources", () => {
   });
 
   test("neither pool ever owns Edge's or Production's resource, on any site or none", () => {
-    // `preview` is a reserved Slug, and the bare domain is no Slug: the
-    // Long-lived installations' resources are made by hand (ADR-0017), and the
-    // org API key could reach them, so only this code keeps the agent off them.
-    const hosts = ["preview.banki.dkomeza.com", "banki.dkomeza.com"];
-    const names = ["Banki Edge", "Banki Production", "banki-slug-preview", "banki-slug-banki"];
+    // `edge` is a reserved Slug, as is `preview`, Edge's old host, and the
+    // bare domain is no Slug: the Long-lived installations' resources are made
+    // by hand (ADR-0017), and the org API key could reach them, so only this
+    // code keeps the agent off them.
+    const hosts = ["edge.banki.dkomeza.com", "preview.banki.dkomeza.com", "banki.dkomeza.com"];
+    const names = [
+      "Banki Edge",
+      "Banki Production",
+      "banki-slug-edge",
+      "banki-slug-preview",
+      "banki-slug-banki",
+    ];
     const resources = hosts
       .flatMap((fullDomain) =>
         [[SITE], [OTHER_SITE], [OTHER_SITE, SITE], []].flatMap((siteIds) =>

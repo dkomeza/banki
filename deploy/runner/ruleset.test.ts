@@ -18,7 +18,10 @@ function program(): string {
   return found;
 }
 
-/** The `main` ruleset as `gh api repos/dkomeza/banki/rulesets/25304272` returned it on 2026-10-23. */
+/**
+ * The `main` ruleset as `gh api repos/dkomeza/banki/rulesets/25304272` returned it on 2026-10-23,
+ * less the `claude-review` required check and review thread resolution, dropped with the review rounds.
+ */
 const LIVE = {
   id: 25304272,
   name: "main",
@@ -38,7 +41,7 @@ const LIVE = {
         required_reviewers: [],
         require_code_owner_review: false,
         require_last_push_approval: false,
-        required_review_thread_resolution: true,
+        required_review_thread_resolution: false,
         require_extra_approval_for_unattributed_changes: true,
         allowed_merge_methods: ["squash"],
       },
@@ -49,7 +52,6 @@ const LIVE = {
         strict_required_status_checks_policy: false,
         do_not_enforce_on_create: false,
         required_status_checks: [
-          { context: "claude-review", integration_id: 15368 },
           { context: "test", integration_id: 15368 },
           { context: "check", integration_id: 15368 },
         ],

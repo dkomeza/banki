@@ -29,7 +29,6 @@ export const outcome = (label: Label): Html =>
 
 export const WAIT_NAMES: Record<Wait, string> = {
   "slug-previews": "the Slug Previews",
-  "claude-review": "claude-review",
   "pr-preview": "the PR Preview",
 };
 

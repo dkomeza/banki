@@ -41,6 +41,7 @@ const deck = (id: string, name: string, folderId: string | null): Deck => ({
   cardCount: 0,
   desiredRetention: null,
   macros: [],
+  answerMode: null,
 });
 
 // Languages and Maths › Analysis › Real, Archive empty, Organic at the Root.

@@ -4,6 +4,7 @@ import {
   DEFAULT_DESIRED_RETENTION,
   DEFAULT_LEARNING_LIMIT,
   DEFAULT_NEW_CARD_BATCH,
+  DEFAULT_SESSION_TIMEOUT_MINUTES,
   type Macro,
   type ModelId,
   type SettingsPatch,
@@ -36,6 +37,7 @@ type Row = Pick<
   | "desiredRetention"
   | "newCardBatch"
   | "learningLimit"
+  | "sessionTimeoutMinutes"
   | "macros"
 >;
 
@@ -50,6 +52,7 @@ const DEFAULT_ROW: Row = {
   desiredRetention: DEFAULT_DESIRED_RETENTION,
   newCardBatch: DEFAULT_NEW_CARD_BATCH,
   learningLimit: DEFAULT_LEARNING_LIMIT,
+  sessionTimeoutMinutes: DEFAULT_SESSION_TIMEOUT_MINUTES,
   macros: [],
 };
 
@@ -65,6 +68,7 @@ const rowOf = (db: Queryable, userId: string): Row =>
       desiredRetention: user_settings.desiredRetention,
       newCardBatch: user_settings.newCardBatch,
       learningLimit: user_settings.learningLimit,
+      sessionTimeoutMinutes: user_settings.sessionTimeoutMinutes,
       macros: user_settings.macros,
     })
     .from(user_settings)
@@ -105,8 +109,8 @@ export function setInitialMacros(db: Queryable, userId: string, macros: Macro[])
 /**
  * The User's Settings. The API key is stored encrypted with `cipher` and
  * never leaves through {@link get}: the browser sees only whether it is set,
- * and its last four characters. Only {@link graderSettings}, which no route
- * calls, returns it decrypted.
+ * and its last four characters. Only {@link graderSettings} returns it
+ * decrypted, for the Grader's route to send to OpenRouter, never to answer.
  */
 export function createSettingsRepository(db: Queryable, cipher: ApiKeyCipher) {
   const apiKeyOf = (row: Row, userId: string): string | undefined =>
@@ -130,6 +134,7 @@ export function createSettingsRepository(db: Queryable, cipher: ApiKeyCipher) {
       desiredRetention: row.desiredRetention,
       newCardBatch: row.newCardBatch,
       learningLimit: row.learningLimit,
+      sessionTimeoutMinutes: row.sessionTimeoutMinutes,
       macros: row.macros,
     };
   };

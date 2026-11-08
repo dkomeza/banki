@@ -38,7 +38,7 @@ Done when every finding has a verdict.
 
 ## 6. Fix
 
-Fix the confirmed findings and any spec answers as the implementer's § Fixing says. Live, resume the implementer (SendMessage to its ID) with them, or, if it is gone (e.g. a new session), spawn a fresh `implementer` with the spec plus the findings; headless, fix them yourself. Same done-criterion as step 3, including `bun run ui down` in `<wt>` afterwards. The review rounds against the bots are the next review.
+Fix the confirmed findings and any spec answers as the implementer's § Fixing says. Live, resume the implementer (SendMessage to its ID) with them, or, if it is gone (e.g. a new session), spawn a fresh `implementer` with the spec plus the findings; headless, fix them yourself. Same done-criterion as step 3, including `bun run ui down` in `<wt>` afterwards.
 
 ## 7. Open the PR
 

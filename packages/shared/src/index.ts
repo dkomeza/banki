@@ -34,6 +34,8 @@ export {
   tagOf,
 } from "./tags";
 export {
+  ANSWER_MODES,
+  AnswerMode,
   CreateDeckRequest,
   DECK_DESCRIPTION_MAX_LENGTH,
   DECK_NAME_MAX_LENGTH,
@@ -41,7 +43,9 @@ export {
   DeckListResponse,
   DeckName,
   deckNameKey,
+  deckAnswerMode,
   DeckResponse,
+  DEFAULT_ANSWER_MODE,
   NameClashError,
   nextFreeName,
   OnClash,
@@ -91,12 +95,19 @@ export { ApiError } from "./error";
 export {
   effectiveMacros,
   expandMacros,
+  expandMacrosMapped,
   Macro,
+  type MappedText,
+  mappedBuilder,
   MACRO_DEFINITION_MAX_LENGTH,
   macroArity,
   MacroList,
   MACROS_MAX,
+  type SourcePiece,
+  sourceRange,
+  unmapped,
 } from "./macros";
+export { GradeRequest, GradeResponse, TextRange, WRITTEN_ANSWER_MAX_LENGTH } from "./grading";
 export { frontKey } from "./front-key";
 export { HealthResponse } from "./health";
 export {
@@ -149,6 +160,7 @@ export {
   RateCardResponse,
   Rating,
   RATINGS,
+  REVIEW_CAP_MS,
   REVIEW_KINDS,
   ReviewKind,
   ReviewRequest,
@@ -164,6 +176,7 @@ export {
 export {
   DEFAULT_LEARNING_LIMIT,
   DEFAULT_NEW_CARD_BATCH,
+  DEFAULT_SESSION_TIMEOUT_MINUTES,
   IntervalPreview,
   IntervalPreviews,
   LEARNING_LIMIT_MAX,
@@ -174,8 +187,12 @@ export {
   NewCardBatch,
   QUEUE_KINDS,
   QueueKind,
+  SESSION_TIMEOUT_MINUTES_MAX,
+  SESSION_TIMEOUT_MINUTES_MIN,
+  SessionTimeoutMinutes,
   StudyNextQuery,
   StudyNextResponse,
+  StudyOverviewQuery,
   StudyOverviewResponse,
   UndoReviewResponse,
 } from "./study";

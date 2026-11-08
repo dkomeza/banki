@@ -7,7 +7,7 @@ import {
   type ReviewRequest,
   type StudyDaySettings,
 } from "@banki/shared";
-import { type SQLWrapper, and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { type SQLWrapper, and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import type { Queryable } from "../db/database";
 import { card, deck, review, user_settings } from "../db/schema";
@@ -18,6 +18,7 @@ import {
   reschedule,
   scheduleOf,
 } from "../scheduling/fsrs";
+import { nextSeq } from "./write-order";
 
 export type ReviewRepository = ReturnType<typeof createReviewRepository>;
 
@@ -125,22 +126,26 @@ export function rescheduleCards(
   }
 }
 
-/** The newest Review of the User's Card `cardId`, with its ID, or undefined when it has none. */
+/**
+ * The newest Review of the User's Card `cardId` in their Write order (`seq`),
+ * with its ID and `seq`, or undefined when it has none.
+ */
 export function lastReviewOf(
   db: Queryable,
   userId: string,
   cardId: string,
-): (LastReview & { id: string }) | undefined {
+): (LastReview & { id: string; seq: number }) | undefined {
   const last = db
     .select({
       id: review.id,
+      seq: review.seq,
       reviewedAt: review.reviewedAt,
       rating: review.rating,
       before: review.cardBefore,
     })
     .from(review)
     .where(and(eq(review.userId, userId), eq(review.cardId, cardId)))
-    .orderBy(desc(review.reviewedAt), desc(sql`rowid`))
+    .orderBy(desc(review.seq))
     .limit(1)
     .get();
   return last === undefined ? undefined : { ...last, before: fromStored(last.before) };
@@ -208,6 +213,7 @@ export function createReviewRepository(db: Queryable) {
               kind: "self-rated",
               durationMs,
               cardBefore: toStored(before),
+              seq: nextSeq(tx, userId),
             })
             .run();
           tx.update(card)

@@ -1,11 +1,17 @@
+import { Database as SQLite } from "bun:sqlite";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 import { z } from "zod";
-import { type OpenedDatabase, openDatabase } from "./database";
+import { hasProgressResetSince } from "../repositories/progress-resets";
+import { lastReviewOf } from "../repositories/reviews";
+import { nextSeq } from "../repositories/write-order";
+import { type OpenedDatabase, type Queryable, openDatabase } from "./database";
 import { applyMigrations, migrationsFolder } from "./migrate";
+import * as schema from "./schema";
 
 let tempDir: string;
 let folder: string;
@@ -50,6 +56,9 @@ const COMMITTED = [
   "0012_soft_cap",
   "0013_macros",
   "0014_grading_notes",
+  "0015_progress_resets",
+  "0016_session_timeout",
+  "0017_answer_mode",
 ];
 
 /** The tables the committed migrations create. */
@@ -62,6 +71,7 @@ const COMMITTED_TABLES = [
   "deck",
   "folder",
   "image",
+  "progress_reset",
   "review",
   "user",
   "user_settings",
@@ -288,4 +298,226 @@ test("0014_grading_notes keeps every Card, with no Grading notes", () => {
   expect(opened.db.values(sql`SELECT id, front, back, grading_notes FROM card`)).toEqual([
     ["c", "f", "b", null],
   ]);
+});
+
+test("0015_progress_resets keeps every Card and Review, numbered in order for each User, with no Progress reset", () => {
+  const journalPath = join(folder, "meta", "_journal.json");
+  const full = readFileSync(journalPath, "utf8");
+  const journal = z
+    .looseObject({ entries: z.array(z.looseObject({ tag: z.string() })) })
+    .parse(JSON.parse(full));
+  writeFileSync(
+    journalPath,
+    JSON.stringify({
+      ...journal,
+      entries: journal.entries.filter((entry) => entry.tag < "0015_progress_resets"),
+    }),
+  );
+  applyMigrations(opened.db, folder);
+  opened.db.run(
+    sql`INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES ('u', 'n', 'u@x.y', 1, 0, 0)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO deck (id, user_id, name, name_key, created_at, updated_at) VALUES ('d', 'u', 'D', 'd', 0, 0)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO card (id, user_id, deck_id, front, back, created_at, updated_at, state) VALUES ('c', 'u', 'd', 'f', 'b', 0, 0, 'review')`,
+  );
+  // Another User, whose Reviews are numbered on their own, from 1.
+  opened.db.run(
+    sql`INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES ('v', 'n', 'v@x.y', 1, 0, 0)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO deck (id, user_id, name, name_key, created_at, updated_at) VALUES ('e', 'v', 'E', 'e', 0, 0)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO card (id, user_id, deck_id, front, back, created_at, updated_at, state) VALUES ('k', 'v', 'e', 'f', 'b', 0, 0, 'review')`,
+  );
+  opened.db.run(
+    sql`INSERT INTO review (id, user_id, card_id, deck_id, reviewed_at, rating, kind, duration_ms, card_before) VALUES ('v0', 'v', 'k', 'e', 0, 'good', 'self-rated', 0, '{}')`,
+  );
+  opened.db.run(
+    sql`INSERT INTO review (id, user_id, card_id, deck_id, reviewed_at, rating, kind, duration_ms, card_before) VALUES ('r', 'u', 'c', 'd', 0, 'good', 'self-rated', 0, '{}')`,
+  );
+  // Written later at an earlier moment, and at the same moment, as far as rowid tells.
+  opened.db.run(
+    sql`INSERT INTO review (id, user_id, card_id, deck_id, reviewed_at, rating, kind, duration_ms, card_before) VALUES ('r0', 'u', 'c', 'd', -1, 'good', 'self-rated', 0, '{}')`,
+  );
+  opened.db.run(
+    sql`INSERT INTO review (id, user_id, card_id, deck_id, reviewed_at, rating, kind, duration_ms, card_before) VALUES ('r1', 'u', 'c', 'd', 0, 'good', 'self-rated', 0, '{}')`,
+  );
+  opened.db.run(
+    sql`INSERT INTO review (id, user_id, card_id, deck_id, reviewed_at, rating, kind, duration_ms, card_before) VALUES ('v1', 'v', 'k', 'e', 1, 'good', 'self-rated', 0, '{}')`,
+  );
+
+  writeFileSync(journalPath, full);
+  expect(applyMigrations(opened.db, folder)).toEqual(
+    COMMITTED.slice(COMMITTED.indexOf("0015_progress_resets")),
+  );
+
+  expect(opened.db.values(sql`SELECT id, state FROM card ORDER BY id`)).toEqual([
+    ["c", "review"],
+    ["k", "review"],
+  ]);
+  expect(opened.db.values(sql`SELECT user_id, id, seq FROM review ORDER BY user_id, seq`)).toEqual([
+    ["u", "r0", 1],
+    ["u", "r", 2],
+    ["u", "r1", 3],
+    ["v", "v0", 1],
+    ["v", "v1", 2],
+  ]);
+  expect(opened.db.values(sql`SELECT id FROM progress_reset`)).toEqual([]);
+});
+
+test("0016_session_timeout keeps every row of Settings with the default Session timeout, and caps every Review at 2 minutes", () => {
+  // The database as the release before it left it: this migration and later ones not applied.
+  const journalPath = join(folder, "meta", "_journal.json");
+  const full = readFileSync(journalPath, "utf8");
+  const journal = z
+    .looseObject({ entries: z.array(z.looseObject({ tag: z.string() })) })
+    .parse(JSON.parse(full));
+  writeFileSync(
+    journalPath,
+    JSON.stringify({
+      ...journal,
+      entries: journal.entries.filter((entry) => entry.tag < "0016_session_timeout"),
+    }),
+  );
+  applyMigrations(opened.db, folder);
+  opened.db.run(
+    sql`INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES ('u', 'n', 'u@x.y', 1, 0, 0)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO user_settings (user_id, timezone, learning_limit) VALUES ('u', 'UTC', 15)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO deck (id, user_id, name, name_key, created_at, updated_at) VALUES ('d', 'u', 'D', 'd', 0, 0)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO card (id, user_id, deck_id, front, back, created_at, updated_at) VALUES ('c', 'u', 'd', 'f', 'b', 0, 0)`,
+  );
+  for (const [id, seq, durationMs] of [
+    ["short", 1, 4200],
+    ["cap", 2, 120_000],
+    ["long", 3, 600_000],
+  ] as const) {
+    opened.db.run(
+      sql`INSERT INTO review (id, user_id, card_id, deck_id, reviewed_at, rating, kind, duration_ms, card_before, seq) VALUES (${id}, 'u', 'c', 'd', 0, 'good', 'self-rated', ${durationMs}, '{}', ${seq})`,
+    );
+  }
+
+  writeFileSync(journalPath, full);
+  expect(applyMigrations(opened.db, folder)).toEqual(
+    COMMITTED.slice(COMMITTED.indexOf("0016_session_timeout")),
+  );
+
+  expect(
+    opened.db.values(
+      sql`SELECT user_id, timezone, learning_limit, session_timeout_minutes FROM user_settings`,
+    ),
+  ).toEqual([["u", "UTC", 15, 30]]);
+  expect(opened.db.values(sql`SELECT id FROM card`)).toEqual([["c"]]);
+  expect(opened.db.values(sql`SELECT id, duration_ms FROM review ORDER BY seq`)).toEqual([
+    ["short", 4200],
+    ["cap", 120_000],
+    ["long", 120_000],
+  ]);
+  // The new column refuses what is out of range.
+  for (const bad of [
+    sql`UPDATE user_settings SET session_timeout_minutes = 4`,
+    sql`UPDATE user_settings SET session_timeout_minutes = 241`,
+  ]) {
+    expect(() => opened.db.run(bad)).toThrow();
+  }
+});
+
+test("0017_answer_mode keeps every Deck and Card, each Deck following Settings", () => {
+  // The database as the release before it left it: this migration and later ones not applied.
+  const journalPath = join(folder, "meta", "_journal.json");
+  const full = readFileSync(journalPath, "utf8");
+  const journal = z
+    .looseObject({ entries: z.array(z.looseObject({ tag: z.string() })) })
+    .parse(JSON.parse(full));
+  writeFileSync(
+    journalPath,
+    JSON.stringify({
+      ...journal,
+      entries: journal.entries.filter((entry) => entry.tag < "0017_answer_mode"),
+    }),
+  );
+  applyMigrations(opened.db, folder);
+  opened.db.run(
+    sql`INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES ('u', 'n', 'u@x.y', 1, 0, 0)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO deck (id, user_id, name, name_key, created_at, updated_at, desired_retention) VALUES ('d', 'u', 'D', 'd', 0, 0, 85)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO card (id, user_id, deck_id, front, back, created_at, updated_at) VALUES ('c', 'u', 'd', 'f', 'b', 0, 0)`,
+  );
+
+  writeFileSync(journalPath, full);
+  expect(applyMigrations(opened.db, folder)).toEqual(
+    COMMITTED.slice(COMMITTED.indexOf("0017_answer_mode")),
+  );
+
+  expect(opened.db.values(sql`SELECT id, desired_retention, answer_mode FROM deck`)).toEqual([
+    ["d", 85, null],
+  ]);
+  expect(opened.db.values(sql`SELECT id FROM card`)).toEqual([["c"]]);
+  // The new column takes a mode, and refuses anything else.
+  opened.db.run(sql`UPDATE deck SET answer_mode = 'write'`);
+  opened.db.run(sql`UPDATE deck SET answer_mode = 'self-rate'`);
+  expect(() => opened.db.run(sql`UPDATE deck SET answer_mode = 'grade'`)).toThrow();
+});
+
+test("a Card's newest Review, its Progress resets since and the next place in the Write order are found through an index, not the User's whole history", () => {
+  applyMigrations(opened.db, folder);
+  // The SQL each one builds, as it runs, planned with its own parameters.
+  const queries: { query: string; params: unknown[] }[] = [];
+  const client = new SQLite(join(tempDir, "data", "banki.db"));
+  const logged = drizzle({
+    client,
+    schema,
+    logger: { logQuery: (query, params) => queries.push({ query, params }) },
+  });
+  const plansOf = (run: (db: Queryable) => unknown) => {
+    queries.length = 0;
+    run(logged);
+    return queries.map(({ query, params }) => {
+      const [first = "", ...rest] = query.split("?");
+      const bound = sql.join([
+        sql.raw(`EXPLAIN QUERY PLAN ${first}`),
+        ...rest.flatMap((part, i) => [sql`${params[i]}`, sql.raw(part)]),
+      ]);
+      return opened.db
+        .values<[number, number, number, string]>(bound)
+        .map(([, , , detail]) => detail);
+    });
+  };
+
+  expect(plansOf((db) => lastReviewOf(db, "u", "c"))).toEqual([
+    ["SEARCH review USING INDEX review_card_id_user_id_seq (card_id=? AND user_id=?)"],
+  ]);
+  // Undo's check for a Progress reset since.
+  expect(plansOf((db) => hasProgressResetSince(db, "u", "c", 1))).toEqual([
+    [
+      "SEARCH progress_reset USING INDEX progress_reset_card_id_user_id_seq (card_id=? AND user_id=? AND seq>?)",
+    ],
+  ]);
+  expect(plansOf((db) => nextSeq(db, "u"))).toEqual([
+    ["SEARCH review USING COVERING INDEX review_user_id_seq (user_id=?)"],
+    ["SEARCH progress_reset USING COVERING INDEX progress_reset_user_id_seq (user_id=?)"],
+  ]);
+  client.close();
+});
+
+test("0015 leaves the review table only the indexes a query uses", () => {
+  applyMigrations(opened.db, folder);
+
+  expect(
+    opened.db.values(
+      sql`SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'review' AND sql IS NOT NULL ORDER BY name`,
+    ),
+  ).toEqual([["review_card_id_user_id_seq"], ["review_deck_id"], ["review_user_id_seq"]]);
 });

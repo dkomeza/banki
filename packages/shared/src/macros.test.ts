@@ -2,11 +2,13 @@ import { describe, expect, test } from "bun:test";
 import {
   effectiveMacros,
   expandMacros,
+  expandMacrosMapped,
   type Macro,
   MACRO_DEFINITION_MAX_LENGTH,
   macroArity,
   MacroList,
   MACROS_MAX,
+  sourceRange,
 } from "./macros";
 
 const m = (name: string, definition: string): Macro => ({ name, definition });
@@ -190,5 +192,61 @@ describe("expandMacros", () => {
 
   test("changes nothing without Macros", () => {
     expect(expandMacros("$\\R$", [])).toBe("$\\R$");
+  });
+});
+
+describe("expandMacrosMapped", () => {
+  const macros = [m("\\R", "\\mathbb{R}"), m("\\norm", "\\left\\| #1 \\right\\|")];
+
+  /** What `quote` in the expansion of `side` maps back to in `side`. */
+  function mapBack(side: string, quote: string, list = macros) {
+    const mapped = expandMacrosMapped(side, list);
+    const at = mapped.text.indexOf(quote);
+    if (at === -1) throw new Error(`${quote} isn't in ${mapped.text}`);
+    const range = sourceRange(mapped, at, at + quote.length);
+    return range === undefined ? undefined : side.slice(range.from, range.to);
+  }
+
+  test("expands as expandMacros does", () => {
+    for (const side of ["Let $x \\in \\R$.", "$\\norm{x + y}$ and \\R", "no math", ""]) {
+      expect(expandMacrosMapped(side, macros).text).toBe(expandMacros(side, macros));
+    }
+  });
+
+  test("maps text outside Formulas, and Formulas with no Macro, character for character", () => {
+    expect(mapBack("Let $x \\in \\R$, so $y$ too.", "so $y$")).toBe("so $y$");
+    expect(mapBack("Let $x \\in \\R$, so $y$ too.", "Let $x")).toBe("Let $x");
+    expect(mapBack("plain", "lai", [])).toBe("lai");
+  });
+
+  test("maps a whole Macro's expansion back to the Macro as written", () => {
+    expect(mapBack("Let $x \\in \\R^n$.", "\\mathbb{R}^n")).toBe("\\R^n");
+    expect(mapBack("Let $x \\in \\R^n$.", "x \\in \\mathbb{R}")).toBe("x \\in \\R");
+  });
+
+  test("widens part of a Macro's expansion to the whole Macro", () => {
+    expect(mapBack("Let $x \\in \\R$.", "mathbb")).toBe("\\R");
+    expect(mapBack("$\\norm{x + y}$", "\\left")).toBe("\\norm{x + y}");
+  });
+
+  test("maps an argument's own tokens to themselves", () => {
+    expect(mapBack("$\\norm{x + y}$", "x + y")).toBe("x + y");
+    expect(mapBack("$\\norm{x + y}$", "+")).toBe("+");
+  });
+
+  test("maps a Macro inside a Macro to the outer Macro as written", () => {
+    const nested = [...macros, m("\\nR", "\\norm{\\R}")];
+    expect(mapBack("a $\\nR$ b", "mathbb", nested)).toBe("\\nR");
+  });
+
+  test("maps a Formula past the expansion limit as written", () => {
+    expect(mapBack("$\\loop$", "loop", [m("\\loop", "\\loop x")])).toBe("loop");
+  });
+
+  test("maps a space put in after a control word to nothing on its own", () => {
+    const mapped = expandMacrosMapped("$\\x\\y$", [m("\\x", "\\alpha"), m("\\y", "b")]);
+    expect(mapped.text).toBe("$\\alpha b$");
+    expect(sourceRange(mapped, 7, 8)).toBeUndefined();
+    expect(sourceRange(mapped, 7, 9)).toEqual({ from: 3, to: 5 });
   });
 });
