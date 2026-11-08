@@ -8,6 +8,7 @@ import {
   imageFormatOf,
   imageTooLargeMessage,
 } from "@banki/shared";
+import { createContext } from "react";
 import { type ApiClient, api } from "./api";
 import { CANT_REACH } from "./decks";
 
@@ -20,13 +21,22 @@ export const IMAGE_ACCEPT = Object.values(IMAGE_FORMATS)
 export const imageUrl = (file: string) => `/api/images/${file}`;
 
 /**
- * The `src` an image in a Card's Markdown loads: an Image's reference,
- * `images/<file>`, resolves to where the API serves it (ADR-0019), and any
- * other URL stays as written.
+ * Where the file an Image reference names is served from: the API's Images,
+ * unless an Import's preview serves the zip's images it staged.
  */
-export function imageSrc(url: string): string {
+export type ImageFiles = (file: string) => string;
+
+/** The {@link ImageFiles} the Cards inside it, and their editors, load Images from. */
+export const ImageFilesContext = createContext<ImageFiles>(imageUrl);
+
+/**
+ * The `src` an image in a Card's Markdown loads: an Image's reference,
+ * `images/<file>`, resolves to where `files` serves it, the API by default
+ * (ADR-0019), and any other URL stays as written.
+ */
+export function imageSrc(url: string, files: ImageFiles = imageUrl): string {
   const file = imageFileOf(url);
-  return file === undefined ? url : imageUrl(file);
+  return file === undefined ? url : files(file);
 }
 
 /**
@@ -34,8 +44,12 @@ export function imageSrc(url: string): string {
  * that is a web page's address (http or https, resolved against `base`), and
  * nowhere for any other, such as a `javascript:` or `data:` URL.
  */
-export function fullSizeHref(url: string, base: string): string | undefined {
-  const src = imageSrc(url);
+export function fullSizeHref(
+  url: string,
+  base: string,
+  files: ImageFiles = imageUrl,
+): string | undefined {
+  const src = imageSrc(url, files);
   try {
     const { protocol } = new URL(src, base);
     return protocol === "http:" || protocol === "https:" ? src : undefined;

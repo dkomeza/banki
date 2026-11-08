@@ -3,13 +3,14 @@ import {
   type CreateImportResponse,
   IMPORT_UPLOAD_MAX_BYTES,
   type ImportRefusedResponse,
+  UploadImportQuery,
 } from "@banki/shared";
 import { Hono } from "hono";
 import { apiError } from "../http/errors";
 import type { SignedInEnv } from "../http/require-signed-in";
 import { type Refused, uploadTooLarge } from "../imports/read";
 import type { ImportRepository } from "../repositories/imports";
-import { json } from "./json";
+import { json, query } from "./json";
 
 const NOT_FOUND = apiError("not_found", "Import not found");
 const DECK_NOT_FOUND = apiError("not_found", "Deck not found");
@@ -66,25 +67,29 @@ async function readUpload(request: Request): Promise<Uint8Array | Refused> {
  * each. A deleted Deck, an unknown one and another User's answer 404.
  */
 export function deckImportRoutes({ imports }: { imports: ImportRepository }) {
-  return new Hono<SignedInEnv>().post("/:deckId/imports", async (c) => {
-    const type = c.req.header("content-type")?.split(";")[0]?.trim().toLowerCase() ?? "";
-    if (!isUploadType(type)) {
-      return c.json(apiError("invalid_request", "Send the file as the request's body"), 400);
-    }
-    const kind = c.req.query("kind") === "paste" ? "paste" : "file";
-    const fileName = (c.req.query("name") ?? "").slice(0, 255) || "Card file";
-    const bytes = await readUpload(c.req.raw);
-    if ("problems" in bytes) return c.json(refused(bytes), 422);
-    const created = imports.create(c.var.user.id, c.req.param("deckId"), {
-      bytes,
-      kind,
-      fileName,
-    });
-    if (created === "not_found") return c.json(DECK_NOT_FOUND, 404);
-    if ("problems" in created) return c.json(refused(created), 422);
-    const body: CreateImportResponse = created;
-    return c.json(body, 201);
-  });
+  return new Hono<SignedInEnv>().post(
+    "/:deckId/imports",
+    query(UploadImportQuery, "Say whether the file is pasted or chosen"),
+    async (c) => {
+      const type = c.req.header("content-type")?.split(";")[0]?.trim().toLowerCase() ?? "";
+      if (!isUploadType(type)) {
+        return c.json(apiError("invalid_request", "Send the file as the request's body"), 400);
+      }
+      const { kind, name } = c.req.valid("query");
+      const fileName = name === undefined || name === "" ? "Card file" : name;
+      const bytes = await readUpload(c.req.raw);
+      if ("problems" in bytes) return c.json(refused(bytes), 422);
+      const created = imports.create(c.var.user.id, c.req.param("deckId"), {
+        bytes,
+        kind,
+        fileName,
+      });
+      if (created === "not_found") return c.json(DECK_NOT_FOUND, 404);
+      if ("problems" in created) return c.json(refused(created), 422);
+      const body: CreateImportResponse = created;
+      return c.json(body, 201);
+    },
+  );
 }
 
 /**

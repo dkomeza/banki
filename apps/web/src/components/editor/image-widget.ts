@@ -1,6 +1,14 @@
+import { Facet } from "@codemirror/state";
 import { type EditorView, WidgetType } from "@codemirror/view";
 import { ImageOff, SquareArrowOutUpRight } from "lucide-react";
-import { fullSizeHref, imageFileOf, imageSrc, isImageMissing } from "@/lib/images";
+import {
+  type ImageFiles,
+  fullSizeHref,
+  imageFileOf,
+  imageSrc,
+  imageUrl,
+  isImageMissing,
+} from "@/lib/images";
 import { iconElement } from "./icons";
 import { treeOf } from "./language";
 import { snapToLines, unsnap } from "./widgets";
@@ -8,6 +16,11 @@ import { snapToLines, unsnap } from "./widgets";
 // An image reference's picture, drawn in place of its source while the
 // cursor is outside it: what the timeline would show (ADR-0020), an Image
 // at where the API serves it or any other URL as written.
+
+/** Where an editor's Images load from (`ImageFilesContext`): the API's, unless an Import's preview stages them. */
+export const imageFiles = Facet.define<ImageFiles, ImageFiles>({
+  combine: (values) => values[0] ?? imageUrl,
+});
 
 /** The end of the first image reference at or after `pos`, on its line. */
 function referenceEnd(view: EditorView, pos: number): number | null {
@@ -81,18 +94,19 @@ export class ImageWidget extends WidgetType {
     const img = document.createElement("img");
     img.className = "cm-lp-image-img";
     img.alt = this.alt;
-    img.src = imageSrc(this.url);
+    const files = view.state.facet(imageFiles);
+    img.src = imageSrc(this.url, files);
     const file = imageFileOf(this.url);
     // Missing only when the API says the Image doesn't exist (a 404).
     img.addEventListener("error", () => {
-      if (file === undefined) return;
+      if (file === undefined || files(file) !== imageUrl(file)) return;
       void isImageMissing(file).then((missing) => {
         if (missing) frame.replaceChildren(missingTile(this.url));
       });
     });
     frame.append(img);
     // Only to a web address: never a `javascript:` or `data:` URL.
-    const href = fullSizeHref(this.url, document.baseURI);
+    const href = fullSizeHref(this.url, document.baseURI, files);
     if (href !== undefined) frame.append(openLink(href));
     box.append(frame);
     box.addEventListener("mousedown", (event) => {

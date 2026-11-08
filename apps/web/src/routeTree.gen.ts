@@ -18,7 +18,9 @@ import { Route as ShellSettingsRouteImport } from './routes/_shell/settings'
 import { Route as ShellCardsCardIdRouteImport } from './routes/_shell/cards.$cardId'
 import { Route as ShellDecksDeckIdRouteImport } from './routes/_shell/decks.$deckId'
 import { Route as ShellFoldersFolderIdRouteImport } from './routes/_shell/folders.$folderId'
+import { Route as ShellImportsImportIdRouteImport } from './routes/_shell/imports.$importId'
 import { Route as DecksDeckIdStudyRouteImport } from './routes/decks.$deckId_.study'
+import { Route as ShellDecksDeckIdImportRouteImport } from './routes/_shell/decks.$deckId_.import'
 import { Route as ShellDecksDeckIdSettingsRouteImport } from './routes/_shell/decks.$deckId_.settings'
 import { Route as ShellDecksDeckIdCardsNewRouteImport } from './routes/_shell/decks.$deckId_.cards.new'
 
@@ -66,10 +68,20 @@ const ShellFoldersFolderIdRoute = ShellFoldersFolderIdRouteImport.update({
   path: '/folders/$folderId',
   getParentRoute: () => ShellRoute,
 } as any)
+const ShellImportsImportIdRoute = ShellImportsImportIdRouteImport.update({
+  id: '/imports/$importId',
+  path: '/imports/$importId',
+  getParentRoute: () => ShellRoute,
+} as any)
 const DecksDeckIdStudyRoute = DecksDeckIdStudyRouteImport.update({
   id: '/decks/$deckId_/study',
   path: '/decks/$deckId/study',
   getParentRoute: () => rootRouteImport,
+} as any)
+const ShellDecksDeckIdImportRoute = ShellDecksDeckIdImportRouteImport.update({
+  id: '/decks/$deckId_/import',
+  path: '/decks/$deckId/import',
+  getParentRoute: () => ShellRoute,
 } as any)
 const ShellDecksDeckIdSettingsRoute =
   ShellDecksDeckIdSettingsRouteImport.update({
@@ -93,7 +105,9 @@ export interface FileRoutesByFullPath {
   '/cards/$cardId': typeof ShellCardsCardIdRoute
   '/decks/$deckId': typeof ShellDecksDeckIdRoute
   '/folders/$folderId': typeof ShellFoldersFolderIdRoute
+  '/imports/$importId': typeof ShellImportsImportIdRoute
   '/decks/$deckId/study': typeof DecksDeckIdStudyRoute
+  '/decks/$deckId/import': typeof ShellDecksDeckIdImportRoute
   '/decks/$deckId/settings': typeof ShellDecksDeckIdSettingsRoute
   '/decks/$deckId/cards/new': typeof ShellDecksDeckIdCardsNewRoute
 }
@@ -106,7 +120,9 @@ export interface FileRoutesByTo {
   '/cards/$cardId': typeof ShellCardsCardIdRoute
   '/decks/$deckId': typeof ShellDecksDeckIdRoute
   '/folders/$folderId': typeof ShellFoldersFolderIdRoute
+  '/imports/$importId': typeof ShellImportsImportIdRoute
   '/decks/$deckId/study': typeof DecksDeckIdStudyRoute
+  '/decks/$deckId/import': typeof ShellDecksDeckIdImportRoute
   '/decks/$deckId/settings': typeof ShellDecksDeckIdSettingsRoute
   '/decks/$deckId/cards/new': typeof ShellDecksDeckIdCardsNewRoute
 }
@@ -121,7 +137,9 @@ export interface FileRoutesById {
   '/_shell/cards/$cardId': typeof ShellCardsCardIdRoute
   '/_shell/decks/$deckId': typeof ShellDecksDeckIdRoute
   '/_shell/folders/$folderId': typeof ShellFoldersFolderIdRoute
+  '/_shell/imports/$importId': typeof ShellImportsImportIdRoute
   '/decks/$deckId_/study': typeof DecksDeckIdStudyRoute
+  '/_shell/decks/$deckId_/import': typeof ShellDecksDeckIdImportRoute
   '/_shell/decks/$deckId_/settings': typeof ShellDecksDeckIdSettingsRoute
   '/_shell/decks/$deckId_/cards/new': typeof ShellDecksDeckIdCardsNewRoute
 }
@@ -136,7 +154,9 @@ export interface FileRouteTypes {
     | '/cards/$cardId'
     | '/decks/$deckId'
     | '/folders/$folderId'
+    | '/imports/$importId'
     | '/decks/$deckId/study'
+    | '/decks/$deckId/import'
     | '/decks/$deckId/settings'
     | '/decks/$deckId/cards/new'
   fileRoutesByTo: FileRoutesByTo
@@ -149,7 +169,9 @@ export interface FileRouteTypes {
     | '/cards/$cardId'
     | '/decks/$deckId'
     | '/folders/$folderId'
+    | '/imports/$importId'
     | '/decks/$deckId/study'
+    | '/decks/$deckId/import'
     | '/decks/$deckId/settings'
     | '/decks/$deckId/cards/new'
   id:
@@ -163,7 +185,9 @@ export interface FileRouteTypes {
     | '/_shell/cards/$cardId'
     | '/_shell/decks/$deckId'
     | '/_shell/folders/$folderId'
+    | '/_shell/imports/$importId'
     | '/decks/$deckId_/study'
+    | '/_shell/decks/$deckId_/import'
     | '/_shell/decks/$deckId_/settings'
     | '/_shell/decks/$deckId_/cards/new'
   fileRoutesById: FileRoutesById
@@ -240,12 +264,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellFoldersFolderIdRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/imports/$importId': {
+      id: '/_shell/imports/$importId'
+      path: '/imports/$importId'
+      fullPath: '/imports/$importId'
+      preLoaderRoute: typeof ShellImportsImportIdRouteImport
+      parentRoute: typeof ShellRoute
+    }
     '/decks/$deckId_/study': {
       id: '/decks/$deckId_/study'
       path: '/decks/$deckId/study'
       fullPath: '/decks/$deckId/study'
       preLoaderRoute: typeof DecksDeckIdStudyRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_shell/decks/$deckId_/import': {
+      id: '/_shell/decks/$deckId_/import'
+      path: '/decks/$deckId/import'
+      fullPath: '/decks/$deckId/import'
+      preLoaderRoute: typeof ShellDecksDeckIdImportRouteImport
+      parentRoute: typeof ShellRoute
     }
     '/_shell/decks/$deckId_/settings': {
       id: '/_shell/decks/$deckId_/settings'
@@ -271,6 +309,8 @@ interface ShellRouteChildren {
   ShellCardsCardIdRoute: typeof ShellCardsCardIdRoute
   ShellDecksDeckIdRoute: typeof ShellDecksDeckIdRoute
   ShellFoldersFolderIdRoute: typeof ShellFoldersFolderIdRoute
+  ShellImportsImportIdRoute: typeof ShellImportsImportIdRoute
+  ShellDecksDeckIdImportRoute: typeof ShellDecksDeckIdImportRoute
   ShellDecksDeckIdSettingsRoute: typeof ShellDecksDeckIdSettingsRoute
   ShellDecksDeckIdCardsNewRoute: typeof ShellDecksDeckIdCardsNewRoute
 }
@@ -282,6 +322,8 @@ const ShellRouteChildren: ShellRouteChildren = {
   ShellCardsCardIdRoute: ShellCardsCardIdRoute,
   ShellDecksDeckIdRoute: ShellDecksDeckIdRoute,
   ShellFoldersFolderIdRoute: ShellFoldersFolderIdRoute,
+  ShellImportsImportIdRoute: ShellImportsImportIdRoute,
+  ShellDecksDeckIdImportRoute: ShellDecksDeckIdImportRoute,
   ShellDecksDeckIdSettingsRoute: ShellDecksDeckIdSettingsRoute,
   ShellDecksDeckIdCardsNewRoute: ShellDecksDeckIdCardsNewRoute,
 }

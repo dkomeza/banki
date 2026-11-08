@@ -144,6 +144,16 @@ export const ImportResponse = z.discriminatedUnion("status", [
 ]);
 export type ImportResponse = z.infer<typeof ImportResponse>;
 
+/**
+ * The query of `POST /api/decks/:deckId/imports`: `paste` for pasted text, or
+ * `file` for a chosen or dropped one, with its `name`.
+ */
+export const UploadImportQuery = z.object({
+  kind: z.enum(["paste", "file"]),
+  name: z.string().max(255).optional(),
+});
+export type UploadImportQuery = z.infer<typeof UploadImportQuery>;
+
 /** The body `POST /api/decks/:deckId/imports` answers 201: the new Import's ID. */
 export const CreateImportResponse = z.object({ id: z.string() });
 export type CreateImportResponse = z.infer<typeof CreateImportResponse>;
