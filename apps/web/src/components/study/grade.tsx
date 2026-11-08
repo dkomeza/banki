@@ -14,6 +14,8 @@ import {
 import { CardText, type Highlight } from "@/components/cards/card-text";
 import { PILL } from "@/components/settings/parts";
 import { LABEL } from "@/components/study/answer";
+import { MarginChat } from "@/components/study/chat-margin";
+import { useChat } from "@/components/study/chat-proto";
 import { lastLineOf, useMistakeNotes } from "@/components/study/mistake-notes";
 import { Button } from "@/components/ui/button";
 import { settingsQueryOptions } from "@/lib/settings";
@@ -87,6 +89,7 @@ export function GradedCard({
   const result = resultOf(grade);
   const { missing, mistakes } = useMemo(() => highlightsOf(result), [result]);
   const feedback = useRef<HTMLElement>(null);
+  const [chat] = useChat();
   if (card === undefined) return null;
   return (
     <>
@@ -94,7 +97,14 @@ export function GradedCard({
         aria-hidden
         className="my-6 h-px w-16 bg-border [view-transition-name:card-rule] lg:my-8"
       />
-      <div className="grid gap-x-12 gap-y-8 lg:grid-cols-[minmax(0,1fr)_19rem] xl:grid-cols-[minmax(0,1fr)_22rem]">
+      <div
+        className={cn(
+          "grid gap-x-12 gap-y-8",
+          chat.open
+            ? "lg:grid-cols-[minmax(0,1fr)_22rem] lg:grid-rows-[auto_auto_1fr] xl:grid-cols-[minmax(0,1fr)_26rem]"
+            : "lg:grid-cols-[minmax(0,1fr)_19rem] xl:grid-cols-[minmax(0,1fr)_22rem]",
+        )}
+      >
         <YourAnswer
           key={card.id}
           written={state.written ?? ""}
@@ -104,11 +114,22 @@ export function GradedCard({
         <aside
           ref={feedback}
           aria-label="Feedback"
-          className="min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1"
+          className={cn(
+            "min-w-0 lg:col-start-2 lg:row-start-1",
+            chat.open ? "lg:row-span-3" : "lg:row-span-2",
+          )}
         >
-          <div className="flex flex-col gap-2 lg:sticky lg:top-[calc(4.5rem+env(safe-area-inset-top))] lg:max-h-[calc(100dvh-14rem)] lg:overflow-y-auto lg:pb-2">
+          <div
+            className={cn(
+              "flex flex-col gap-2",
+              // PROTOTYPE (BAN-42): with the chat open, the margin runs down the page instead.
+              !chat.open &&
+                "lg:sticky lg:top-[calc(4.5rem+env(safe-area-inset-top))] lg:max-h-[calc(100dvh-14rem)] lg:overflow-y-auto lg:pb-2",
+            )}
+          >
             <h2 className={cn(LABEL, "flex min-h-5 items-center")}>Feedback</h2>
             <Feedback session={session} grade={grade} />
+            <MarginChat />
           </div>
         </aside>
         <section
