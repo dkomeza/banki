@@ -4,6 +4,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   CardListResponse,
+  ImportReportResponse,
   CardResponse,
   DeckListResponse,
   DeckResponse,
@@ -166,7 +167,11 @@ describe("banki seed's Macros", () => {
       { name: "\\d", definition: "\\mathrm{d}" },
       { name: "\\eps", definition: "\\epsilon" },
     ]);
-    expect((await deckOf(D.spanish)).macros).toEqual([]);
+    // Spanish vocabulary's own are the two its Import added.
+    expect((await deckOf(D.spanish)).macros).toEqual([
+      { name: "\\m", definition: "\\textsf{\\small m.}" },
+      { name: "\\f", definition: "\\textsf{\\small f.}" },
+    ]);
     const sides = await Promise.all(
       C.calculus2.slice(-3).map(async (id) => {
         const card = CardResponse.parse(await (await get(app, `/api/cards/${id}`, cookie)).json());
@@ -288,14 +293,21 @@ describe("banki seed's Cards", () => {
       [D.kanji, C.kanji],
       [D.chemistry, C.chemistry],
     ] as const) {
-      const cards = await listOf(deck);
+      const imported = new Set<string>(Object.values(C.imported));
+      const cards = (await listOf(deck)).filter((card) => !imported.has(card.id));
       // Newest first, so the fixed IDs (oldest first) come back reversed.
       expect(cards.map((card) => card.id)).toEqual(ids.toReversed());
       expect(new Set(cards.map((card) => card.createdAt)).size).toBe(ids.length);
     }
+    // The Import's Cards, in its file's order, the first the oldest.
+    const importedIds: readonly string[] = Object.values(C.imported);
+    const fromImport = (await listOf(D.spanish)).filter((card) => importedIds.includes(card.id));
+    expect(fromImport.map((card) => card.id)).toEqual(Object.values(C.imported).toReversed());
     expect(await listOf(D.calculus10)).toEqual([]);
     const decks = DeckListResponse.parse(await (await get(app, "/api/decks", cookie)).json());
-    expect(decks.find((deck) => deck.id === D.spanish)?.cardCount).toBe(C.spanish.length);
+    expect(decks.find((deck) => deck.id === D.spanish)?.cardCount).toBe(
+      C.spanish.length + Object.keys(C.imported).length,
+    );
 
     const card = CardResponse.parse(
       await (await get(app, `/api/cards/${SEED_IDS.card}`, cookie)).json(),
@@ -431,6 +443,34 @@ describe("banki seed's Cards", () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("BANKI_SEED_NOW isn't a time: soon");
+  });
+});
+
+describe("banki seed's Import", () => {
+  test("is one confirmed Import into Spanish vocabulary, its report with every kind of line", async () => {
+    await setup();
+    await seed();
+
+    const { app } = boot();
+    const cookie = cookiesFrom(await signIn(app));
+    const report = ImportReportResponse.parse(
+      await (await get(app, `/api/imports/${SEED_IDS.import}`, cookie)).json(),
+    );
+    expect(report).toMatchObject({
+      deckId: SEED_IDS.decks.spanish,
+      fileName: "mercado-y-cafe.json",
+      total: 8,
+      imported: 5,
+      leftOut: 1,
+      duplicates: [{ number: 3, front: "La cuenta" }],
+      invalid: [{ number: 4 }],
+      images: [{ card: 6, reference: "images/churros.jpg", problem: "missing" }],
+    });
+    expect(report.macros.map((entry) => [entry.name, entry.outcome])).toEqual([
+      ["\\m", "added"],
+      ["\\f", "added"],
+      ["\\eps", "kept"],
+    ]);
   });
 });
 

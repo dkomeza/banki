@@ -6,7 +6,7 @@ import { type SetupToken, createSetupToken } from "./auth/setup-token";
 import type { Config } from "./config";
 import { createApiKeyCipher } from "./crypto/api-key-cipher";
 import { loadEncryptionKey } from "./crypto/encryption-key";
-import { openDatabase, uploadsDirOf } from "./db/database";
+import { importsDirOf, openDatabase, uploadsDirOf } from "./db/database";
 import { applyMigrations } from "./db/migrate";
 import { internalError, notFound } from "./http/errors";
 import { createRateLimiter } from "./http/rate-limit";
@@ -17,6 +17,7 @@ import { createDeckRepository } from "./repositories/decks";
 import { createDeletionRepository } from "./repositories/deletions";
 import { createHealthRepository } from "./repositories/health";
 import { createImageRepository } from "./repositories/images";
+import { createImportRepository } from "./repositories/imports";
 import { createReviewRepository } from "./repositories/reviews";
 import { createFolderRepository } from "./repositories/folders";
 import { createSettingsRepository } from "./repositories/settings";
@@ -30,6 +31,7 @@ import { folderRoutes } from "./routes/folders";
 import { gradeRoutes } from "./routes/grade";
 import { healthRoutes } from "./routes/health";
 import { imageRoutes } from "./routes/images";
+import { deckImportRoutes, importRoutes } from "./routes/imports";
 import { meRoutes } from "./routes/me";
 import { schemaRoutes } from "./routes/schemas";
 import { settingsRoutes } from "./routes/settings";
@@ -101,6 +103,11 @@ export function createApp(
   const study = createStudyRepository(database.db);
   const deletions = createDeletionRepository(database.db);
   const images = createImageRepository(database.db, uploadsDirOf(config.dataDir));
+  const imports = createImportRepository(
+    database.db,
+    importsDirOf(config.dataDir),
+    uploadsDirOf(config.dataDir),
+  );
   const auth = createAuth({ db: database.db, config, secret });
   const setupToken: SetupToken | undefined = users.exists() ? undefined : createSetupToken();
 
@@ -131,6 +138,8 @@ export function createApp(
     .route("/api/decks", deckRoutes({ decks }))
     .route("/api/decks", deckCardRoutes({ cards }))
     .route("/api/decks", studyRoutes({ study }))
+    .route("/api/decks", deckImportRoutes({ imports }))
+    .route("/api/imports", importRoutes({ imports }))
     .route("/api/cards", cardRoutes({ cards, reviews, study }))
     .route("/api/cards", gradeRoutes({ cards, decks, settings, images, openRouterFetch }))
     .route("/api/reviews", reviewRoutes({ study }))
@@ -153,6 +162,8 @@ export function createApp(
      * `uploads/` with no Image row, once 24 hours old; run after each Removal sweep.
      */
     sweepImages: (now?: Date) => images.sweep(now),
+    /** Removes the Imports never confirmed, with their staged files, once 24 hours old. */
+    sweepImports: (now?: Date) => imports.sweep(now),
     close: database.close,
   };
 }

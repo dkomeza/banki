@@ -1,4 +1,5 @@
 import { getLogger } from "@logtape/logtape";
+import { IMPORT_UPLOAD_MAX_BYTES } from "@banki/shared";
 import { createApp } from "./app";
 import { type Config, ConfigError, parseConfig } from "./config";
 import { configureLogging, SETUP_ANNOUNCEMENT_CATEGORY } from "./logging";
@@ -38,12 +39,19 @@ function start() {
         },
       );
     }
-    const server = Bun.serve({ port: config.port, fetch: booted.app.fetch });
+    const server = Bun.serve({
+      port: config.port,
+      fetch: booted.app.fetch,
+      // An Import's upload may be up to 500 MB; the route refuses a bigger one
+      // with its problem, so Bun's own limit sits just past it.
+      maxRequestBodySize: IMPORT_UPLOAD_MAX_BYTES + 1024 * 1024,
+    });
     logger.info("Listening {port}", { port: server.port });
     const app = booted;
     const stopSweep = startRemovalSweep({
       removeExpired: () => app.removeExpiredDeletions(),
       sweepImages: () => app.sweepImages(),
+      sweepImports: () => app.sweepImports(),
     });
     return {
       server,

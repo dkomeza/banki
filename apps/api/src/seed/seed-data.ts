@@ -4,6 +4,7 @@ import { createCardRepository } from "../repositories/cards";
 import { createDeckRepository } from "../repositories/decks";
 import { createFolderRepository } from "../repositories/folders";
 import { createImageRepository, hasImages } from "../repositories/images";
+import { createImportRepository, hasImports } from "../repositories/imports";
 import { hasProgressResets } from "../repositories/progress-resets";
 import { createReviewRepository, hasReviews } from "../repositories/reviews";
 import { setInitialMacros, setInitialTimezone } from "../repositories/settings";
@@ -597,19 +598,123 @@ function deletedSeed(db: Queryable, userId: string, now: Date) {
 }
 
 /**
+ * The Import's file: market and café words for Spanish vocabulary, from a zip,
+ * with \m and \f for gender (added to the Deck) and an \eps the Deck has
+ * from Settings defined differently (kept). Card 3 repeats one of the Deck's,
+ * card 4 has no Back, card 6 refers to an image the zip didn't hold, and
+ * card 7 is left out.
+ */
+const IMPORT_FILE = {
+  $schema: null,
+  format: "banki",
+  version: 1,
+  macros: [
+    { name: "\\m", definition: "\\textsf{\\small m.}" },
+    { name: "\\f", definition: "\\textsf{\\small f.}" },
+    { name: "\\eps", definition: "\\epsilon" },
+  ],
+  cards: [
+    {
+      front: "el mercado $\\m$",
+      back: "the market\nVamos al mercado los sábados.",
+      tags: ["a2", "shopping", "noun"],
+      gradingNotes: null,
+    },
+    {
+      front: "la frutería $\\f$",
+      back: "the fruit shop",
+      tags: ["a2", "shopping", "noun"],
+      gradingNotes: null,
+    },
+    {
+      front: "La cuenta",
+      back: "the bill",
+      tags: ["a1", "restaurant", "noun"],
+      gradingNotes: null,
+    },
+    { front: "pesar", tags: ["a2", "verb"], gradingNotes: null },
+    {
+      front: "la propina $\\f$",
+      back: "the tip (for service)",
+      tags: ["a2", "restaurant", "noun"],
+      gradingNotes: null,
+    },
+    {
+      front: "los churros $\\m$",
+      back: "fried dough sticks, often dipped in chocolate\n\n![Churros](images/churros.jpg)",
+      tags: ["a2", "food", "noun"],
+      gradingNotes: null,
+    },
+    {
+      front: "la merienda $\\f$",
+      back: "an afternoon snack",
+      tags: ["a2", "food", "noun"],
+      gradingNotes: null,
+    },
+    {
+      front: "el cortado $\\m$",
+      back: "an espresso with a dash of milk",
+      tags: ["a2", "cafe", "noun"],
+      gradingNotes: null,
+    },
+  ],
+};
+
+/** Reads the Import's file into an Import, ticks all but card 7, and confirms it. */
+function importSeed(
+  db: Queryable,
+  userId: string,
+  importsDir: string,
+  uploadsDir: string,
+  now: Date,
+) {
+  const imports = createImportRepository(db, importsDir, uploadsDir);
+  const created = imports.create(
+    userId,
+    SEED_IDS.deck,
+    {
+      bytes: new TextEncoder().encode(JSON.stringify(IMPORT_FILE)),
+      kind: "file",
+      fileName: "mercado-y-cafe.json",
+    },
+    { id: SEED_IDS.import, now: new Date(now.getTime() - 30 * HOUR_MS) },
+  );
+  if (created === "not_found" || "problems" in created) {
+    throw new Error(`The seed Import is ${JSON.stringify(created)}`);
+  }
+  const preview = imports.find(userId, SEED_IDS.import);
+  if (preview?.status !== "unconfirmed") throw new Error("The seed Import isn't unconfirmed");
+  const ticked = preview.cards
+    .filter((one) => one.duplicateOf === null && one.number !== 7)
+    .map((one) => {
+      const { duplicateOf: _, ...read } = one;
+      return read;
+    });
+  const imported: Record<number, string> = SEED_IDS.cards.imported;
+  const confirmed = imports.confirm(userId, SEED_IDS.import, ticked, {
+    now: new Date(now.getTime() - 30 * HOUR_MS + 4 * 60 * 1000),
+    cardIdFor: (number) => imported[number] ?? `unknown-${number}`,
+  });
+  if (typeof confirmed === "string") throw new Error(`The seed Import is ${confirmed}`);
+}
+
+/**
  * Writes the Seed data for `userId` through the repositories, timed relative
- * to `now`, its Image stored in `uploadsDir`.
+ * to `now`, its Image stored in `uploadsDir` and its Import read through
+ * `importsDir`.
  */
 export function writeSeedData({
   db,
   userId,
   now,
   uploadsDir,
+  importsDir,
 }: {
   db: Queryable;
   userId: string;
   now: Date;
   uploadsDir: string;
+  importsDir: string;
 }): void {
   // Only while no Timezone is stored, as the first fill does: a signed-in load
   // before seeding may already have stored the browser's zone, or the User may
@@ -676,12 +781,14 @@ export function writeSeedData({
     if (rated === "not_found") throw new Error(`The seed Review of ${cardId} found no Card`);
   }
 
+  importSeed(db, userId, importsDir, uploadsDir, now);
+
   deletions.rest();
 }
 
 /**
  * Whether the User owns any content (folders, decks, cards, images, reviews,
- * Progress resets), in which
+ * Progress resets, Imports), in which
  * case `banki seed` refuses. Deleted Folders, Decks and Cards count too: they
  * are still the User's until they are purged. Settings aren't content: seeding leaves a
  * stored choice alone instead.
@@ -693,6 +800,7 @@ export function userHasContent(db: Queryable, userId: string): boolean {
     createCardRepository(db).any(userId) ||
     hasImages(db, userId) ||
     hasReviews(db, userId) ||
-    hasProgressResets(db, userId)
+    hasProgressResets(db, userId) ||
+    hasImports(db, userId)
   );
 }

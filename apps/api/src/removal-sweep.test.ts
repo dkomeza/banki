@@ -4,6 +4,7 @@ import { startRemovalSweep } from "./removal-sweep";
 test("sweeps at once, then every interval, until it is stopped, outlasting a run that throws", async () => {
   let runs = 0;
   let imageSweeps = 0;
+  let importSweeps = 0;
   const stop = startRemovalSweep(
     {
       removeExpired: () => {
@@ -15,6 +16,10 @@ test("sweeps at once, then every interval, until it is stopped, outlasting a run
         imageSweeps += 1;
         if (imageSweeps === 3) throw new Error("EACCES");
         return { images: 1, files: 0 };
+      },
+      sweepImports: () => {
+        importSweeps += 1;
+        return 1;
       },
     },
     20,
@@ -28,6 +33,8 @@ test("sweeps at once, then every interval, until it is stopped, outlasting a run
   expect(stoppedAt).toBeGreaterThanOrEqual(3);
   // A Removal that throws doesn't stop the images' sweep after it.
   expect(imageSweeps).toBe(stoppedAt);
+  // Nor does an images' sweep that throws stop the Imports' after it.
+  expect(importSweeps).toBe(stoppedAt);
 
   await Bun.sleep(50);
   expect(runs).toBe(stoppedAt);

@@ -1,5 +1,5 @@
 import { defineCommand } from "citty";
-import { uploadsDirOf } from "../db/database";
+import { importsDirOf, uploadsDirOf } from "../db/database";
 import { createUserRepository } from "../repositories/user";
 import { userHasContent, writeSeedData } from "../seed/seed-data";
 import { CliExit, readConfig, runCommand, withDatabase } from "./common";
@@ -43,7 +43,13 @@ async function loadSeedData() {
         if (userHasContent(tx, user.id)) {
           throw new CliExit("The User already has content, so nothing was seeded.");
         }
-        writeSeedData({ db: tx, userId: user.id, now, uploadsDir: uploadsDirOf(config.dataDir) });
+        writeSeedData({
+          db: tx,
+          userId: user.id,
+          now,
+          uploadsDir: uploadsDirOf(config.dataDir),
+          importsDir: importsDirOf(config.dataDir),
+        });
       },
       { behavior: "immediate" },
     );
