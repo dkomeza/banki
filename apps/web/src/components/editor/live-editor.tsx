@@ -170,12 +170,12 @@ export function LiveEditor({
     if (current === null || reconfigure.current === null) return;
     current.dispatch({
       effects: [
-        ...reconfigure.current({ autoClose, macros, files: imageFiles, readOnly }),
+        ...reconfigure.current({ placeholder, autoClose, macros, files: imageFiles, readOnly }),
         attributes.current.reconfigure(aria()),
       ],
     });
     // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoClose, macros, imageFiles, readOnly, labelledBy, describedBy, invalid]);
+  }, [placeholder, autoClose, macros, imageFiles, readOnly, labelledBy, describedBy, invalid]);
 
   const format = (to: Format) => {
     if (view.current !== null) applyFormat(view.current, to, cell.current);

@@ -12,6 +12,7 @@ import type { Deck } from "@/lib/decks";
 import { settingsQueryOptions } from "@/lib/settings";
 import {
   INTERVALS_FAILED,
+  NO_CHAT,
   RATE_FAILED,
   type StudyState,
   createStudySession,
@@ -73,6 +74,8 @@ const DONE: StudyState = {
   switchable: false,
   checkable: false,
   grade: undefined,
+  chat: NO_CHAT,
+  askable: false,
 };
 
 /** The end screen's markup for `state`, with the Settings' New-card batch at `batch` (none loaded when null). */
