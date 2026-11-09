@@ -155,6 +155,8 @@ describe("TuningRow", () => {
 
     await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
     expect(screen.getByText(/reset by you/)).toBeTruthy();
+    expect(screen.getByText(/starts the checks every 200 reviews again/)).toBeTruthy();
+    expect(screen.queryByText(/^Every 200 reviews/)).toBeNull();
     expect(button("Reset to defaults").disabled).toBe(true);
   });
 

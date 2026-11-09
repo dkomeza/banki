@@ -6,6 +6,7 @@ import { useId, useState } from "react";
 import { FormError } from "@/components/auth-card";
 import { OUTLINE_PILL, PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
   RESET_FAILED,
   TUNE_FAILED,
@@ -15,6 +16,11 @@ import {
   tuningQueryOptions,
   tuningStatusLines,
 } from "@/lib/tuning";
+
+const HINT =
+  "Every 200 reviews, Banki checks whether scheduling fitted to how you remember would predict your recall better, and switches only if it would. Your cards keep their due dates.";
+const PAUSED_HINT =
+  "Tune now checks at once whether scheduling fitted to how you remember would predict your recall better, and starts the checks every 200 reviews again. Your cards keep their due dates.";
 
 /**
  * Advanced's scheduling row (CONTEXT.md: Tuning), in plain words: how
@@ -63,7 +69,8 @@ export function TuningRow() {
         <Button
           variant="outline"
           size="lg"
-          className={OUTLINE_PILL}
+          // As wide busy as not, so the row doesn't shift while it runs.
+          className={cn(OUTLINE_PILL, "min-w-36")}
           disabled={tuning}
           onClick={() => void tune()}
         >
@@ -89,8 +96,7 @@ export function TuningRow() {
         {result === undefined ? "" : result === "unreachable" ? TUNE_FAILED : TUNE_RESULTS[result]}
       </p>
       <p id={hint} className="text-sm text-muted-foreground">
-        Every 200 reviews, Banki checks whether scheduling fitted to how you remember would predict
-        your recall better, and switches only if it would. Your cards keep their due dates.
+        {status.paused ? PAUSED_HINT : HINT}
       </p>
       <ConfirmReset
         open={confirming}
