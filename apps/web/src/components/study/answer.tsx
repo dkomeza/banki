@@ -74,7 +74,16 @@ export function AnswerEditor({ session, state }: { session: StudySession; state:
 }
 
 /** Before the reveal in write-and-grade: I don't know, then Check, the wider; Check waits for an answer. */
-export function WriteDock({ session, state }: { session: StudySession; state: StudyState }) {
+export function WriteDock({
+  session,
+  state,
+  handwriting = false,
+}: {
+  session: StudySession;
+  state: StudyState;
+  /** PROTOTYPE (BAN-45): no ink is sent yet, so Check waits. */
+  handwriting?: boolean;
+}) {
   return (
     <div className="grid grid-cols-[1fr_2fr] gap-2">
       <Button
@@ -88,7 +97,7 @@ export function WriteDock({ session, state }: { session: StudySession; state: St
       </Button>
       <Button
         className={cn(PILL, "h-[4.5rem] text-base lg:h-16")}
-        disabled={!state.checkable}
+        disabled={!state.checkable || handwriting}
         onClick={() => session.check()}
         onMouseDown={(event) => event.preventDefault()}
       >
