@@ -134,6 +134,18 @@ export function ImportSource({ deck }: { deck: Deck }) {
             </div>
           )}
 
+          {/* PROTOTYPE (BAN-35): the way to the Card prompt, under the source box. */}
+          <p className="text-sm text-muted-foreground">
+            No Card file yet?{" "}
+            <Link
+              to="/decks/$deckId/prompt"
+              params={{ deckId: deck.id }}
+              className="inline-flex min-h-11 items-center font-medium text-foreground underline underline-offset-4 lg:min-h-0"
+            >
+              Get one from an LLM
+            </Link>
+          </p>
+
           {refused !== undefined && (
             <div id="refused" role="alert" className="flex flex-col gap-2">
               <ul className="flex flex-col gap-1 text-sm font-medium text-destructive [overflow-wrap:anywhere]">

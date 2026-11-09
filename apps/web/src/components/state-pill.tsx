@@ -8,7 +8,9 @@ import { cn } from "@/lib/utils";
  * apps/web/src/routeTree.gen.ts names it. Empty on main: only a Variant
  * branch fills it, so the pill never shows in the real app.
  */
-export const PREVIEW_STATES: Readonly<Record<string, readonly string[]>> = {};
+export const PREVIEW_STATES: Readonly<Record<string, readonly string[]>> = {
+  "/decks/$deckId/prompt": ["filled", "no-macros", "copied", "invalid", "save-failed"],
+};
 
 /**
  * A Variant's state switcher: a pill fixed at the bottom of the page that

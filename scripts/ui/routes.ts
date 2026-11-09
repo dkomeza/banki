@@ -37,6 +37,8 @@ export const ROUTES: RouteManifest = {
   "/decks/$deckId/settings": { path: `/decks/${SEED_IDS.deck}/settings` },
   "/decks/$deckId/cards/new": { path: `/decks/${SEED_IDS.deck}/cards/new` },
   "/decks/$deckId/import": { path: `/decks/${SEED_IDS.deck}/import` },
+  // Calculus 2, which has Macros of its own.
+  "/decks/$deckId/prompt": { path: `/decks/${SEED_IDS.decks.calculus2}/prompt` },
   "/imports/$importId": { path: `/imports/${SEED_IDS.import}` },
   "/cards/$cardId": { path: `/cards/${SEED_IDS.card}` },
   "/deleted": {},
