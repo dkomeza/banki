@@ -148,6 +148,18 @@ _Avoid_: retrievability, strength, score
 The share of its Cards the User wants to still remember when they come due, from 70% to 97%: higher means more Reviews. Settings hold one for every Deck, 90% unless the User changes it, and a Deck follows it until it is given its own. Changing it reschedules every Card it applies to at once.
 _Avoid_: target retention (except for a Plan's), retention rate, success rate
 
+**Plan**:
+What a Deck works toward for an exam: a Deadline and a Daily goal. A Deck has at most one. Creating or editing it checks whether the Daily goal covers the Deck's New cards by the Deadline, and says what goal would.
+_Avoid_: schedule, study plan, goal (alone)
+
+**Deadline**:
+The Study day a Plan works toward, such as the exam day. Studying for it happens on the Study days before it, so it is at least tomorrow. It is a Study day, not a moment, so it stays the same day when the Timezone or Day start changes.
+_Avoid_: due date, exam date (in the code), end date
+
+**Daily goal**:
+The minutes a day a Plan expects the User to study its Deck, from 5 to 600. A goal, never a limit: nothing stops a Session at it.
+_Avoid_: daily limit, quota, minutes (alone)
+
 **Recall rate**:
 The share of the review Cards a Session showed that the User recalled the first time: their first Rating in it wasn't Again. New Cards and Cards in their learning steps don't count, so it measures what Desired retention aims at. A Card counts by how it first came in the Session, so a review Card the User then puts back to New (Progress reset) and rates still counts. A Session with no review Card has none.
 _Avoid_: accuracy, score, retention (alone)
