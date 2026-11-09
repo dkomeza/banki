@@ -17,6 +17,7 @@ export const PREVIEW_STATES: Readonly<Record<string, readonly string[]>> = {
     "chat-failed",
     "chat-cut-off",
     "chat-long",
+    "chat-hidden",
   ],
 };
 
