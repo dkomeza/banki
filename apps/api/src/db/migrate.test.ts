@@ -62,6 +62,7 @@ const COMMITTED = [
   "0018_imports",
   "0019_settings_answer_mode",
   "0020_graded_reviews",
+  "0021_parameter_tuning",
 ];
 
 /** The tables the committed migrations create. */
@@ -75,6 +76,7 @@ const COMMITTED_TABLES = [
   "folder",
   "image",
   "import",
+  "parameter_tuning",
   "progress_reset",
   "review",
   "user",
@@ -589,7 +591,9 @@ test("0020_graded_reviews keeps every Review, self-rated with no suggestion, and
   );
 
   writeFileSync(journalPath, full);
-  expect(applyMigrations(opened.db, folder)).toEqual(["0020_graded_reviews"]);
+  expect(applyMigrations(opened.db, folder)).toEqual(
+    COMMITTED.slice(COMMITTED.indexOf("0020_graded_reviews")),
+  );
   expect(opened.db.values(sql`SELECT id, kind, suggested_rating, model FROM review`)).toEqual([
     ["r", "self-rated", null, null],
   ]);
@@ -614,6 +618,46 @@ test("0020_graded_reviews keeps every Review, self-rated with no suggestion, and
   expect(() => insert("x5", 7, "self-rated", "hard", null)).toThrow();
   expect(() => insert("x6", 8, "self-rated", null, "anthropic/claude-haiku-5.5")).toThrow();
   expect(opened.db.values(sql`SELECT id FROM review ORDER BY seq`)).toEqual([["r"], ["g"]]);
+});
+
+test("0021_parameter_tuning keeps every row of Settings, on FSRS's defaults, and logs no Tuning", () => {
+  const journalPath = join(folder, "meta", "_journal.json");
+  const full = readFileSync(journalPath, "utf8");
+  const journal = z
+    .looseObject({ entries: z.array(z.looseObject({ tag: z.string() })) })
+    .parse(JSON.parse(full));
+  writeFileSync(
+    journalPath,
+    JSON.stringify({
+      ...journal,
+      entries: journal.entries.filter((entry) => entry.tag < "0021_parameter_tuning"),
+    }),
+  );
+  applyMigrations(opened.db, folder);
+  opened.db.run(
+    sql`INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES ('u', 'n', 'u@x.y', 1, 0, 0)`,
+  );
+  opened.db.run(sql`INSERT INTO user_settings (user_id, desired_retention) VALUES ('u', 85)`);
+
+  writeFileSync(journalPath, full);
+  expect(applyMigrations(opened.db, folder)).toEqual(["0021_parameter_tuning"]);
+
+  expect(
+    opened.db.values(sql`SELECT user_id, desired_retention, fsrs_parameters FROM user_settings`),
+  ).toEqual([["u", 85, null]]);
+  expect(opened.db.values(sql`SELECT id FROM parameter_tuning`)).toEqual([]);
+  // A log row takes a trigger and an outcome Banki knows, and refuses others.
+  const row = (trigger: string, outcome: string) =>
+    opened.db.run(
+      sql`INSERT INTO parameter_tuning (id, user_id, ran_at, trigger, review_count, outcome) VALUES (${`${trigger}-${outcome}`}, 'u', 0, ${trigger}, 0, ${outcome})`,
+    );
+  row("automatic", "applied");
+  row("reset", "reset");
+  expect(() => row("cron", "applied")).toThrow();
+  expect(() => row("manual", "skipped")).toThrow();
+  // A User's removal takes their log with them.
+  opened.db.run(sql`DELETE FROM user`);
+  expect(opened.db.values(sql`SELECT id FROM parameter_tuning`)).toEqual([]);
 });
 
 test("a Card's newest Review, its Progress resets since and the next place in the Write order are found through an index, not the User's whole history", () => {

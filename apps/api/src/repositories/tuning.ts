@@ -28,23 +28,29 @@ const logger = getLogger(["banki", "tuning"]);
 export type TuningRepository = ReturnType<typeof createTuningRepository>;
 
 /** The memory state a replay works out again; the due date and Interval stay as they were. */
-const REPLAYED = ["state", "stability", "difficulty", "reps", "lapses", "learningStep"] as const;
-
-const replayed = (memory: MemoryState) =>
-  Object.fromEntries(REPLAYED.map((field) => [field, memory[field]])) as Pick<
-    MemoryState,
-    (typeof REPLAYED)[number]
-  >;
+const replayed = ({ state, stability, difficulty, reps, lapses, learningStep }: MemoryState) => ({
+  state,
+  stability,
+  difficulty,
+  reps,
+  lapses,
+  learningStep,
+});
 
 const sameReplayed = (a: MemoryState, b: MemoryState) =>
-  REPLAYED.every((field) => a[field] === b[field]);
+  a.state === b.state &&
+  a.stability === b.stability &&
+  a.difficulty === b.difficulty &&
+  a.reps === b.reps &&
+  a.lapses === b.lapses &&
+  a.learningStep === b.learningStep;
 
 /**
  * Applies `parameters` (null for FSRS-6's defaults) to the User (ADR-0028):
  * stores them, then replays every Card of theirs, live or deleted, from New
  * through its Reviews since its newest Progress reset, in the Write order,
  * under them. Each Review's `cardBefore` and the Card get the memory state
- * the replay works out (`REPLAYED`); their due dates and Intervals stay as
+ * the replay works out (`replayed`); their due dates and Intervals stay as
  * they were, and so does each Rating's input to the next, so a replay under
  * unchanged Parameters changes nothing. Expects to run inside the immediate
  * transaction that logs it.
@@ -128,6 +134,43 @@ export function applyParameters(db: Queryable, userId: string, parameters: numbe
         .run();
     }
   }
+}
+
+/**
+ * Records an automatic Tuning of the User's that applied `parameters` at
+ * `ranAt`, from the Reviews they have, its log losses unmeasured. For the
+ * Seed data, which shows the tuned state. `id` is the log row's.
+ */
+export function writeAppliedTuning(
+  db: Queryable,
+  userId: string,
+  parameters: number[],
+  { ranAt, id }: { ranAt: Date; id: string },
+): void {
+  applyParameters(db, userId, parameters);
+  db.insert(parameter_tuning)
+    .values({
+      id,
+      userId,
+      ranAt,
+      trigger: "automatic",
+      reviewCount: reviewCountOf(db, userId),
+      outcome: "applied",
+      parameters,
+    })
+    .run();
+}
+
+/** Whether the User has any Tuning log row. */
+export function hasTunings(db: Queryable, userId: string): boolean {
+  return (
+    db
+      .select({ id: parameter_tuning.id })
+      .from(parameter_tuning)
+      .where(eq(parameter_tuning.userId, userId))
+      .limit(1)
+      .get() !== undefined
+  );
 }
 
 /** How many Reviews the User has, of Cards that are gone too. */

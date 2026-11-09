@@ -76,10 +76,7 @@ const stubOptimizer = (): StubOptimizer => {
 };
 
 const gate = () => {
-  let open = () => {};
-  const closed = new Promise<void>((resolve) => {
-    open = resolve;
-  });
+  const { promise: closed, resolve: open } = Promise.withResolvers<void>();
   return { closed, open };
 };
 
@@ -457,23 +454,23 @@ describe("Reset to defaults", () => {
   });
 });
 
-describe("applying Parameters", () => {
-  /** A Deck with a Card rated through a few days, one deleted, one reset partway and one new. */
-  const histories = () => {
-    const deckId = deckNamed("Spanish");
-    const live = write(deckId, "uno");
-    const deleted = write(deckId, "dos");
-    const reset = write(deckId, "tres");
-    const fresh = write(deckId, "cuatro");
-    rateThrough(live, ["again", "good", "good", "good", "hard", "good"]);
-    rateThrough(deleted, ["good", "good", "easy", "again", "good"]);
-    const end = rateThrough(reset, ["good", "good", "good"]);
-    opened.db.transaction((tx) => resetProgress(tx, USER, reset, end));
-    rateThrough(reset, ["good", "good", "good", "good"], end);
-    cards.softDelete(USER, deleted);
-    return { live, deleted, reset, fresh };
-  };
+/** A Deck with a Card rated through a few days, one deleted, one reset partway and one new. */
+const histories = () => {
+  const deckId = deckNamed("Spanish");
+  const live = write(deckId, "uno");
+  const deleted = write(deckId, "dos");
+  const reset = write(deckId, "tres");
+  const fresh = write(deckId, "cuatro");
+  rateThrough(live, ["again", "good", "good", "good", "hard", "good"]);
+  rateThrough(deleted, ["good", "good", "easy", "again", "good"]);
+  const end = rateThrough(reset, ["good", "good", "good"]);
+  opened.db.transaction((tx) => resetProgress(tx, USER, reset, end));
+  rateThrough(reset, ["good", "good", "good", "good"], end);
+  cards.softDelete(USER, deleted);
+  return { live, deleted, reset, fresh };
+};
 
+describe("applying Parameters", () => {
   test("under unchanged Parameters changes nothing", () => {
     histories();
     const before = everything();
@@ -511,11 +508,11 @@ describe("applying Parameters", () => {
       const counted = cardId === reset ? replayed.slice(3) : replayed;
       counted.forEach((one, i) => {
         const stored = fromStored(one.cardBefore);
-        const was = fromStored(before.reviews.find((r) => r.id === one.id)?.cardBefore);
+        const kept = fromStored(before.reviews.find((r) => r.id === one.id)?.cardBefore);
         expect(stored).toMatchObject({
-          dueAt: was.dueAt,
-          scheduledDays: was.scheduledDays,
-          lastReviewAt: was.lastReviewAt,
+          dueAt: kept.dueAt,
+          scheduledDays: kept.scheduledDays,
+          lastReviewAt: kept.lastReviewAt,
         });
         const next = counted[i + 1];
         const worked = rate(cardId, stored, one.rating, {

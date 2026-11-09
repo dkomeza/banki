@@ -115,8 +115,13 @@ describe("trainingItems", () => {
   });
 
   test("orders a Card's Reviews by the Write order, never by the clock, which can step back", () => {
-    const later = { cardId: "c1", seq: 2, reviewedAt: at("2026-05-01T10:00:00Z"), rating: "good" };
-    const earlier = {
+    const later: TrainingReview = {
+      cardId: "c1",
+      seq: 2,
+      reviewedAt: at("2026-05-01T10:00:00Z"),
+      rating: "good",
+    };
+    const earlier: TrainingReview = {
       cardId: "c1",
       seq: 1,
       reviewedAt: at("2026-05-04T10:00:00Z"),
@@ -124,9 +129,14 @@ describe("trainingItems", () => {
     };
 
     // The clock stepped back three days: it counts as the same Study day, not -3.
-    expect(trainingItems([later, earlier] as TrainingReview[], [], UTC4)).toEqual([]);
-    const next = { cardId: "c1", seq: 3, reviewedAt: at("2026-05-06T10:00:00Z"), rating: "easy" };
-    expect(trainingItems([later, earlier, next] as TrainingReview[], [], UTC4)).toEqual([
+    expect(trainingItems([later, earlier], [], UTC4)).toEqual([]);
+    const next: TrainingReview = {
+      cardId: "c1",
+      seq: 3,
+      reviewedAt: at("2026-05-06T10:00:00Z"),
+      rating: "easy",
+    };
+    expect(trainingItems([later, earlier, next], [], UTC4)).toEqual([
       [
         { rating: 2, deltaT: 0 },
         { rating: 3, deltaT: 0 },
@@ -170,6 +180,10 @@ const fixed = (losses: { current: number; next: number }, produced = [...DEFAULT
   return { optimizer, seen };
 };
 
+const notEnough = () => {
+  throw new Error("Evaluation failed: NotEnoughData");
+};
+
 const SOME_ITEMS: TrainingItem[] = [
   [
     { rating: 3, deltaT: 0 },
@@ -205,9 +219,6 @@ describe("tune", () => {
   });
 
   test("is not_enough_data when the library says so, fitting or evaluating, or there are no items", async () => {
-    const notEnough = () => {
-      throw new Error("Evaluation failed: NotEnoughData");
-    };
     const failing: Optimizer = {
       computeParameters: async () => notEnough(),
       evaluate: () => 0.5,
