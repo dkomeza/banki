@@ -19,7 +19,7 @@ import {
   useProtoCheck,
   useStateReload,
 } from "@/components/study/chat-proto";
-import { ChatSheet, SheetShade, sheetRoom } from "@/components/study/chat-sheet";
+import { ChatSheet, SheetShade } from "@/components/study/chat-sheet";
 import { morph } from "@/components/study/morph";
 import {
   EditButton,
@@ -281,14 +281,8 @@ export function StudyScreen({ deck }: { deck: Deck }) {
           onLeave={() => leaveOrCancelEdit(session, editor.current)}
           chatBusy={replying(chat[0])}
         />
-        <main
-          className={cn(
-            "flex flex-1 flex-col",
-            chat[2] && sheetRoom(chat[0]),
-            // The hidden chat's bar sits on the dock below 1024 px.
-            chat[2] && chat[0].started && !chat[0].open && "max-lg:pb-12",
-          )}
-        >
+        {/* PROTOTYPE (BAN-42), Variant f: the chat floats over the page, which never makes room for it. */}
+        <main className="flex flex-1 flex-col">
           {state.phase === "card" ? (
             <CardView session={session} state={state} />
           ) : state.phase === "loading" ? null : (state.phase === "done" ||
@@ -317,7 +311,7 @@ export function StudyScreen({ deck }: { deck: Deck }) {
           )}
         </main>
         {state.phase === "card" && session !== undefined && (
-          <Dock session={session} state={state} room={chat[2] && sheetRoom(chat[0])} />
+          <Dock session={session} state={state} />
         )}
         <SheetShade />
         <ChatSheet
