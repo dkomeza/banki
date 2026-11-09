@@ -20,6 +20,12 @@ import {
   type StudyEditorHandle,
 } from "@/components/study/study-editor";
 import { Summary } from "@/components/study/summary";
+import {
+  HandwriteToggle,
+  type Handwriting,
+  useHandwriting,
+} from "@/components/study/handwriting-proto";
+import { HandwritingView } from "@/components/study/handwriting-layout";
 import { cardsQueryOptions } from "@/lib/cards";
 import { type Deck, deckQueryOptions } from "@/lib/decks";
 import { moreOffer } from "@/lib/new-cards";
@@ -124,6 +130,7 @@ function useStudySession(deck: Deck): [StudySession, StudyState] {
 export function StudyScreen({ deck }: { deck: Deck }) {
   const navigate = useNavigate();
   const [session, state] = useStudySession(deck);
+  const hw = useHandwriting(state);
   const queryClient = useQueryClient();
   const editor = useRef<StudyEditorHandle>(null);
   // The editor's Duplicate warning and Tag suggestions read these: fetched
@@ -254,17 +261,25 @@ export function StudyScreen({ deck }: { deck: Deck }) {
   }, [session, navigate, deck.id, openEditor]);
 
   return (
-    <div className="flex min-h-svh flex-col pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] [--toast-bottom:calc(7.5rem+env(safe-area-inset-bottom))]">
+    <div
+      className={cn(
+        "flex flex-col pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] [--toast-bottom:calc(7.5rem+env(safe-area-inset-bottom))]",
+        hw.on ? "h-svh overflow-hidden" : "min-h-svh",
+      )}
+    >
       <TopBar
         deck={deck}
         session={session}
         state={state}
+        hw={hw}
         onUndo={() => void session.undo()}
         onEdit={openEditor}
         onLeave={() => leaveOrCancelEdit(session, editor.current)}
       />
-      <main className="flex flex-1 flex-col">
-        {state.phase === "card" ? (
+      <main className={cn("flex flex-1 flex-col", hw.on && "min-h-0")}>
+        {hw.on ? (
+          <HandwritingView key={`${state.shown?.card.id}-${hw.state}`} hw={hw} />
+        ) : state.phase === "card" ? (
           <CardView session={session} state={state} />
         ) : state.phase === "loading" ? null : (state.phase === "done" ||
             state.phase === "left" ||
@@ -291,7 +306,9 @@ export function StudyScreen({ deck }: { deck: Deck }) {
           />
         )}
       </main>
-      {state.phase === "card" && session !== undefined && <Dock session={session} state={state} />}
+      {state.phase === "card" && session !== undefined && (
+        <Dock session={session} state={state} handwriting={hw.on} />
+      )}
       {state.editing && state.shown !== undefined && (
         <StudyEditor
           ref={editor}
@@ -311,6 +328,7 @@ function TopBar({
   deck,
   session,
   state,
+  hw,
   onUndo,
   onEdit,
   onLeave,
@@ -318,6 +336,7 @@ function TopBar({
   deck: Deck;
   session: StudySession;
   state: StudyState;
+  hw: Handwriting;
   onUndo: () => void;
   onEdit: () => void;
   /** Leaving: "away" to the deck page, else something else shows, or nothing happens. */
@@ -353,6 +372,7 @@ function TopBar({
         {deck.name}
       </span>
       <div className="flex items-center justify-end gap-1 sm:gap-2">
+        <HandwriteToggle state={state} on={hw.on} />
         {state.phase === "card" && <WriteToggle session={session} state={state} />}
         {state.phase === "card" && (
           // Open, it stays as it was: the editor it opened is in front.
@@ -458,7 +478,15 @@ function CardView({ session, state }: { session: StudySession; state: StudyState
   );
 }
 
-export function Dock({ session, state }: { session: StudySession; state: StudyState }) {
+export function Dock({
+  session,
+  state,
+  handwriting = false,
+}: {
+  session: StudySession;
+  state: StudyState;
+  handwriting?: boolean;
+}) {
   const intervals = state.shown?.intervals;
   return (
     <div
@@ -498,7 +526,7 @@ export function Dock({ session, state }: { session: StudySession; state: StudySt
         {state.dontKnow ? (
           <DontKnowDock session={session} state={state} />
         ) : !state.revealed && state.mode === "write" ? (
-          <WriteDock session={session} state={state} />
+          <WriteDock session={session} state={state} handwriting={handwriting} />
         ) : state.revealed && state.grade !== undefined ? (
           <GradedRatings session={session} state={state} grade={state.grade} />
         ) : state.revealed ? (
