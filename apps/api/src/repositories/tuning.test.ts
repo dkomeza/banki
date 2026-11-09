@@ -257,6 +257,21 @@ describe("a Tuning", () => {
     ]);
   });
 
+  test("never rejects, even when the failure can't be logged", async () => {
+    someHistory();
+    const { closed, open } = gate();
+    optimizer.gate = closed;
+    optimizer.fails = new Error("boom");
+    const tuned = tuning.tuneNow(USER, NOW);
+    await Bun.sleep(0);
+    // The User goes while it runs, so its log row has no User to belong to.
+    opened.db.run(sql`DELETE FROM user WHERE id = ${USER}`);
+
+    open();
+    expect((await tuned).result).toBe("failed");
+    expect(logRows()).toEqual([]);
+  });
+
   test("learns from every Review of the User's, of deleted and Removed Cards too, and only theirs", async () => {
     const deckId = deckNamed("Spanish");
     const live = write(deckId, "uno");

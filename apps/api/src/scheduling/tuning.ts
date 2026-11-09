@@ -40,9 +40,11 @@ function studyDaysBetween(from: Date, to: Date, studyDay: StudyDaySettings): num
  * newest Progress reset (ADR-0026), in the Write order (`seq`), each one after
  * its first an item with the Reviews before it, `deltaT` in Study days under
  * `studyDay`. Reviews of every kind and of Cards that are gone count
- * (ADR-0018), so `reviews` is all of the User's. An item with no Review a
- * Study day or more after the one before is left out: the library predicts
- * nothing from it, and aborts the process on one.
+ * (ADR-0018), so `reviews` is all of the User's. Only a Review a Study day or
+ * more after the one before is an item to predict; same-day ones stay in the
+ * history of later items. The library refuses items that end on a same-day
+ * Review (InvalidInput, once there are enough of them), and aborts the process
+ * on one with no Review a day or more apart at all.
  */
 export function trainingItems(
   reviews: readonly TrainingReview[],
@@ -65,7 +67,6 @@ export function trainingItems(
   for (const list of byCard.values()) {
     list.sort((a, b) => a.seq - b.seq);
     const history: TrainingStep[] = [];
-    let longTerm = false;
     list.forEach((one, i) => {
       const previous = list[i - 1];
       const deltaT =
@@ -73,8 +74,7 @@ export function trainingItems(
           ? 0
           : studyDaysBetween(previous.reviewedAt, one.reviewedAt, studyDay);
       history.push({ rating: RATING_NUMBERS[one.rating], deltaT });
-      longTerm ||= deltaT > 0;
-      if (i > 0 && longTerm) items.push(history.map((step) => ({ ...step })));
+      if (deltaT > 0) items.push(history.map((step) => ({ ...step })));
     });
   }
   return items;

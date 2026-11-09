@@ -56,6 +56,28 @@ describe("trainingItems", () => {
     expect(trainingItems(reviews, [], UTC4)).toEqual([]);
   });
 
+  test("predicts only Reviews a Study day or more after the one before: a same-day relearn stays in later items' history", () => {
+    const reviews = [
+      reviewOf("c1", "2026-05-01T10:00:00Z", "good"),
+      reviewOf("c1", "2026-05-04T10:00:00Z", "again"),
+      reviewOf("c1", "2026-05-04T10:10:00Z", "good"),
+      reviewOf("c1", "2026-05-05T10:00:00Z", "good"),
+    ];
+
+    expect(trainingItems(reviews, [], UTC4)).toEqual([
+      [
+        { rating: 3, deltaT: 0 },
+        { rating: 1, deltaT: 3 },
+      ],
+      [
+        { rating: 3, deltaT: 0 },
+        { rating: 1, deltaT: 3 },
+        { rating: 3, deltaT: 0 },
+        { rating: 3, deltaT: 1 },
+      ],
+    ]);
+  });
+
   test("counts whole Study days under the Timezone and Day start, not 24-hour spans", () => {
     // 03:59 is still the Study day before (Day start 4:00); 04:00 starts the next.
     const reviews = [
@@ -145,6 +167,46 @@ describe("trainingItems", () => {
     ]);
   });
 });
+
+/**
+ * The items of Cards studied a few days apart, a fifth of the Reviews lapsing
+ * and relearned the same day, built as Tuning builds them.
+ */
+function lapsingItems(cards: number): TrainingItem[] {
+  let state = 3;
+  const random = () => (state = (state * 16_807) % 2_147_483_647) / 2_147_483_647;
+  const reviews: TrainingReview[] = [];
+  for (let card = 0; card < cards; card += 1) {
+    let day = Date.parse("2026-01-01T10:00:00Z");
+    let gap = 1;
+    reviews.push({
+      cardId: `c${card}`,
+      seq: reviews.length + 1,
+      reviewedAt: new Date(day),
+      rating: "good",
+    });
+    for (let i = 0; i < 6; i += 1) {
+      day += gap * 24 * 60 * 60 * 1000;
+      const lapsed = random() < 0.2;
+      reviews.push({
+        cardId: `c${card}`,
+        seq: reviews.length + 1,
+        reviewedAt: new Date(day),
+        rating: lapsed ? "again" : "good",
+      });
+      if (lapsed) {
+        reviews.push({
+          cardId: `c${card}`,
+          seq: reviews.length + 1,
+          reviewedAt: new Date(day + 10 * 60 * 1000),
+          rating: "good",
+        });
+      }
+      gap = lapsed ? 1 : Math.ceil(gap * 2.5);
+    }
+  }
+  return trainingItems(reviews, [], UTC4);
+}
 
 /** A Card's items from reviews a few days apart, to train the real library on. */
 function syntheticItems(cards: number): TrainingItem[] {
@@ -261,6 +323,12 @@ describe("tune", () => {
     if (tuned.result !== "applied") return;
     expect(tuned.parameters).toHaveLength(21);
     expect(tuned.newLogLoss).toBeLessThan(tuned.currentLogLoss);
+  });
+
+  test("the library takes the items of a history with same-day relearning, which it refuses ending on a same-day Review", async () => {
+    const tuned = await tune(lapsingItems(150), DEFAULT_PARAMETERS, libraryOptimizer);
+
+    expect(["applied", "kept"]).toContain(tuned.result);
   });
 
   test("the library answers NotEnoughData for a handful of items", async () => {

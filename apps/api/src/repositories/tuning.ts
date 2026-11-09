@@ -254,10 +254,11 @@ export function createTuningRepository(
     trigger: Exclude<TuningTrigger, "reset">,
     now: () => Date,
   ): Promise<TuningResult | null> {
-    if (trigger === "automatic" && !automaticDue(db, userId)) return null;
-    const { studyDay, parameters } = schedulingSettingsOf(db, userId);
-    const reviewCount = reviewCountOf(db, userId);
+    let reviewCount = 0;
     try {
+      if (trigger === "automatic" && !automaticDue(db, userId)) return null;
+      const { studyDay, parameters } = schedulingSettingsOf(db, userId);
+      reviewCount = reviewCountOf(db, userId);
       const items = trainingItems(
         db
           .select({
@@ -298,7 +299,12 @@ export function createTuningRepository(
       return tuned.result;
     } catch (error) {
       logger.error("Tuning {trigger} failed: {error}", { trigger, error });
-      log(userId, { ranAt: now(), trigger, reviewCount, outcome: "failed" });
+      try {
+        log(userId, { ranAt: now(), trigger, reviewCount, outcome: "failed" });
+      } catch (logError) {
+        // Never rejects: an automatic Tuning's promise has no one to catch it.
+        logger.error("Logging a failed Tuning failed too: {error}", { error: logError });
+      }
       return "failed";
     }
   }
