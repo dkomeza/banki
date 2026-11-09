@@ -83,7 +83,12 @@ export function FeedbackThread({
           >
             {chat.entries.map((entry, i) => (
               // Entries only grow at the end, or the last is replaced in place.
-              <Message key={i} entry={entry} session={session} />
+              <Message
+                key={i}
+                entry={entry}
+                session={session}
+                latest={i === chat.entries.length - 1}
+              />
             ))}
           </div>
         )}
@@ -138,8 +143,20 @@ function useFollowedThread() {
   return scroller;
 }
 
-/** One message: the User's in a quiet bubble, the Grader's as plain text. */
-function Message({ entry, session }: { entry: ChatEntry; session: StudySession }) {
+/**
+ * One message: the User's in a quiet bubble, the Grader's as plain text. Only
+ * the `latest` reply can be asked for again: an earlier one that failed or
+ * was cut off has been asked past.
+ */
+function Message({
+  entry,
+  session,
+  latest,
+}: {
+  entry: ChatEntry;
+  session: StudySession;
+  latest: boolean;
+}) {
   if (entry.role === "user") {
     return (
       <div className="flex justify-end">
@@ -149,7 +166,9 @@ function Message({ entry, session }: { entry: ChatEntry; session: StudySession }
       </div>
     );
   }
-  if (entry.status === "failed") return <ReplyFailed session={session} failure={entry.failure} />;
+  if (entry.status === "failed") {
+    return <ReplyFailed session={session} failure={entry.failure} retry={latest} />;
+  }
   const streaming = entry.status === "streaming";
   // While it streams, a Formula shows once it is closed.
   const text = streaming ? closedFormulas(entry.text) : entry.text;
@@ -160,7 +179,7 @@ function Message({ entry, session }: { entry: ChatEntry; session: StudySession }
       ) : (
         <CardText text={text} interactive className={cn(REPLY_TEXT, streaming && STREAM_CARET)} />
       )}
-      {entry.status === "cut-off" && <CutOff session={session} />}
+      {entry.status === "cut-off" && <CutOff session={session} retry={latest} />}
     </div>
   );
 }
@@ -187,8 +206,19 @@ export function useModelName(): string {
   return MODELS.find((model) => model.id === id)?.name ?? "your Model";
 }
 
-/** A reply that failed before its first word, at its place, with Open Settings, Try again or neither. */
-function ReplyFailed({ session, failure }: { session: StudySession; failure: ChatFailure }) {
+/**
+ * A reply that failed before its first word, at its place, with Open Settings,
+ * Try again (with `retry`) or neither.
+ */
+function ReplyFailed({
+  session,
+  failure,
+  retry,
+}: {
+  session: StudySession;
+  failure: ChatFailure;
+  retry: boolean;
+}) {
   const model = useModelName();
   const action = CHAT_FAILURE_ACTIONS[failure];
   return (
@@ -213,7 +243,7 @@ function ReplyFailed({ session, failure }: { session: StudySession; failure: Cha
           Open Settings
         </Button>
       )}
-      {action === "retry" && (
+      {action === "retry" && retry && (
         <Button
           variant="outline"
           className={cn(PILL, "h-11 border-destructive/40 text-destructive lg:h-8 lg:px-3")}
@@ -226,21 +256,23 @@ function ReplyFailed({ session, failure }: { session: StudySession; failure: Cha
   );
 }
 
-/** Under a reply that broke after some text: it is cut off, with Try again. */
-function CutOff({ session }: { session: StudySession }) {
+/** Under a reply that broke after some text: it is cut off, with Try again (with `retry`). */
+function CutOff({ session, retry }: { session: StudySession; retry: boolean }) {
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-dashed border-destructive/40 pt-2">
       <p className="flex flex-1 items-center gap-1.5 text-xs font-medium text-destructive">
         <Scissors aria-hidden className="size-3.5" />
         Cut off: the answer stopped here
       </p>
-      <Button
-        variant="ghost"
-        className="h-11 rounded-full px-3 text-sm text-destructive hover:text-destructive lg:h-8"
-        onClick={() => session.retryReply()}
-      >
-        Try again
-      </Button>
+      {retry && (
+        <Button
+          variant="ghost"
+          className="h-11 rounded-full px-3 text-sm text-destructive hover:text-destructive lg:h-8"
+          onClick={() => session.retryReply()}
+        >
+          Try again
+        </Button>
+      )}
     </div>
   );
 }

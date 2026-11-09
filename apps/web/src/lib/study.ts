@@ -31,6 +31,7 @@ import {
   type StoredShown,
   timeoutMsOf,
 } from "./session-store";
+import { closedFormulas } from "./streaming-text";
 
 // The study screen's Session (CONTEXT.md: Session, Queue, Interval, New-card
 // batch): it walks a Deck's Queue Card by Card, asking the API for each next
@@ -761,18 +762,35 @@ export function createStudySession({
   };
 
   /**
+   * The reply `text` that stopped before the Model finished, as `status`:
+   * kept up to a Formula it left open, which would show as raw LaTeX; with
+   * nothing left, unanswered (`failure`).
+   */
+  const stoppedReply = (
+    text: string,
+    status: "done" | "cut-off",
+    failure: ChatFailure,
+  ): ChatEntry => {
+    const kept = closedFormulas(text);
+    return kept === ""
+      ? { role: "grader", text: "", status: "failed", failure }
+      : { role: "grader", text: kept, status };
+  };
+
+  /**
    * The chat with the reply on its way stopped (`abortReply`): kept as it
-   * came, as `status`, or with nothing in yet (or `lost`), unanswered.
+   * came (`stoppedReply`), as `status`, or with nothing in yet (or `lost`),
+   * unanswered.
    */
   const endReply = (status: "done" | "cut-off" | "lost"): Chat => {
     abortReply();
     const { entries } = state.chat;
     const last = entries.at(-1);
     if (last?.role !== "grader" || last.status !== "streaming") return state.chat;
-    const ended: ChatEntry =
-      last.text === "" || status === "lost"
-        ? { role: "grader", text: "", status: "failed", failure: "not_answered" }
-        : { ...last, status };
+    const ended =
+      status === "lost"
+        ? stoppedReply("", "done", "not_answered")
+        : stoppedReply(last.text, status, "not_answered");
     return { ...state.chat, entries: [...entries.slice(0, -1), ended] };
   };
 
@@ -1467,9 +1485,9 @@ export function createStudySession({
     }
     touch();
     if (outcome === "done") replace({ ...last, status: "done" });
-    else if (outcome === "cut_off" && last.text !== "") replace({ ...last, status: "cut-off" });
+    else if (outcome === "cut_off") replace(stoppedReply(last.text, "cut-off", "grading_failed"));
     else {
-      const failure = outcome === "gone" || outcome === "cut_off" ? "grading_failed" : outcome;
+      const failure = outcome === "gone" ? "grading_failed" : outcome;
       replace({ role: "grader", text: "", status: "failed", failure });
     }
   };

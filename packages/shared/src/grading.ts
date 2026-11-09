@@ -57,7 +57,8 @@ export const CHAT_REPLY_MAX_LENGTH = 100_000;
 
 /**
  * One message of a Follow-up chat: the User's, holding something other than
- * whitespace, up to 20,000 characters, or the Grader's reply as it came.
+ * whitespace, up to 20,000 characters, or the Grader's reply as it came, not
+ * empty.
  */
 export const ChatMessage = z.discriminatedUnion("role", [
   z.strictObject({
@@ -70,7 +71,10 @@ export const ChatMessage = z.discriminatedUnion("role", [
         `Keep it to ${WRITTEN_ANSWER_MAX_LENGTH.toLocaleString("en-GB")} characters`,
       ),
   }),
-  z.strictObject({ role: z.literal("grader"), text: z.string().max(CHAT_REPLY_MAX_LENGTH) }),
+  z.strictObject({
+    role: z.literal("grader"),
+    text: z.string().min(1).max(CHAT_REPLY_MAX_LENGTH),
+  }),
 ]);
 export type ChatMessage = z.infer<typeof ChatMessage>;
 

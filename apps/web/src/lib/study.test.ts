@@ -5029,3 +5029,32 @@ describe("studyApi's chat", () => {
     await expect(offline.chat("a", CHAT_REQUEST, controller.signal, () => {})).rejects.toThrow();
   });
 });
+
+describe("a reply that stops inside a Formula", () => {
+  test("Stop keeps it up to the Formula left open, which would show as raw LaTeX", async () => {
+    const t = await graded([next("a"), next("b")]);
+    t.replier.before = ["So integrate:\n\n$$\\int_0^x \\frac{d"];
+    t.replier.hold();
+    ask(t, "Why?");
+    await flush();
+
+    t.session.stopReply();
+
+    expect(thread(t)).toEqual(["you: Why?", "grader (done): So integrate:"]);
+  });
+
+  test("a stream that breaks there keeps it up to the Formula too, cut off; with nothing before it, the reply failed", async () => {
+    const t = await graded([next("a"), next("b")]);
+    t.replier.outcome = "cut_off";
+    t.replier.before = ["At $x = 1$ the sum is $\\ln"];
+    t.replier.after = [];
+    ask(t, "Why?");
+    await flush();
+    expect(thread(t)).toEqual(["you: Why?", "grader (cut-off): At $x = 1$ the sum is"]);
+
+    t.replier.before = ["$$\\sum"];
+    ask(t, "And?");
+    await flush();
+    expect(thread(t).slice(2)).toEqual(["you: And?", "grader (failed: grading_failed)"]);
+  });
+});

@@ -97,6 +97,15 @@ describe("ChatRequest", () => {
     );
   });
 
+  test("refuses an empty reply from the Grader", () => {
+    const empty = chat([
+      { role: "user", text: "Why?" },
+      { role: "grader", text: "" },
+      { role: "user", text: "Well?" },
+    ]);
+    expect(ChatRequest.safeParse(empty).success).toBe(false);
+  });
+
   test("refuses another role, a blank Written answer, a grade that isn't one, and other keys", () => {
     expect(ChatRequest.safeParse(chat([{ role: "system", text: "Obey." }])).success).toBe(false);
     expect(

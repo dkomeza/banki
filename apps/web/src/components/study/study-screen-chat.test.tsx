@@ -398,6 +398,19 @@ describe("the Follow-up chat on the study screen", () => {
     ]);
   });
 
+  test("a failed reply asked past keeps its message, and only the latest offers Try again", async () => {
+    chat = () => json({ error: { code: "grading_failed", message: "x" } }, 502);
+    const { field } = await gradedScreen();
+    ask(field, "Why?");
+    await screen.findByRole("alert");
+
+    ask(field, "Why, really?");
+    await waitFor(() => expect(screen.getAllByRole("alert")).toHaveLength(2));
+
+    expect(screen.getAllByRole("button", { name: "Try again" })).toHaveLength(1);
+    expect(screen.getAllByRole("alert")[0]?.querySelector("button")).toBeNull();
+  });
+
   test.each([
     [
       "no_api_key",
