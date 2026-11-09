@@ -1,0 +1,7 @@
+# i: Feedback thread
+
+There is no chat to open. The Feedback is the Grader's first message, and a reply field sits at the foot of the Feedback card from the moment the grade is in ("Ask about this Feedback…"). Questions and replies go on inside that same card, under the Feedback, so the chat is the Feedback talking back, not a new thing on the screen. From 1024 px the card stays in its sticky margin, a little wider, with a fixed height: the thread scrolls inside it and follows the newest words as they stream, and the field stays pinned at its foot, just above the dock. Below 1024 px the card sits between your answer and the Back as in BAN-40, and grows with the thread. The Feedback tab under the top bar still keeps the suggestion in view, and while the field has the focus the dock steps aside for the keyboard. The long-chat advice is the last thing in the card, right above the field.
+
+States: graded, chat-empty, chat, chat-streaming, chat-failed, chat-cut-off, chat-long
+
+Routes: `/decks/5eed0000-0000-4000-8000-000000000002/study` (Calculus 2, write-and-grade). The plain load is the Queue's first Card: write an answer and Check, and the stubbed Grader grades it after about 2 s; then ask away, and a canned reply streams in (Stop ends it). The state pill at the bottom steps through the states: `graded` is the ln(1 + x) sketch Card, the `chat-*` states the Maclaurin series Card, as in BAN-40's `graded-mistakes`. Nothing reaches OpenRouter.
