@@ -4435,31 +4435,38 @@ describe("graded and self-rated Ratings", () => {
 });
 
 describe("a grade stored before grades named their Model", () => {
-  test("is dropped on resume: its Card resumes not graded, and the rest of the Session resumes", async () => {
-    const t = await checked([next("a"), next("b")]);
-    t.grader.open();
-    await flush();
-    // The tab closes; the next release reads what the last one stored.
-    t.session.stop();
-    const key = "banki.session.d1";
-    const stored = JSON.parse(t.storage.getItem(key) ?? "null");
-    expect(stored.shown.grade.model).toBe("anthropic/claude-haiku-5.5");
-    delete stored.shown.grade.model;
-    t.storage.setItem(key, JSON.stringify(stored));
+  test.each([
+    ["none", undefined],
+    ["an empty one", ""],
+    ["one over 200 characters", "m".repeat(201)],
+  ])(
+    "with %s is dropped on resume: its Card resumes not graded, and the rest of the Session resumes",
+    async (_, model) => {
+      const t = await checked([next("a"), next("b")]);
+      t.grader.open();
+      await flush();
+      // The tab closes; the next release reads what the last one stored.
+      t.session.stop();
+      const key = "banki.session.d1";
+      const stored = JSON.parse(t.storage.getItem(key) ?? "null");
+      expect(stored.shown.grade.model).toBe("anthropic/claude-haiku-5.5");
+      stored.shown.grade.model = model;
+      t.storage.setItem(key, JSON.stringify(stored));
 
-    await t.reload();
+      await t.reload();
 
-    expect(t.shownId()).toBe("a");
-    expect(t.state()).toMatchObject({
-      revealed: true,
-      written: "  my answer $x$ ",
-      grade: { status: "failed", failure: "not_graded" },
-    });
-    expect(t.calls.grade).toHaveLength(1);
-    t.session.rate("good");
-    await flush();
-    expect(suggestionsIn(t)).toEqual([undefined]);
-  });
+      expect(t.shownId()).toBe("a");
+      expect(t.state()).toMatchObject({
+        revealed: true,
+        written: "  my answer $x$ ",
+        grade: { status: "failed", failure: "not_graded" },
+      });
+      expect(t.calls.grade).toHaveLength(1);
+      t.session.rate("good");
+      await flush();
+      expect(suggestionsIn(t)).toEqual([undefined]);
+    },
+  );
 });
 
 describe("a checked Card's time", () => {

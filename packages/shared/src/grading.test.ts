@@ -56,9 +56,12 @@ describe("GradeResponse", () => {
     }
   });
 
-  test("refuses a grade that names no Model", () => {
+  test("refuses a grade that names no Model, or one a graded Review couldn't keep", () => {
     const { model: _, ...unnamed } = grade;
     expect(GradeResponse.safeParse(unnamed).success).toBe(false);
+    for (const model of ["", "m".repeat(201)]) {
+      expect(GradeResponse.safeParse({ ...grade, model }).success).toBe(false);
+    }
   });
 
   test("refuses a mistake with no note", () => {
