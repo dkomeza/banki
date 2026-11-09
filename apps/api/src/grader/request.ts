@@ -136,17 +136,20 @@ function replaceImages(
 }
 
 /**
- * The chat completion that grades `input` with `model`, and the Back and the
- * Written answer as sent, mapped to the stored text, for the Highlights.
- * Macros are expanded in all four texts; each Image the Front or Back refers
- * to becomes `[Image n]` and goes along as a base64 data URL labelled Image n,
- * except a GIF or one with no file, which becomes {@link UNSENT_IMAGE}.
+ * What the Grader is told of `input`: the `<front>`, `<back>`,
+ * `<grading_notes>` and `<written_answer>` sections, the Back's and the
+ * Written answer's lines numbered, and the Images after them; with `more`,
+ * further sections after the Written answer. The Back and the Written answer
+ * as sent come mapped to the stored text, for the Highlights. Macros are
+ * expanded in all four texts; each Image the Front or Back refers to becomes
+ * `[Image n]` and goes along as a base64 data URL labelled Image n, except a
+ * GIF or one with no file, which becomes {@link UNSENT_IMAGE}.
  */
-export function gradingRequest(
+export function cardContent(
   input: GradingInput,
-  model: ModelId,
   readImage: ReadImage,
-): { body: ChatRequest; back: MappedText; answer: MappedText } {
+  more: readonly string[] = [],
+): { content: ContentPart[]; back: MappedText; answer: MappedText } {
   const loaded = new Map<string, { contentType: string; bytes: Uint8Array } | undefined>();
   const load = (file: string) => {
     if (!loaded.has(file)) {
@@ -168,6 +171,7 @@ export function gradingRequest(
       ? []
       : [`<grading_notes>\n${expandMacros(input.gradingNotes, input.macros)}\n</grading_notes>`]),
     `<written_answer>\n${numbered(answer.text)}\n</written_answer>`,
+    ...more,
   ];
   const content: ContentPart[] = [{ type: "text", text: sections.join("\n\n") }];
   for (const [file, n] of numbers) {
@@ -183,7 +187,20 @@ export function gradingRequest(
       },
     );
   }
+  return { content, back, answer };
+}
 
+/**
+ * The chat completion that grades `input` with `model` (`cardContent`), and
+ * the Back and the Written answer as sent, mapped to the stored text, for the
+ * Highlights.
+ */
+export function gradingRequest(
+  input: GradingInput,
+  model: ModelId,
+  readImage: ReadImage,
+): { body: ChatRequest; back: MappedText; answer: MappedText } {
+  const { content, back, answer } = cardContent(input, readImage);
   return {
     body: {
       model,

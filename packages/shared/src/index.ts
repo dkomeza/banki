@@ -107,7 +107,16 @@ export {
   sourceRange,
   unmapped,
 } from "./macros";
-export { GradeRequest, GradeResponse, TextRange, WRITTEN_ANSWER_MAX_LENGTH } from "./grading";
+export {
+  CHAT_REPLY_MAX_LENGTH,
+  ChatChunk,
+  ChatMessage,
+  ChatRequest,
+  GradeRequest,
+  GradeResponse,
+  TextRange,
+  WRITTEN_ANSWER_MAX_LENGTH,
+} from "./grading";
 export { frontKey } from "./front-key";
 export { HealthResponse } from "./health";
 export {
