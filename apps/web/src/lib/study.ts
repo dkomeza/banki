@@ -396,6 +396,22 @@ const sentMessages = (entries: readonly ChatEntry[]): ChatMessage[] =>
     return [{ role: "grader", text: entry.text.slice(0, CHAT_REPLY_MAX_LENGTH) }];
   });
 
+/**
+ * The reply `text` that stopped before the Model finished, as `status`:
+ * kept up to a Formula it left open, which would show as raw LaTeX; with
+ * nothing left, unanswered (`failure`).
+ */
+const stoppedReply = (
+  text: string,
+  status: "done" | "cut-off",
+  failure: ChatFailure,
+): ChatEntry => {
+  const kept = closedFormulas(text);
+  return kept === ""
+    ? { role: "grader", text: "", status: "failed", failure }
+    : { role: "grader", text: kept, status };
+};
+
 /** A reply asked for, before its first word. */
 const STREAMING: ChatEntry = { role: "grader", text: "", status: "streaming" };
 
@@ -759,22 +775,6 @@ export function createStudySession({
     replies += 1;
     answering?.abort();
     answering = undefined;
-  };
-
-  /**
-   * The reply `text` that stopped before the Model finished, as `status`:
-   * kept up to a Formula it left open, which would show as raw LaTeX; with
-   * nothing left, unanswered (`failure`).
-   */
-  const stoppedReply = (
-    text: string,
-    status: "done" | "cut-off",
-    failure: ChatFailure,
-  ): ChatEntry => {
-    const kept = closedFormulas(text);
-    return kept === ""
-      ? { role: "grader", text: "", status: "failed", failure }
-      : { role: "grader", text: kept, status };
   };
 
   /**
