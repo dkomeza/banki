@@ -51,11 +51,9 @@ export function optionsForState(state: string | undefined): PromptOptions {
         language: "English",
         count: "1500",
         difficulty: "intermediate",
-        instructions:
-          `${LONG_INSTRUCTIONS} ${LONG_INSTRUCTIONS} ${LONG_INSTRUCTIONS} ${LONG_INSTRUCTIONS}`.slice(
-            0,
-            INSTRUCTIONS_MAX + 140,
-          ),
+        instructions: Array.from({ length: 5 }, () => LONG_INSTRUCTIONS)
+          .join(" ")
+          .slice(0, INSTRUCTIONS_MAX + 140),
       };
     default:
       return DEFAULT_OPTIONS;
