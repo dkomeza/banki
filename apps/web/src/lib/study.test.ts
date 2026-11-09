@@ -4416,9 +4416,9 @@ const thread = (t: Awaited<ReturnType<typeof graded>>) =>
 
 describe("the Follow-up chat", () => {
   test("is there only once the grade is in: not while grading, after a failure, a Rating before the grade, I don't know or in self-rate", async () => {
-    const grading = await checked([next("a"), next("b")]);
-    ask(grading, "Why?");
-    expect(grading.state()).toMatchObject({ chat: NO_CHAT, askable: false });
+    const whileGrading = await checked([next("a"), next("b")]);
+    ask(whileGrading, "Why?");
+    expect(whileGrading.state()).toMatchObject({ chat: NO_CHAT, askable: false });
 
     const failed = await checked([next("a"), next("b")]);
     failed.grader.answer = "grading_failed";
@@ -4449,7 +4449,7 @@ describe("the Follow-up chat", () => {
     selfRate.session.ask();
     expect(selfRate.state().chat).toEqual(NO_CHAT);
 
-    for (const t of [grading, failed, skipped, dontKnow, selfRate]) {
+    for (const t of [whileGrading, failed, skipped, dontKnow, selfRate]) {
       expect(t.calls.chat).toEqual([]);
     }
   });
