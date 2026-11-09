@@ -158,7 +158,7 @@ export function checkText(result: Check, plan: Plan): string {
     case "warning":
       return `At ${plan.dailyMinutes} min a day, ~${result.unlearned} of ${result.newCards} new cards won't be learned by ${by}. ${result.neededMinutes} min a day would cover them.`;
     case "impossible":
-      return `Even 600 min a day leaves ~${result.unlearned} of ${result.newCards} new cards unlearned by ${by}. A later deadline would give them time.`;
+      return `Even 600 min a day won't cover all ${result.newCards} new cards by ${by}. A later deadline would give them time.`;
     default:
       return "No new cards to learn.";
   }
