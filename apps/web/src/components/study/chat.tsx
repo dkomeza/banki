@@ -14,6 +14,7 @@ import { LiveEditor } from "@/components/editor/live-editor";
 import { PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
 import { settingsQueryOptions } from "@/lib/settings";
+import { closedFormulas } from "@/lib/streaming-text";
 import {
   CHAT_FAILURE_ACTIONS,
   type ChatEntry,
@@ -105,11 +106,17 @@ function useFollowedThread() {
     const el = scroller.current;
     if (el === null || typeof ResizeObserver === "undefined") return () => {};
     let atEnd = true;
+    // Where following last scrolled to: its own scroll event, which can come
+    // after the thread has grown again, isn't the User scrolling up.
+    let followedTo: number | undefined;
     const onScroll = () => {
+      if (followedTo !== undefined && Math.abs(el.scrollTop - followedTo) < 2) return;
       atEnd = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
     };
     const follow = () => {
-      if (atEnd) el.scrollTop = el.scrollHeight;
+      if (!atEnd) return;
+      el.scrollTop = el.scrollHeight;
+      followedTo = el.scrollTop;
     };
     const resized = new ResizeObserver(follow);
     const watch = () => {
@@ -144,16 +151,14 @@ function Message({ entry, session }: { entry: ChatEntry; session: StudySession }
   }
   if (entry.status === "failed") return <ReplyFailed session={session} failure={entry.failure} />;
   const streaming = entry.status === "streaming";
+  // While it streams, a Formula shows once it is closed.
+  const text = streaming ? closedFormulas(entry.text) : entry.text;
   return (
     <div className="flex min-w-0 flex-col gap-2" aria-busy={streaming}>
-      {entry.text === "" ? (
+      {text === "" ? (
         <Thinking />
       ) : (
-        <CardText
-          text={entry.text}
-          interactive
-          className={cn(REPLY_TEXT, streaming && STREAM_CARET)}
-        />
+        <CardText text={text} interactive className={cn(REPLY_TEXT, streaming && STREAM_CARET)} />
       )}
       {entry.status === "cut-off" && <CutOff session={session} />}
     </div>

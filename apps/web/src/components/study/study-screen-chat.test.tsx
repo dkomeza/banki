@@ -292,6 +292,8 @@ describe("the Follow-up chat on the study screen", () => {
     const reply = streaming();
     chat = () => reply.response;
     const { field } = await gradedScreen();
+    const placeholder = () => field.dom.querySelector(".cm-placeholder")?.textContent;
+    expect(placeholder()).toBe("Ask about this Feedback…");
 
     press(field.contentDOM, "Enter");
     expect(field.state.doc.toString()).toBe("\n");
@@ -321,6 +323,7 @@ describe("the Follow-up chat on the study screen", () => {
     expect(log().textContent).toContain("is the step.");
     expect(log().querySelector("[aria-busy=true]")).toBeNull();
     expect(edit().disabled).toBe(false);
+    expect(placeholder()).toBe("Ask a follow-up…");
   });
 
   test("Send sends too, and is disabled while a reply streams", async () => {
