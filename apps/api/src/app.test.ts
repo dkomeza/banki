@@ -135,6 +135,7 @@ describe("migrations", () => {
       "0018_imports",
       "0019_settings_answer_mode",
       "0020_graded_reviews",
+      "0021_parameter_tuning",
     ]);
     first.close();
 

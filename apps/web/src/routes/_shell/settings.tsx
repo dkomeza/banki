@@ -13,6 +13,7 @@ import { ThisDeviceCard } from "@/components/settings/this-device-card";
 import { decksQueryOptions } from "@/lib/decks";
 import { meQueryOptions } from "@/lib/me";
 import { settingsQueryOptions } from "@/lib/settings";
+import { tuningQueryOptions } from "@/lib/tuning";
 import { useHiddenScrollbar } from "@/lib/use-hidden-scrollbar";
 
 export const Route = createFileRoute("/_shell/settings")({
@@ -21,6 +22,7 @@ export const Route = createFileRoute("/_shell/settings")({
       queryClient.ensureQueryData(settingsQueryOptions()),
       queryClient.ensureQueryData(meQueryOptions),
       queryClient.ensureQueryData(decksQueryOptions()),
+      queryClient.ensureQueryData(tuningQueryOptions()),
     ]),
   component: SettingsPage,
 });

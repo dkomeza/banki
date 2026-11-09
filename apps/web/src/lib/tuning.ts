@@ -1,0 +1,135 @@
+import { TuneResponse, type TuningOutcome, type TuningResult, TuningStatus } from "@banki/shared";
+import { type QueryClient, queryOptions } from "@tanstack/react-query";
+import { type ApiClient, api } from "./api";
+import { ApiRequestError } from "./query";
+
+// Tuning (CONTEXT.md) as Settings → Advanced shows it. The User never needs
+// to understand FSRS, so nothing here says "FSRS" or "parameters": Banki
+// fits its scheduling to how they remember.
+
+/** How Tuning stands, from `GET /api/tuning`. */
+export const tuningQueryOptions = (client: ApiClient = api) =>
+  queryOptions({
+    queryKey: ["tuning"],
+    queryFn: async (): Promise<TuningStatus> => {
+      const res = await client.api.tuning.$get();
+      if (!res.ok) throw new ApiRequestError(res.status);
+      return TuningStatus.parse(await res.json());
+    },
+  });
+
+/**
+ * After new scheduling applies, every Card keeps its due date but works out
+ * its memory again (ADR-0028), so what shows schedules is fetched afresh:
+ * the Decks' due counts and Study overviews, and the Cards.
+ */
+const refetchSchedules = (queryClient: QueryClient) =>
+  Promise.all(
+    [["decks"], ["cards"]].map((queryKey) => queryClient.invalidateQueries({ queryKey })),
+  );
+
+/** Tune now: runs a Tuning and answers its result, keeping the status it answers. */
+export async function tuneNow(
+  queryClient: QueryClient,
+  client: ApiClient = api,
+): Promise<TuningResult> {
+  const res = await client.api.tuning.$post();
+  if (!res.ok) throw new ApiRequestError(res.status);
+  const { result, status } = TuneResponse.parse(await res.json());
+  queryClient.setQueryData(tuningQueryOptions().queryKey, status);
+  if (result === "applied") await refetchSchedules(queryClient);
+  return result;
+}
+
+/**
+ * Reset to defaults, keeping the status it answers. Answers whether it reset:
+ * false when the defaults were in use already (another tab got there first),
+ * in which case the status is fetched again.
+ */
+export async function resetTuning(
+  queryClient: QueryClient,
+  client: ApiClient = api,
+): Promise<boolean> {
+  const res = await client.api.tuning.reset.$post();
+  const status: number = res.status;
+  if (status === 409) {
+    await queryClient.invalidateQueries({ queryKey: tuningQueryOptions().queryKey });
+    return false;
+  }
+  if (!res.ok) throw new ApiRequestError(status);
+  queryClient.setQueryData(tuningQueryOptions().queryKey, TuningStatus.parse(await res.json()));
+  await refetchSchedules(queryClient);
+  return true;
+}
+
+/** "26 October" this year, "26 October 2025" before. */
+function dateLabel(iso: string, now: Date): string {
+  const date = new Date(iso);
+  return date.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "long",
+    ...(date.getFullYear() === now.getFullYear() ? {} : { year: "numeric" }),
+  });
+}
+
+const reviews = (count: number) =>
+  `${count.toLocaleString("en-GB")} ${count === 1 ? "review" : "reviews"}`;
+
+/** What each outcome of a check means, after "Last check, <date>: ". */
+const OUTCOME_LINES: Record<TuningOutcome, string> = {
+  applied: "found a better fit and switched to it.",
+  kept: "no better fit than the current one, so it stayed.",
+  not_enough_data: "not enough review history yet.",
+  failed: "it couldn't finish.",
+  reset: "reset to standard scheduling.",
+};
+
+/**
+ * The status line: paused after a Reset; tuned on a date from so many
+ * Reviews; or standard scheduling until there is enough history. Then the
+ * last check and how it went, unless that was the Reset or the Tuning that
+ * applied, which the first part says.
+ */
+export function tuningStatusLines(status: TuningStatus, now = new Date()): string[] {
+  const { tuned, lastAttempt } = status;
+  const lines: string[] = [];
+  if (status.paused) {
+    lines.push(
+      "Standard scheduling, reset by you. Banki won't fit it to you again until you press Tune now.",
+    );
+  } else if (tuned !== null) {
+    lines.push(
+      `Fitted to how you remember on ${dateLabel(tuned.at, now)}, from ${reviews(tuned.reviews)}.`,
+    );
+  } else {
+    lines.push("Standard scheduling until there's enough of your review history to fit it to you.");
+  }
+  const said =
+    lastAttempt === null ||
+    lastAttempt.outcome === "reset" ||
+    (lastAttempt.outcome === "applied" && tuned !== null && lastAttempt.at === tuned.at);
+  if (lastAttempt !== null && !said) {
+    lines.push(
+      `Last check, ${dateLabel(lastAttempt.at, now)}: ${OUTCOME_LINES[lastAttempt.outcome]}`,
+    );
+  }
+  if (!status.paused) {
+    lines.push(
+      status.reviewsUntilAutomatic === 0
+        ? "Next check after your next review."
+        : `Next check after ${status.reviewsUntilAutomatic.toLocaleString("en-GB")} more ${status.reviewsUntilAutomatic === 1 ? "review" : "reviews"}.`,
+    );
+  }
+  return lines;
+}
+
+/** What Tune now says once it has run. */
+export const TUNE_RESULTS: Record<TuningResult, string> = {
+  applied: "Done: a better fit for how you remember is now in use.",
+  kept: "Done: no better fit than the current one, so nothing changed.",
+  not_enough_data: "Not enough review history to fit yet. Keep studying.",
+  failed: "Couldn't finish the check. Try again later.",
+};
+
+export const TUNE_FAILED = "Couldn't reach Banki. Check your connection.";
+export const RESET_FAILED = "Couldn't reset. Check your connection.";
