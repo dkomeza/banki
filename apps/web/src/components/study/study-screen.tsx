@@ -10,6 +10,15 @@ import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { AnswerEditor, DontKnowDock, WriteDock, WriteToggle } from "@/components/study/answer";
 import { GRADED_WIDTH, GradedCard, GradedRatings } from "@/components/study/grade";
+import {
+  ChatContext,
+  prepareProtoSession,
+  replying,
+  protoStudyApi,
+  useChatProto,
+  useProtoCheck,
+  useStateReload,
+} from "@/components/study/chat-proto";
 import { morph } from "@/components/study/morph";
 import {
   EditButton,
@@ -40,7 +49,6 @@ import {
   formatInterval,
   isEditKey,
   keyAction,
-  studyApi,
 } from "@/lib/study";
 import { cn } from "@/lib/utils";
 
@@ -73,9 +81,11 @@ const TIMEOUT_CHECK_MS = 15_000;
 function useStudySession(deck: Deck): [StudySession, StudyState] {
   const deckId = deck.id;
   const queryClient = useQueryClient();
-  const [session] = useState(() =>
-    createStudySession({
-      studyApi: studyApi(deckId),
+  const [session] = useState(() => {
+    // PROTOTYPE (BAN-42): the Grader stubbed, and `?state=` on a fresh Session.
+    prepareProtoSession();
+    return createStudySession({
+      studyApi: protoStudyApi(deckId),
       notify: (m) => toast(m),
       transition: morph,
       store: sessionStore(deckId),
@@ -86,8 +96,8 @@ function useStudySession(deck: Deck): [StudySession, StudyState] {
       // Read as each new Session starts: the Deck as it is then.
       answerMode: () =>
         deckAnswerMode(queryClient.getQueryData(deckQueryOptions(deckId).queryKey) ?? deck),
-    }),
-  );
+    });
+  });
   useEffect(() => {
     void session.start();
     return () => session.stop();
@@ -149,6 +159,10 @@ export function StudyScreen({ deck }: { deck: Deck }) {
     return () => opener.stop();
   }, [opener]);
   const openEditor = opener.open;
+  // PROTOTYPE (BAN-42): the Follow-up chat, stubbed.
+  useProtoCheck(session, state);
+  useStateReload();
+  const chat = useChatProto(state);
 
   // Desktop keys: Space / Enter reveal, 1–4 rate, E edits, Ctrl/⌘+Z undoes,
   // Esc leaves. While the editor is open, they are its own. In write-and-grade
@@ -252,56 +266,61 @@ export function StudyScreen({ deck }: { deck: Deck }) {
   }, [session, navigate, deck.id, openEditor]);
 
   return (
-    <div className="flex min-h-svh flex-col pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] [--toast-bottom:calc(7.5rem+env(safe-area-inset-bottom))]">
-      <TopBar
-        deck={deck}
-        session={session}
-        state={state}
-        onUndo={() => void session.undo()}
-        onEdit={openEditor}
-        onLeave={() => leaveOrCancelEdit(session, editor.current)}
-      />
-      <main className="flex flex-1 flex-col">
-        {state.phase === "card" ? (
-          <CardView session={session} state={state} />
-        ) : state.phase === "loading" ? null : (state.phase === "done" ||
-            state.phase === "left" ||
-            state.phase === "ended") &&
-          state.summary.studied > 0 ? (
-          <Summary
+    <ChatContext value={chat}>
+      <div className="flex min-h-svh flex-col pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] [--toast-bottom:calc(7.5rem+env(safe-area-inset-bottom))]">
+        <TopBar
+          deck={deck}
+          session={session}
+          state={state}
+          onUndo={() => void session.undo()}
+          onEdit={openEditor}
+          onLeave={() => leaveOrCancelEdit(session, editor.current)}
+          chatBusy={replying(chat[0])}
+        />
+        <main className="flex flex-1 flex-col">
+          {state.phase === "card" ? (
+            <CardView session={session} state={state} />
+          ) : state.phase === "loading" ? null : (state.phase === "done" ||
+              state.phase === "left" ||
+              state.phase === "ended") &&
+            state.summary.studied > 0 ? (
+            <Summary
+              deck={deck}
+              summary={state.summary}
+              progress={session.overviewProgress()}
+              left={state.phase === "left"}
+              endedAfterMs={state.phase === "ended" ? state.endedAfterMs : undefined}
+              onRestart={() => session.restart()}
+              newHeld={state.newHeld}
+              loadingMore={state.loadingMore}
+              onMore={() => session.more()}
+              onResume={() => session.resume()}
+            />
+          ) : (
+            <End
+              deck={deck}
+              state={state}
+              onRetry={() => session.retry()}
+              onMore={() => session.more()}
+            />
+          )}
+        </main>
+        {state.phase === "card" && session !== undefined && (
+          <Dock session={session} state={state} />
+        )}
+        {state.editing && state.shown !== undefined && (
+          <StudyEditor
+            ref={editor}
+            key={state.shown.card.id}
             deck={deck}
-            summary={state.summary}
-            progress={session.overviewProgress()}
-            left={state.phase === "left"}
-            endedAfterMs={state.phase === "ended" ? state.endedAfterMs : undefined}
-            onRestart={() => session.restart()}
-            newHeld={state.newHeld}
-            loadingMore={state.loadingMore}
-            onMore={() => session.more()}
-            onResume={() => session.resume()}
-          />
-        ) : (
-          <End
-            deck={deck}
-            state={state}
-            onRetry={() => session.retry()}
-            onMore={() => session.more()}
+            card={state.shown.card}
+            revealed={state.revealed}
+            session={session}
           />
         )}
-      </main>
-      {state.phase === "card" && session !== undefined && <Dock session={session} state={state} />}
-      {state.editing && state.shown !== undefined && (
-        <StudyEditor
-          ref={editor}
-          key={state.shown.card.id}
-          deck={deck}
-          card={state.shown.card}
-          revealed={state.revealed}
-          session={session}
-        />
-      )}
-      <Toaster />
-    </div>
+        <Toaster />
+      </div>
+    </ChatContext>
   );
 }
 
@@ -312,7 +331,10 @@ function TopBar({
   onUndo,
   onEdit,
   onLeave,
+  chatBusy,
 }: {
+  /** PROTOTYPE (BAN-42): a reply is streaming, so Edit waits. */
+  chatBusy: boolean;
   deck: Deck;
   session: StudySession;
   state: StudyState;
@@ -354,7 +376,7 @@ function TopBar({
         {state.phase === "card" && <WriteToggle session={session} state={state} />}
         {state.phase === "card" && (
           // Open, it stays as it was: the editor it opened is in front.
-          <EditButton disabled={!state.editable && !state.editing} onClick={onEdit} />
+          <EditButton disabled={(!state.editable || chatBusy) && !state.editing} onClick={onEdit} />
         )}
         {state.rated > 0 && (
           <span className="hidden text-sm text-muted-foreground tabular-nums sm:inline">
@@ -462,6 +484,8 @@ export function Dock({ session, state }: { session: StudySession; state: StudySt
     <div
       className={cn(
         "sticky bottom-0 z-10 border-t bg-background/95 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur [view-transition-name:study-dock]",
+        // PROTOTYPE (BAN-42): below 1024 px it steps aside while the chat's input has the focus.
+        "max-lg:[body:has([data-chat-composer]:focus-within)_&]:hidden",
         // From 1024 px it sinks away while the editor is open beside the Card.
         state.editing && "lg:hidden",
       )}
