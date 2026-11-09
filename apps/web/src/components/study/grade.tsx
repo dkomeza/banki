@@ -14,6 +14,7 @@ import {
 import { CardText, type Highlight } from "@/components/cards/card-text";
 import { PILL } from "@/components/settings/parts";
 import { LABEL } from "@/components/study/answer";
+import { AskPoints } from "@/components/study/chat-spots";
 import { lastLineOf, useMistakeNotes } from "@/components/study/mistake-notes";
 import { Button } from "@/components/ui/button";
 import { settingsQueryOptions } from "@/lib/settings";
@@ -104,16 +105,22 @@ export function GradedCard({
         <aside
           ref={feedback}
           aria-label="Feedback"
-          className="min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1"
+          className="min-w-0 lg:col-start-2 lg:row-span-3 lg:row-start-1"
         >
           <div className="flex flex-col gap-2 lg:sticky lg:top-[calc(4.5rem+env(safe-area-inset-top))] lg:max-h-[calc(100dvh-14rem)] lg:overflow-y-auto lg:pb-2">
             <h2 className={cn(LABEL, "flex min-h-5 items-center")}>Feedback</h2>
             <Feedback session={session} grade={grade} />
           </div>
         </aside>
+        {/* PROTOTYPE (BAN-42): the Grader's points, each with its own questions. */}
+        {result !== undefined && (
+          <div className="min-w-0 lg:col-start-1 lg:row-start-2">
+            <AskPoints result={result} back={card.back} />
+          </div>
+        )}
         <section
           aria-label="Answer"
-          className="flex min-w-0 flex-col gap-2 lg:col-start-1 lg:row-start-2"
+          className="flex min-w-0 flex-col gap-2 lg:col-start-1 lg:row-start-3"
         >
           <div className="flex min-h-5 items-center justify-between gap-2">
             <h2 className={LABEL}>Answer</h2>

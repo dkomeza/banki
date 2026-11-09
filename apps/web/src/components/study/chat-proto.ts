@@ -154,6 +154,8 @@ export type ChatMessage = {
   text: string;
   /** A reply's state: streaming in, in, failed before its first word, or cut off after some. */
   status: "streaming" | "done" | "failed" | "cut-off";
+  /** Variant j: the point it is about, `mistake-<n>`, `missing-<n>` or `card`. */
+  about: string;
 };
 
 export type Chat = {
@@ -163,6 +165,8 @@ export type Chat = {
   open: boolean;
   messages: ChatMessage[];
   draft: string;
+  /** Variant j: the point whose input is open. */
+  asking: string | undefined;
 };
 
 /** From this many messages the chat shows the long-chat advice. */
@@ -241,64 +245,79 @@ const TYPED_REPLY = [
 ].join("\n");
 
 let nextId = 1;
-const msg = (role: ChatMessage["role"], text: string, status: ChatMessage["status"] = "done") => ({
-  id: nextId++,
-  role,
-  text,
-  status,
-});
+const msg = (
+  role: ChatMessage["role"],
+  text: string,
+  status: ChatMessage["status"] = "done",
+  about = "card",
+): ChatMessage => ({ id: nextId++, role, text, status, about });
+const M0 = "mistake-0";
+const M1 = "mistake-1";
 
 /** The chat each `?state=` opens with. */
-function seeded(state: ChatState | undefined): Pick<Chat, "open" | "messages"> {
+function seeded(state: ChatState | undefined): Pick<Chat, "open" | "messages" | "asking"> {
   switch (state) {
     case "chat-empty":
-      return { open: true, messages: [] };
+      return { open: true, messages: [], asking: M0 };
     case "chat":
       return {
         open: true,
-        messages: [msg("user", Q1), msg("grader", A1), msg("user", Q2), msg("grader", A2)],
+        messages: [
+          msg("user", Q1, "done", M0),
+          msg("grader", A1, "done", M0),
+          msg("user", Q2, "done", M1),
+          msg("grader", A2, "done", M1),
+        ],
+        asking: undefined,
       };
     case "chat-streaming":
       return {
         open: true,
         messages: [
-          msg("user", Q1),
-          msg("grader", A1),
-          msg("user", Q3),
-          msg("grader", A3_PART, "streaming"),
+          msg("user", Q1, "done", M0),
+          msg("grader", A1, "done", M0),
+          msg("user", Q3, "done", M1),
+          msg("grader", A3_PART, "streaming", M1),
         ],
+        asking: M1,
       };
     case "chat-failed":
       return {
         open: true,
         messages: [
-          msg("user", Q1),
-          msg("grader", A1),
-          msg("user", Q2),
-          msg("grader", "", "failed"),
+          msg("user", Q1, "done", M0),
+          msg("grader", A1, "done", M0),
+          msg("user", Q2, "done", M1),
+          msg("grader", "", "failed", M1),
         ],
+        asking: M1,
       };
     case "chat-cut-off":
       return {
         open: true,
         messages: [
-          msg("user", Q1),
-          msg("grader", A1),
-          msg("user", Q3),
-          msg("grader", A3_PART, "cut-off"),
+          msg("user", Q1, "done", M0),
+          msg("grader", A1, "done", M0),
+          msg("user", Q3, "done", M1),
+          msg("grader", A3_PART, "cut-off", M1),
         ],
+        asking: M1,
       };
     case "chat-long":
       return {
         open: true,
-        messages: LONG_PAIRS.flatMap(([q, a]) => [msg("user", q), msg("grader", a)]),
+        messages: LONG_PAIRS.flatMap(([q, a], i) => {
+          const about = i === 0 ? M0 : i <= 2 ? M1 : "card";
+          return [msg("user", q, "done", about), msg("grader", a, "done", about)];
+        }),
+        asking: "card",
       };
     default:
-      return { open: false, messages: [] };
+      return { open: false, messages: [], asking: undefined };
   }
 }
 
-const EMPTY: Chat = { cardId: undefined, open: false, messages: [], draft: "" };
+const EMPTY: Chat = { cardId: undefined, open: false, messages: [], draft: "", asking: undefined };
 let chat: Chat = EMPTY;
 const listeners = new Set<() => void>();
 const set = (change: Partial<Chat>) => {
@@ -342,7 +361,8 @@ function stream(full: string) {
 export const replying = (c: Chat) => c.messages.at(-1)?.status === "streaming";
 
 export type ChatActions = {
-  open: () => void;
+  /** Variant j: opens the input under a point. */
+  open: (about?: string) => void;
   close: () => void;
   setDraft: (draft: string) => void;
   /** Sends the draft; not while blank or while a reply streams. */
@@ -374,15 +394,20 @@ export function useChatProto(state: StudyState): [Chat, ChatActions, boolean] {
   }, [cardId, graded]);
   const actions = useMemo<ChatActions>(
     () => ({
-      open: () => set({ open: true }),
-      close: () => set({ open: false }),
+      open: (about = "card") =>
+        set(chat.asking === about ? {} : { open: true, asking: about, draft: "" }),
+      close: () => set({ open: false, asking: undefined }),
       setDraft: (draft) => set({ draft }),
       send: () => {
         const text = chat.draft;
         if (text.trim() === "" || replying(chat)) return;
         set({
           draft: "",
-          messages: [...chat.messages, msg("user", text), msg("grader", "", "streaming")],
+          messages: [
+            ...chat.messages,
+            msg("user", text, "done", chat.asking),
+            msg("grader", "", "streaming", chat.asking),
+          ],
         });
         setTimeout(() => stream(TYPED_REPLY), 500);
       },
