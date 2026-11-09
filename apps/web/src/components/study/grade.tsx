@@ -1,5 +1,4 @@
-import { type GradeResponse, MODELS, RATINGS, type Rating } from "@banki/shared";
-import { useQuery } from "@tanstack/react-query";
+import { type GradeResponse, RATINGS, type Rating } from "@banki/shared";
 import { Link } from "@tanstack/react-router";
 import { AlertCircle, Check, ChevronDown, LoaderCircle, Sparkles } from "lucide-react";
 import {
@@ -14,9 +13,9 @@ import {
 import { CardText, type Highlight } from "@/components/cards/card-text";
 import { PILL } from "@/components/settings/parts";
 import { LABEL } from "@/components/study/answer";
+import { FeedbackThread, useModelName } from "@/components/study/chat";
 import { lastLineOf, useMistakeNotes } from "@/components/study/mistake-notes";
 import { Button } from "@/components/ui/button";
-import { settingsQueryOptions } from "@/lib/settings";
 import {
   GRADE_FAILURE_ACTIONS,
   type Grade,
@@ -40,6 +39,7 @@ import { cn } from "@/lib/utils";
 // marked, and its note opens in a bubble just under it (mistake-notes.ts);
 // what your answer misses is marked in the Back. In the dock the suggestion is
 // filled in on its rating, and a Rating selected before it comes has Confirm.
+// Once graded, the Feedback card holds the Follow-up chat too (chat.tsx).
 
 /** The revealed Card's column after Check: wider from 1024 px, for the margin. */
 export const GRADED_WIDTH = "max-w-2xl lg:max-w-6xl";
@@ -94,7 +94,8 @@ export function GradedCard({
         aria-hidden
         className="my-6 h-px w-16 bg-border [view-transition-name:card-rule] lg:my-8"
       />
-      <div className="grid gap-x-12 gap-y-8 lg:grid-cols-[minmax(0,1fr)_19rem] xl:grid-cols-[minmax(0,1fr)_22rem]">
+      {/* The margin is wide enough for the chat in the Feedback. */}
+      <div className="grid gap-x-12 gap-y-8 lg:grid-cols-[minmax(0,1fr)_22rem] xl:grid-cols-[minmax(0,1fr)_25rem]">
         <YourAnswer
           key={card.id}
           written={state.written ?? ""}
@@ -106,9 +107,26 @@ export function GradedCard({
           aria-label="Feedback"
           className="min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1"
         >
-          <div className="flex flex-col gap-2 lg:sticky lg:top-[calc(4.5rem+env(safe-area-inset-top))] lg:max-h-[calc(100dvh-14rem)] lg:overflow-y-auto lg:pb-2">
+          <div
+            className={cn(
+              "flex flex-col gap-2 lg:sticky lg:top-[calc(4.5rem+env(safe-area-inset-top))] lg:max-h-[calc(100dvh-14rem)] lg:pb-2",
+              // Graded, the card has a height of its own: its thread scrolls inside it.
+              grade.status === "graded"
+                ? "lg:h-[calc(100dvh-25.5rem)] lg:min-h-[22rem]"
+                : "lg:overflow-y-auto",
+            )}
+          >
             <h2 className={cn(LABEL, "flex min-h-5 items-center")}>Feedback</h2>
-            <Feedback session={session} grade={grade} />
+            {grade.status === "graded" ? (
+              <FeedbackThread
+                session={session}
+                state={state}
+                result={grade.result}
+                suggests={<Suggests rating={grade.result.rating} />}
+              />
+            ) : (
+              <Feedback session={session} grade={grade} />
+            )}
           </div>
         </aside>
         <section
@@ -374,12 +392,6 @@ function FeedbackTab({
       </div>
     </div>
   );
-}
-
-/** The User's Model's display name, for a failure that names it. */
-function useModelName(): string {
-  const id = useQuery(settingsQueryOptions()).data?.settings.model;
-  return MODELS.find((model) => model.id === id)?.name ?? "your Model";
 }
 
 /** Why there is no Feedback, with Open Settings, Try again or neither, as the failure calls for. */

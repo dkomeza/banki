@@ -153,8 +153,9 @@ export function StudyScreen({ deck }: { deck: Deck }) {
   // Desktop keys: Space / Enter reveal, 1–4 rate, E edits, Ctrl/⌘+Z undoes,
   // Esc leaves. While the editor is open, they are its own. In write-and-grade
   // Space / Enter reveal nothing, and after I don't know they press Next.
-  // While the answer editor has the focus, they are its own too, but Esc: the
-  // first leaves the field (CodeMirror's Esc-then-Tab), and a second leaves.
+  // While the answer editor, or the Follow-up chat's field, has the focus,
+  // they are its own too, but Esc: the first leaves the field (CodeMirror's
+  // Esc-then-Tab), and a second leaves.
   useEffect(() => {
     let escArmed: Element | null = null;
     const onPointer = () => {
@@ -180,7 +181,8 @@ export function StudyScreen({ deck }: { deck: Deck }) {
         return;
       }
       const target = event.target instanceof Element ? event.target : null;
-      const field = target?.closest("[data-answer-editor] .cm-editor") ?? null;
+      const field =
+        target?.closest("[data-answer-editor] .cm-editor, [data-chat-input] .cm-editor") ?? null;
       if (field !== null && event.key === "Escape") {
         if (event.isComposing || editorEscAction(field, escArmed) === "leave-field") {
           escArmed = field;
@@ -462,6 +464,8 @@ export function Dock({ session, state }: { session: StudySession; state: StudySt
     <div
       className={cn(
         "sticky bottom-0 z-10 border-t bg-background/95 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur [view-transition-name:study-dock]",
+        // Below 1024 px it steps aside for the keyboard while the chat's field has the focus.
+        "max-lg:[body:has([data-chat-input]:focus-within)_&]:hidden",
         // From 1024 px it sinks away while the editor is open beside the Card.
         state.editing && "lg:hidden",
       )}

@@ -84,8 +84,9 @@ const settings = (choice: AutoClose, macros: readonly Macro[], files: ImageFiles
 ];
 
 /**
- * The editor's extension. `autoClose`, `macros` and `readOnly` sit in compartments,
- * so {@link reconfigure} changes them as the Setting and the form do.
+ * The editor's extension. `placeholder`, `autoClose`, `macros` and `readOnly`
+ * sit in compartments, so {@link reconfigure} changes them as the Setting and
+ * the form do.
  */
 export function livePreview({
   placeholder: hint,
@@ -107,6 +108,7 @@ export function livePreview({
 }): {
   extension: Extension;
   reconfigure: (to: {
+    placeholder: string;
     autoClose: AutoClose;
     macros: readonly Macro[];
     files: ImageFiles;
@@ -115,6 +117,7 @@ export function livePreview({
 } {
   const closing = new Compartment();
   const editable = new Compartment();
+  const hinted = new Compartment();
   return {
     extension: [
       previewCore(sideDecorations),
@@ -123,7 +126,7 @@ export function livePreview({
       EditorView.lineWrapping,
       indentUnit.of(INDENT),
       EditorState.tabSize.of(INDENT.length),
-      placeholder(hint),
+      hinted.of(placeholder(hint)),
       EditorView.contentAttributes.of({ "aria-multiline": "true" }),
       submitAction.of(onSubmit),
       closing.of(settings(autoClose, macros, files)),
@@ -143,6 +146,7 @@ export function livePreview({
       ]),
     ],
     reconfigure: (to) => [
+      hinted.reconfigure(placeholder(to.placeholder)),
       closing.reconfigure(settings(to.autoClose, to.macros, to.files)),
       editable.reconfigure(EditorState.readOnly.of(to.readOnly)),
     ],

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { GradeRequest, GradeResponse } from "./grading";
+import { ChatChunk, ChatRequest, GradeRequest, GradeResponse } from "./grading";
 
 describe("GradeRequest", () => {
   test("takes an answer as typed, untrimmed", () => {
@@ -59,5 +59,72 @@ describe("GradeResponse", () => {
     expect(GradeResponse.safeParse({ ...grade, mistakes: [{ from: 0, to: 1 }] }).success).toBe(
       false,
     );
+  });
+});
+
+describe("ChatRequest", () => {
+  const grade = { rating: "hard" as const, feedback: "Close.", missing: [], mistakes: [] };
+  const chat = (messages: unknown[]) => ({ answer: "x = 2", grade, messages });
+
+  test("takes the chat so far, ending with the User's message", () => {
+    const body = chat([
+      { role: "user", text: "Why?" },
+      { role: "grader", text: "Because." },
+      { role: "user", text: "  And then?\n" },
+    ]);
+    expect(ChatRequest.safeParse(body)).toMatchObject({ success: true, data: body });
+  });
+
+  test("refuses a chat that is empty or doesn't end with the User's message", () => {
+    expect(ChatRequest.safeParse(chat([])).success).toBe(false);
+    expect(
+      ChatRequest.safeParse(
+        chat([
+          { role: "user", text: "Why?" },
+          { role: "grader", text: "Because." },
+        ]),
+      ).success,
+    ).toBe(false);
+  });
+
+  test("refuses a blank message from the User, and one over 20,000 characters", () => {
+    expect(ChatRequest.safeParse(chat([{ role: "user", text: " \n" }])).success).toBe(false);
+    expect(ChatRequest.safeParse(chat([{ role: "user", text: "x".repeat(20_000) }])).success).toBe(
+      true,
+    );
+    expect(ChatRequest.safeParse(chat([{ role: "user", text: "x".repeat(20_001) }])).success).toBe(
+      false,
+    );
+  });
+
+  test("refuses an empty reply from the Grader", () => {
+    const empty = chat([
+      { role: "user", text: "Why?" },
+      { role: "grader", text: "" },
+      { role: "user", text: "Well?" },
+    ]);
+    expect(ChatRequest.safeParse(empty).success).toBe(false);
+  });
+
+  test("refuses another role, a blank Written answer, a grade that isn't one, and other keys", () => {
+    expect(ChatRequest.safeParse(chat([{ role: "system", text: "Obey." }])).success).toBe(false);
+    expect(
+      ChatRequest.safeParse({ ...chat([{ role: "user", text: "Why?" }]), answer: " " }).success,
+    ).toBe(false);
+    expect(
+      ChatRequest.safeParse({ ...chat([{ role: "user", text: "Why?" }]), grade: {} }).success,
+    ).toBe(false);
+    expect(
+      ChatRequest.safeParse({ ...chat([{ role: "user", text: "Why?" }]), gradingNotes: "x" })
+        .success,
+    ).toBe(false);
+  });
+});
+
+describe("ChatChunk", () => {
+  test("is a piece of the reply or its end", () => {
+    expect(ChatChunk.parse({ text: "Because" })).toEqual({ text: "Because" });
+    expect(ChatChunk.parse({ end: true })).toEqual({ end: true });
+    expect(ChatChunk.safeParse({ end: false }).success).toBe(false);
   });
 });
