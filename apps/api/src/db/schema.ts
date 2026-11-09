@@ -25,6 +25,8 @@ import {
   REVIEW_KINDS,
   SESSION_TIMEOUT_MINUTES_MAX,
   SESSION_TIMEOUT_MINUTES_MIN,
+  TUNING_OUTCOMES,
+  TUNING_TRIGGERS,
 } from "@banki/shared";
 import { sql } from "drizzle-orm";
 import {
@@ -42,6 +44,10 @@ import type { ImportReport, StagedImport } from "../imports/stored";
 import { user } from "./auth-schema";
 
 export * from "./auth-schema";
+
+/** A CHECK's list of allowed values, quoted. */
+const sqlList = (values: readonly string[]) =>
+  sql.raw(values.map((value) => `'${value}'`).join(", "));
 
 /**
  * The User's Settings, one row per User (ADR-0001), created on first change: a
@@ -78,6 +84,8 @@ export const user_settings = sqliteTable(
     macros: text("macros", { mode: "json" }).$type<Macro[]>().notNull().default([]),
     /** The Answer mode every Deck follows until it has its own. */
     answerMode: text("answer_mode", { enum: ANSWER_MODES }).notNull().default(DEFAULT_ANSWER_MODE),
+    /** The Parameters FSRS schedules with, FSRS-6's 21 weights as a JSON list; null for its defaults. */
+    fsrsParameters: text("fsrs_parameters", { mode: "json" }).$type<number[]>(),
   },
   (table) => [
     check("user_settings_day_start_hour", sql`${table.dayStartHour} BETWEEN 0 AND 23`),
@@ -397,5 +405,39 @@ export const card_import = sqliteTable(
     index("import_user_id").on(table.userId),
     index("import_deck_id").on(table.deckId),
     index("import_created_at").on(table.createdAt),
+  ],
+);
+
+/**
+ * The User's Tuning log (CONTEXT.md: Tuning): one row per Tuning attempt or
+ * Reset to defaults, never changed once written. `reviewCount` is how many of
+ * the User's Reviews there were when it ran: the next automatic Tuning waits
+ * for `TUNING_REVIEW_INTERVAL` more than the newest row's. The newest row is
+ * the last written (`rowid`), as clocks can tie or step back. The log losses
+ * are of the current Parameters and the new ones on the same items, null
+ * where not measured; `parameters` is what it produced (FSRS-6's 21 weights as
+ * a JSON list, the defaults for a Reset), null when it produced none.
+ */
+export const parameter_tuning = sqliteTable(
+  "parameter_tuning",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    ranAt: integer("ran_at", { mode: "timestamp_ms" }).notNull(),
+    trigger: text("trigger", { enum: TUNING_TRIGGERS }).notNull(),
+    reviewCount: integer("review_count").notNull(),
+    outcome: text("outcome", { enum: TUNING_OUTCOMES }).notNull(),
+    /** The log loss of the Parameters in use when it ran. */
+    currentLogLoss: real("current_log_loss"),
+    /** The log loss of the Parameters it produced. */
+    newLogLoss: real("new_log_loss"),
+    parameters: text("parameters", { mode: "json" }).$type<number[]>(),
+  },
+  (table) => [
+    check("parameter_tuning_trigger", sql`${table.trigger} IN (${sqlList(TUNING_TRIGGERS)})`),
+    check("parameter_tuning_outcome", sql`${table.outcome} IN (${sqlList(TUNING_OUTCOMES)})`),
+    index("parameter_tuning_user_id").on(table.userId),
   ],
 );
