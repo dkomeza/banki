@@ -18,6 +18,7 @@ export function ConfirmDelete({
   title = "Delete this deck?",
   description,
   confirmLabel = "Delete deck",
+  restorable = true,
   onConfirm,
 }: {
   open: boolean;
@@ -26,6 +27,8 @@ export function ConfirmDelete({
   title?: string;
   description?: ReactNode;
   confirmLabel?: string;
+  /** PROTOTYPE (BAN-57): false for what Recently deleted doesn't keep, such as a Plan. */
+  restorable?: boolean;
   onConfirm: () => Promise<string | undefined>;
 }) {
   const [deleting, setDeleting] = useState(false);
@@ -62,8 +65,8 @@ export function ConfirmDelete({
                 </span>{" "}
                 and its cards will be deleted.
               </>
-            )}{" "}
-            You can restore it from Recently deleted for 30 days.
+            )}
+            {restorable && " You can restore it from Recently deleted for 30 days."}
           </AlertDialog.Description>
           {error !== undefined && <FormError>{error}</FormError>}
           <div className="mt-2 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
@@ -77,7 +80,7 @@ export function ConfirmDelete({
               disabled={deleting}
               onClick={() => void confirm()}
             >
-              {deleting ? "Deleting…" : confirmLabel}
+              {deleting ? (restorable ? "Deleting…" : "Removing…") : confirmLabel}
             </Button>
           </div>
         </AlertDialog.Popup>
