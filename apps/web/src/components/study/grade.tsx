@@ -64,7 +64,11 @@ export function highlightsOf(result: GradeResponse | undefined): {
   mistakes: Highlight[];
 } {
   return {
-    missing: (result?.missing ?? []).map((r, n) => ({ ...r, kind: "missing", n })),
+    missing: (result?.missing ?? []).map((r, n) => ({
+      ...r,
+      kind: "missing",
+      n,
+    })),
     mistakes: (result?.mistakes ?? []).map((m, n) => ({
       from: m.from,
       to: m.to,
@@ -110,6 +114,8 @@ export function GradedCard({
           <div className="flex flex-col gap-2 lg:sticky lg:top-[calc(4.5rem+env(safe-area-inset-top))] lg:max-h-[calc(100dvh-14rem)] lg:overflow-y-auto lg:pb-2">
             <h2 className={cn(LABEL, "flex min-h-5 items-center")}>Feedback</h2>
             <Feedback session={session} grade={grade} />
+            {/* PROTOTYPE (BAN-42): Ask about this, under the Feedback (Variant a placement). */}
+            <AskButton />
           </div>
         </aside>
         <section
@@ -497,13 +503,9 @@ export function GradedRatings({
   const confirming = grade.status === "grading" ? grade.selected : undefined;
   return (
     <div className="flex flex-col gap-2">
-      {/* PROTOTYPE (BAN-42): Ask about it beside the hint, once the grade is in. */}
-      <div className="flex min-h-5 items-center justify-center gap-3">
-        <p className="flex items-center justify-center gap-1.5 text-center text-xs font-medium text-muted-foreground">
-          <Hint grade={grade} />
-        </p>
-        <AskButton />
-      </div>
+      <p className="flex min-h-5 items-center justify-center gap-1.5 text-center text-xs font-medium text-muted-foreground">
+        <Hint grade={grade} />
+      </p>
       <div className="relative grid grid-cols-4 rounded-2xl border bg-card">
         {confirming !== undefined && (
           <ConfirmCallout rating={confirming} disabled={!state.ratable} session={session} />

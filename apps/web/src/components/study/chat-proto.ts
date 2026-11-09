@@ -22,6 +22,7 @@ export const CHAT_STATES = [
   "chat-failed",
   "chat-cut-off",
   "chat-long",
+  "chat-hidden",
 ] as const;
 export type ChatState = (typeof CHAT_STATES)[number];
 
@@ -161,6 +162,8 @@ export type Chat = {
   cardId: string | undefined;
   /** Opened from the Feedback: before, the chat is only offered. */
   open: boolean;
+  /** Opened once: closed after that, the sheet is only hidden, and comes back as it was. */
+  started: boolean;
   messages: ChatMessage[];
   draft: string;
 };
@@ -249,8 +252,18 @@ const msg = (role: ChatMessage["role"], text: string, status: ChatMessage["statu
 });
 
 /** The chat each `?state=` opens with. */
-function seeded(state: ChatState | undefined): Pick<Chat, "open" | "messages"> {
+function seeded(state: ChatState | undefined): Pick<Chat, "open" | "started" | "messages"> {
+  const opened = seededOpen(state);
+  return { ...opened, started: opened.open || state === "chat-hidden" };
+}
+
+function seededOpen(state: ChatState | undefined): Pick<Chat, "open" | "messages"> {
   switch (state) {
+    case "chat-hidden":
+      return {
+        open: false,
+        messages: [msg("user", Q1), msg("grader", A1), msg("user", Q2), msg("grader", A2)],
+      };
     case "chat-empty":
       return { open: true, messages: [] };
     case "chat":
@@ -298,7 +311,13 @@ function seeded(state: ChatState | undefined): Pick<Chat, "open" | "messages"> {
   }
 }
 
-const EMPTY: Chat = { cardId: undefined, open: false, messages: [], draft: "" };
+const EMPTY: Chat = {
+  cardId: undefined,
+  open: false,
+  started: false,
+  messages: [],
+  draft: "",
+};
 let chat: Chat = EMPTY;
 const listeners = new Set<() => void>();
 const set = (change: Partial<Chat>) => {
@@ -374,7 +393,7 @@ export function useChatProto(state: StudyState): [Chat, ChatActions, boolean] {
   }, [cardId, graded]);
   const actions = useMemo<ChatActions>(
     () => ({
-      open: () => set({ open: true }),
+      open: () => set({ open: true, started: true }),
       close: () => set({ open: false }),
       setDraft: (draft) => set({ draft }),
       send: () => {

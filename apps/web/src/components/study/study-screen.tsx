@@ -19,7 +19,7 @@ import {
   useProtoCheck,
   useStateReload,
 } from "@/components/study/chat-proto";
-import { ChatSheet, SHEET_ROOM, SheetShade } from "@/components/study/chat-sheet";
+import { ChatSheet, SheetShade, sheetRoom } from "@/components/study/chat-sheet";
 import { morph } from "@/components/study/morph";
 import {
   EditButton,
@@ -247,7 +247,10 @@ export function StudyScreen({ deck }: { deck: Deck }) {
           break;
         case "leave":
           if (session.leave() === "away") {
-            void navigate({ to: "/decks/$deckId", params: { deckId: deck.id } });
+            void navigate({
+              to: "/decks/$deckId",
+              params: { deckId: deck.id },
+            });
           }
           break;
         case "none":
@@ -278,7 +281,7 @@ export function StudyScreen({ deck }: { deck: Deck }) {
           onLeave={() => leaveOrCancelEdit(session, editor.current)}
           chatBusy={replying(chat[0])}
         />
-        <main className={cn("flex flex-1 flex-col", chat[2] && chat[0].open && SHEET_ROOM)}>
+        <main className={cn("flex flex-1 flex-col", chat[2] && sheetRoom(chat[0]))}>
           {state.phase === "card" ? (
             <CardView session={session} state={state} />
           ) : state.phase === "loading" ? null : (state.phase === "done" ||
@@ -307,7 +310,7 @@ export function StudyScreen({ deck }: { deck: Deck }) {
           )}
         </main>
         {state.phase === "card" && session !== undefined && (
-          <Dock session={session} state={state} room={chat[2] && chat[0].open} />
+          <Dock session={session} state={state} room={chat[2] && sheetRoom(chat[0])} />
         )}
         <SheetShade />
         <ChatSheet
@@ -483,6 +486,25 @@ function CardView({ session, state }: { session: StudySession; state: StudyState
   );
 }
 
+/** PROTOTYPE (BAN-42): the dock's height as `--dock-h`, so the chat's sheet sits on it. */
+function useDockHeight() {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (el === null || typeof ResizeObserver === "undefined") return () => {};
+    const root = document.documentElement;
+    const observer = new ResizeObserver(() => {
+      root.style.setProperty("--dock-h", `${el.offsetHeight}px`);
+    });
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty("--dock-h");
+    };
+  }, []);
+  return ref;
+}
+
 export function Dock({
   session,
   state,
@@ -490,17 +512,19 @@ export function Dock({
 }: {
   session: StudySession;
   state: StudyState;
-  /** PROTOTYPE (BAN-42): the chat's side sheet is open, so from 1024 px it makes room. */
-  room?: boolean;
+  /** PROTOTYPE (BAN-42): the chat is live, so from 1024 px it makes room for its sheet. */
+  room?: string | false;
 }) {
   const intervals = state.shown?.intervals;
+  const dock = useDockHeight();
   return (
     <div
+      ref={dock}
       className={cn(
         "sticky bottom-0 z-10 border-t bg-background/95 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur [view-transition-name:study-dock]",
         // PROTOTYPE (BAN-42): below 1024 px it steps aside while the chat's input has the focus.
         "max-lg:[body:has([data-chat-composer]:focus-within)_&]:hidden",
-        room && SHEET_ROOM,
+        room,
         // From 1024 px it sinks away while the editor is open beside the Card.
         state.editing && "lg:hidden",
       )}
