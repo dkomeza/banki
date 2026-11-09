@@ -11,7 +11,17 @@ import {
 import { Dialog } from "@base-ui/react/dialog";
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { CheckCheck, Check, ImageOff, LoaderCircle, Lock, Pencil, Sigma, X } from "lucide-react";
+import {
+  CheckCheck,
+  Check,
+  ImageOff,
+  LoaderCircle,
+  Lock,
+  Pencil,
+  Sigma,
+  Undo2,
+  X,
+} from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { CardLine, FadingCardText } from "@/components/cards/card-text";
@@ -28,7 +38,9 @@ import { ImageFilesContext, imageUrl } from "@/lib/images";
 import { confirmImport } from "@/lib/imports";
 import { cn } from "@/lib/utils";
 import { CopyButton, DuplicateLabel, EditFields, confirmedLabel } from "./parts";
+import { cardCount, useUndo, whenLabel } from "./prototype";
 import { Steps } from "./steps";
+import { UndoDialog } from "./undo";
 import { type Row, usePreview } from "./use-preview";
 
 // An Import's page. Unconfirmed, it is the preview, in the deck page's own
@@ -491,11 +503,26 @@ export function ImportReportPage({ deck, report }: { deck: Deck; report: ImportR
     report.invalid.length === 0 && warned && lastWarning === step ? (
       <CopyProblems invalid={[]} macros={report.macros} images={report.images} done />
     ) : null;
+  const undo = useUndo(report);
+  const { undoneAt } = undo.facts;
   return (
     <Page width="reading">
       <div className="flex flex-col gap-6 lg:gap-8">
         <Head deck={deck} at={2} title={`${cardsLabel(report.imported)} imported`}>
-          <p className="text-sm font-medium text-primary">{confirmedLabel(report.confirmedAt)}</p>
+          <p
+            className={cn(
+              "text-sm font-medium",
+              undoneAt === null ? "text-primary" : "text-muted-foreground",
+            )}
+          >
+            {confirmedLabel(report.confirmedAt)}
+          </p>
+          {undoneAt !== null && (
+            <p className="flex w-fit items-center gap-2 rounded-full bg-muted px-3 py-1.5 text-sm font-medium">
+              <Undo2 aria-hidden className="size-4" />
+              Undone {whenLabel(undoneAt)}
+            </p>
+          )}
         </Head>
         <ol className="flex flex-col">
           <Step mark={String(report.total)} title={<>Read from {report.fileName}</>} />
@@ -565,7 +592,7 @@ export function ImportReportPage({ deck, report }: { deck: Deck; report: ImportR
           )}
           <Step
             mark={String(report.imported)}
-            accent
+            accent={undoneAt === null}
             title={
               <>
                 Added to{" "}
@@ -583,6 +610,21 @@ export function ImportReportPage({ deck, report }: { deck: Deck; report: ImportR
               </p>
             )}
           </Step>
+          {undoneAt !== null && (
+            <Step
+              mark={String(report.imported)}
+              accent
+              title={<>Undone: {cardCount(report.imported)} deleted</>}
+            >
+              <p className="text-sm text-muted-foreground">
+                They wait in{" "}
+                <Link to="/deleted" className="font-medium text-foreground">
+                  Recently deleted
+                </Link>{" "}
+                for 30 days, as one entry. Restore it there to bring them all back.
+              </p>
+            </Step>
+          )}
         </ol>
         <div className="flex flex-wrap gap-2 sm:pl-18">
           <Button
@@ -600,7 +642,24 @@ export function ImportReportPage({ deck, report }: { deck: Deck; report: ImportR
           >
             Import more
           </Button>
+          {undoneAt === null && undo.facts.live > 0 && (
+            <Button
+              variant="outline"
+              className={cn(OUTLINE_PILL, "h-11 text-foreground sm:ml-auto")}
+              onClick={() => undo.setAsking(true)}
+            >
+              <Undo2 aria-hidden />
+              Undo import
+            </Button>
+          )}
         </div>
+        <UndoDialog
+          open={undo.asking}
+          facts={undo.facts}
+          busy={undo.busy}
+          onCancel={() => undo.setAsking(false)}
+          onConfirm={undo.confirm}
+        />
       </div>
     </Page>
   );
