@@ -11,6 +11,7 @@ import type { Deck } from "@/lib/decks";
 import { IMPORT_ACCEPT, uploadImport } from "@/lib/imports";
 import { cn } from "@/lib/utils";
 import { CopyButton } from "./parts";
+import { PastImports } from "./past-imports";
 import { Steps } from "./steps";
 
 // The import page's first step, Source: one box to paste a Card file's JSON
@@ -203,6 +204,8 @@ export function ImportSource({ deck }: { deck: Deck }) {
             </div>
           </div>
         </form>
+
+        <PastImports deck={deck} />
       </div>
     </Page>
   );

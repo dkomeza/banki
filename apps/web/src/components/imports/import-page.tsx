@@ -28,7 +28,9 @@ import { ImageFilesContext, imageUrl } from "@/lib/images";
 import { confirmImport } from "@/lib/imports";
 import { cn } from "@/lib/utils";
 import { CopyButton, DuplicateLabel, EditFields, confirmedLabel } from "./parts";
+import { useUndo } from "./prototype";
 import { Steps } from "./steps";
+import { UndoRow } from "./undo";
 import { type Row, usePreview } from "./use-preview";
 
 // An Import's page. Unconfirmed, it is the preview, in the deck page's own
@@ -491,12 +493,29 @@ export function ImportReportPage({ deck, report }: { deck: Deck; report: ImportR
     report.invalid.length === 0 && warned && lastWarning === step ? (
       <CopyProblems invalid={[]} macros={report.macros} images={report.images} done />
     ) : null;
+  const undo = useUndo(report);
+  const { undoneAt } = undo.facts;
   return (
     <Page width="reading">
       <div className="flex flex-col gap-6 lg:gap-8">
         <Head deck={deck} at={2} title={`${cardsLabel(report.imported)} imported`}>
-          <p className="text-sm font-medium text-primary">{confirmedLabel(report.confirmedAt)}</p>
+          <p
+            className={cn(
+              "text-sm font-medium",
+              undoneAt === null ? "text-primary" : "text-muted-foreground",
+            )}
+          >
+            {confirmedLabel(report.confirmedAt)}
+          </p>
         </Head>
+        <UndoRow
+          facts={undo.facts}
+          asking={undo.asking}
+          busy={undo.busy}
+          onAsk={() => undo.setAsking(true)}
+          onCancel={() => undo.setAsking(false)}
+          onConfirm={undo.confirm}
+        />
         <ol className="flex flex-col">
           <Step mark={String(report.total)} title={<>Read from {report.fileName}</>} />
           {report.leftOut > 0 && (
@@ -565,7 +584,7 @@ export function ImportReportPage({ deck, report }: { deck: Deck; report: ImportR
           )}
           <Step
             mark={String(report.imported)}
-            accent
+            accent={undoneAt === null}
             title={
               <>
                 Added to{" "}
