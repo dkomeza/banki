@@ -101,7 +101,7 @@ How the User answers a Card in a Session: **self-rate** (reveal the Back, then g
 _Avoid_: study mode, review mode
 
 **Written answer**:
-What the User writes for a Card's Front in write-and-grade, typed or, later, handwritten: what the Grader compares with the Back. It is never stored with the Review. A half-written one is kept with the Session until its Card is rated.
+What the User writes for a Card's Front in write-and-grade, typed or handwritten with a stylus: what the Grader compares with the Back. A handwritten one goes to the Grader as an image of its ink. It is never stored with the Review. A half-written one is kept with the Session until its Card is rated.
 _Avoid_: answer (alone), response, attempt
 
 **Review**:
@@ -185,7 +185,7 @@ The day a moment belongs to for everything Banki counts per day: due cards, dail
 _Avoid_: calendar day, date
 
 **Grader**:
-The LLM, reached through OpenRouter, that turns a written answer into a suggested rating with feedback. It only suggests: the User always confirms the rating.
+The LLM, reached through OpenRouter, that turns a written answer into a suggested rating with feedback, and a handwritten one into a Transcription too. It only suggests: the User always confirms the rating.
 _Avoid_: AI, judge, provider
 
 **Feedback**:
@@ -193,7 +193,7 @@ What the Grader says about a Written answer beside its suggested Rating: what wa
 _Avoid_: explanation, comment, verdict
 
 **Highlight**:
-A part of the Back that a Written answer is missing, or a part of the Written answer that is wrong, which the Feedback points at. It marks the text as the User wrote it, so a repeated phrase is never ambiguous.
+A part of the Back that a Written answer is missing, or a part of the Written answer that is wrong (of its Transcription, when it is handwritten), which the Feedback points at. It marks the text as the User wrote it, so a repeated phrase is never ambiguous.
 _Avoid_: annotation, mark, error
 
 **API key**:
@@ -203,6 +203,18 @@ _Avoid_: token, secret
 **Model**:
 The LLM the Grader runs, picked in Settings from Banki's curated list of models that read handwritten math well. A User who hasn't picked one has the default.
 _Avoid_: engine, provider
+
+**Transcription**:
+What the Grader read from a handwritten Written answer, in the same request that grades it: Markdown with LaTeX, line by line as written, with the User's errors kept, crossed-out work left out, and `[illegible]` where it couldn't read. It shows a misreading, and a mistake's Highlight points into it. Like the Feedback, it is never stored with the Review.
+_Avoid_: OCR, transcript, reading
+
+**Handwriting model**:
+The Model from the same curated list that grades handwritten Written answers in place of the Model, when Settings say so: always, or only on Escalation. Gemini 3.8 Flash unless the User changes it. Settings can also leave handwriting to the Model.
+_Avoid_: OCR model, vision model
+
+**Escalation**:
+Grading a handwritten Written answer a second time, with the Handwriting model, because the Model was unsure of its reading. The second grade replaces the first, which stands only when the second fails.
+_Avoid_: retry (the same request again after OpenRouter fails), fallback
 
 **Preview**:
 A disposable installation of Banki built from one commit of a branch, already set up and holding Seed data, so the change can be tried on any device. Its User is the only account it has. Every Preview is either a PR Preview or a Slug Preview, and the two never make room for each other.
