@@ -1,0 +1,7 @@
+# h: Conversation
+
+Asking is a mode of the study screen, not a panel beside it. Nothing floats, overlaps or resizes. "Ask the Grader" under the Feedback turns the graded screen into the conversation: the Front stays at the top, the thread takes the reading column where your answer and the Back were, and the input sits at its foot, just above the dock with the ratings. The grade folds small. From 1024 px it stays in the Feedback margin, sticky, with the suggestion, the Feedback and the mistakes' notes. Below 1024 px it is a bar under the top bar ("Suggests Hard · 2 mistakes") that drops the Feedback down. "Back to the card" turns the screen back as it was, and the button under the Feedback then reads "Back to the chat" with the message count. An empty chat offers two starting questions. While the input has the focus below 1024 px, the dock steps aside for the keyboard. Rating works from either view, and it ends the chat.
+
+States: graded, chat-empty, chat, chat-streaming, chat-failed, chat-cut-off, chat-long
+
+Routes: `/decks/5eed0000-0000-4000-8000-000000000002/study` (Calculus 2, write-and-grade). The plain load is the Queue's first Card: write an answer and Check, and the stubbed Grader grades it after about 2 s; then ask away, and a canned reply streams in (Stop ends it). The state pill at the bottom steps through the states: `graded` is the ln(1 + x) sketch Card, the `chat-*` states the Maclaurin series Card, as in BAN-40's `graded-mistakes`. Nothing reaches OpenRouter.

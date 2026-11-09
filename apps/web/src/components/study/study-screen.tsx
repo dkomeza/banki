@@ -9,12 +9,14 @@ import { OUTLINE_PILL, PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { AnswerEditor, DontKnowDock, WriteDock, WriteToggle } from "@/components/study/answer";
+import { Conversation } from "@/components/study/chat-convo";
 import { GRADED_WIDTH, GradedCard, GradedRatings } from "@/components/study/grade";
 import {
   ChatContext,
   prepareProtoSession,
   replying,
   protoStudyApi,
+  useChat,
   useChatProto,
   useProtoCheck,
   useStateReload,
@@ -414,6 +416,9 @@ function TopBar({
 
 function CardView({ session, state }: { session: StudySession; state: StudyState }) {
   const card = state.shown?.card;
+  // PROTOTYPE (BAN-42): with the chat open, the Conversation takes the graded Card's place.
+  const [chat, , live] = useChat();
+  const conversing = live && chat.open && state.grade?.status === "graded";
   if (card === undefined) return null;
   // Write-and-grade before the reveal: a tap on the Card reveals nothing.
   const writing = state.mode === "write" && !state.revealed;
@@ -454,7 +459,9 @@ function CardView({ session, state }: { session: StudySession; state: StudyState
             : "text-[1.85rem] leading-tight lg:text-[2.6rem]",
         )}
       />
-      {state.revealed && state.grade !== undefined ? (
+      {conversing && state.grade?.status === "graded" ? (
+        <Conversation result={state.grade.result} />
+      ) : state.revealed && state.grade !== undefined ? (
         <GradedCard session={session} state={state} grade={state.grade} />
       ) : state.revealed ? (
         <>
