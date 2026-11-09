@@ -82,6 +82,8 @@ const saved = async (cardId: string) =>
         reviewedAt: "2026-05-01T09:00:00.000Z",
         rating: "again",
         kind: "self-rated",
+        suggestedRating: null,
+        model: null,
         durationMs: 0,
       },
       schedule,
@@ -98,6 +100,13 @@ const GRADED = {
     { from: 0, to: 9, note: "Not breakfast." },
     { from: 11, to: 12, note: "Not $x$." },
   ],
+  model: "anthropic/claude-haiku-5.5",
+};
+
+/** What a graded Rating of GRADED sends beside the Rating. */
+const SUGGESTED = {
+  suggestedRating: "good",
+  model: "anthropic/claude-haiku-5.5",
 };
 
 let queue: string[] = [];
@@ -261,11 +270,14 @@ describe("write-and-grade on the study screen", () => {
     expect(screen.getByRole("button", { name: /^Good/ })).toBeTruthy();
     expect(document.querySelector("[data-answer-editor]")).toBeNull();
 
-    // The Rating saves as any, once the suggestion is in: self-rated, and the next Card starts blank.
+    // The Rating saves as any, once the suggestion is in: graded, and the next Card starts blank.
     await screen.findByText(/Suggests/);
     press(document.body, "3");
     await waitFor(() => expect(rated).toHaveLength(1));
-    expect(rated[0]).toMatchObject({ cardId: "c1", body: { rating: "good" } });
+    expect(rated[0]).toEqual({
+      cardId: "c1",
+      body: { rating: "good", durationMs: expect.any(Number), ...SUGGESTED },
+    });
     const nextEditor = await waitFor(async () => {
       expect(screen.getByText("c2 front")).toBeTruthy();
       return answerEditor();
@@ -401,7 +413,9 @@ describe("I don't know on the study screen", () => {
     fireEvent.click(dontKnow());
 
     await waitFor(() => expect(screen.getByText(/Saved as/)).toBeTruthy());
-    expect(rated).toEqual([{ cardId: "c1", body: expect.objectContaining({ rating: "again" }) }]);
+    expect(rated).toEqual([
+      { cardId: "c1", body: { rating: "again", durationMs: expect.any(Number) } },
+    ]);
     expect(screen.getByText("c1 back")).toBeTruthy();
     expect(screen.queryByRole("region", { name: "Your answer" })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Good/ })).toBeNull();
@@ -566,7 +580,11 @@ describe("the Grader's result on the study screen", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Confirm Easy/ }));
     await waitFor(() => expect(rated).toHaveLength(1));
-    expect(rated[0]).toMatchObject({ cardId: "c1", body: { rating: "easy" } });
+    // Confirmed before the suggestion: self-rated.
+    expect(rated[0]).toEqual({
+      cardId: "c1",
+      body: { rating: "easy", durationMs: expect.any(Number) },
+    });
     await pending.answer(json(GRADED));
     await waitFor(() => expect(screen.getByText("c2 front")).toBeTruthy());
   });
@@ -597,7 +615,11 @@ describe("the Grader's result on the study screen", () => {
     expect(screen.queryByRole("button", { name: /Confirm/ })).toBeNull();
     press(document.body, "Enter");
     await waitFor(() => expect(rated).toHaveLength(1));
-    expect(rated[0]).toMatchObject({ body: { rating: "hard" } });
+    expect(rated[0]?.body).toEqual({
+      rating: "hard",
+      durationMs: expect.any(Number),
+      ...SUGGESTED,
+    });
   });
 
   test("after the suggestion, Enter saves it, and a tap saves any Rating at once", async () => {
@@ -605,7 +627,11 @@ describe("the Grader's result on the study screen", () => {
     await screen.findByText(/Suggests/);
     press(document.body, "Enter");
     await waitFor(() => expect(rated).toHaveLength(1));
-    expect(rated[0]).toMatchObject({ body: { rating: "good" } });
+    expect(rated[0]?.body).toEqual({
+      rating: "good",
+      durationMs: expect.any(Number),
+      ...SUGGESTED,
+    });
 
     const view = await waitFor(async () => {
       expect(screen.getByText("c2 front")).toBeTruthy();
@@ -616,7 +642,10 @@ describe("the Grader's result on the study screen", () => {
     await screen.findByText(/Suggests/);
     fireEvent.click(rating("Again"));
     await waitFor(() => expect(rated).toHaveLength(2));
-    expect(rated[1]).toMatchObject({ cardId: "c2", body: { rating: "again" } });
+    expect(rated[1]).toEqual({
+      cardId: "c2",
+      body: { rating: "again", durationMs: expect.any(Number), ...SUGGESTED },
+    });
   });
 
   test("409: the API-key message with a link to Settings, and one-tap ratings", async () => {
@@ -691,7 +720,8 @@ describe("the Grader's result on the study screen", () => {
       }
       fireEvent.click(rating("Hard"));
       await waitFor(() => expect(rated).toHaveLength(1));
-      expect(rated[0]).toMatchObject({ body: { rating: "hard" } });
+      // After a failure: self-rated.
+      expect(rated[0]?.body).toEqual({ rating: "hard", durationMs: expect.any(Number) });
     },
   );
 

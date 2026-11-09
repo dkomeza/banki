@@ -104,14 +104,22 @@ export type Progress = {
 /** The next Card, or null at the end of the Queue with the New cards the batch held back. */
 export type NextAnswer = { next: NextCard | null; newHeld: number };
 
+/** The Grader's suggested Rating a graded Review keeps, and the Model that suggested it. */
+export type Suggestion = { suggestedRating: Rating; model: string };
+
 /** What the Session needs from the API. Each call throws when Banki can't be reached. */
 export type StudyApi = {
   next: (progress: Progress) => Promise<NextAnswer>;
-  /** Saves a Rating: its Review's ID, or "gone" when the Card was deleted meanwhile. */
+  /**
+   * Saves a Rating, graded with the Grader's `suggestion` when it was on
+   * screen (ADR-0028): its Review's ID, or "gone" when the Card was deleted
+   * meanwhile.
+   */
   rate: (
     cardId: string,
     rating: Rating,
     durationMs: number,
+    suggestion?: Suggestion,
   ) => Promise<{ reviewId: string } | "gone">;
   /**
    * Undoes a Review: the Card and its fresh previews; "gone" when the Review
@@ -168,10 +176,10 @@ export function studyApi(deckId: string, client: ApiClient = api): StudyApi {
       const { next, newHeld } = StudyNextResponse.parse(await res.json());
       return { next, newHeld };
     },
-    rate: async (cardId, rating, durationMs) => {
+    rate: async (cardId, rating, durationMs, suggestion) => {
       const res = await client.api.cards[":id"].reviews.$post({
         param: { id: cardId },
-        json: { rating, durationMs },
+        json: { rating, durationMs, ...suggestion },
       });
       // Read as any status: a proxy or a crash can answer one the route doesn't.
       const status: number = res.status;
@@ -1339,18 +1347,24 @@ export function createStudySession({
   };
 
   /**
-   * Saves `rating` of the shown Card, then shows the next Card, or with
-   * `wait` (I don't know) stays on it until Next; one deleted meanwhile
-   * goes on to the next Card either way.
+   * Saves `rating` of the shown Card, graded when its grade is in at that
+   * moment (Try again included), then shows the next Card, or with `wait`
+   * (I don't know) stays on it until Next; one deleted meanwhile goes on to
+   * the next Card either way.
    */
   const save = async (rating: Rating, durationMs: number, wait: boolean) => {
     const shown = state.shown;
     if (shown === undefined) return;
+    const grade = state.grade;
+    const suggestion =
+      grade?.status === "graded"
+        ? { suggestedRating: grade.result.rating, model: grade.result.model }
+        : undefined;
     set({ saving: rating, failure: undefined });
     const mine = starts;
     let saved: Awaited<ReturnType<StudyApi["rate"]>>;
     try {
-      saved = await client.rate(shown.card.id, rating, durationMs);
+      saved = await client.rate(shown.card.id, rating, durationMs, suggestion);
     } catch {
       // Started again since, the Rating was another Session's.
       if (mine !== starts) return;

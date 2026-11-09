@@ -201,7 +201,7 @@ export async function grade(
     { signal, wait, random },
   );
   if ("failed" in graded) return graded;
-  return gradeResponseOf(graded.value, request.back, request.answer);
+  return gradeResponseOf(graded.value, model, request.back, request.answer);
 }
 
 /**
@@ -278,9 +278,13 @@ async function attemptGrade({
   return { value: answer };
 }
 
-/** The Grader's answer as a `GradeResponse`, its Highlights mapped to ranges of the stored texts. */
+/**
+ * The Grader's answer as a `GradeResponse` naming the `model` that answered,
+ * its Highlights mapped to ranges of the stored texts.
+ */
 function gradeResponseOf(
   answered: z.infer<typeof ModelGrade>,
+  model: ModelId,
   back: ReturnType<typeof gradingRequest>["back"],
   answer: ReturnType<typeof gradingRequest>["answer"],
 ): GradeResponse {
@@ -294,5 +298,5 @@ function gradeResponseOf(
     const range = highlightRange(answer, highlight);
     if (range !== undefined) mistakes.push({ ...range, note: highlight.note });
   }
-  return { rating: answered.rating, feedback: answered.feedback, missing, mistakes };
+  return { rating: answered.rating, feedback: answered.feedback, missing, mistakes, model };
 }

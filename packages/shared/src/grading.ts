@@ -34,7 +34,9 @@ export type TextRange = z.infer<typeof TextRange>;
  * The body of a grade: the Grader's suggested Rating, its Feedback (Markdown
  * with LaTeX), and its Highlights: `missing` are ranges of the Back as stored
  * that the Written answer leaves out, and `mistakes` ranges of the Written
- * answer as it was sent that are wrong, each with a note on what is wrong.
+ * answer as it was sent that are wrong, each with a note on what is wrong,
+ * and the ID of the Model whose answer it is (any ID: a release may remove a
+ * Model while a Session still holds its grade).
  */
 export const GradeResponse = z.object({
   rating: Rating,
@@ -45,6 +47,7 @@ export const GradeResponse = z.object({
       .object({ from: z.number().int().min(0), to: z.number().int().min(0), note: z.string() })
       .refine(({ from, to }) => to > from, "Expected a range that isn't empty"),
   ),
+  model: z.string(),
 });
 export type GradeResponse = z.infer<typeof GradeResponse>;
 

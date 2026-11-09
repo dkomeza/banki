@@ -11,7 +11,7 @@ import { z } from "zod";
 // localStorage, one entry per Deck, holding IDs, counts and timings, its
 // Answer mode and the shown Card's draft and grade: never a Card's content,
 // only the User's own Written answer as typed so far, and once it is in, the
-// Grader's grade of it (its suggested Rating, Feedback and Highlights) and
+// Grader's grade of it (its suggested Rating, Feedback, Highlights and Model) and
 // the Follow-up chat about it. Storage the browser blocks, fills up or hands back
 // unreadable is no storage: the Session studies as before, without resume.
 // Every read and write here is guarded, so none of it ever throws.
@@ -29,8 +29,13 @@ const StoredShown = z.object({
   draft: z.string().default(""),
   /** Whether it was revealed by Check, its Written answer shown beside the Back. */
   checked: z.boolean().default(false),
-  /** The Grader's grade of its Written answer, once it is in; none while it worked, or after it failed. */
-  grade: GradeResponse.optional(),
+  /**
+   * The Grader's grade of its Written answer, with the Model that answered,
+   * once it is in; none while it worked, or after it failed. One stored
+   * before grades named their Model is dropped, so the Card resumes not
+   * graded while the rest of the Session resumes.
+   */
+  grade: GradeResponse.optional().catch(undefined),
   /**
    * Its Follow-up chat beside the grade, oldest first: the questions, and the
    * replies that came (`cutOff` when the stream broke); none before the

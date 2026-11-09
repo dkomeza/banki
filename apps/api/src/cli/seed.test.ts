@@ -7,6 +7,7 @@ import {
   ImportReportResponse,
   CardResponse,
   DeckListResponse,
+  DEFAULT_MODEL_ID,
   DeckResponse,
   DeletionListResponse,
   FolderListResponse,
@@ -505,6 +506,37 @@ describe("banki seed's Reviews", () => {
     expect(next?.card.id).toBe(spanish[0]);
     expect(next?.kind).toBe("learning");
     expect(next?.schedule.lapses).toBe(1);
+  });
+
+  test("hold one graded Review that kept the suggestion and one that changed it, both with the default Model", async () => {
+    await setup();
+    await seed();
+
+    const sqlite = new SQLite(join(dataDir(), "banki.db"), { readonly: true });
+    const graded = sqlite
+      .query<
+        {
+          card_id: string;
+          rating: string;
+          suggested_rating: string;
+          model: string;
+        },
+        []
+      >(
+        "SELECT card_id, rating, suggested_rating, model FROM review WHERE kind = 'graded' ORDER BY seq",
+      )
+      .all();
+    sqlite.close();
+
+    expect(graded).toEqual([
+      { card_id: SEED_IDS.card, rating: "good", suggested_rating: "good", model: DEFAULT_MODEL_ID },
+      {
+        card_id: SEED_IDS.cards.spanish[0],
+        rating: "again",
+        suggested_rating: "hard",
+        model: DEFAULT_MODEL_ID,
+      },
+    ]);
   });
 
   test("take their places in the Write order oldest first", async () => {
