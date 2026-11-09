@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { ArrowRight, Check, Copy, Link2 } from "lucide-react";
+import { ArrowRight, Check, ChevronDown, Copy } from "lucide-react";
 import { type ReactNode, useMemo } from "react";
 import { Breadcrumb } from "@/components/folders/breadcrumb";
 import { useLibrary } from "@/components/folders/use-library";
@@ -27,9 +27,10 @@ import {
   SaveFailed,
 } from "./fields";
 
-// PROTOTYPE (BAN-35), Variant a, "Side by side": the options in one card
-// across the top, then the prompt and the schema as two documents side by
-// side from 1024 px, each with its own Copy, stacked on phones.
+// PROTOTYPE (BAN-35), Variant b, "Recipe": one reading column of four
+// numbered steps on a rail (set the options, copy the prompt, paste it into
+// an LLM, import the JSON), the way the import page counts its steps. The
+// JSON Schema is for API callers, so it waits folded at the foot.
 
 export function PromptPage({ deck, state }: { deck: Deck; state: string | undefined }) {
   const library = useLibrary();
@@ -43,7 +44,7 @@ export function PromptPage({ deck, state }: { deck: Deck; state: string | undefi
   const invalid = hasErrors(o.errors);
 
   return (
-    <Page width="cards">
+    <Page width="reading">
       <div className="flex flex-col gap-6 lg:gap-8">
         <div className="flex flex-col gap-4">
           <Breadcrumb
@@ -54,174 +55,163 @@ export function PromptPage({ deck, state }: { deck: Deck; state: string | undefi
             onMove={() => {}}
           />
           <h1 className="text-[2.25rem] leading-[1.05] font-semibold tracking-[-0.035em] lg:text-5xl">
-            Card prompt
+            Cards from an LLM
           </h1>
           <p className="max-w-prose text-[1.05rem] text-muted-foreground">
-            Copy it into any LLM and paste your notes after it. It writes a Card file for{" "}
-            <span className="font-medium text-foreground">{deck.name}</span>, which you then{" "}
-            <Link
-              to="/decks/$deckId/import"
-              params={{ deckId: deck.id }}
-              className="font-medium text-foreground underline underline-offset-4"
-            >
-              Import the JSON
-            </Link>
-            .
+            Four steps to a Card file for{" "}
+            <span className="font-medium text-foreground">{deck.name}</span>, from any notes, slides
+            or chapter you have.
           </p>
         </div>
 
-        <section
-          aria-labelledby="options-title"
-          className="flex flex-col gap-5 rounded-[1.25rem] border bg-card p-5 text-card-foreground sm:p-6"
-        >
-          <div className="flex items-center justify-between gap-3">
-            <h2 id="options-title" className="text-xl font-semibold tracking-tight">
-              Options
-            </h2>
-            <OptionsSaveState status={o.status} />
-          </div>
-          <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.5fr)]">
-            <LanguageField options={o.options} errors={o.errors} onChange={o.change} />
-            <CountField options={o.options} errors={o.errors} onChange={o.change} />
-            <DifficultyField
-              options={o.options}
-              onChange={o.change}
-              hints
-              className="md:col-span-2 lg:col-span-1"
-            />
-            <InstructionsField
-              options={o.options}
-              errors={o.errors}
-              onChange={o.change}
-              rows={3}
-              className="md:col-span-2 lg:col-span-3"
-            />
-          </div>
-          <SaveFailed status={o.status} onRetry={o.retry} />
-        </section>
+        <ol className="flex flex-col">
+          <Step number={1} title="Set the options" aside={<OptionsSaveState status={o.status} />}>
+            <div className="flex flex-col gap-5 rounded-[1.25rem] border bg-card p-5 sm:p-6">
+              <div className="grid gap-5 sm:grid-cols-2">
+                <LanguageField options={o.options} errors={o.errors} onChange={o.change} />
+                <CountField options={o.options} errors={o.errors} onChange={o.change} />
+              </div>
+              <DifficultyField options={o.options} onChange={o.change} hints />
+              <InstructionsField options={o.options} errors={o.errors} onChange={o.change} />
+              <SaveFailed status={o.status} onRetry={o.retry} />
+            </div>
+            <p className="text-sm text-muted-foreground">Saved for this deck, on every device.</p>
+          </Step>
 
-        <div className="grid gap-6 lg:grid-cols-2">
-          <Document
-            title="Prompt"
-            meta={`${prompt.length.toLocaleString("en-GB")} characters`}
-            text={prompt}
-            dimmed={invalid}
-            note={invalid ? "Fix the options above and the prompt follows them." : undefined}
-            action={
+          <Step number={2} title="Copy the prompt">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
               <Button
-                className={cn(PILL, "h-11")}
+                className={cn(PILL, "h-12 px-7 text-base lg:h-11")}
                 disabled={invalid}
                 onClick={() => promptCopy.copy(prompt)}
               >
                 {promptCopy.copied ? <Check aria-hidden /> : <Copy aria-hidden />}
                 {promptCopy.copied ? "Copied" : "Copy prompt"}
               </Button>
-            }
-            done={
-              promptCopy.copied ? (
-                <p role="status" className="flex items-center gap-2 text-sm">
-                  <Check aria-hidden className="size-4 shrink-0 text-primary" />
-                  <span>
-                    Paste it into an LLM with your material, then{" "}
-                    <Link
-                      to="/decks/$deckId/import"
-                      params={{ deckId: deck.id }}
-                      className="font-medium underline underline-offset-4"
-                    >
-                      import the JSON
-                    </Link>
-                    .
-                  </span>
-                </p>
-              ) : undefined
-            }
-          />
-          <Document
-            title="JSON Schema"
-            meta={
-              <span className="flex min-w-0 items-center gap-1.5">
-                <Link2 aria-hidden className="size-3.5 shrink-0" />
-                <a
-                  href={url}
-                  className="truncate font-mono text-xs"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {url}
-                </a>
+              <p
+                role="status"
+                className={cn(
+                  "text-sm",
+                  invalid ? "font-medium text-destructive" : "text-muted-foreground",
+                )}
+              >
+                {invalid
+                  ? "Fix the options first."
+                  : promptCopy.copied
+                    ? `${prompt.length.toLocaleString("en-GB")} characters on your clipboard.`
+                    : `${prompt.length.toLocaleString("en-GB")} characters, with the schema and an example.`}
+              </p>
+            </div>
+            <div className="rounded-xl border bg-muted/40">
+              <p className="border-b px-4 py-2.5 text-xs font-semibold tracking-[0.08em] text-muted-foreground uppercase">
+                What you copy
+              </p>
+              <pre
+                tabIndex={0}
+                className={cn(
+                  "max-h-[26rem] overflow-auto px-4 py-3 font-mono text-[0.78rem] leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]",
+                  invalid && "opacity-50",
+                )}
+              >
+                {prompt}
+              </pre>
+            </div>
+          </Step>
+
+          <Step number={3} title="Paste it into an LLM">
+            <p className="max-w-prose text-[0.95rem] text-muted-foreground">
+              Start a new chat in any LLM, paste the prompt, then paste or attach your material
+              after it. It answers with one <code className="font-mono text-foreground">json</code>{" "}
+              code block: copy it with the block&apos;s own copy button.
+            </p>
+          </Step>
+
+          <Step number={4} title="Import the JSON" last>
+            <Button
+              variant="outline"
+              className={cn(OUTLINE_PILL, "h-11 w-fit text-foreground no-underline")}
+              render={<Link to="/decks/$deckId/import" params={{ deckId: deck.id }} />}
+              nativeButton={false}
+            >
+              Import the JSON
+              <ArrowRight aria-hidden />
+            </Button>
+          </Step>
+        </ol>
+
+        <details className="group rounded-[1.25rem] border border-dashed p-5 sm:p-6">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 [&::-webkit-details-marker]:hidden">
+            <span className="flex flex-col">
+              <span className="text-lg font-semibold tracking-tight">The JSON Schema</span>
+              <span className="text-sm text-muted-foreground">
+                For calling an LLM&apos;s API with structured outputs
               </span>
-            }
-            text={SCHEMA_TEXT}
-            action={
+            </span>
+            <ChevronDown
+              aria-hidden
+              className="size-5 shrink-0 text-muted-foreground transition-transform group-open:rotate-180 motion-reduce:transition-none"
+            />
+          </summary>
+          <div className="mt-4 flex flex-col gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <a
+                href={url}
+                target="_blank"
+                rel="noreferrer"
+                className="min-w-0 flex-1 truncate font-mono text-xs"
+              >
+                {url}
+              </a>
               <Button
                 variant="outline"
-                className={cn(OUTLINE_PILL, "h-11")}
+                className={cn(OUTLINE_PILL, "h-11 w-fit")}
                 onClick={() => schemaCopy.copy(SCHEMA_TEXT)}
               >
                 {schemaCopy.copied ? <Check aria-hidden /> : <Copy aria-hidden />}
                 {schemaCopy.copied ? "Copied" : "Copy schema"}
               </Button>
-            }
-            foot="For calling an LLM's API with structured outputs. The prompt holds it too."
-          />
-        </div>
-
-        <Link
-          to="/decks/$deckId/import"
-          params={{ deckId: deck.id }}
-          className="inline-flex h-11 items-center gap-2 self-start font-medium"
-        >
-          Import the JSON
-          <ArrowRight aria-hidden className="size-4" />
-        </Link>
+            </div>
+            <pre
+              tabIndex={0}
+              className="max-h-[28rem] overflow-auto rounded-xl border bg-muted/40 p-4 font-mono text-[0.78rem] leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]"
+            >
+              {SCHEMA_TEXT}
+            </pre>
+          </div>
+        </details>
       </div>
     </Page>
   );
 }
 
-function Document({
+function Step({
+  number,
   title,
-  meta,
-  text,
-  action,
-  done,
-  note,
-  foot,
-  dimmed = false,
+  aside,
+  last = false,
+  children,
 }: {
+  number: number;
   title: string;
-  meta: ReactNode;
-  text: string;
-  action: ReactNode;
-  done?: ReactNode;
-  note?: string | undefined;
-  foot?: string;
-  dimmed?: boolean;
+  aside?: ReactNode;
+  last?: boolean;
+  children: ReactNode;
 }) {
   return (
-    <section
-      aria-label={title}
-      className="flex min-w-0 flex-col gap-4 rounded-[1.25rem] border bg-card p-5 text-card-foreground sm:p-6"
-    >
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+    <li className="relative flex gap-4 sm:gap-5">
+      {!last && (
+        <span aria-hidden className="absolute top-10 bottom-1 left-[1.1rem] w-px bg-border" />
+      )}
+      <span className="relative flex size-9 shrink-0 items-center justify-center rounded-full border-2 border-primary bg-background text-sm font-semibold text-primary tabular-nums">
+        {number}
+      </span>
+      <div className={cn("flex min-w-0 flex-1 flex-col gap-4 pt-1", !last && "pb-10")}>
+        <div className="flex items-center justify-between gap-3">
           <h2 className="text-xl font-semibold tracking-tight">{title}</h2>
-          <div className="min-w-0 text-sm text-muted-foreground">{meta}</div>
+          {aside}
         </div>
-        {action}
+        {children}
       </div>
-      {done}
-      {note !== undefined && <p className="text-sm font-medium text-destructive">{note}</p>}
-      <pre
-        tabIndex={0}
-        className={cn(
-          "max-h-[28rem] overflow-auto rounded-xl border bg-muted/50 p-4 font-mono text-[0.78rem] leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere] lg:max-h-[40rem]",
-          dimmed && "opacity-50",
-        )}
-      >
-        {text}
-      </pre>
-      {foot !== undefined && <p className="text-sm text-muted-foreground">{foot}</p>}
-    </section>
+    </li>
   );
 }
