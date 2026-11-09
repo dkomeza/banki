@@ -1,6 +1,6 @@
 import { type CardFileProblem, formatProblems } from "@banki/shared";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { FileUp, LoaderCircle } from "lucide-react";
+import { FileUp, LoaderCircle, Sparkles } from "lucide-react";
 import { useRef, useState } from "react";
 import { Breadcrumb } from "@/components/folders/breadcrumb";
 import { useLibrary } from "@/components/folders/use-library";
@@ -134,17 +134,21 @@ export function ImportSource({ deck }: { deck: Deck }) {
             </div>
           )}
 
-          {/* PROTOTYPE (BAN-35): the way to the Card prompt, under the source box. */}
-          <p className="text-sm text-muted-foreground">
-            No Card file yet?{" "}
+          {/* PROTOTYPE (BAN-35): the way to the Card prompt, a pill under the source box. */}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl bg-muted/60 p-2 pl-4">
+            <p className="min-w-0 flex-1 text-sm text-muted-foreground">No Card file yet?</p>
             <Link
               to="/decks/$deckId/prompt"
               params={{ deckId: deck.id }}
-              className="inline-flex min-h-11 items-center font-medium text-foreground underline underline-offset-4 lg:min-h-0"
+              className={cn(
+                OUTLINE_PILL,
+                "inline-flex h-11 items-center gap-2 border text-sm font-medium text-foreground no-underline hover:bg-muted lg:h-9",
+              )}
             >
+              <Sparkles aria-hidden className="size-4 text-primary" />
               Get one from an LLM
             </Link>
-          </p>
+          </div>
 
           {refused !== undefined && (
             <div id="refused" role="alert" className="flex flex-col gap-2">
