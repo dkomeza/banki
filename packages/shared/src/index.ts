@@ -78,6 +78,7 @@ export {
   CARD_FILE_VERSION,
   CardFile,
   CardFileCard,
+  cardFileSchemaUrl,
   CardFileMacro,
   NEWER_BANKI_MESSAGE,
   NOT_A_CARD_FILE_MESSAGE,
