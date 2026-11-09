@@ -101,11 +101,18 @@ describe("UpdateDeckRequest", () => {
 });
 
 describe("deckAnswerMode", () => {
-  test("is the Deck's own Answer mode, or the default while it follows Settings", () => {
+  test("is the Deck's own Answer mode, whatever Settings' is", () => {
+    expect(deckAnswerMode({ answerMode: "write" }, "self-rate")).toBe("write");
+    expect(deckAnswerMode({ answerMode: "self-rate" }, "write")).toBe("self-rate");
+  });
+
+  test("is Settings' Answer mode while the Deck follows it", () => {
+    expect(deckAnswerMode({ answerMode: null }, "write")).toBe("write");
+    expect(deckAnswerMode({ answerMode: null }, "self-rate")).toBe("self-rate");
+  });
+
+  test("Settings' Answer mode is self-rate until the User changes it", () => {
     expect(DEFAULT_ANSWER_MODE).toBe("self-rate");
-    expect(deckAnswerMode({ answerMode: "write" })).toBe("write");
-    expect(deckAnswerMode({ answerMode: "self-rate" })).toBe("self-rate");
-    expect(deckAnswerMode({ answerMode: null })).toBe(DEFAULT_ANSWER_MODE);
   });
 });
 

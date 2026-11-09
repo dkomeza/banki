@@ -7,6 +7,7 @@
 import {
   ANSWER_MODES,
   CARD_STATES,
+  DEFAULT_ANSWER_MODE,
   DEFAULT_DAY_START_HOUR,
   DEFAULT_DESIRED_RETENTION,
   DEFAULT_LEARNING_LIMIT,
@@ -75,6 +76,8 @@ export const user_settings = sqliteTable(
       .default(DEFAULT_SESSION_TIMEOUT_MINUTES),
     /** Settings' Macros, every Deck's Cards use under its own: a JSON list of `{ name, definition }`. */
     macros: text("macros", { mode: "json" }).$type<Macro[]>().notNull().default([]),
+    /** The Answer mode every Deck follows until it has its own. */
+    answerMode: text("answer_mode", { enum: ANSWER_MODES }).notNull().default(DEFAULT_ANSWER_MODE),
   },
   (table) => [
     check("user_settings_day_start_hour", sql`${table.dayStartHour} BETWEEN 0 AND 23`),
@@ -93,6 +96,10 @@ export const user_settings = sqliteTable(
     check(
       "user_settings_session_timeout_minutes",
       sql`${table.sessionTimeoutMinutes} BETWEEN ${sql.raw(String(SESSION_TIMEOUT_MINUTES_MIN))} AND ${sql.raw(String(SESSION_TIMEOUT_MINUTES_MAX))}`,
+    ),
+    check(
+      "user_settings_answer_mode",
+      sql`${table.answerMode} IN (${sql.raw(ANSWER_MODES.map((mode) => `'${mode}'`).join(", "))})`,
     ),
   ],
 );

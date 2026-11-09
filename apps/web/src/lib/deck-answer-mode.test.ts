@@ -1,26 +1,34 @@
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, test } from "vitest";
 import {
-  ANSWER_MODE_OPTIONS,
+  SETTINGS_ANSWER_MODE_OPTIONS,
   answerModeErrorText,
   answerModeName,
+  answerModeOptions,
   deckAnswerModeSaverFor,
   dropDeckAnswerModeSavers,
   matchAnswerModes,
   pickedAnswerMode,
+  settingsAnswerModeErrorText,
 } from "./deck-answer-mode";
 
-/** The labels a search for `query` finds. */
-const found = (query: string) => matchAnswerModes(query).map((option) => option.label);
+/** The labels a search for `query` finds among a Deck's choices. */
+const found = (query: string) =>
+  matchAnswerModes(answerModeOptions("self-rate"), query).map((option) => option.label);
+
+/** The labels a search for `query` finds among Settings' choices. */
+const foundInSettings = (query: string) =>
+  matchAnswerModes(SETTINGS_ANSWER_MODE_OPTIONS, query).map((option) => option.label);
 
 describe("a Deck's Answer mode, as Deck settings show it", () => {
   test("offers Follow Settings, showing Settings' mode, then each mode by name", () => {
-    expect(ANSWER_MODE_OPTIONS.map((option) => option.label)).toEqual([
+    expect(answerModeOptions("self-rate").map((option) => option.label)).toEqual([
       "Follow Settings",
       "Rate yourself",
       "Write and grade",
     ]);
-    expect(ANSWER_MODE_OPTIONS[0].display).toBe("Follow Settings (Rate yourself)");
+    expect(answerModeOptions("self-rate")[0]?.display).toBe("Follow Settings (Rate yourself)");
+    expect(answerModeOptions("write")[0]?.display).toBe("Follow Settings (Write and grade)");
     expect(answerModeName("write")).toBe("Write and grade");
   });
 
@@ -42,11 +50,31 @@ describe("a Deck's Answer mode, as Deck settings show it", () => {
   });
 
   test("a change that didn't save says what it tried and what the Deck keeps", () => {
-    expect(answerModeErrorText("write", null)).toBe(
+    expect(answerModeErrorText("write", null, "self-rate")).toBe(
       "The change to Write and grade didn't save, so it still follows Settings (Rate yourself).",
     );
-    expect(answerModeErrorText(null, "write")).toBe(
+    expect(answerModeErrorText("self-rate", null, "write")).toBe(
+      "The change to Rate yourself didn't save, so it still follows Settings (Write and grade).",
+    );
+    expect(answerModeErrorText(null, "write", "self-rate")).toBe(
       "The change to following Settings didn't save, so it's still Write and grade.",
+    );
+  });
+});
+
+describe("Settings' Answer mode, as Settings show it", () => {
+  test("offers each mode by name, and no Follow Settings", () => {
+    expect(SETTINGS_ANSWER_MODE_OPTIONS.map((option) => option.label)).toEqual([
+      "Rate yourself",
+      "Write and grade",
+    ]);
+    expect(foundInSettings("write")).toEqual(["Write and grade"]);
+    expect(foundInSettings("follow")).toEqual([]);
+  });
+
+  test("a change that didn't save says what it tried and the mode kept", () => {
+    expect(settingsAnswerModeErrorText("write", "self-rate")).toBe(
+      "The change to Write and grade didn't save, so it's still Rate yourself.",
     );
   });
 

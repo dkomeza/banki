@@ -1,24 +1,27 @@
-import { useQueryClient } from "@tanstack/react-query";
-import { useId, useSyncExternalStore } from "react";
+import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useCallback, useId, useMemo, useSyncExternalStore } from "react";
 import { Combobox } from "@/components/settings/combobox";
 import { SaveState, SettingsCard } from "@/components/settings/parts";
 import { RetentionError } from "@/components/settings/retention-picker";
 import {
-  ANSWER_MODE_OPTIONS,
-  FOLLOWED_ANSWER_MODE,
   answerModeErrorText,
   answerModeName,
+  answerModeOptions,
   deckAnswerModeSaverFor,
   matchAnswerModes,
   pickedAnswerMode,
 } from "@/lib/deck-answer-mode";
 import type { Deck } from "@/lib/decks";
 import { FOLLOW } from "@/lib/retention";
+import { settingsQueryOptions } from "@/lib/settings";
+import { shownSettings } from "@/lib/settings-saver";
+import { settingsSaverFor } from "@/lib/settings-store";
 
 /**
  * Deck settings' Answer mode: Rate yourself or Write and grade, or Settings'
  * while it follows them, as Desired retention does; saved as it changes. A
  * Session starts in it, and the study screen switches it for that Session.
+ * Settings' mode shows as Settings do, a change not saved yet included.
  */
 export function AnswerModeCard({ deck }: { deck: Deck }) {
   const queryClient = useQueryClient();
@@ -26,6 +29,14 @@ export function AnswerModeCard({ deck }: { deck: Deck }) {
   const state = useSyncExternalStore(saver.subscribe, saver.getState);
   // The change not answered yet, if any, or what is stored.
   const own = state.queue.length === 0 ? deck.answerMode : (state.queue.at(-1) ?? null);
+  // Loads the Settings, which their saver starts from.
+  useSuspenseQuery(settingsQueryOptions());
+  const settingsSaver = settingsSaverFor(queryClient);
+  const followed = shownSettings(
+    useSyncExternalStore(settingsSaver.subscribe, settingsSaver.getState),
+  ).answerMode;
+  const options = useMemo(() => answerModeOptions(followed), [followed]);
+  const search = useCallback((query: string) => matchAnswerModes(options, query), [options]);
   const label = useId();
   const hint = useId();
 
@@ -41,13 +52,13 @@ export function AnswerModeCard({ deck }: { deck: Deck }) {
           />
         </div>
         <Combobox
-          options={ANSWER_MODE_OPTIONS}
+          options={options}
           value={own ?? FOLLOW}
           onPick={(value) => {
             const picked = pickedAnswerMode(value);
             if (picked !== undefined) saver.change(picked);
           }}
-          search={matchAnswerModes}
+          search={search}
           labelledBy={label}
           describedBy={hint}
           placeholder="Pick one"
@@ -57,14 +68,14 @@ export function AnswerModeCard({ deck }: { deck: Deck }) {
         />
         <p id={hint} className="text-sm text-muted-foreground">
           {own === null
-            ? `Follows Settings: ${answerModeName(FOLLOWED_ANSWER_MODE)}. `
+            ? `Follows Settings: ${answerModeName(followed)}. `
             : "Its own, whatever Settings say. "}
           Rate yourself shows the answer, then you rate how well you recalled it. Write and grade
           asks you to write your answer first. A session can switch as you study.
         </p>
         {state.failed !== undefined && (
           <RetentionError
-            message={answerModeErrorText(state.failed.attempted, deck.answerMode)}
+            message={answerModeErrorText(state.failed.attempted, deck.answerMode, followed)}
             onRetry={() => saver.retry()}
           />
         )}

@@ -40,6 +40,7 @@ const SETTINGS: SettingsResponse = {
   newCardBatch: 20,
   learningLimit: 10,
   sessionTimeoutMinutes: 30,
+  answerMode: "self-rate",
   macros: [],
 };
 
@@ -159,9 +160,12 @@ afterEach(() => {
   localStorage.clear();
 });
 
-function renderScreen(deck: Deck = DECK) {
+/** The study screen for `deck`, with `settings` in the cache (none for Settings that can't be read). */
+function renderScreen(deck: Deck = DECK, settings: SettingsResponse | null = SETTINGS) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  queryClient.setQueryData(settingsQueryOptions().queryKey, { settings: SETTINGS, issuedAt: 0 });
+  if (settings !== null) {
+    queryClient.setQueryData(settingsQueryOptions().queryKey, { settings, issuedAt: 0 });
+  }
   const router = createRouter({ routeTree: createRootRoute(), history: createMemoryHistory() });
   render(
     <QueryClientProvider client={queryClient}>
@@ -170,7 +174,7 @@ function renderScreen(deck: Deck = DECK) {
       </RouterContextProvider>
     </QueryClientProvider>,
   );
-  return router;
+  return { router, queryClient };
 }
 
 /** The answer editor, once the Card shows. */
@@ -293,7 +297,7 @@ describe("write-and-grade on the study screen", () => {
   });
 
   test("while the answer editor has focus, the study keys are off, and Esc leaves the field first", async () => {
-    const router = renderScreen();
+    const { router } = renderScreen();
     const view = await answerEditor();
     const before = router.history.location.pathname;
 
@@ -310,7 +314,7 @@ describe("write-and-grade on the study screen", () => {
   });
 
   test("a key between the two Escs leaves the field again first", async () => {
-    const router = renderScreen();
+    const { router } = renderScreen();
     const view = await answerEditor();
     const before = router.history.location.pathname;
 
@@ -319,6 +323,72 @@ describe("write-and-grade on the study screen", () => {
     press(view.contentDOM, "Escape");
 
     expect(router.history.location.pathname).toBe(before);
+  });
+});
+
+const writeToggle = () =>
+  screen.getByRole<HTMLButtonElement>("button", { name: "Write and grade" });
+
+/** Waits for the first Card, and says which Answer mode it shows in. */
+async function shownMode() {
+  await screen.findByText("c1 front");
+  return writeToggle().getAttribute("aria-pressed") === "true" ? "write" : "self-rate";
+}
+
+describe("the Answer mode a new Session starts in", () => {
+  const FOLLOWING: Deck = { ...DECK, answerMode: null };
+
+  test.each([
+    ["follows Settings' Write and grade", FOLLOWING, "write", "write"],
+    ["follows Settings' Rate yourself", FOLLOWING, "self-rate", "self-rate"],
+    [
+      "keeps its own Rate yourself over Settings' Write and grade",
+      { ...DECK, answerMode: "self-rate" },
+      "write",
+      "self-rate",
+    ],
+    ["keeps its own Write and grade over Settings' Rate yourself", DECK, "self-rate", "write"],
+  ] as const)("a Deck that %s", async (_, deck, followed, expected) => {
+    renderScreen(deck, { ...SETTINGS, answerMode: followed });
+
+    expect(await shownMode()).toBe(expected);
+  });
+
+  test("starts in self-rate when Settings can't be read", async () => {
+    renderScreen(FOLLOWING, null);
+
+    expect(await shownMode()).toBe("self-rate");
+    expect(screen.getByRole("button", { name: /Show answer/ })).toBeTruthy();
+  });
+
+  test("a running Session keeps its mode when Settings change", async () => {
+    const { queryClient } = renderScreen(FOLLOWING, { ...SETTINGS, answerMode: "write" });
+    await answerEditor();
+
+    act(() => {
+      queryClient.setQueryData(settingsQueryOptions().queryKey, {
+        settings: { ...SETTINGS, answerMode: "self-rate" },
+        issuedAt: 1,
+      });
+    });
+    fireEvent.click(dontKnow());
+    await screen.findByText(/Saved as/);
+    press(document.body, "Enter");
+
+    await screen.findByText("c2 front");
+    await answerEditor();
+    expect(writeToggle().getAttribute("aria-pressed")).toBe("true");
+  });
+
+  test("a resumed Session keeps its mode when Settings change", async () => {
+    renderScreen(FOLLOWING, { ...SETTINGS, answerMode: "write" });
+    await answerEditor();
+    cleanup();
+    queue = ["c1", "c2"];
+
+    renderScreen(FOLLOWING, { ...SETTINGS, answerMode: "self-rate" });
+
+    expect(await shownMode()).toBe("write");
   });
 });
 

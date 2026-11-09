@@ -33,6 +33,7 @@ const UNTOUCHED_DEFAULTS = {
   learningLimit: 10,
   sessionTimeoutMinutes: 30,
   macros: [] as { name: string; definition: string }[],
+  answerMode: "self-rate",
 } as const;
 
 /** Settings' Macros as the Seed data writes them. */
@@ -137,7 +138,7 @@ describe("banki seed's Macros", () => {
     expect(SettingsResponse.parse(await res.json()).macros).toEqual(mine);
   });
 
-  test("makes Calculus 2 write-and-grade, and leaves the other Decks following Settings", async () => {
+  test("makes Calculus 2 write-and-grade, and leaves the other Decks following Settings' self-rate", async () => {
     await setup();
     await seed();
 
@@ -151,6 +152,8 @@ describe("banki seed's Macros", () => {
       [SEED_IDS.decks.chemistry]: null,
       [SEED_IDS.decks.calculus10]: null,
     });
+    const settings = await get(app, "/api/settings", cookie);
+    expect(SettingsResponse.parse(await settings.json()).answerMode).toBe("self-rate");
   });
 
   test("gives Calculus 2 its own \\d and an \\eps over Settings', and Cards that use them", async () => {

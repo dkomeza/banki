@@ -649,7 +649,7 @@ export function createStudySession({
   store?: SessionStore;
   /** The Session timeout as it is now, in ms. */
   timeoutMs?: () => number;
-  /** The Deck's Answer mode as it is now, which a new Session starts in. */
+  /** The Deck's Answer mode as it is now (its own, or Settings'), which a new Session starts in. */
   answerMode?: () => AnswerMode;
 }) {
   let state: StudyState = {

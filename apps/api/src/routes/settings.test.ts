@@ -12,6 +12,7 @@ const UNTOUCHED_DEFAULTS = {
   learningLimit: 10,
   sessionTimeoutMinutes: 30,
   macros: [] as { name: string; definition: string }[],
+  answerMode: "self-rate",
 } as const;
 
 const { boot } = bootApps();
@@ -165,6 +166,33 @@ describe("PATCH /api/settings", () => {
     });
   });
 
+  test("changes the Answer mode both ways, and reads it back", async () => {
+    const { app, cookie } = await signedIn();
+
+    for (const answerMode of ["write", "self-rate"] as const) {
+      const res = await send(app, "PATCH", "/api/settings", { answerMode }, cookie);
+      expect(res.status).toBe(200);
+      expect((await settingsOf(res)).answerMode).toBe(answerMode);
+      expect((await settingsOf(await get(app, "/api/settings", cookie))).answerMode).toBe(
+        answerMode,
+      );
+    }
+  });
+
+  test("keeps the Answer mode when another Setting changes", async () => {
+    const { app, cookie } = await signedIn();
+    await send(app, "PATCH", "/api/settings", { answerMode: "write" }, cookie);
+
+    const res = await send(app, "PATCH", "/api/settings", { dayStartHour: 6 }, cookie);
+
+    expect(await settingsOf(res)).toEqual({
+      timezone: null,
+      dayStartHour: 6,
+      ...UNTOUCHED_DEFAULTS,
+      answerMode: "write",
+    });
+  });
+
   test("accepts an alias Intl accepts, such as Europe/Kiev", async () => {
     const { app, cookie } = await signedIn();
 
@@ -195,6 +223,8 @@ describe("PATCH /api/settings", () => {
     ["a Session timeout over 240 minutes", { sessionTimeoutMinutes: 241 }],
     ["a part of a minute of Session timeout", { sessionTimeoutMinutes: 30.5 }],
     ["a Session timeout that isn't a number", { sessionTimeoutMinutes: "30" }],
+    ["an Answer mode Banki doesn't know", { answerMode: "grade" }],
+    ["an Answer mode that is null", { answerMode: null }],
     ["something that isn't a Setting", { theme: "dark" }],
   ])("refuses %s with 400, changing nothing", async (_, body) => {
     const { app, cookie } = await signedIn();
