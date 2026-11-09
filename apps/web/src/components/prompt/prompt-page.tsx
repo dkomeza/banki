@@ -116,7 +116,7 @@ export function PromptPage({ deck, state }: { deck: Deck; state: string | undefi
                   </button>
                 ))}
               </div>
-              <div className="ml-auto">
+              <div className="w-full sm:ml-auto sm:w-auto [&>button]:w-full sm:[&>button]:w-auto">
                 {tab === "prompt" ? (
                   <Button
                     className={cn(PILL, "h-11")}
