@@ -105,6 +105,20 @@ describe("GET /api/decks/:deckId/export", () => {
     expect([...files.keys()]).toEqual(["Słówka- a-b-.json"]);
   });
 
+  test("a Deck whose name starts with a dot exports a zip the import reads", async () => {
+    const { app, cookie } = await signedIn();
+    const deckId = await createDeck(app, cookie, ".NET tips");
+    await createCard(app, cookie, deckId, { front: "f", back: "b" });
+    const { zip, json } = await unpack(await exportOf(app, cookie, deckId));
+    expect(json).toBe("-NET tips.json");
+    const created = await app.request(`/api/decks/${deckId}/imports?kind=file&name=x.zip`, {
+      method: "POST",
+      headers: { "content-type": "application/zip", origin: ORIGIN, cookie },
+      body: zip,
+    });
+    expect(created.status).toBe(201);
+  });
+
   test("holds the live Cards oldest first, the effective Macros and each referenced Image once", async () => {
     const { app, cookie } = await signedIn();
     const { deckId, png, gif, cards } = await filledDeck(app, cookie);

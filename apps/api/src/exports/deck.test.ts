@@ -12,6 +12,12 @@ describe("exportBaseName", () => {
     expect(exportBaseName("tab\there\u0000")).toBe("tab-here-");
   });
 
+  test("a leading dot becomes -, so an import doesn't skip the file as hidden", () => {
+    expect(exportBaseName(".NET tips")).toBe("-NET tips");
+    expect(exportBaseName("..")).toBe("-.");
+    expect(exportBaseName("v1.2")).toBe("v1.2");
+  });
+
   test("a name left blank becomes Deck", () => {
     expect(exportBaseName("")).toBe("Deck");
     expect(exportBaseName("   ")).toBe("Deck");

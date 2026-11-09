@@ -24,9 +24,13 @@ export type DeckExport = { fileName: string; zip: Uint8Array<ArrayBuffer> };
 /** What a file name can't hold: `/ \ : * ? " < > |` and control characters. */
 const UNSAFE = /[/\\:*?"<>|\p{Cc}]/gu;
 
-/** `name` as a file name with no extension: unsafe characters as `-`, and `Deck` for a blank one. */
+/**
+ * `name` as a file name with no extension: unsafe characters as `-`, and
+ * `Deck` for a blank one. A leading `.` becomes `-` too: an import skips a
+ * dotfile, so `.NET.json` would never be read back.
+ */
 export function exportBaseName(name: string): string {
-  const safe = name.replace(UNSAFE, "-").trim();
+  const safe = name.replace(UNSAFE, "-").trim().replace(/^\./, "-");
   return safe === "" ? "Deck" : safe;
 }
 
