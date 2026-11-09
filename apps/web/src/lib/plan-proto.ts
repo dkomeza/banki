@@ -48,15 +48,17 @@ export const lastDeadline = (from: Day = today()) => {
 export const shortDate = (day: Day) =>
   dateOf(day).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
 
-/** "Saturday 12 December 2026". */
+/** "Saturday 12 December 2026", without the comma some engines put after the weekday. */
 export const longDate = (day: Day) =>
-  dateOf(day).toLocaleDateString("en-GB", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC",
-  });
+  dateOf(day)
+    .toLocaleDateString("en-GB", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+      timeZone: "UTC",
+    })
+    .replace(",", "");
 
 /** "in 33 days", "tomorrow", "today", "3 days ago". */
 export function relativeDays(day: Day, from: Day = today()) {
