@@ -105,7 +105,7 @@ What the User writes for a Card's Front in write-and-grade, typed or, later, han
 _Avoid_: answer (alone), response, attempt
 
 **Review**:
-One Rating of one Card at one moment, with the time the User spent studying it, at most 2 minutes (time spent editing it, waiting for the Grader, or in its Follow-up chat, is left out), and whether it was self-rated or graded. Reviews, with the Card's Progress resets among them, are the Card's history: they are what FSRS learns from (since the Card's newest Progress reset), and they outlive the Card. Undoing a Rating takes its Review back as if it had never been given.
+One Rating of one Card at one moment, with the time the User spent studying it, at most 2 minutes (time spent editing it, waiting for the Grader, or in its Follow-up chat, is left out), and whether it was self-rated or graded. It is **graded** when the User rated it with the Grader's suggested Rating on screen, whichever Rating they gave, and then keeps that suggested Rating and the Model that suggested it; otherwise it is **self-rated**, I don't know, a Rating given before the suggestion came and one after grading failed included. Reviews, with the Card's Progress resets among them, are the Card's history: they are what FSRS learns from (since the Card's newest Progress reset), and they outlive the Card. Undoing a Rating takes its Review back as if it had never been given.
 _Avoid_: answer, attempt, repetition
 
 **Progress reset**:
@@ -187,6 +187,10 @@ _Avoid_: calendar day, date
 **Grader**:
 The LLM, reached through OpenRouter, that turns a written answer into a suggested rating with feedback, and answers the Follow-up chat about it. It only suggests: the User always confirms the rating.
 _Avoid_: AI, judge, provider
+
+**Grader agreement**:
+How often the User keeps the Grader's suggested Rating: the share of graded Reviews whose Rating is the suggested one. A low one is a sign the Grader is too lenient or too strict, and it can be told apart by the Model that suggested.
+_Avoid_: accuracy, override rate, grader score
 
 **Feedback**:
 What the Grader says about a Written answer beside its suggested Rating: what was right, what was missing or wrong, down to the step where a derivation went wrong. It is in the Written answer's language. It is never stored with the Review or on the server, but, with the suggested Rating and the Highlights, kept with the Session until its Card is rated.
