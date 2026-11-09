@@ -11,7 +11,17 @@ import {
 import { Dialog } from "@base-ui/react/dialog";
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { CheckCheck, Check, ImageOff, LoaderCircle, Lock, Pencil, Sigma, X } from "lucide-react";
+import {
+  CheckCheck,
+  Check,
+  ImageOff,
+  LoaderCircle,
+  Lock,
+  Pencil,
+  Sigma,
+  Undo2,
+  X,
+} from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { CardLine, FadingCardText } from "@/components/cards/card-text";
@@ -28,7 +38,9 @@ import { ImageFilesContext, imageUrl } from "@/lib/images";
 import { confirmImport } from "@/lib/imports";
 import { cn } from "@/lib/utils";
 import { CopyButton, DuplicateLabel, EditFields, confirmedLabel } from "./parts";
+import { cardCount, useUndo, whenLabel } from "./prototype";
 import { Steps } from "./steps";
+import { UndoDialog } from "./undo";
 import { type Row, usePreview } from "./use-preview";
 
 // An Import's page. Unconfirmed, it is the preview, in the deck page's own
@@ -455,11 +467,17 @@ function Step({
   accent,
   title,
   children,
+  open = false,
+  struck = false,
 }: {
   mark: string;
   accent?: boolean;
   title: ReactNode;
   children?: ReactNode;
+  /** The rail's last step, still to come or undone: a hollow dot and a dashed rail. */
+  open?: boolean;
+  /** A muted dot and title: a step an Undo took back. */
+  struck?: boolean;
 }) {
   return (
     <li className="flex gap-3 sm:gap-4">
@@ -472,9 +490,23 @@ function Step({
       >
         {mark}
       </p>
-      <div className={cn(RAIL, "flex min-w-0 flex-1 flex-col gap-2 pb-7")}>
-        <span aria-hidden className={cn(DOT, accent ? "bg-primary" : "bg-input")} />
-        <p className={cn("leading-snug", accent && "font-semibold")}>{title}</p>
+      <div className={cn(RAIL, "flex min-w-0 flex-1 flex-col gap-2 pb-7", open && "border-dashed")}>
+        <span
+          aria-hidden
+          className={cn(
+            DOT,
+            open ? "border-2 border-input bg-background" : accent ? "bg-primary" : "bg-input",
+          )}
+        />
+        <p
+          className={cn(
+            "leading-snug",
+            accent && "font-semibold",
+            struck && "text-muted-foreground line-through decoration-1",
+          )}
+        >
+          {title}
+        </p>
         {children}
       </div>
     </li>
@@ -491,11 +523,23 @@ export function ImportReportPage({ deck, report }: { deck: Deck; report: ImportR
     report.invalid.length === 0 && warned && lastWarning === step ? (
       <CopyProblems invalid={[]} macros={report.macros} images={report.images} done />
     ) : null;
+  const undo = useUndo(report);
+  const { undoneAt } = undo.facts;
   return (
     <Page width="reading">
       <div className="flex flex-col gap-6 lg:gap-8">
         <Head deck={deck} at={2} title={`${cardsLabel(report.imported)} imported`}>
-          <p className="text-sm font-medium text-primary">{confirmedLabel(report.confirmedAt)}</p>
+          <p
+            className={cn(
+              "text-sm font-medium",
+              undoneAt === null ? "text-primary" : "text-muted-foreground",
+            )}
+          >
+            {confirmedLabel(report.confirmedAt)}
+            {undoneAt !== null && (
+              <span className="text-foreground"> · undone {whenLabel(undoneAt)}</span>
+            )}
+          </p>
         </Head>
         <ol className="flex flex-col">
           <Step mark={String(report.total)} title={<>Read from {report.fileName}</>} />
@@ -565,7 +609,8 @@ export function ImportReportPage({ deck, report }: { deck: Deck; report: ImportR
           )}
           <Step
             mark={String(report.imported)}
-            accent
+            accent={undoneAt === null}
+            struck={undoneAt !== null}
             title={
               <>
                 Added to{" "}
@@ -583,6 +628,39 @@ export function ImportReportPage({ deck, report }: { deck: Deck; report: ImportR
               </p>
             )}
           </Step>
+          {undoneAt !== null ? (
+            <Step
+              mark={String(report.imported)}
+              accent
+              open
+              title={<>Undone {whenLabel(undoneAt)}</>}
+            >
+              <p className="text-sm text-muted-foreground">
+                Its {cardCount(report.imported)} wait in{" "}
+                <Link to="/deleted" className="font-medium text-foreground">
+                  Recently deleted
+                </Link>{" "}
+                for 30 days. Restore them there, all at once.
+              </p>
+            </Step>
+          ) : (
+            undo.facts.live > 0 && (
+              <Step mark="" open title="Changed your mind?">
+                <p className="text-sm text-muted-foreground">
+                  Undo takes the {cardCount(undo.facts.live)} this import added back out of every
+                  deck they are in now, into Recently deleted.
+                </p>
+                <Button
+                  variant="outline"
+                  className={cn(OUTLINE_PILL, "h-11 w-fit text-foreground")}
+                  onClick={() => undo.setAsking(true)}
+                >
+                  <Undo2 aria-hidden />
+                  Undo this import
+                </Button>
+              </Step>
+            )
+          )}
         </ol>
         <div className="flex flex-wrap gap-2 sm:pl-18">
           <Button
@@ -601,6 +679,13 @@ export function ImportReportPage({ deck, report }: { deck: Deck; report: ImportR
             Import more
           </Button>
         </div>
+        <UndoDialog
+          open={undo.asking}
+          facts={undo.facts}
+          busy={undo.busy}
+          onCancel={() => undo.setAsking(false)}
+          onConfirm={undo.confirm}
+        />
       </div>
     </Page>
   );
