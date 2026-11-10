@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ImportPreviewResponse, NumberedCard } from "@banki/shared";
+import type { ImportPreviewResponse, MacroPlanEntry, NumberedCard } from "@banki/shared";
 import { sql } from "drizzle-orm";
 import { type OpenedDatabase, importsDirOf, openDatabase, uploadsDirOf } from "../db/database";
 import { applyMigrations } from "../db/migrate";
@@ -13,6 +13,7 @@ import { createDeletionRepository } from "./deletions";
 import { createImageRepository } from "./images";
 import { type ImportRepository, createImportRepository, hasImports } from "./imports";
 import { createReviewRepository } from "./reviews";
+import { setInitialMacros } from "./settings";
 import { createUserRepository } from "./user";
 
 let tempDir: string;
@@ -313,6 +314,32 @@ describe("confirm", () => {
     expect(decks.find(USER, deckId)?.macros).toEqual([
       { name: "\\f", definition: "F" },
       { name: "\\m", definition: "m." },
+    ]);
+  });
+
+  test("plans Macros against the Deck's own alone, never Settings'", () => {
+    setInitialMacros(opened.db, USER, [
+      { name: "\\R", definition: "\\mathbb{R}" },
+      { name: "\\N", definition: "\\mathbb{N}" },
+    ]);
+    const id = create(
+      fileText(
+        [card("a")],
+        [
+          { name: "\\R", definition: "\\mathbb{R}" },
+          { name: "\\N", definition: "\\mathbf{N}" },
+        ],
+      ),
+    );
+    const added: MacroPlanEntry[] = [
+      { name: "\\R", definition: "\\mathbb{R}", outcome: "added" },
+      { name: "\\N", definition: "\\mathbf{N}", outcome: "added" },
+    ];
+    expect(preview(id).macros).toEqual(added);
+    expect(confirm(id, asRead(id)).macros).toEqual(added);
+    expect(decks.find(USER, deckId)?.macros).toEqual([
+      { name: "\\R", definition: "\\mathbb{R}" },
+      { name: "\\N", definition: "\\mathbf{N}" },
     ]);
   });
 

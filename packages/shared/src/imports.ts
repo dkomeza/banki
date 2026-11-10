@@ -51,11 +51,11 @@ export const ImportInvalidCard = z.object({ number: z.number().int(), problems: 
 export type ImportInvalidCard = z.infer<typeof ImportInvalidCard>;
 
 /**
- * What the Import does with one of the file's Macros that the Deck doesn't
- * have as it is: `added` to the Deck's own; `kept`, the Deck defining it
- * differently (`deckDefinition`), which stays; or `not_added`, the Deck
- * unable to take it (`reason`). One the Deck has with the identical
- * definition isn't listed.
+ * What the Import does with one of the file's Macros that the Deck's own
+ * Macros don't have as it is, Settings' aside: `added` to the Deck's own;
+ * `kept`, the Deck's own defining it differently (`deckDefinition`), which
+ * stays; or `not_added`, the Deck unable to take it (`reason`). One the
+ * Deck's own has with the identical definition isn't listed.
  */
 export const MacroPlanEntry = z.discriminatedUnion("outcome", [
   z.object({ name: z.string(), definition: z.string(), outcome: z.literal("added") }),

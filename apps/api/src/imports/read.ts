@@ -14,7 +14,6 @@ import {
   type Macro,
   type MacroPlanEntry,
   type NumberedCard,
-  effectiveMacros,
   frontKey,
   imageFormatOf,
   imageReferencesIn,
@@ -189,22 +188,23 @@ function readZip(bytes: Uint8Array): ReadFile | Refused {
 }
 
 /**
- * The Macro plan of a file's Macros for a Deck with `own` Macros under
- * Settings' `settings`, in the file's order: one the Deck has with the
- * identical definition is left out; one it lacks is added to its own, unless
- * that would take its own past 100 or the definition is over 1,000
- * characters; one it defines differently keeps the Deck's.
+ * The Macro plan of a file's Macros for a Deck with `own` Macros, in the
+ * file's order, against its own alone and never Settings': one its own has
+ * with the identical definition is left out; one its own lacks is added to
+ * them, unless that would take them past 100 or the definition is over 1,000
+ * characters; one its own defines differently keeps the Deck's. So a file
+ * Macro that only Settings has, however defined, is added, and a Deck's
+ * override of a Settings Macro survives an export and re-import.
  */
 export function planMacros(
   file: readonly CardFileMacro[],
-  settings: readonly Macro[],
   own: readonly Macro[],
 ): MacroPlanEntry[] {
-  const effective = new Map(effectiveMacros(settings, own).map((macro) => [macro.name, macro]));
+  const mine = new Map(own.map((macro) => [macro.name, macro]));
   let room = MACROS_MAX - own.length;
   const plan: MacroPlanEntry[] = [];
   for (const { name, definition } of file) {
-    const has = effective.get(name);
+    const has = mine.get(name);
     if (has !== undefined) {
       if (has.definition !== definition) {
         plan.push({ name, definition, outcome: "kept", deckDefinition: has.definition });

@@ -177,9 +177,9 @@ describe("GET /api/decks/:deckId/export", () => {
 
   test("round trip: the zip imports into a new Deck as the same Cards, Images and Macros", async () => {
     const { app, cookie } = await signedIn();
-    // A Deck's own Macro over Settings' of the same name doesn't come back: the
-    // import keeps the new Deck's, Settings' (BAN-32's Macro plan).
-    const { deckId, cards } = await filledDeck(app, cookie, [NORM]);
+    // The Deck's own \N over Settings' comes back too: the import checks the
+    // file's Macros against the new Deck's own alone.
+    const { deckId, cards } = await filledDeck(app, cookie);
     const exported = await unpack(await exportOf(app, cookie, deckId));
     const into = await createDeck(app, cookie, "Analysis again");
 
@@ -198,7 +198,11 @@ describe("GET /api/decks/:deckId/export", () => {
     expect(preview.cards.map((card) => card.duplicateOf)).toEqual(cards.map(() => null));
     // The one dangling reference was dangling before the export too.
     expect(preview.images.map((image) => image.problem)).toEqual(["missing"]);
-    expect(preview.macros.map((macro) => macro.outcome)).toEqual(["added"]);
+    expect(preview.macros.map((macro) => [macro.name, macro.outcome])).toEqual([
+      ["\\R", "added"],
+      ["\\N", "added"],
+      ["\\norm", "added"],
+    ]);
 
     const confirmed = await send(
       app,
