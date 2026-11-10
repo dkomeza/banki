@@ -21,6 +21,11 @@ export const SEED_IDS = {
    * one left out, Macros added and kept, and an image the zip didn't hold.
    */
   import: "5eed0000-0000-4000-8000-0000000001a1",
+  /**
+   * An older confirmed Import into the seed Deck, undone since (ADR-0029), so
+   * Past imports shows an undone entry and Recently deleted an Import's.
+   */
+  undoneImport: "5eed0000-0000-4000-8000-0000000001a2",
   /** The one Tuning log row: an automatic Tuning that applied FSRS-6's defaults, so Settings shows Scheduling tuned. */
   tuning: "5eed0000-0000-4000-8000-0000000007a1",
   folders: {
@@ -84,6 +89,15 @@ export const SEED_IDS = {
       6: "5eed0000-0000-4000-8000-0000000c0506",
       8: "5eed0000-0000-4000-8000-0000000c0508",
     },
+    /** The Cards the undone Import added to Spanish vocabulary, by their number in its file. */
+    undoneImport: {
+      1: "5eed0000-0000-4000-8000-0000000c0601",
+      2: "5eed0000-0000-4000-8000-0000000c0602",
+      3: "5eed0000-0000-4000-8000-0000000c0603",
+      4: "5eed0000-0000-4000-8000-0000000c0604",
+      5: "5eed0000-0000-4000-8000-0000000c0605",
+      6: "5eed0000-0000-4000-8000-0000000c0606",
+    },
     chemistry: [
       "5eed0000-0000-4000-8000-0000000c0400",
       "5eed0000-0000-4000-8000-0000000c0401",
@@ -106,6 +120,8 @@ export const SEED_IDS = {
     german: "5eed0000-0000-4000-8000-0000000de007",
     termin: "5eed0000-0000-4000-8000-0000000de008",
     calculus1: "5eed0000-0000-4000-8000-0000000de009",
+    /** The undone Import's Undo. */
+    verbos: "5eed0000-0000-4000-8000-0000000de00a",
   },
 } as const;
 

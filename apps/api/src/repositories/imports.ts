@@ -4,19 +4,21 @@ import { join } from "node:path";
 import {
   IMAGE_FORMATS,
   type ImageProblem,
+  type ImportHistoryEntry,
   type ImportResponse,
   type Macro,
   type MacroPlanEntry,
   type NumberedCard,
   type SkippedDuplicate,
+  type UndoImportResponse,
   frontKey,
   imageFormatOf,
   imageReferencesIn,
   sortTags,
 } from "@banki/shared";
-import { and, eq, isNull, lte } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import type { Queryable } from "../db/database";
-import { card, card_import, deck, user_settings } from "../db/schema";
+import { card, card_import, deck, review, user_settings } from "../db/schema";
 import type { ImportReport, StagedImport } from "../imports/stored";
 import {
   type ImageStatus,
@@ -40,6 +42,33 @@ export type ConfirmedCard = NumberedCard;
 
 /** Why a confirm was refused. */
 export type ConfirmRefusal = "not_found" | "confirmed" | "deck_gone" | "unknown_card";
+
+/** Why an Undo was refused: no such confirmed Import, or no live Card stamped with it. */
+export type UndoRefusal = "not_found" | "nothing_to_undo";
+
+/** A count of the Cards a `where` picks that `condition` holds for. */
+const countWhere = (condition: ReturnType<typeof sql>) =>
+  sql<number>`coalesce(sum(case when ${condition} then 1 else 0 end), 0)`.mapWith(Number);
+
+/**
+ * How many of the User's live Cards stamped with the Import `id` there are,
+ * and of them how many were studied (a Review or reps, which a Progress reset
+ * zeroes but whose Reviews stay), edited (changed since they were added) and
+ * moved out of its Deck `deckId`.
+ */
+const liveCardsOf = (tx: Queryable, userId: string, id: string, deckId: string) =>
+  tx
+    .select({
+      live: sql<number>`count(*)`.mapWith(Number),
+      studied: countWhere(
+        sql`${card.reps} > 0 or exists (select 1 from ${review} where ${review.userId} = ${card.userId} and ${review.cardId} = ${card.id})`,
+      ),
+      edited: countWhere(sql`${card.updatedAt} > ${card.createdAt}`),
+      moved: countWhere(sql`${card.deckId} <> ${deckId}`),
+    })
+    .from(card)
+    .where(and(eq(card.userId, userId), eq(card.importId, id), isNull(card.deletedAt)))
+    .get() ?? { live: 0, studied: 0, edited: 0, moved: 0 };
 
 /** The Settings' Macros of the User, under every Deck's own. */
 const settingsMacros = (db: Queryable, userId: string): Macro[] =>
@@ -100,8 +129,9 @@ const SAFE_FILE = /^[\w-]+\.[A-Za-z0-9]+$/;
  * The User's Imports (CONTEXT.md, ADR-0026). `create` reads a file into an
  * unconfirmed Import, its images staged in `importsDir`; `find` answers its
  * preview, planned against the Deck as it is now, or its report; `confirm`
- * adds the ticked Cards in one transaction; `sweep` removes Imports never
- * confirmed. Every query but the sweep's is scoped by the User, so another
+ * adds the ticked Cards in one transaction; `history` lists a Deck's confirmed
+ * ones; `undo` takes a confirmed one's Cards back out (ADR-0029); `sweep`
+ * removes Imports never confirmed. Every query but the sweep's is scoped by the User, so another
  * User's Import is as unknown as one that never existed.
  */
 export function createImportRepository(db: Queryable, importsDir: string, uploadsDir: string) {
@@ -116,7 +146,8 @@ export function createImportRepository(db: Queryable, importsDir: string, upload
   /**
    * The User's Import `id`: its preview while unconfirmed, with each Card's
    * Duplicate, the Macro plan and the image problems as they stand against
-   * its Deck now, or its report once confirmed. Undefined for no such Import.
+   * its Deck now, or its report once confirmed, with how many of its Cards
+   * are live now and whether it is undone. Undefined for no such Import.
    */
   const find = (userId: string, id: string): ImportResponse | undefined =>
     db.transaction((tx) => {
@@ -137,6 +168,9 @@ export function createImportRepository(db: Queryable, importsDir: string, upload
           ...report,
           status: "confirmed" as const,
           confirmedAt: row.confirmedAt.toISOString(),
+          ...liveCardsOf(tx, userId, row.id, row.deckId),
+          undoneAt: row.undoneAt?.toISOString() ?? null,
+          undoDeletionId: row.undoDeletionId,
         };
       }
       const { preview } = row;
@@ -379,6 +413,103 @@ export function createImportRepository(db: Queryable, importsDir: string, upload
         // Committed already: a folder left behind goes with the sweep.
       }
       return find(userId, id) ?? "not_found";
+    },
+
+    /**
+     * The confirmed Imports into the User's live Deck `deckId`, newest first,
+     * each with how many Cards it added and how many of those are live now,
+     * wherever they are; "not_found" for no such Deck. An unconfirmed Import
+     * is never listed (ADR-0026).
+     */
+    history(userId: string, deckId: string): ImportHistoryEntry[] | "not_found" {
+      return db.transaction((tx) => {
+        if (!isLiveDeck(tx, userId, deckId)) return "not_found";
+        const rows = tx
+          .select({
+            id: card_import.id,
+            fileName: card_import.fileName,
+            source: card_import.source,
+            confirmedAt: card_import.confirmedAt,
+            report: card_import.report,
+            undoneAt: card_import.undoneAt,
+          })
+          .from(card_import)
+          .where(
+            and(
+              eq(card_import.userId, userId),
+              eq(card_import.deckId, deckId),
+              isNotNull(card_import.confirmedAt),
+            ),
+          )
+          .orderBy(desc(card_import.confirmedAt), desc(card_import.id))
+          .all();
+        const live = new Map(
+          (rows.length === 0
+            ? []
+            : tx
+                .select({ id: card.importId, count: sql<number>`count(*)`.mapWith(Number) })
+                .from(card)
+                .where(
+                  and(
+                    eq(card.userId, userId),
+                    inArray(
+                      card.importId,
+                      rows.map((row) => row.id),
+                    ),
+                    isNull(card.deletedAt),
+                  ),
+                )
+                .groupBy(card.importId)
+                .all()
+          ).map((row) => [row.id, row.count]),
+        );
+        return rows.map((row) => ({
+          id: row.id,
+          fileName: row.fileName,
+          source: row.source,
+          confirmedAt: (row.confirmedAt ?? new Date(0)).toISOString(),
+          imported: row.report?.imported ?? 0,
+          live: live.get(row.id) ?? 0,
+          undoneAt: row.undoneAt?.toISOString() ?? null,
+        }));
+      });
+    },
+
+    /**
+     * Undoes the User's confirmed Import `id` (ADR-0029): every live Card
+     * stamped with it, wherever it is now, edited or studied, is soft-deleted
+     * as one Deletion, which the Import records with when, all in one
+     * transaction. A Card deleted on its own before keeps its own Deletion.
+     * The Macros it added, the Images and the Reviews stay. Refused for no
+     * such confirmed Import ("not_found") and for one with no live Card
+     * ("nothing_to_undo"). The Cards' `updatedAt` is left alone, so a Card
+     * is still counted as edited only when it was. `now` and `deletionId` are
+     * for the Seed data and tests.
+     */
+    undo(
+      userId: string,
+      id: string,
+      { now = new Date(), deletionId = randomUUID() }: { now?: Date; deletionId?: string } = {},
+    ): UndoImportResponse | UndoRefusal {
+      return db.transaction(
+        (tx) => {
+          const row = rowOf(tx, userId, id);
+          if (row === undefined || row.confirmedAt === null) return "not_found";
+          const taken = tx
+            .update(card)
+            .set({ deletedAt: now, deletionId })
+            .where(and(eq(card.userId, userId), eq(card.importId, id), isNull(card.deletedAt)))
+            .returning({ id: card.id })
+            .all();
+          if (taken.length === 0) return "nothing_to_undo";
+          tx.update(card_import)
+            .set({ undoneAt: now, undoDeletionId: deletionId })
+            .where(eq(card_import.id, id))
+            .run();
+          return { deletionId, cards: taken.length };
+        },
+        { behavior: "immediate" },
+      );
     },
 
     /**

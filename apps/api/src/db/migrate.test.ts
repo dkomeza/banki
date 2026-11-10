@@ -63,6 +63,7 @@ const COMMITTED = [
   "0019_settings_answer_mode",
   "0020_graded_reviews",
   "0021_parameter_tuning",
+  "0022_import_undo",
 ];
 
 /** The tables the committed migrations create. */
@@ -640,7 +641,9 @@ test("0021_parameter_tuning keeps every row of Settings, on FSRS's defaults, and
   opened.db.run(sql`INSERT INTO user_settings (user_id, desired_retention) VALUES ('u', 85)`);
 
   writeFileSync(journalPath, full);
-  expect(applyMigrations(opened.db, folder)).toEqual(["0021_parameter_tuning"]);
+  expect(applyMigrations(opened.db, folder)).toEqual(
+    COMMITTED.slice(COMMITTED.indexOf("0021_parameter_tuning")),
+  );
 
   expect(
     opened.db.values(sql`SELECT user_id, desired_retention, fsrs_parameters FROM user_settings`),

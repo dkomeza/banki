@@ -117,6 +117,7 @@ describe("the server process", () => {
       "0019_settings_answer_mode",
       "0020_graded_reviews",
       "0021_parameter_tuning",
+      "0022_import_undo",
     ];
     expect(records.map(({ level, message, properties }) => [level, message, properties])).toEqual([
       ["INFO", `API starting "${dataDir}"`, { dataDir }],
