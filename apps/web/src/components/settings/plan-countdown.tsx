@@ -38,7 +38,7 @@ export function DayStrip({ days, passed = false }: { days: number | undefined; p
       <div className="flex items-center gap-2" aria-hidden>
         <div
           className={cn(
-            "h-3 flex-1 rounded-full border border-dashed",
+            "h-3 flex-1 rounded-full border border-dashed border-muted-foreground/40",
             passed && "border-solid bg-muted",
           )}
         />

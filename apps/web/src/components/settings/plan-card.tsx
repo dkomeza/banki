@@ -21,11 +21,11 @@ import {
 import { usePlanProto } from "@/lib/use-plan-proto";
 import { cn } from "@/lib/utils";
 
-// PROTOTYPE (BAN-57), Variant d: Rows with b's Countdown. Variant a's card,
-// its form opening in place on a muted background with a Deadline field that
-// drops a month down, and its check, quiet when the goal covers the Deck and
-// a callout with its fix when it doesn't. The saved Plan is b's: the Study
-// days left in large type over a strip of them ending in the Deadline's flag.
+// PROTOTYPE (BAN-57), Variant e: the Countdown throughout. Variant d, a's
+// card with b's saved Plan (the Study days left in large type over a strip of
+// them ending in the Deadline's flag), and the same Countdown at the top of
+// the form, following the Deadline as it is picked, so the form shows the
+// Plan it will save. With no Plan, or no Deadline yet, the strip is an outline.
 
 /** "Sat 12 Dec 2026". */
 const fieldDate = (day: string) =>
@@ -50,6 +50,9 @@ export function PlanCard({ deck, state }: { deck: Deck; state: string | undefine
         <PlanForm plan={plan} creating={saved === null} />
       ) : saved === null ? (
         <div className="flex flex-col items-start gap-4">
+          <div className="self-stretch">
+            <DayStrip days={undefined} />
+          </div>
           <p className="text-[0.95rem] text-muted-foreground">
             This deck has no Plan. Give it a deadline, such as an exam day, and the minutes a day
             you mean to study it, and Banki checks whether that covers its new cards in time.
@@ -132,6 +135,26 @@ function SavedPlan({ plan, saved }: { plan: PlanState; saved: Plan }) {
   );
 }
 
+/** The Countdown the form will save, or an outline until it has a Deadline. */
+function FormCountdown({ deadline }: { deadline: string | undefined }) {
+  if (deadline === undefined)
+    return (
+      <div className="flex flex-col gap-2">
+        <p className="flex items-baseline gap-2 text-muted-foreground">
+          <span className="text-5xl leading-none font-semibold tracking-[-0.04em]">–</span>
+          <span className="text-lg">days left</span>
+        </p>
+        <DayStrip days={undefined} />
+      </div>
+    );
+  return (
+    <div className="flex flex-col gap-3">
+      <Countdown plan={{ deadline, dailyMinutes: 0 }} passed={false} />
+      <DayStrip days={daysBetween(today(), deadline)} />
+    </div>
+  );
+}
+
 function PlanForm({ plan, creating }: { plan: PlanState; creating: boolean }) {
   const form = plan.form!;
   const minutesId = useId();
@@ -143,6 +166,7 @@ function PlanForm({ plan, creating }: { plan: PlanState; creating: boolean }) {
   };
   return (
     <form onSubmit={submit} noValidate className={FORM}>
+      <FormCountdown deadline={plan.errors.deadline === undefined ? form.deadline : undefined} />
       <div className="grid gap-4">
         <div className="flex flex-col gap-1.5">
           <span id={deadlineLabel} className="text-sm font-medium">
