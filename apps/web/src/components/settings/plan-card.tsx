@@ -2,8 +2,9 @@ import { Popover } from "@base-ui/react/popover";
 import { CalendarDays, Check as CheckIcon, LoaderCircle, TriangleAlert } from "lucide-react";
 import { type FormEvent, useId, useState } from "react";
 import { ConfirmDelete } from "@/components/decks/confirm-delete";
-import { FIELD, OUTLINE_PILL, PILL, Row, SettingsCard } from "@/components/settings/parts";
+import { FIELD, OUTLINE_PILL, PILL, SettingsCard } from "@/components/settings/parts";
 import { PlanCalendar } from "@/components/settings/plan-calendar";
+import { Countdown, DayStrip } from "@/components/settings/plan-countdown";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { Deck } from "@/lib/decks";
@@ -13,17 +14,18 @@ import {
   MIN_MINUTES,
   type Plan,
   checkText,
-  longDate,
+  daysBetween,
   relativeDays,
+  today,
 } from "@/lib/plan-proto";
 import { usePlanProto } from "@/lib/use-plan-proto";
 import { cn } from "@/lib/utils";
 
-// PROTOTYPE (BAN-57), Variant a: Rows. The Plan reads like the Account card:
-// a row per value, Edit and Remove plan under them, and the form opening in
-// place on a muted background. The Deadline is a field that drops a month
-// down under it; the check is a line under the fields, quiet when the goal
-// covers the Deck and a callout with its fix when it doesn't.
+// PROTOTYPE (BAN-57), Variant d: Rows with b's Countdown. Variant a's card,
+// its form opening in place on a muted background with a Deadline field that
+// drops a month down, and its check, quiet when the goal covers the Deck and
+// a callout with its fix when it doesn't. The saved Plan is b's: the Study
+// days left in large type over a strip of them ending in the Deadline's flag.
 
 /** "Sat 12 Dec 2026". */
 const fieldDate = (day: string) =>
@@ -88,32 +90,30 @@ type PlanState = ReturnType<typeof usePlanProto>;
 function SavedPlan({ plan, saved }: { plan: PlanState; saved: Plan }) {
   return (
     <div className="flex flex-col gap-4">
-      {plan.passed && (
-        <p className="self-start rounded-full border px-3 py-1 text-sm text-muted-foreground">
-          Its deadline has passed
+      <Countdown plan={saved} passed={plan.passed} />
+      <DayStrip days={daysBetween(today(), saved.deadline)} passed={plan.passed} />
+      <div className="flex flex-wrap justify-between gap-x-4 gap-y-1 text-sm text-muted-foreground">
+        <span>{plan.passed ? "" : "Today"}</span>
+        <span>
+          <span className="font-medium text-foreground">{saved.dailyMinutes} min</span> a day
+        </span>
+      </div>
+      {plan.passed ? (
+        <p className="rounded-xl bg-muted p-3.5 text-[0.95rem]">
+          Its deadline has passed. Edit it for the next exam, or remove it.
         </p>
-      )}
-      <Row
-        label="Deadline"
-        value={longDate(saved.deadline)}
-        action={
-          <span className="shrink-0 text-sm text-muted-foreground">
-            {relativeDays(saved.deadline)}
-          </span>
-        }
-      />
-      <hr />
-      <Row label="Daily goal" value={`${saved.dailyMinutes} min a day`} />
-      {!plan.passed && plan.savedCheck !== undefined && (
-        <CheckNote
-          result={plan.savedCheck}
-          plan={saved}
-          // On a saved Plan, Use N min opens Edit with the goal set.
-          onUse={(minutes) => {
-            plan.open();
-            plan.setMinutes(String(minutes));
-          }}
-        />
+      ) : (
+        plan.savedCheck !== undefined && (
+          <CheckNote
+            result={plan.savedCheck}
+            plan={saved}
+            // On a saved Plan, Use N min opens Edit with the goal set.
+            onUse={(minutes) => {
+              plan.open();
+              plan.setMinutes(String(minutes));
+            }}
+          />
+        )
       )}
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" size="lg" className={OUTLINE_PILL} onClick={plan.open}>
