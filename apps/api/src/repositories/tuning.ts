@@ -22,7 +22,7 @@ import {
 
 const logger = getLogger(["banki", "tuning"]);
 
-// Tuning (CONTEXT.md, ADR-0028): the User's Parameters fitted to their own
+// Tuning (CONTEXT.md, ADR-0029): the User's Parameters fitted to their own
 // Reviews, and Reset to defaults, with the Tuning log recording each.
 
 export type TuningRepository = ReturnType<typeof createTuningRepository>;
@@ -46,7 +46,7 @@ const sameReplayed = (a: MemoryState, b: MemoryState) =>
   a.learningStep === b.learningStep;
 
 /**
- * Applies `parameters` (null for FSRS-6's defaults) to the User (ADR-0028):
+ * Applies `parameters` (null for FSRS-6's defaults) to the User (ADR-0029):
  * stores them, then replays every Card of theirs, live or deleted, from New
  * through its Reviews since its newest Progress reset, in the Write order,
  * under them. Each Review's `cardBefore` and the Card get the memory state

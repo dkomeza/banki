@@ -284,7 +284,7 @@ export function reschedule(
  * any. When the Desired retention or the Parameters changed since `before`
  * was scheduled, its interval no longer matches the one `previous` gives under
  * the current ones, and it is rescheduled under them (`reschedule`), so it
- * stays consistent with the current Parameters (ADR-0028).
+ * stays consistent with the current Parameters (ADR-0029).
  */
 export function restore(
   cardId: string,

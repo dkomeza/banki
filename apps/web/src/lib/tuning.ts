@@ -20,7 +20,7 @@ export const tuningQueryOptions = (client: ApiClient = api) =>
 
 /**
  * After new scheduling applies, every Card keeps its due date but works out
- * its memory again (ADR-0028), so what shows schedules is fetched afresh:
+ * its memory again (ADR-0029), so what shows schedules is fetched afresh:
  * the Decks' due counts and Study overviews, and the Cards.
  */
 const refetchSchedules = (queryClient: QueryClient) =>
