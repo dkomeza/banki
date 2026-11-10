@@ -78,6 +78,8 @@ const deleted = (id: string | undefined) => {
 const folderRow = (id: string) => opened.db.select().from(folder).where(eq(folder.id, id)).get();
 const deckRow = (id: string) => opened.db.select().from(deck).where(eq(deck.id, id)).get();
 const cardRow = (id: string) => opened.db.select().from(card).where(eq(card.id, id)).get();
+const importRow = (id: string) =>
+  opened.db.select().from(card_import).where(eq(card_import.id, id)).get();
 
 describe("list", () => {
   test("lists one entry per Deletion, newest first, with its top item, where it was and what went with it", () => {
@@ -524,7 +526,10 @@ describe("an Import's Undo", () => {
     imports.confirm(
       USER,
       created.id,
-      found.cards.map(({ duplicateOf: _, ...one }) => one),
+      found.cards.map((one) => {
+        const { duplicateOf: _, ...read } = one;
+        return read;
+      }),
       { now: new Date(NOW.getTime() - DAY_MS) },
     );
     const cardIds = opened.db
@@ -540,9 +545,6 @@ describe("an Import's Undo", () => {
       undo: () => imports.undo(USER, created.id, { now: NOW, deletionId }),
     };
   };
-
-  const importRow = (id: string) =>
-    opened.db.select().from(card_import).where(eq(card_import.id, id)).get();
 
   test("is one entry of kind Import, named by its file, with its Deck and every Card it took", () => {
     const spanish = makeDeck("Spanish");

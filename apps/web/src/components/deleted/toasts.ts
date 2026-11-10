@@ -46,3 +46,34 @@ export function showDeletedToast(
         }),
   });
 }
+
+/**
+ * Shows "Import undone" after an Import's Undo, with Undo for about 8
+ * seconds, which restores its Deletion: "24 cards restored", or why it
+ * couldn't be.
+ */
+export function showImportUndoneToast(
+  queryClient: QueryClient,
+  { deletionId, cards }: { deletionId: string; cards: number },
+) {
+  const count = `${cards.toLocaleString("en-GB")} ${cards === 1 ? "card" : "cards"}`;
+  toast("Import undone", {
+    id: `deleted-${deletionId}`,
+    description: `Its ${count} ${cards === 1 ? "waits" : "wait"} in Recently deleted for 30 days.`,
+    duration: UNDO_MS,
+    action: {
+      label: "Undo",
+      onClick: () => {
+        void restoreDeletion(queryClient, deletionId).then((outcome) => {
+          if (outcome.ok) {
+            toast(`${count} restored`, {
+              id: `restored-${outcome.restored.id}`,
+              description: "Back in their decks, as they were.",
+            });
+          } else if ("message" in outcome) toast.error(outcome.message);
+          else toast.error(`Restore ${outcome.placeDeleted.name} first.`);
+        });
+      },
+    },
+  });
+}

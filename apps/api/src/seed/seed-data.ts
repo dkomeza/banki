@@ -759,7 +759,10 @@ function undoneImportSeed(
   const preview = imports.find(userId, id);
   if (preview?.status !== "unconfirmed")
     throw new Error("The undone seed Import isn't unconfirmed");
-  const ticked = preview.cards.map(({ duplicateOf: _, ...read }) => read);
+  const ticked = preview.cards.map((one) => {
+    const { duplicateOf: _, ...read } = one;
+    return read;
+  });
   const imported: Record<number, string> = SEED_IDS.cards.undoneImport;
   const confirmed = imports.confirm(userId, id, ticked, {
     now: new Date(now.getTime() - 50 * HOUR_MS + 2 * 60 * 1000),

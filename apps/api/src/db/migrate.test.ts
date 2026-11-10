@@ -663,6 +663,43 @@ test("0021_parameter_tuning keeps every row of Settings, on FSRS's defaults, and
   expect(opened.db.values(sql`SELECT id FROM parameter_tuning`)).toEqual([]);
 });
 
+test("0022_import_undo keeps every Import, none of them undone, and finds an Undo's Import through an index", () => {
+  const journalPath = join(folder, "meta", "_journal.json");
+  const full = readFileSync(journalPath, "utf8");
+  const journal = z
+    .looseObject({ entries: z.array(z.looseObject({ tag: z.string() })) })
+    .parse(JSON.parse(full));
+  writeFileSync(
+    journalPath,
+    JSON.stringify({
+      ...journal,
+      entries: journal.entries.filter((entry) => entry.tag < "0022_import_undo"),
+    }),
+  );
+  applyMigrations(opened.db, folder);
+  opened.db.run(
+    sql`INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES ('u', 'n', 'u@x.y', 1, 0, 0)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO deck (id, user_id, name, name_key, created_at, updated_at) VALUES ('d', 'u', 'D', 'd', 0, 0)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO import (id, user_id, deck_id, file_name, source, created_at, confirmed_at) VALUES ('i', 'u', 'd', 'f.json', 'json', 0, 1)`,
+  );
+
+  writeFileSync(journalPath, full);
+  expect(applyMigrations(opened.db, folder)).toEqual(
+    COMMITTED.slice(COMMITTED.indexOf("0022_import_undo")),
+  );
+  expect(
+    opened.db.values(sql`SELECT id, confirmed_at, undone_at, undo_deletion_id FROM import`),
+  ).toEqual([["i", 1, null, null]]);
+  const plan = opened.db.values(
+    sql`EXPLAIN QUERY PLAN SELECT id FROM import WHERE user_id = 'u' AND undo_deletion_id = 'x'`,
+  );
+  expect(JSON.stringify(plan)).toContain("import_undo_deletion_id");
+});
+
 test("a Card's newest Review, its Progress resets since and the next place in the Write order are found through an index, not the User's whole history", () => {
   applyMigrations(opened.db, folder);
   // The SQL each one builds, as it runs, planned with its own parameters.
