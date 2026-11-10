@@ -1,4 +1,4 @@
-import { RATINGS, deckAnswerMode } from "@banki/shared";
+import { DEFAULT_ANSWER_MODE, RATINGS, deckAnswerMode } from "@banki/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { AlertCircle, LoaderCircle, Undo2, X } from "lucide-react";
@@ -66,7 +66,8 @@ const TIMEOUT_CHECK_MS = 15_000;
 /**
  * A Session over the Deck's Queue, saved in the browser, started (or
  * resumed) on mount and stopped on unmount. Its timeout is the Settings', the
- * default without them, and a new one starts in the Deck's Answer mode. It checks the timeout on focus, on becoming visible,
+ * default without them, and a new one starts in the Deck's Answer mode: its
+ * own, or Settings' (self-rate without them) while it follows them. It checks the timeout on focus, on becoming visible,
  * and on a timer while visible, and saves the shown Card's time as the page
  * hides.
  */
@@ -83,9 +84,13 @@ function useStudySession(deck: Deck): [StudySession, StudyState] {
         timeoutMsOf(
           queryClient.getQueryData(settingsQueryOptions().queryKey)?.settings.sessionTimeoutMinutes,
         ),
-      // Read as each new Session starts: the Deck as it is then.
+      // Read as each new Session starts: the Deck and the Settings as they are then.
       answerMode: () =>
-        deckAnswerMode(queryClient.getQueryData(deckQueryOptions(deckId).queryKey) ?? deck),
+        deckAnswerMode(
+          queryClient.getQueryData(deckQueryOptions(deckId).queryKey) ?? deck,
+          queryClient.getQueryData(settingsQueryOptions().queryKey)?.settings.answerMode ??
+            DEFAULT_ANSWER_MODE,
+        ),
     }),
   );
   useEffect(() => {

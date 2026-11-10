@@ -1,10 +1,12 @@
 // @vitest-environment happy-dom
-import type { AnswerMode } from "@banki/shared";
+import type { AnswerMode, SettingsPatch, SettingsResponse } from "@banki/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, test } from "vitest";
 import { deckAnswerModeSaverFor } from "@/lib/deck-answer-mode";
 import type { Deck } from "@/lib/decks";
+import { settingsQueryOptions } from "@/lib/settings";
+import { settingsSaverFor } from "@/lib/settings-store";
 import { AnswerModeCard } from "./answer-mode-card";
 
 const DECK: Deck = {
@@ -19,17 +21,50 @@ const DECK: Deck = {
   answerMode: null,
 };
 
+const SETTINGS: SettingsResponse = {
+  timezone: "Europe/Warsaw",
+  dayStartHour: 4,
+  model: "anthropic/claude-haiku-5.5",
+  apiKey: { state: "unset" },
+  autoClose: "brackets",
+  desiredRetention: 90,
+  newCardBatch: 20,
+  learningLimit: 10,
+  sessionTimeoutMinutes: 30,
+  answerMode: "self-rate",
+  macros: [],
+};
+
 afterEach(cleanup);
 
-/** The card for `deck`, its saver saving through `save`. */
-function renderCard(deck: Deck, save: (mode: AnswerMode | null) => Promise<void>) {
+/**
+ * The card for `deck`, its saver saving through `save`, with Settings in
+ * `followed` mode, their saver saving through `saveSettings`.
+ */
+function renderCard(
+  deck: Deck,
+  save: (mode: AnswerMode | null) => Promise<void>,
+  {
+    followed = "self-rate",
+    saveSettings = async (patch) => ({ ...SETTINGS, answerMode: followed, ...patch }),
+  }: {
+    followed?: AnswerMode;
+    saveSettings?: (patch: SettingsPatch) => Promise<SettingsResponse>;
+  } = {},
+) {
   const queryClient = new QueryClient();
+  queryClient.setQueryData(settingsQueryOptions().queryKey, {
+    settings: { ...SETTINGS, answerMode: followed },
+    issuedAt: 0,
+  });
+  const settingsSaver = settingsSaverFor(queryClient, { save: saveSettings });
   deckAnswerModeSaverFor(queryClient, deck.id, { save });
   render(
     <QueryClientProvider client={queryClient}>
       <AnswerModeCard deck={deck} />
     </QueryClientProvider>,
   );
+  return { queryClient, settingsSaver };
 }
 
 const picker = () => screen.getByRole<HTMLInputElement>("combobox");
@@ -48,6 +83,36 @@ describe("AnswerModeCard", () => {
     expect(screen.queryByText("Coming later")).toBeNull();
     expect(picker().value).toBe("Follow Settings (Rate yourself)");
     expect(screen.getByText(/Follows Settings: Rate yourself/)).toBeTruthy();
+  });
+
+  test("a following Deck shows Settings' Write and grade in the label and the hint", () => {
+    renderCard(DECK, async () => {}, { followed: "write" });
+
+    expect(picker().value).toBe("Follow Settings (Write and grade)");
+    expect(screen.getByText(/Follows Settings: Write and grade\./)).toBeTruthy();
+  });
+
+  test("shows a change to Settings' mode at once, before it saves, and after a read", async () => {
+    let answer: ((settings: SettingsResponse) => void) | undefined;
+    const { queryClient, settingsSaver } = renderCard(DECK, async () => {}, {
+      saveSettings: () => new Promise((resolve) => (answer = resolve)),
+    });
+
+    act(() => settingsSaver.change({ field: "answerMode", attempted: "write" }));
+    expect(picker().value).toBe("Follow Settings (Write and grade)");
+    expect(screen.getByText(/Follows Settings: Write and grade\./)).toBeTruthy();
+    await act(async () => answer?.({ ...SETTINGS, answerMode: "write" }));
+    expect(picker().value).toBe("Follow Settings (Write and grade)");
+
+    // Another device changed them back, and a read brought it in.
+    act(() => {
+      queryClient.setQueryData(settingsQueryOptions().queryKey, {
+        settings: { ...SETTINGS, answerMode: "self-rate" },
+        issuedAt: performance.now(),
+      });
+    });
+    await waitFor(() => expect(picker().value).toBe("Follow Settings (Rate yourself)"));
+    expect(screen.getByText(/Follows Settings: Rate yourself\./)).toBeTruthy();
   });
 
   test("a Deck with its own shows it", () => {
@@ -99,5 +164,22 @@ describe("AnswerModeCard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
     expect(saves).toEqual(["write", "write"]);
+  });
+
+  test("a change that didn't save names Settings' mode as it is", async () => {
+    renderCard(
+      DECK,
+      async () => {
+        throw new Error("offline");
+      },
+      { followed: "write" },
+    );
+
+    pick("Rate yourself");
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(
+      "The change to Rate yourself didn't save, so it still follows Settings (Write and grade).",
+    );
   });
 });

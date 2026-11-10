@@ -97,7 +97,7 @@ How well the User recalled a Card: Again, Hard, Good or Easy. The User always gi
 _Avoid_: grade, score, ease
 
 **Answer mode**:
-How the User answers a Card in a Session: **self-rate** (reveal the Back, then give a Rating) or **write-and-grade** (write an answer first, for the Grader). Settings hold one for every Deck, self-rate, and a Deck follows it until it is given its own. A Session starts in its Deck's and keeps whichever the User last switched to, Card after Card.
+How the User answers a Card in a Session: **self-rate** (reveal the Back, then give a Rating) or **write-and-grade** (write an answer first, for the Grader). Settings hold one for every Deck, self-rate unless the User changes it, and a Deck follows it until it is given its own, so changing it changes how every following Deck's next Session starts. A Session starts in its Deck's and keeps whichever the User last switched to, Card after Card.
 _Avoid_: study mode, review mode
 
 **Written answer**:

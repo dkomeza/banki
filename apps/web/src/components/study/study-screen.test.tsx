@@ -42,6 +42,7 @@ const SETTINGS: SettingsResponse = {
   newCardBatch: 20,
   learningLimit: 10,
   sessionTimeoutMinutes: 30,
+  answerMode: "self-rate",
   macros: [],
 };
 
