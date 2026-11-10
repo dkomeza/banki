@@ -74,6 +74,13 @@ function topOf(db: Queryable, userId: string, id: string): Top | undefined {
     .where(and(eq(card_import.userId, userId), eq(card_import.undoDeletionId, id)))
     .get();
   if (importRow !== undefined) {
+    // Removal keeps the Import's Undo, so it is a Deletion only while a Card still carries it.
+    const kept = db
+      .select({ id: card.id })
+      .from(card)
+      .where(stampedWith(card, userId, id))
+      .get();
+    if (kept === undefined) return undefined;
     return { ...importRow, kind: "import", deletedAt: importRow.deletedAt ?? new Date(0) };
   }
   const cardRow = db

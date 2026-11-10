@@ -1,7 +1,8 @@
 // Recently deleted, as a shelf: each Deletion a tile, grouped by when it was
 // deleted, with a faded picture of what went and a bar that empties as its 30
-// days run out. An Import's Undo is a tile of its own, laid out as a Deck's. A refused Restore says why inside its tile and points at what
-// to restore first. Reached from the foot of Home.
+// days run out; an Import's Undo is laid out as a Deck's. A refused Restore
+// says why inside its tile and points at what to restore first. Reached from
+// the foot of Home.
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { ArrowUp, FileText, Folder, RotateCcw, Trash2 } from "lucide-react";
 import { useState } from "react";

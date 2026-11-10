@@ -14,6 +14,7 @@ import {
   undoFigures,
   undoImport,
   undoQuestion,
+  undoRemoved,
   uploadImport,
   whenLabel,
 } from "./imports";
@@ -197,6 +198,15 @@ describe("Undo", () => {
       { n: 2, label: "edited", note: "since the import" },
     ]);
     expect(cardCount(1_000)).toBe("1,000 cards");
+  });
+
+  test("says the Cards are gone for good once its Deletion is out of Recently deleted", () => {
+    const undone = report({ live: 0, undoneAt: local(20), undoDeletionId: "u" });
+    expect(undoRemoved(undone, [{ id: "u" }])).toBe(false);
+    expect(undoRemoved(undone, [{ id: "other" }])).toBe(true);
+    // Not until Recently deleted is fetched, and never for one not undone.
+    expect(undoRemoved(undone, undefined)).toBe(false);
+    expect(undoRemoved(report(), [])).toBe(false);
   });
 
   test("answers the Deletion and has the report and Recently deleted fetched again", async () => {

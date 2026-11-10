@@ -1,5 +1,4 @@
 import {
-  DELETION_KEPT_MS,
   type ImageProblem,
   type ImportInvalidCard,
   type ImportPreviewResponse,
@@ -10,7 +9,7 @@ import {
   macroPlanLine,
 } from "@banki/shared";
 import { Dialog } from "@base-ui/react/dialog";
-import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import {
   CheckCheck,
@@ -37,7 +36,15 @@ import { Button } from "@/components/ui/button";
 import { cardsQueryOptions } from "@/lib/cards";
 import type { Deck } from "@/lib/decks";
 import { ImageFilesContext, imageUrl } from "@/lib/images";
-import { canUndo, cardCount, confirmImport, undoImport, whenLabel } from "@/lib/imports";
+import { deletionsQueryOptions } from "@/lib/deletions";
+import {
+  canUndo,
+  cardCount,
+  confirmImport,
+  undoImport,
+  undoRemoved,
+  whenLabel,
+} from "@/lib/imports";
 import { cn } from "@/lib/utils";
 import { CopyButton, DuplicateLabel, EditFields, confirmedLabel } from "./parts";
 import { Steps } from "./steps";
@@ -527,11 +534,12 @@ export function ImportReportPage({ deck, report }: { deck: Deck; report: ImportR
   const queryClient = useQueryClient();
   const [asking, setAsking] = useState(false);
   const [undoing, setUndoing] = useState(false);
-  // The time the page was opened: what it says stays put while it is open.
-  const [now] = useState(() => Date.now());
   const { undoneAt } = report;
-  // Removal leaves the Import undone: past its 30 days, the Cards are gone for good.
-  const removed = undoneAt !== null && Date.parse(undoneAt) + DELETION_KEPT_MS <= now;
+  const { data: deletions } = useQuery({
+    ...deletionsQueryOptions(),
+    enabled: undoneAt !== null,
+  });
+  const removed = undoRemoved(report, deletions);
   const undo = async () => {
     setUndoing(true);
     const outcome = await undoImport(queryClient, report.id);
@@ -647,7 +655,7 @@ export function ImportReportPage({ deck, report }: { deck: Deck; report: ImportR
             <Step mark="" accent open title={<>Undone {whenLabel(undoneAt)}</>}>
               <p className="text-sm text-muted-foreground">
                 {removed ? (
-                  <>Its cards were removed for good from Recently deleted after 30 days.</>
+                  <>Its cards were removed for good from Recently deleted.</>
                 ) : (
                   <>
                     Its cards wait in{" "}

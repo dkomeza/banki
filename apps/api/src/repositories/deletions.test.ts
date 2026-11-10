@@ -628,6 +628,11 @@ describe("an Import's Undo", () => {
       undoDeletionId: "first",
     });
 
+    // Gone, its Deletion can't be restored or removed again, and the Import stays undone.
+    expect(deletions.restore(USER, "first")).toBe("not_found");
+    expect(deletions.remove(USER, "first")).toBe(false);
+    expect(importRow(first.importId)).toMatchObject({ undoDeletionId: "first" });
+
     const second = undoneImport(spanish, ["c"], "second");
     second.undo();
     expect(deletions.removeExpired(new Date(NOW.getTime() + 30 * DAY_MS))).toBe(1);

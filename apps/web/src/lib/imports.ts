@@ -249,6 +249,19 @@ export function historyStateLabel(entry: HistoryEntry, now = new Date()): string
   return undefined;
 }
 
+/**
+ * Whether an undone Import's Cards are gone for good: its Undo's Deletion is no
+ * longer in Recently deleted (`deletions`, once fetched), by Delete
+ * permanently or the 30-day Removal, which both leave it undone.
+ */
+export const undoRemoved = (
+  report: ImportReport,
+  deletions: readonly { id: string }[] | undefined,
+) =>
+  report.undoDeletionId !== null &&
+  deletions !== undefined &&
+  !deletions.some((deletion) => deletion.id === report.undoDeletionId);
+
 /** Whether a report offers Undo: not undone, with a Card it added live. */
 export const canUndo = (report: ImportReport) => report.undoneAt === null && report.live > 0;
 
