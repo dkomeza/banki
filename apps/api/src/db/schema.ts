@@ -272,6 +272,10 @@ export const review = sqliteTable(
     reviewedAt: integer("reviewed_at", { mode: "timestamp_ms" }).notNull(),
     rating: text("rating", { enum: RATINGS }).notNull(),
     kind: text("kind", { enum: REVIEW_KINDS }).notNull(),
+    /** A graded Review's suggested Rating, as the client reported it (ADR-0028); null when self-rated. */
+    suggestedRating: text("suggested_rating", { enum: RATINGS }),
+    /** The ID of the Model that suggested a graded Review's Rating, any ID (ADR-0028); null when self-rated. */
+    model: text("model"),
     /** The time spent studying the Card, as the client measured it (time spent editing it is left out), at most `REVIEW_CAP_MS`. */
     durationMs: integer("duration_ms").notNull(),
     cardBefore: text("card_before", { mode: "json" }).notNull(),
@@ -279,6 +283,10 @@ export const review = sqliteTable(
   },
   (table) => [
     check("review_duration_ms", sql`${table.durationMs} >= 0`),
+    check(
+      "review_graded",
+      sql`(${table.kind} = 'graded' AND ${table.suggestedRating} IS NOT NULL AND ${table.model} IS NOT NULL) OR (${table.kind} <> 'graded' AND ${table.suggestedRating} IS NULL AND ${table.model} IS NULL)`,
+    ),
     index("review_card_id_user_id_seq").on(table.cardId, table.userId, table.seq),
     index("review_deck_id").on(table.deckId),
     uniqueIndex("review_user_id_seq").on(table.userId, table.seq),

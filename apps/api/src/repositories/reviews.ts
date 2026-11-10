@@ -166,16 +166,17 @@ export function hasReviews(db: Queryable, userId: string): boolean {
 export function createReviewRepository(db: Queryable) {
   return {
     /**
-     * Records a Rating of the User's Card `cardId` as a self-rated Review, and
-     * reschedules the Card with FSRS at its Deck's Desired retention, all in
-     * one transaction. Answers the Review and the Card's new schedule, or
+     * Records a Rating of the User's Card `cardId` as a Review, graded with
+     * the `suggestedRating` and `model` when given and self-rated otherwise
+     * (ADR-0028), and reschedules the Card with FSRS at its Deck's Desired
+     * retention, alike for both kinds, all in one transaction. Answers the Review and the Card's new schedule, or
      * "not_found" when it isn't a live Card in a live Deck of the User's.
      * `id` and `now` are for tests.
      */
     rate(
       userId: string,
       cardId: string,
-      { rating, durationMs }: z.output<typeof ReviewRequest>,
+      { rating, durationMs, suggestedRating, model }: z.output<typeof ReviewRequest>,
       { id = randomUUID(), now = new Date() }: { id?: string; now?: Date } = {},
     ): RateCardResponse | "not_found" {
       return db.transaction(
@@ -195,6 +196,10 @@ export function createReviewRepository(db: Queryable) {
             )
             .get();
           if (found === undefined) return "not_found";
+          const graded =
+            suggestedRating !== undefined && model !== undefined
+              ? { kind: "graded" as const, suggestedRating, model }
+              : { kind: "self-rated" as const, suggestedRating: null, model: null };
           const { deckId, ...before } = found;
           const { studyDay } = schedulingSettingsOf(tx, userId);
           const after = rate(cardId, before, rating, {
@@ -210,7 +215,7 @@ export function createReviewRepository(db: Queryable) {
               deckId,
               reviewedAt: now,
               rating,
-              kind: "self-rated",
+              ...graded,
               durationMs,
               cardBefore: toStored(before),
               seq: nextSeq(tx, userId),
@@ -227,7 +232,7 @@ export function createReviewRepository(db: Queryable) {
               deckId,
               reviewedAt: now.toISOString(),
               rating,
-              kind: "self-rated",
+              ...graded,
               durationMs,
             },
             schedule: scheduleOf(after),

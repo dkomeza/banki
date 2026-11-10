@@ -30,9 +30,10 @@ describe("GradeResponse", () => {
     feedback: "Line 3: lost the minus sign in $-2x$.",
     missing: [{ from: 0, to: 4 }],
     mistakes: [{ from: 10, to: 14, note: "lost the minus sign" }],
+    model: "anthropic/claude-haiku-5.5",
   };
 
-  test("takes a Rating, Feedback and Highlights", () => {
+  test("takes a Rating, Feedback, Highlights and the Model that answered", () => {
     expect(GradeResponse.parse(grade)).toEqual(grade);
     expect(GradeResponse.parse({ ...grade, missing: [], mistakes: [] }).rating).toBe("hard");
   });
@@ -55,6 +56,14 @@ describe("GradeResponse", () => {
     }
   });
 
+  test("refuses a grade that names no Model, or one a graded Review couldn't keep", () => {
+    const { model: _, ...unnamed } = grade;
+    expect(GradeResponse.safeParse(unnamed).success).toBe(false);
+    for (const model of ["", "m".repeat(201)]) {
+      expect(GradeResponse.safeParse({ ...grade, model }).success).toBe(false);
+    }
+  });
+
   test("refuses a mistake with no note", () => {
     expect(GradeResponse.safeParse({ ...grade, mistakes: [{ from: 0, to: 1 }] }).success).toBe(
       false,
@@ -63,7 +72,13 @@ describe("GradeResponse", () => {
 });
 
 describe("ChatRequest", () => {
-  const grade = { rating: "hard" as const, feedback: "Close.", missing: [], mistakes: [] };
+  const grade = {
+    rating: "hard" as const,
+    feedback: "Close.",
+    missing: [],
+    mistakes: [],
+    model: "anthropic/claude-haiku-5.5",
+  };
   const chat = (messages: unknown[]) => ({ answer: "x = 2", grade, messages });
 
   test("takes the chat so far, ending with the User's message", () => {

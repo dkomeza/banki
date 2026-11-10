@@ -20,7 +20,11 @@ export const RATINGS = ["again", "hard", "good", "easy"] as const;
 export const Rating = z.enum(RATINGS);
 export type Rating = z.infer<typeof Rating>;
 
-/** How a Review got its Rating: rated by the User, or the Grader's suggestion confirmed (M6). */
+/**
+ * How a Review got its Rating: `graded` when the User rated with the Grader's
+ * suggested Rating on screen, whichever Rating they gave, and `self-rated`
+ * otherwise (CONTEXT.md: Review).
+ */
 export const REVIEW_KINDS = ["self-rated", "graded"] as const;
 export const ReviewKind = z.enum(REVIEW_KINDS);
 export type ReviewKind = z.infer<typeof ReviewKind>;
@@ -55,22 +59,40 @@ export type CardSchedule = z.infer<typeof CardSchedule>;
 /** The most time one Review records: 2 minutes (CONTEXT.md: Review). */
 export const REVIEW_CAP_MS = 2 * 60_000;
 
+/** The longest Model ID a graded Review keeps. */
+export const REVIEW_MODEL_MAX_LENGTH = 200;
+
 /**
  * The body of `POST /api/cards/:id/reviews`: the Rating, and the time spent
  * studying the Card in ms (time spent editing it is left out). A time above
  * `REVIEW_CAP_MS` is taken as the cap, since an old tab may send more.
+ *
+ * A Rating given with the Grader's suggestion on screen also carries the
+ * `suggestedRating` and the `model` that suggested it (any Model ID, up to
+ * 200 characters), which make the Review graded: both or neither (ADR-0028).
  */
-export const ReviewRequest = z.strictObject({
-  rating: Rating,
-  durationMs: z
-    .number()
-    .int("Expected whole milliseconds")
-    .nonnegative()
-    .transform((ms) => Math.min(ms, REVIEW_CAP_MS)),
-});
+export const ReviewRequest = z
+  .strictObject({
+    rating: Rating,
+    durationMs: z
+      .number()
+      .int("Expected whole milliseconds")
+      .nonnegative()
+      .transform((ms) => Math.min(ms, REVIEW_CAP_MS)),
+    suggestedRating: Rating.optional(),
+    model: z.string().min(1).max(REVIEW_MODEL_MAX_LENGTH).optional(),
+  })
+  .refine(
+    ({ suggestedRating, model }) => (suggestedRating === undefined) === (model === undefined),
+    "Expected suggestedRating and model together",
+  );
 export type ReviewRequest = z.input<typeof ReviewRequest>;
 
-/** A Review as the API answers it. `reviewedAt` is an ISO 8601 time. */
+/**
+ * A Review as the API answers it. `reviewedAt` is an ISO 8601 time; a graded
+ * one has the suggested Rating and the Model that suggested it, a self-rated
+ * one neither.
+ */
 export const ReviewResponse = z.object({
   id: z.string(),
   cardId: z.string(),
@@ -78,6 +100,8 @@ export const ReviewResponse = z.object({
   reviewedAt: z.iso.datetime(),
   rating: Rating,
   kind: ReviewKind,
+  suggestedRating: Rating.nullable(),
+  model: z.string().nullable(),
   durationMs: z.number().int().nonnegative(),
 });
 export type ReviewResponse = z.infer<typeof ReviewResponse>;

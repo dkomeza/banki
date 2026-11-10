@@ -122,6 +122,8 @@ describe("rate", () => {
         reviewedAt: START.toISOString(),
         rating: "good",
         kind: "self-rated",
+        suggestedRating: null,
+        model: null,
         durationMs: 5300,
       },
       schedule: {
@@ -144,6 +146,8 @@ describe("rate", () => {
       reviewedAt: START,
       rating: "good",
       kind: "self-rated",
+      suggestedRating: null,
+      model: null,
       durationMs: 5300,
       cardBefore: {
         state: "new",
@@ -159,6 +163,37 @@ describe("rate", () => {
       reps: 1,
       lastReviewAt: START,
     });
+  });
+
+  test("records a graded Review with the suggested Rating and the Model that suggested it", () => {
+    const deckId = deckNamed("Spanish");
+    const cardId = write(deckId);
+
+    const rated = reviews.rate(
+      USER,
+      cardId,
+      { rating: "hard", durationMs: 5300, suggestedRating: "good", model: "not/curated" },
+      { id: "review-1", now: START },
+    );
+
+    expect(rated).toMatchObject({
+      review: {
+        id: "review-1",
+        rating: "hard",
+        kind: "graded",
+        suggestedRating: "good",
+        model: "not/curated",
+      },
+    });
+    expect(reviewsOf(cardId)).toEqual([
+      expect.objectContaining({
+        id: "review-1",
+        rating: "hard",
+        kind: "graded",
+        suggestedRating: "good",
+        model: "not/curated",
+      }),
+    ]);
   });
 
   test("a Card is new, with no due moment, until its first Review", () => {

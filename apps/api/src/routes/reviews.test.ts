@@ -42,6 +42,23 @@ async function createCard(app: App, cookie: string, deckId: string) {
   return CardResponse.parse(await res.json());
 }
 
+/** The Card's Reviews as stored: graded or not, with the suggestion. */
+const storedReviewsOf = (cardId: string) => {
+  const opened = openDatabase(dataDir());
+  try {
+    return opened.db.all<{
+      id: string;
+      kind: string;
+      suggested_rating: string | null;
+      model: string | null;
+    }>(
+      sql`SELECT id, kind, suggested_rating, model FROM review WHERE card_id = ${cardId} ORDER BY seq`,
+    );
+  } finally {
+    opened.close();
+  }
+};
+
 const settingsOf = async (res: Response) => SettingsResponse.parse(await res.json());
 const deckOf = async (res: Response) => DeckResponse.parse(await res.json());
 
@@ -65,12 +82,38 @@ describe("POST /api/cards/:id/reviews", () => {
       deckId,
       rating: "good",
       kind: "self-rated",
+      suggestedRating: null,
+      model: null,
       durationMs: 4200,
     });
     expect(Date.parse(review.reviewedAt)).toBeGreaterThanOrEqual(before);
     // A new Card rated Good goes to its second learning step, 10 minutes out.
     expect(schedule).toMatchObject({ state: "learning", reps: 1, lapses: 0, scheduledDays: 0 });
     expect(Date.parse(schedule.due ?? "")).toBe(Date.parse(review.reviewedAt) + 10 * 60_000);
+  });
+
+  test("records a graded Review with the suggested Rating and its Model, and answers both", async () => {
+    const { app, cookie, cardId } = await signedIn();
+
+    const res = await send(
+      app,
+      "POST",
+      `/api/cards/${cardId}/reviews`,
+      { rating: "hard", durationMs: 4200, suggestedRating: "good", model: "gone/model" },
+      cookie,
+    );
+
+    expect(res.status).toBe(201);
+    const { review } = RateCardResponse.parse(await res.json());
+    expect(review).toMatchObject({
+      rating: "hard",
+      kind: "graded",
+      suggestedRating: "good",
+      model: "gone/model",
+    });
+    expect(storedReviewsOf(cardId)).toEqual([
+      { id: review.id, kind: "graded", suggested_rating: "good", model: "gone/model" },
+    ]);
   });
 
   test("records a duration above 2 minutes as 2 minutes", async () => {
@@ -117,11 +160,17 @@ describe("POST /api/cards/:id/reviews", () => {
       { rating: "good", durationMs: 1.5 },
       { rating: "good", durationMs: "10" },
       { rating: "good", durationMs: 10, kind: "graded" },
+      { rating: "good", durationMs: 10, suggestedRating: "good" },
+      { rating: "good", durationMs: 10, model: "anthropic/claude-haiku-5.5" },
+      { rating: "good", durationMs: 10, suggestedRating: "perfect", model: "x" },
+      { rating: "good", durationMs: 10, suggestedRating: "good", model: "" },
+      { rating: "good", durationMs: 10, suggestedRating: "good", model: "m".repeat(201) },
     ]) {
       const res = await send(app, "POST", `/api/cards/${cardId}/reviews`, body, cookie);
       expect(res.status).toBe(400);
       expect(await codeOf(res)).toBe("invalid_request");
     }
+    expect(storedReviewsOf(cardId)).toEqual([]);
   });
 
   test("answers 404 not_found for a deleted or missing Card", async () => {
@@ -240,12 +289,19 @@ function othersReview() {
   }
 }
 
-const rate = async (app: App, cookie: string, cardId: string, rating = "good") => {
+/** Rates a Card, self-rated, or graded with `suggestion`. */
+const rate = async (
+  app: App,
+  cookie: string,
+  cardId: string,
+  rating = "good",
+  suggestion: { suggestedRating: string; model: string } | Record<string, never> = {},
+) => {
   const res = await send(
     app,
     "POST",
     `/api/cards/${cardId}/reviews`,
-    { rating, durationMs: 1000 },
+    { rating, durationMs: 1000, ...suggestion },
     cookie,
   );
   if (res.status !== 201) throw new Error(`Rate answered ${res.status}`);
@@ -296,6 +352,27 @@ describe("DELETE /api/reviews/:id", () => {
     const again = await rate(app, cookie, cardId, "easy");
 
     expect(again.schedule).toEqual(easy.schedule);
+  });
+
+  test("a graded Review schedules its Card as a self-rated one with the same Rating, and Undo takes it back the same way", async () => {
+    setSystemTime(new Date("2026-05-01T10:00:00Z"));
+    const { app, cookie, cardId } = await signedIn();
+    const suggestion = { suggestedRating: "again", model: "anthropic/claude-haiku-5.5" };
+    let previous = (await rate(app, cookie, cardId, "good")).schedule;
+
+    for (const rating of ["good", "again", "hard", "easy"]) {
+      setSystemTime(new Date(previous.due ?? ""));
+      const graded = await rate(app, cookie, cardId, rating, suggestion);
+      expect(graded.review.kind).toBe("graded");
+      const back = await undone(await undo(app, cookie, graded.review.id));
+      expect(back.schedule).toEqual(previous);
+      const selfRated = await rate(app, cookie, cardId, rating);
+      expect(selfRated.schedule).toEqual(graded.schedule);
+      previous = selfRated.schedule;
+    }
+    expect(storedReviewsOf(cardId).map((review) => review.kind)).toEqual(
+      Array(5).fill("self-rated"),
+    );
   });
 
   test("reschedules the restored state when the Deck's Desired retention changed since", async () => {

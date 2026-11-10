@@ -39,6 +39,7 @@ import {
   recallPercent,
   saveStudyEdit,
   spentLabel,
+  type Suggestion,
   studyApi,
   summaryOf,
 } from "./study";
@@ -141,6 +142,7 @@ const GRADED: GradeResponse = {
   feedback: "Mostly right: **one** step is missing.",
   missing: [{ from: 0, to: 1 }],
   mistakes: [{ from: 0, to: 2, note: "Not quite." }],
+  model: "anthropic/claude-haiku-5.5",
 };
 
 /** A promise the test answers when it likes. */
@@ -160,7 +162,12 @@ function deferred<T>() {
 function fakeApi(queue: NextCard[]) {
   const calls = {
     next: [] as Progress[],
-    rate: [] as { cardId: string; rating: Rating; durationMs: number }[],
+    rate: [] as {
+      cardId: string;
+      rating: Rating;
+      durationMs: number;
+      suggestion?: Suggestion;
+    }[],
     undo: [] as string[],
     intervals: [] as string[],
     card: [] as string[],
@@ -226,8 +233,8 @@ function fakeApi(queue: NextCard[]) {
         ? { next: null, newHeld: held.count }
         : { next: shown, newHeld: 0 };
     },
-    rate: async (cardId, rating, durationMs) => {
-      calls.rate.push({ cardId, rating, durationMs });
+    rate: async (cardId, rating, durationMs, suggestion) => {
+      calls.rate.push({ cardId, rating, durationMs, ...(suggestion && { suggestion }) });
       if (fail.rate === "gone") return "gone";
       if (fail.rate) throw new Error("offline");
       reviews += 1;
@@ -2471,6 +2478,54 @@ describe("studyApi", () => {
     ).rejects.toThrow();
   });
 
+  test("a Rating sends the suggestion and its Model when given, and neither otherwise", async () => {
+    const bodies: unknown[] = [];
+    const api = studyApi(
+      "d1",
+      createApiClient(
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = input instanceof Request ? input.url : String(input);
+          const request = new Request(new URL(url, "http://banki.test"), init);
+          bodies.push(await request.json());
+          return Response.json(
+            {
+              review: {
+                id: "r1",
+                cardId: "a",
+                deckId: "d1",
+                reviewedAt: "2026-05-01T09:00:00.000Z",
+                rating: "hard",
+                kind: "graded",
+                suggestedRating: "good",
+                model: "anthropic/claude-haiku-5.5",
+                durationMs: 1000,
+              },
+              schedule: {
+                state: "learning",
+                due: "2026-05-01T09:10:00.000Z",
+                stability: 1,
+                difficulty: 5,
+                reps: 1,
+                lapses: 0,
+                scheduledDays: 0,
+                lastReview: "2026-05-01T09:00:00.000Z",
+              },
+            },
+            { status: 201 },
+          );
+        }),
+      ),
+    );
+
+    await expect(api.rate("a", "hard", 1000, SUGGESTED)).resolves.toEqual({ reviewId: "r1" });
+    await api.rate("a", "hard", 1000);
+
+    expect(bodies).toEqual([
+      { rating: "hard", durationMs: 1000, ...SUGGESTED },
+      { rating: "hard", durationMs: 1000 },
+    ]);
+  });
+
   test("a Card's previews answer as they are, 404 as gone", async () => {
     await expect(
       answering(INTERVALS_A, () => Response.json(intervals("a"))).intervals("a"),
@@ -3541,7 +3596,9 @@ describe("write-and-grade", () => {
     t.session.rate("hard");
     await flush();
 
-    expect(t.calls.rate).toEqual([{ cardId: "a", rating: "hard", durationMs: 3000 }]);
+    expect(t.calls.rate).toEqual([
+      { cardId: "a", rating: "hard", durationMs: 3000, suggestion: SUGGESTED },
+    ]);
     expect(t.shownId()).toBe("b");
     expect(t.state()).toMatchObject({ draft: "", written: undefined, revealed: false });
   });
@@ -4226,6 +4283,190 @@ describe("the grade, kept with the Session", () => {
     expect(ratingsIn(t)).toEqual(["good"]);
     expect(t.shownId()).toBe("b");
   });
+});
+
+/** The suggestion each Rating saved so far was sent with, in order; undefined for none. */
+const suggestionsIn = (t: { calls: { rate: { suggestion?: Suggestion }[] } }) =>
+  t.calls.rate.map((saved) => saved.suggestion);
+
+/** The fake Grader's suggestion, as a graded Review keeps it. */
+const SUGGESTED: Suggestion = { suggestedRating: "good", model: "anthropic/claude-haiku-5.5" };
+
+describe("graded and self-rated Ratings", () => {
+  test("with the grade in, a tap or 1–4 sends the suggestion and its Model, whichever Rating it is", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.grader.open();
+    await flush();
+    t.session.rate("again");
+    await flush();
+
+    expect(t.calls.rate).toEqual([
+      { cardId: "a", rating: "again", durationMs: 0, suggestion: SUGGESTED },
+    ]);
+  });
+
+  test("with the grade in, Confirm (or Enter) sends it too", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.grader.open();
+    await flush();
+    t.session.confirm();
+    await flush();
+
+    expect(ratingsIn(t)).toEqual(["good"]);
+    expect(suggestionsIn(t)).toEqual([SUGGESTED]);
+  });
+
+  test("a selection made before the suggestion and confirmed after it sends it", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.session.rate("hard");
+    t.grader.open();
+    await flush();
+    t.session.confirm();
+    await flush();
+
+    expect(ratingsIn(t)).toEqual(["hard"]);
+    expect(suggestionsIn(t)).toEqual([SUGGESTED]);
+  });
+
+  test("a model the grade names is sent as it is, curated or not", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.grader.answer = { ...GRADED, rating: "easy", model: "gone/model" };
+    t.grader.open();
+    await flush();
+    t.session.rate("good");
+    await flush();
+
+    expect(suggestionsIn(t)).toEqual([{ suggestedRating: "easy", model: "gone/model" }]);
+  });
+
+  test("a Rating confirmed before the suggestion sends none", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.session.rate("hard");
+    t.session.confirm();
+    t.grader.open();
+    await flush();
+
+    expect(ratingsIn(t)).toEqual(["hard"]);
+    expect(suggestionsIn(t)).toEqual([undefined]);
+  });
+
+  test("a Rating after grading failed sends none", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.grader.answer = "grading_failed";
+    t.grader.open();
+    await flush();
+    t.session.rate("good");
+    await flush();
+
+    expect(suggestionsIn(t)).toEqual([undefined]);
+  });
+
+  test("a Card resumed not graded sends none", async () => {
+    const t = await checked([next("a"), next("b")]);
+    await t.reload();
+    expect(t.state().grade).toMatchObject({ status: "failed", failure: "not_graded" });
+    t.session.rate("good");
+    await flush();
+
+    expect(suggestionsIn(t)).toEqual([undefined]);
+  });
+
+  test("a Card resumed with its grade sends it", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.grader.open();
+    await flush();
+    await t.reload();
+    t.session.rate("easy");
+    await flush();
+
+    expect(suggestionsIn(t)).toEqual([SUGGESTED]);
+  });
+
+  test("I don't know sends none", async () => {
+    const t = await writing([next("a"), next("b")]);
+    t.session.setDraft("no idea");
+    t.session.dontKnow();
+    await flush();
+
+    expect(ratingsIn(t)).toEqual(["again"]);
+    expect(suggestionsIn(t)).toEqual([undefined]);
+  });
+
+  test("self-rate sends none", async () => {
+    const t = browsing([next("a"), next("b")]);
+    await t.session.start();
+    await rateIn(t, "good");
+
+    expect(suggestionsIn(t)).toEqual([undefined]);
+  });
+
+  test("a Card rated again after an Undo comes back without the suggestion and sends none", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.grader.open();
+    await flush();
+    t.session.rate("hard");
+    await flush();
+    await t.session.undo();
+    expect(t.shownId()).toBe("a");
+    expect(t.state().grade).toBeUndefined();
+    t.session.rate("good");
+    await flush();
+
+    expect(ratingsIn(t)).toEqual(["hard", "good"]);
+    expect(suggestionsIn(t)).toEqual([SUGGESTED, undefined]);
+  });
+
+  test("a graded Rating that didn't save sends the suggestion again on Try again", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.grader.open();
+    await flush();
+    t.fail.rate = true;
+    t.session.rate("hard");
+    await flush();
+    expect(t.state().failure).toBe(RATE_FAILED);
+
+    t.fail.rate = false;
+    t.session.retry();
+    await flush();
+    expect(ratingsIn(t)).toEqual(["hard", "hard"]);
+    expect(suggestionsIn(t)).toEqual([SUGGESTED, SUGGESTED]);
+    expect(t.shownId()).toBe("b");
+  });
+});
+
+describe("a grade stored before grades named their Model", () => {
+  test.each([
+    ["none", undefined],
+    ["an empty one", ""],
+    ["one over 200 characters", "m".repeat(201)],
+  ])(
+    "with %s is dropped on resume: its Card resumes not graded, and the rest of the Session resumes",
+    async (_, model) => {
+      const t = await checked([next("a"), next("b")]);
+      t.grader.open();
+      await flush();
+      // The tab closes; the next release reads what the last one stored.
+      t.session.stop();
+      const key = "banki.session.d1";
+      const stored = JSON.parse(t.storage.getItem(key) ?? "null");
+      expect(stored.shown.grade.model).toBe("anthropic/claude-haiku-5.5");
+      stored.shown.grade.model = model;
+      t.storage.setItem(key, JSON.stringify(stored));
+
+      await t.reload();
+
+      expect(t.shownId()).toBe("a");
+      expect(t.state()).toMatchObject({
+        revealed: true,
+        written: "  my answer $x$ ",
+        grade: { status: "failed", failure: "not_graded" },
+      });
+      expect(t.calls.grade).toHaveLength(1);
+      t.session.rate("good");
+      await flush();
+      expect(suggestionsIn(t)).toEqual([undefined]);
+    },
+  );
 });
 
 describe("a checked Card's time", () => {
