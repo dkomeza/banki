@@ -141,7 +141,7 @@ describe("grade", () => {
 
         const graded = await gradeWith(openRouter.fetch, wait);
 
-        expect(graded).toMatchObject({ rating: "good", feedback: "ok" });
+        expect(graded).toMatchObject({ rating: "good", feedback: "ok", model: MODEL });
         expect(openRouter.calls()).toBe(3);
         expect(waits).toEqual([500, 1000]);
       });

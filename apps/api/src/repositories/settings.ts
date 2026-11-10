@@ -1,5 +1,6 @@
 import {
   type ApiKeyStatus,
+  DEFAULT_ANSWER_MODE,
   DEFAULT_DAY_START_HOUR,
   DEFAULT_DESIRED_RETENTION,
   DEFAULT_LEARNING_LIMIT,
@@ -39,6 +40,7 @@ type Row = Pick<
   | "learningLimit"
   | "sessionTimeoutMinutes"
   | "macros"
+  | "answerMode"
 >;
 
 /** What a User without a row of Settings has. */
@@ -54,6 +56,7 @@ const DEFAULT_ROW: Row = {
   learningLimit: DEFAULT_LEARNING_LIMIT,
   sessionTimeoutMinutes: DEFAULT_SESSION_TIMEOUT_MINUTES,
   macros: [],
+  answerMode: DEFAULT_ANSWER_MODE,
 };
 
 const rowOf = (db: Queryable, userId: string): Row =>
@@ -70,6 +73,7 @@ const rowOf = (db: Queryable, userId: string): Row =>
       learningLimit: user_settings.learningLimit,
       sessionTimeoutMinutes: user_settings.sessionTimeoutMinutes,
       macros: user_settings.macros,
+      answerMode: user_settings.answerMode,
     })
     .from(user_settings)
     .where(eq(user_settings.userId, userId))
@@ -136,6 +140,7 @@ export function createSettingsRepository(db: Queryable, cipher: ApiKeyCipher) {
       learningLimit: row.learningLimit,
       sessionTimeoutMinutes: row.sessionTimeoutMinutes,
       macros: row.macros,
+      answerMode: row.answerMode,
     };
   };
 

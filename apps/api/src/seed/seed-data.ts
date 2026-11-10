@@ -8,7 +8,7 @@ import { createImportRepository, hasImports } from "../repositories/imports";
 import { hasProgressResets } from "../repositories/progress-resets";
 import { createReviewRepository, hasReviews } from "../repositories/reviews";
 import { setInitialMacros, setInitialTimezone } from "../repositories/settings";
-import type { Rating } from "@banki/shared";
+import { DEFAULT_MODEL_ID, type Rating } from "@banki/shared";
 
 import { SEED_IDS, SEED_TIMEZONE } from "./seed-ids";
 
@@ -477,18 +477,32 @@ const TAGS: Readonly<Record<string, readonly string[]>> = {
  * desayuno graduated three days ago and lapsed two hours ago, so it is in its
  * learning steps again and Spanish vocabulary's Session shows it first; la cuenta
  * graduated four days ago and is due again; and the edit-card page's Card
- * (`SEED_IDS.card`) took its first Rating nine hours ago. Written through the
- * repository in this order, so they take their places in the Write order.
+ * (`SEED_IDS.card`) took its first Rating nine hours ago. Two are graded with
+ * the default Model, for Grader agreement: the edit-card page's Card kept the
+ * Grader's suggestion, and el desayuno's lapse was stricter than it. Written
+ * through the repository in this order, so they take their places in the
+ * Write order.
  */
-const REVIEWS: readonly { cardId: string; hoursAgo: number; rating: Rating; durationMs: number }[] =
-  [
-    { cardId: spanish[1], hoursAgo: 100, rating: "good", durationMs: 6_400 },
-    { cardId: spanish[1], hoursAgo: 99.8, rating: "good", durationMs: 3_100 },
-    { cardId: spanish[0], hoursAgo: 74, rating: "good", durationMs: 5_200 },
-    { cardId: spanish[0], hoursAgo: 73.8, rating: "good", durationMs: 2_700 },
-    { cardId: calculus2[9], hoursAgo: 9, rating: "good", durationMs: 41_000 },
-    { cardId: spanish[0], hoursAgo: 2, rating: "again", durationMs: 9_800 },
-  ];
+const REVIEWS: readonly {
+  cardId: string;
+  hoursAgo: number;
+  rating: Rating;
+  durationMs: number;
+  suggestedRating?: Rating;
+}[] = [
+  { cardId: spanish[1], hoursAgo: 100, rating: "good", durationMs: 6_400 },
+  { cardId: spanish[1], hoursAgo: 99.8, rating: "good", durationMs: 3_100 },
+  { cardId: spanish[0], hoursAgo: 74, rating: "good", durationMs: 5_200 },
+  { cardId: spanish[0], hoursAgo: 73.8, rating: "good", durationMs: 2_700 },
+  {
+    cardId: calculus2[9],
+    hoursAgo: 9,
+    rating: "good",
+    durationMs: 41_000,
+    suggestedRating: "good",
+  },
+  { cardId: spanish[0], hoursAgo: 2, rating: "again", durationMs: 9_800, suggestedRating: "hard" },
+];
 
 /** The fixed ID of the Seed data's `n`th Review. */
 const reviewSeedId = (n: number) =>
@@ -771,11 +785,13 @@ export function writeSeedData({
   }
 
   const reviews = createReviewRepository(db);
-  for (const [n, { cardId, hoursAgo, rating, durationMs }] of REVIEWS.entries()) {
+  for (const [n, { cardId, hoursAgo, rating, durationMs, suggestedRating }] of REVIEWS.entries()) {
+    const graded =
+      suggestedRating === undefined ? {} : { suggestedRating, model: DEFAULT_MODEL_ID };
     const rated = reviews.rate(
       userId,
       cardId,
-      { rating, durationMs },
+      { rating, durationMs, ...graded },
       { id: reviewSeedId(n + 1), now: new Date(now.getTime() - hoursAgo * HOUR_MS) },
     );
     if (rated === "not_found") throw new Error(`The seed Review of ${cardId} found no Card`);

@@ -7,6 +7,10 @@ import {
   type QueueKind,
   IntervalPreviews as IntervalPreviewsSchema,
   CardResponse,
+  CHAT_REPLY_MAX_LENGTH,
+  ChatChunk,
+  type ChatMessage,
+  type ChatRequest,
   GradeResponse,
   RATINGS,
   REVIEW_CAP_MS,
@@ -14,6 +18,7 @@ import {
   type Rating,
   StudyNextResponse,
   UndoReviewResponse,
+  WRITTEN_ANSWER_MAX_LENGTH,
 } from "@banki/shared";
 import { type ApiClient, api } from "./api";
 import { type Card, type CardOutcome, saveCardEdit } from "./cards";
@@ -26,6 +31,7 @@ import {
   type StoredShown,
   timeoutMsOf,
 } from "./session-store";
+import { closedFormulas } from "./streaming-text";
 
 // The study screen's Session (CONTEXT.md: Session, Queue, Interval, New-card
 // batch): it walks a Deck's Queue Card by Card, asking the API for each next
@@ -34,7 +40,8 @@ import {
 // batch and carry on. The shown Card can be edited without leaving it, and a
 // studied one put back to New (a Progress reset). Each Card is answered in
 // the Session's Answer mode: self-rate (reveal, then rate) or write-and-grade
-// (a Written answer, then Check and rate, or I don't know). Left early, or at the end
+// (a Written answer, then Check and rate, or I don't know); once graded, the
+// User can ask the Grader about it in a Follow-up chat. Left early, or at the end
 // of the Queue, it sums up the Ratings still standing (the summary). It
 // saves itself to the browser on every change and resumes from there, until
 // it goes a Session timeout without activity (ADR-0027). Nothing here
@@ -97,14 +104,22 @@ export type Progress = {
 /** The next Card, or null at the end of the Queue with the New cards the batch held back. */
 export type NextAnswer = { next: NextCard | null; newHeld: number };
 
+/** The Grader's suggested Rating a graded Review keeps, and the Model that suggested it. */
+export type Suggestion = { suggestedRating: Rating; model: string };
+
 /** What the Session needs from the API. Each call throws when Banki can't be reached. */
 export type StudyApi = {
   next: (progress: Progress) => Promise<NextAnswer>;
-  /** Saves a Rating: its Review's ID, or "gone" when the Card was deleted meanwhile. */
+  /**
+   * Saves a Rating, graded with the Grader's `suggestion` when it was on
+   * screen (ADR-0028): its Review's ID, or "gone" when the Card was deleted
+   * meanwhile.
+   */
   rate: (
     cardId: string,
     rating: Rating,
     durationMs: number,
+    suggestion?: Suggestion,
   ) => Promise<{ reviewId: string } | "gone">;
   /**
    * Undoes a Review: the Card and its fresh previews; "gone" when the Review
@@ -129,6 +144,19 @@ export type StudyApi = {
     answer: string,
     signal: AbortSignal,
   ) => Promise<GradeResponse | "gone" | GraderFailure>;
+  /**
+   * Asks the Grader to answer a Follow-up chat about a Card, handing
+   * `onText` each piece of the reply as it comes: "done" once it is all in,
+   * "cut_off" when the stream broke after it began, "gone" when the Card was
+   * deleted meanwhile, or why no reply came, by the API's error code.
+   * Aborted by `signal`; throws when Banki can't be reached.
+   */
+  chat: (
+    cardId: string,
+    request: ChatRequest,
+    signal: AbortSignal,
+    onText: (text: string) => void,
+  ) => Promise<"done" | "cut_off" | "gone" | GraderFailure>;
 };
 
 /** The study API over HTTP. */
@@ -148,10 +176,10 @@ export function studyApi(deckId: string, client: ApiClient = api): StudyApi {
       const { next, newHeld } = StudyNextResponse.parse(await res.json());
       return { next, newHeld };
     },
-    rate: async (cardId, rating, durationMs) => {
+    rate: async (cardId, rating, durationMs, suggestion) => {
       const res = await client.api.cards[":id"].reviews.$post({
         param: { id: cardId },
-        json: { rating, durationMs },
+        json: { rating, durationMs, ...suggestion },
       });
       // Read as any status: a proxy or a crash can answer one the route doesn't.
       const status: number = res.status;
@@ -197,6 +225,43 @@ export function studyApi(deckId: string, client: ApiClient = api): StudyApi {
       const code = ApiError.safeParse(body).data?.error.code;
       if (code === "not_found") return "gone";
       return GRADER_FAILURES.find((failure) => failure === code) ?? "grading_failed";
+    },
+    chat: async (cardId, request, signal, onText) => {
+      const res = await client.api.cards[":cardId"].chat.$post(
+        { param: { cardId }, json: request },
+        { init: { signal } },
+      );
+      if (!res.ok) {
+        const body: unknown = await res.json().catch(() => undefined);
+        const code = ApiError.safeParse(body).data?.error.code;
+        if (code === "not_found") return "gone";
+        return GRADER_FAILURES.find((failure) => failure === code) ?? "grading_failed";
+      }
+      if (res.body === null) return "cut_off";
+      // Newline-delimited ChatChunks: the reply's pieces, then its end.
+      const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+      let buffer = "";
+      try {
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) return "cut_off";
+          buffer += value;
+          for (let end = buffer.indexOf("\n"); end !== -1; end = buffer.indexOf("\n")) {
+            const line = buffer.slice(0, end);
+            buffer = buffer.slice(end + 1);
+            if (line.trim() === "") continue;
+            const chunk = ChatChunk.safeParse(JSON.parse(line));
+            if (!chunk.success) return "cut_off";
+            if ("end" in chunk.data) return "done";
+            onText(chunk.data.text);
+          }
+        }
+      } catch {
+        // The stream broke, or a line that isn't JSON: what came stays.
+        return "cut_off";
+      } finally {
+        void reader.cancel().catch(() => undefined);
+      }
     },
   };
 }
@@ -265,6 +330,123 @@ export const GRADE_FAILURE_ACTIONS: Record<GradeFailure, "settings" | "retry" | 
   unreachable: "retry",
   not_graded: "retry",
   grading_refused: undefined,
+};
+
+/**
+ * Why a Follow-up chat's question has no reply: the chat route's failure,
+ * Banki out of reach, or it went unanswered (stopped, left or reloaded before
+ * the first word).
+ */
+export type ChatFailure = GraderFailure | "unreachable" | "not_answered";
+
+/** What each ChatFailure says, at the reply's place; `{model}` as in GRADE_FAILURES. */
+export const CHAT_FAILURES: Record<ChatFailure, string> = {
+  no_api_key: "Add your OpenRouter API key in Settings to ask the Grader.",
+  api_key_refused: GRADE_FAILURES.api_key_refused,
+  no_credits: GRADE_FAILURES.no_credits,
+  model_unavailable: GRADE_FAILURES.model_unavailable,
+  grading_refused: "OpenRouter refused to answer this.",
+  grading_failed: "Couldn't answer. Try again.",
+  unreachable: CANT_REACH,
+  not_answered: "This wasn't answered. Try again.",
+};
+
+/** What a ChatFailure says, naming `model`, the User's Model's display name. */
+export const chatFailureMessage = (failure: ChatFailure, model: string) =>
+  CHAT_FAILURES[failure].replace("{model}", model);
+
+/** What a failed reply offers, as GRADE_FAILURE_ACTIONS does for the grade. */
+export const CHAT_FAILURE_ACTIONS: Record<ChatFailure, "settings" | "retry" | undefined> = {
+  no_api_key: "settings",
+  api_key_refused: "settings",
+  model_unavailable: "settings",
+  grading_failed: "retry",
+  no_credits: "retry",
+  unreachable: "retry",
+  not_answered: "retry",
+  grading_refused: undefined,
+};
+
+/**
+ * One message of the Follow-up chat: the User's question, or the Grader's
+ * reply, `streaming` while it comes, `done` once it is in (or stopped),
+ * `cut-off` when the stream broke after it began, or `failed` with none.
+ */
+export type ChatEntry =
+  | { role: "user"; text: string }
+  | { role: "grader"; text: string; status: "streaming" | "done" | "cut-off" }
+  | { role: "grader"; text: ""; status: "failed"; failure: ChatFailure };
+
+/** The shown Card's Follow-up chat: its messages, oldest first, and the question as typed so far. */
+export type Chat = { entries: readonly ChatEntry[]; draft: string };
+
+/** No chat: a Card not graded, or graded and not asked about yet. */
+export const NO_CHAT: Chat = { entries: [], draft: "" };
+
+/** From this many messages, the chat advises rating and moving on. */
+export const LONG_CHAT = 20;
+
+/** Whether a reply is on its way. */
+export function replying(chat: Chat): boolean {
+  const last = chat.entries.at(-1);
+  return last?.role === "grader" && last.status === "streaming";
+}
+
+/** How many messages the chat holds, as the long-chat advice counts them: a failed reply isn't one. */
+export const chatLength = (chat: Chat) =>
+  chat.entries.filter((entry) => entry.role === "user" || entry.status !== "failed").length;
+
+/** The chat as the Grader is sent it: every question, and every reply that came, whole or cut off. */
+const sentMessages = (entries: readonly ChatEntry[]): ChatMessage[] =>
+  entries.flatMap((entry): ChatMessage[] => {
+    if (entry.role === "user") return [{ role: "user", text: entry.text }];
+    if (entry.status === "failed" || entry.status === "streaming" || entry.text === "") return [];
+    return [{ role: "grader", text: entry.text.slice(0, CHAT_REPLY_MAX_LENGTH) }];
+  });
+
+/**
+ * The reply `text` that stopped before the Model finished, as `status`:
+ * kept up to a Formula it left open, which would show as raw LaTeX; with
+ * nothing left, unanswered (`failure`).
+ */
+const stoppedReply = (
+  text: string,
+  status: "done" | "cut-off",
+  failure: ChatFailure,
+): ChatEntry => {
+  const kept = closedFormulas(text);
+  return kept === ""
+    ? { role: "grader", text: "", status: "failed", failure }
+    : { role: "grader", text: kept, status };
+};
+
+/** A reply asked for, before its first word. */
+const STREAMING: ChatEntry = { role: "grader", text: "", status: "streaming" };
+
+/** The chat as stored: its questions and the replies that came, without one on its way or failed. */
+const storedChat = (chat: Chat): StoredShown["chat"] => {
+  const stored = chat.entries.flatMap((entry): NonNullable<StoredShown["chat"]> => {
+    if (entry.role === "user") return [{ role: "user", text: entry.text }];
+    if (entry.status === "done") return [{ role: "grader", text: entry.text }];
+    if (entry.status === "cut-off") return [{ role: "grader", text: entry.text, cutOff: true }];
+    return [];
+  });
+  return stored.length === 0 ? undefined : stored;
+};
+
+/** A stored chat as it resumes: a question whose reply didn't come shows it unanswered, with Try again. */
+const resumedChat = (stored: StoredShown["chat"]): Chat => {
+  const entries = (stored ?? []).flatMap((message, i, all): ChatEntry[] => {
+    const entry: ChatEntry =
+      message.role === "user"
+        ? { role: "user", text: message.text }
+        : { role: "grader", text: message.text, status: message.cutOff ? "cut-off" : "done" };
+    const unanswered = message.role === "user" && all[i + 1]?.role !== "grader";
+    return unanswered
+      ? [entry, { role: "grader", text: "", status: "failed", failure: "not_answered" }]
+      : [entry];
+  });
+  return { entries, draft: "" };
 };
 
 /**
@@ -409,6 +591,10 @@ export type StudyState = {
   checkable: boolean;
   /** The shown Card's grade, once Check sent its Written answer to the Grader; else undefined. */
   grade: Grade | undefined;
+  /** The shown Card's Follow-up chat, once graded; else `NO_CHAT`. */
+  chat: Chat;
+  /** Whether the chat's question can go now: graded, a question that isn't blank or too long, no reply on its way, nothing else on its way. */
+  askable: boolean;
 };
 
 /**
@@ -444,8 +630,14 @@ const standing = (given: readonly Given[]): StandingRating[] =>
  * standing (`ended`, until `restart`), or quietly starts afresh without one.
  * Each Card's time is at most `REVIEW_CAP_MS`.
  */
-/** A Card not answered yet: no draft, no Written answer, no I don't know, no grade. */
-const UNANSWERED = { draft: "", written: undefined, dontKnow: false, grade: undefined } as const;
+/** A Card not answered yet: no draft, no Written answer, no I don't know, no grade, no chat. */
+const UNANSWERED = {
+  draft: "",
+  written: undefined,
+  dontKnow: false,
+  grade: undefined,
+  chat: NO_CHAT,
+} as const;
 
 export function createStudySession({
   studyApi: client,
@@ -465,7 +657,7 @@ export function createStudySession({
   store?: SessionStore;
   /** The Session timeout as it is now, in ms. */
   timeoutMs?: () => number;
-  /** The Deck's Answer mode as it is now, which a new Session starts in. */
+  /** The Deck's Answer mode as it is now (its own, or Settings'), which a new Session starts in. */
   answerMode?: () => AnswerMode;
 }) {
   let state: StudyState = {
@@ -497,6 +689,8 @@ export function createStudySession({
     switchable: false,
     checkable: false,
     grade: undefined,
+    chat: NO_CHAT,
+    askable: false,
   };
   const listeners = new Set<() => void>();
   const given: Given[] = [];
@@ -556,6 +750,13 @@ export function createStudySession({
   let grading: AbortController | undefined;
   let grades = 0;
   let waitedSince: number | undefined;
+  // The Grader's reply in the Follow-up chat on its way, aborted once it no
+  // longer counts; each counts, so only the newest one's pieces show. And the
+  // shown Card's time when its first question went, which stays its time
+  // until it is rated: the chat is left out of it.
+  let answering: AbortController | undefined;
+  let replies = 0;
+  let chattedFor: number | undefined;
   const say = (message: string) => {
     if (!stopped) notify(message);
   };
@@ -563,9 +764,10 @@ export function createStudySession({
     activeAt = now();
   };
 
-  /** The shown Card's time on screen so far, its editor's, the Grader's and while left out. */
+  /** The shown Card's time on screen so far, its editor's, the Grader's, its chat's and while left out. */
   const elapsed = () => {
     if (state.phase === "left") return pausedFor;
+    if (chattedFor !== undefined) return chattedFor;
     return Math.max(0, (editorOpen ? editedAt : (waitedSince ?? now())) - shownAt);
   };
 
@@ -576,12 +778,37 @@ export function createStudySession({
     waitedSince = undefined;
   };
 
-  /** Stops the Grader's request on its way, if any: its answer changes nothing. */
+  /** Stops the chat's reply on its way, if any: its pieces change nothing. */
+  const abortReply = () => {
+    replies += 1;
+    answering?.abort();
+    answering = undefined;
+  };
+
+  /**
+   * The chat with the reply on its way stopped (`abortReply`): kept as it
+   * came (`stoppedReply`), as `status`, or with nothing in yet (or `lost`),
+   * unanswered.
+   */
+  const endReply = (status: "done" | "cut-off" | "lost"): Chat => {
+    abortReply();
+    const { entries } = state.chat;
+    const last = entries.at(-1);
+    if (last?.role !== "grader" || last.status !== "streaming") return state.chat;
+    const ended =
+      status === "lost"
+        ? stoppedReply("", "done", "not_answered")
+        : stoppedReply(last.text, status, "not_answered");
+    return { ...state.chat, entries: [...entries.slice(0, -1), ended] };
+  };
+
+  /** Stops the Grader's request on its way, if any, and its chat's reply: their answers change nothing. */
   const cancelGrade = () => {
     grades += 1;
     grading?.abort();
     grading = undefined;
     endWait();
+    abortReply();
   };
 
   const snapshot = (): Omit<StoredSession, "writeId"> => {
@@ -611,6 +838,7 @@ export function createStudySession({
               draft: state.draft,
               checked: state.written !== undefined,
               grade: state.grade?.status === "graded" ? state.grade.result : undefined,
+              chat: storedChat(state.chat),
             }),
       activeAt,
       mode: state.mode,
@@ -666,7 +894,14 @@ export function createStudySession({
     patch: Partial<
       Omit<
         StudyState,
-        "rated" | "undoable" | "ratable" | "summary" | "editable" | "switchable" | "checkable"
+        | "rated"
+        | "undoable"
+        | "ratable"
+        | "summary"
+        | "editable"
+        | "switchable"
+        | "checkable"
+        | "askable"
       >
     >,
   ) => {
@@ -694,10 +929,12 @@ export function createStudySession({
         failed?.kind !== "next" &&
         failed?.kind !== "intervals",
       // Not on a Card whose Rating saved, waiting for the next one: it is done.
+      // Not while the Grader works, on its grade or on a reply.
       editable:
         next.phase === "card" &&
         !next.dontKnow &&
         next.grade?.status !== "grading" &&
+        !replying(next.chat) &&
         next.saving === undefined &&
         !next.undoing &&
         !next.editing &&
@@ -710,6 +947,17 @@ export function createStudySession({
         next.mode === "write" &&
         !next.revealed &&
         !isBlank(next.draft) &&
+        next.saving === undefined &&
+        !next.undoing &&
+        !next.editing &&
+        !next.skipping &&
+        failed?.kind !== "next",
+      askable:
+        next.phase === "card" &&
+        next.grade?.status === "graded" &&
+        !replying(next.chat) &&
+        !isBlank(next.chat.draft) &&
+        next.chat.draft.length <= WRITTEN_ANSWER_MAX_LENGTH &&
         next.saving === undefined &&
         !next.undoing &&
         !next.editing &&
@@ -767,6 +1015,7 @@ export function createStudySession({
     touch();
     shownAt = now();
     pausedFor = 0;
+    chattedFor = undefined;
     set({
       phase: state.phase === "left" ? "left" : "card",
       shown: next,
@@ -869,6 +1118,10 @@ export function createStudySession({
     touch();
     shownAt = now() - stored.elapsedMs;
     pausedFor = 0;
+    // A chat kept with its grade: the Card's time stopped at its first question.
+    const graded = stored.checked && stored.grade !== undefined;
+    const chat = graded ? resumedChat(stored.chat) : NO_CHAT;
+    chattedFor = chat.entries.length > 0 ? stored.elapsedMs : undefined;
     set({
       phase: "card",
       shown: { card, kind: stored.kind, intervals: fresh },
@@ -883,6 +1136,7 @@ export function createStudySession({
         : stored.grade === undefined
           ? { status: "failed", failure: "not_graded", selected: undefined }
           : { status: "graded", result: stored.grade, selected: undefined },
+      chat,
       dontKnow: false,
       saving: undefined,
       failure: undefined,
@@ -948,6 +1202,7 @@ export function createStudySession({
     failed = undefined;
     editorOpen = false;
     cancelGrade();
+    chattedFor = undefined;
     starts += 1;
     set({
       mode: answerMode(),
@@ -1001,6 +1256,7 @@ export function createStudySession({
     starts += 1;
     failed = undefined;
     cancelGrade();
+    chattedFor = undefined;
     set({
       phase: "ended",
       endedAfterMs: timeout,
@@ -1091,18 +1347,24 @@ export function createStudySession({
   };
 
   /**
-   * Saves `rating` of the shown Card, then shows the next Card, or with
-   * `wait` (I don't know) stays on it until Next; one deleted meanwhile
-   * goes on to the next Card either way.
+   * Saves `rating` of the shown Card, graded when its grade is in at that
+   * moment (Try again included), then shows the next Card, or with `wait`
+   * (I don't know) stays on it until Next; one deleted meanwhile goes on to
+   * the next Card either way.
    */
   const save = async (rating: Rating, durationMs: number, wait: boolean) => {
     const shown = state.shown;
     if (shown === undefined) return;
+    const grade = state.grade;
+    const suggestion =
+      grade?.status === "graded"
+        ? { suggestedRating: grade.result.rating, model: grade.result.model }
+        : undefined;
     set({ saving: rating, failure: undefined });
     const mine = starts;
     let saved: Awaited<ReturnType<StudyApi["rate"]>>;
     try {
-      saved = await client.rate(shown.card.id, rating, durationMs);
+      saved = await client.rate(shown.card.id, rating, durationMs, suggestion);
     } catch {
       // Started again since, the Rating was another Session's.
       if (mine !== starts) return;
@@ -1138,7 +1400,10 @@ export function createStudySession({
 
   /** The shown Card's time on screen, capped, as its Review records it. */
   const durationOf = () =>
-    Math.min(REVIEW_CAP_MS, Math.max(0, Math.round((waitedSince ?? now()) - shownAt)));
+    Math.min(
+      REVIEW_CAP_MS,
+      Math.max(0, Math.round(chattedFor ?? (waitedSince ?? now()) - shownAt)),
+    );
 
   /**
    * Sends the Grader the shown Card's Written answer `answer`, and shows the
@@ -1182,6 +1447,65 @@ export function createStudySession({
     });
   };
 
+  /**
+   * Asks the Grader to answer the shown Card's chat, whose last entry is the
+   * reply asked for, and streams its pieces into it; the Card deleted
+   * meanwhile is skipped for the next. A piece coming, and the reply ending,
+   * is activity. Stopped meanwhile, or another Card showing, its pieces
+   * change nothing.
+   */
+  const askReply = async (cardId: string) => {
+    const { written, grade, chat } = state;
+    if (written === undefined || grade?.status !== "graded") return;
+    abortReply();
+    const mine = replies;
+    const controller = new AbortController();
+    answering = controller;
+    /** The reply asked for, while it is still on its way. */
+    const streaming = () => {
+      const last = state.chat.entries.at(-1);
+      return mine === replies && !stopped && state.shown?.card.id === cardId
+        ? last?.role === "grader" && last.status === "streaming"
+          ? last
+          : undefined
+        : undefined;
+    };
+    const replace = (entry: ChatEntry) =>
+      set({ chat: { ...state.chat, entries: [...state.chat.entries.slice(0, -1), entry] } });
+    let outcome: Awaited<ReturnType<StudyApi["chat"]>> | "unreachable";
+    try {
+      outcome = await client.chat(
+        cardId,
+        { answer: written, grade: grade.result, messages: sentMessages(chat.entries) },
+        controller.signal,
+        (text) => {
+          const last = streaming();
+          if (last === undefined) return;
+          touch();
+          replace({ ...last, text: last.text + text });
+        },
+      );
+    } catch {
+      outcome = "unreachable";
+    }
+    const last = streaming();
+    if (last === undefined) return;
+    answering = undefined;
+    if (outcome === "gone" && !busy()) {
+      say(CARD_GONE);
+      set(skipGone(cardId));
+      await loadNext(cardId);
+      return;
+    }
+    touch();
+    if (outcome === "done") replace({ ...last, status: "done" });
+    else if (outcome === "cut_off") replace(stoppedReply(last.text, "cut-off", "grading_failed"));
+    else {
+      const failure = outcome === "gone" ? "grading_failed" : outcome;
+      replace({ role: "grader", text: "", status: "failed", failure });
+    }
+  };
+
   return {
     getState: (): StudyState => state,
     subscribe: (listener: () => void) => {
@@ -1209,6 +1533,8 @@ export function createStudySession({
         set({ grade: { ...grade, selected: rating } });
         return;
       }
+      // Rating ends the chat: a reply on its way stops.
+      if (replying(state.chat)) set({ chat: endReply("cut-off") });
       void save(rating, durationOf(), false);
     },
     /**
@@ -1228,6 +1554,7 @@ export function createStudySession({
         cancelGrade();
         set({ grade: { status: "skipped", selected: rating } });
       }
+      if (replying(state.chat)) set({ chat: endReply("cut-off") });
       void save(rating, durationOf(), false);
     },
     /** Try again once the Grader failed: sends it the same Written answer, the Card back to waiting. */
@@ -1264,6 +1591,47 @@ export function createStudySession({
       const written = state.draft;
       set({ revealed: true, written, grade: { status: "grading", selected: undefined } });
       void askGrader(shown.card.id, written);
+    },
+    /** Keeps the chat's question as typed so far; typing is activity. */
+    setChatDraft(draft: string) {
+      if (state.phase !== "card" || state.grade?.status !== "graded") return;
+      if (draft === state.chat.draft || timeOut()) return;
+      touch();
+      set({ chat: { ...state.chat, draft } });
+    },
+    /**
+     * Sends the chat's question (Ctrl/⌘+Enter, or Send), and streams the
+     * Grader's reply under it. From the first question on, the Card's time
+     * stands still until it is rated.
+     */
+    ask() {
+      const { shown, chat } = state;
+      if (timeOut() || !state.askable || editorOpen || shown === undefined) return;
+      touch();
+      chattedFor ??= elapsed();
+      set({
+        chat: {
+          draft: "",
+          entries: [...chat.entries, { role: "user", text: chat.draft }, STREAMING],
+        },
+      });
+      void askReply(shown.card.id);
+    },
+    /** Stop: ends the reply on its way, keeping what came. */
+    stopReply() {
+      if (replying(state.chat)) set({ chat: endReply("done") });
+    },
+    /** Try again on a reply that failed or was cut off: asks for it again, in its place. */
+    retryReply() {
+      const { shown, chat } = state;
+      const last = chat.entries.at(-1);
+      if (timeOut() || state.phase !== "card" || shown === undefined) return;
+      if (state.grade?.status !== "graded" || last?.role !== "grader") return;
+      if (last.status !== "failed" && last.status !== "cut-off") return;
+      if (busy() || failed?.kind === "next") return;
+      touch();
+      set({ chat: { ...chat, entries: [...chat.entries.slice(0, -1), STREAMING] } });
+      void askReply(shown.card.id);
     },
     /**
      * I don't know, in write-and-grade: rates the shown Card Again at once,
@@ -1381,6 +1749,7 @@ export function createStudySession({
       cancelGrade();
       // The re-rated Review's time is the undone one's plus the time since.
       shownAt = now() - last.durationMs;
+      chattedFor = undefined;
       set({
         phase: "card",
         shown: { card: back.card, kind: last.kind, intervals: back.intervals },
@@ -1493,12 +1862,14 @@ export function createStudySession({
       if (editorOpen) return "stay";
       if (timeOut()) return state.phase === "ended" ? "summary" : "away";
       if (state.phase !== "card" || given.length === 0) return "away";
-      // The Grader's request stops with it: no grade is coming.
+      // The Grader's request stops with it: no grade is coming. So does a reply.
       const grade = state.grade;
       if (grade?.status === "grading") cancelGrade();
-      pausedFor = now() - shownAt;
+      const chat = endReply("cut-off");
+      pausedFor = elapsed();
       set({
         phase: "left",
+        chat,
         ...(grade?.status === "grading"
           ? { grade: { status: "failed", failure: "not_graded", selected: grade.selected } }
           : {}),
@@ -1514,6 +1885,8 @@ export function createStudySession({
     },
     /** Stops it: answers still on their way change nothing, until it starts again. */
     stop() {
+      // As on a reload, a reply on its way is lost: its question stays, to ask again.
+      if (replying(state.chat)) set({ chat: endReply("lost") });
       persist();
       stopped = true;
       cancelGrade();

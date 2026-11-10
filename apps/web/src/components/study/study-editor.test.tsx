@@ -52,6 +52,7 @@ function recordingSession() {
       intervals: async () => "gone",
       card: async () => "gone",
       grade: async () => "gone",
+      chat: async () => "gone",
     },
     notify: () => {},
   });

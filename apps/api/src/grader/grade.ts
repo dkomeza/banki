@@ -71,13 +71,13 @@ export const realWait: Wait = (ms, signal) =>
   });
 
 /** What went wrong with one attempt, as the log names it. */
-type AttemptFailure = "error_status" | "network_error" | "timeout" | "invalid_response";
+export type AttemptFailure = "error_status" | "network_error" | "timeout" | "invalid_response";
 
 /**
  * What to do after a failed attempt: `retry` (after the backoff step, or
  * after `waitMs` when OpenRouter said), or `stop` with the failure to answer.
  */
-type Next = { retry: true; waitMs?: number } | { retry: false; failed: GradingFailure };
+export type Next = { retry: true; waitMs?: number } | { retry: false; failed: GradingFailure };
 
 /** A permanent error status's failure, or undefined for a temporary one (408, 429, 5xx). */
 function permanentFailure(status: number): GradingFailure | undefined {
@@ -98,6 +98,58 @@ export function retryAfterMs(header: string | null, now = Date.now()): number | 
   if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
   const at = Date.parse(header);
   return Number.isNaN(at) ? undefined : Math.max(0, at - now);
+}
+
+/**
+ * What to do after OpenRouter answered `res`, an error status: fail at once
+ * on a permanent one; retry a temporary one, after a 429 or 503's
+ * `Retry-After` when it says, unless that is over 8 s, which fails.
+ */
+export function nextAfter(res: Response): Next {
+  const permanent = permanentFailure(res.status);
+  if (permanent !== undefined) return { retry: false, failed: permanent };
+  if (res.status === 429 || res.status === 503) {
+    const after = retryAfterMs(res.headers.get("retry-after"));
+    if (after !== undefined) {
+      return after > MAX_RETRY_AFTER_MS
+        ? { retry: false, failed: "grading_failed" }
+        : { retry: true, waitMs: after };
+    }
+  }
+  return { retry: true };
+}
+
+/** How `withRetries` waits between attempts. */
+export type RetryOptions = {
+  /** The caller giving up: no attempt after it, and a pending wait ends. */
+  signal?: AbortSignal;
+  /** How a retry waits: on a timer unless a test fakes it. */
+  wait?: Wait;
+  /** A number in [0, 1), for the jitter. */
+  random?: () => number;
+};
+
+/**
+ * Runs `attempt` (numbered from 1) until it answers a value, or a failure
+ * not worth retrying, or {@link RETRY_WAITS_MS}'s five retries have failed
+ * too (`grading_failed`). Before each retry it waits its step ±20%, or as
+ * long as the failed attempt said; once `signal` aborts it makes no further
+ * attempt (`cancelled`).
+ */
+export async function withRetries<T>(
+  attempt: (n: number) => Promise<{ value: T } | { next: Next }>,
+  { signal, wait = realWait, random = Math.random }: RetryOptions,
+): Promise<{ value: T } | { failed: GradingFailure }> {
+  for (let n = 1; ; n += 1) {
+    if (signal?.aborted) return { failed: "cancelled" };
+    const tried = await attempt(n);
+    if ("value" in tried) return tried;
+    const { next } = tried;
+    if (!next.retry) return { failed: next.failed };
+    const step = RETRY_WAITS_MS[n - 1];
+    if (step === undefined) return { failed: "grading_failed" };
+    await wait(next.waitMs ?? step * (1 + (random() * 2 - 1) * JITTER), signal);
+  }
 }
 
 /**
@@ -144,26 +196,12 @@ export async function grade(
 ): Promise<GradeResponse | { failed: GradingFailure }> {
   const request = gradingRequest(input, model, readImage);
   const body = JSON.stringify(request.body);
-
-  for (let attempt = 1; ; attempt += 1) {
-    if (signal?.aborted) return { failed: "cancelled" };
-    const tried = await attemptGrade({
-      attempt,
-      model,
-      apiKey,
-      body,
-      fetch,
-      timeoutMs,
-      signal,
-      onCost,
-    });
-    if ("answer" in tried) return gradeResponseOf(tried.answer, request.back, request.answer);
-    const { next } = tried;
-    if (!next.retry) return { failed: next.failed };
-    const step = RETRY_WAITS_MS[attempt - 1];
-    if (step === undefined) return { failed: "grading_failed" };
-    await wait(next.waitMs ?? step * (1 + (random() * 2 - 1) * JITTER), signal);
-  }
+  const graded = await withRetries(
+    (attempt) => attemptGrade({ attempt, model, apiKey, body, fetch, timeoutMs, signal, onCost }),
+    { signal, wait, random },
+  );
+  if ("failed" in graded) return graded;
+  return gradeResponseOf(graded.value, model, request.back, request.answer);
 }
 
 /**
@@ -189,7 +227,7 @@ async function attemptGrade({
   timeoutMs: number;
   signal: AbortSignal | undefined;
   onCost: ((usd: number) => void) | undefined;
-}): Promise<{ answer: z.infer<typeof ModelGrade> } | { next: Next }> {
+}): Promise<{ value: z.infer<typeof ModelGrade> } | { next: Next }> {
   const failed = (failure: AttemptFailure, status: number | null, next: Next) => {
     const message =
       status === null
@@ -211,23 +249,7 @@ async function attemptGrade({
     });
     if (!res.ok) {
       await res.body?.cancel();
-      const permanent = permanentFailure(res.status);
-      if (permanent !== undefined) {
-        return failed("error_status", res.status, { retry: false, failed: permanent });
-      }
-      if (res.status === 429 || res.status === 503) {
-        const after = retryAfterMs(res.headers.get("retry-after"));
-        if (after !== undefined) {
-          return failed(
-            "error_status",
-            res.status,
-            after > MAX_RETRY_AFTER_MS
-              ? { retry: false, failed: "grading_failed" }
-              : { retry: true, waitMs: after },
-          );
-        }
-      }
-      return failed("error_status", res.status, { retry: true });
+      return failed("error_status", res.status, nextAfter(res));
     }
     json = await res.json();
   } catch (error) {
@@ -253,12 +275,16 @@ async function attemptGrade({
     }
   }
   if (answer === undefined) return failed("invalid_response", res.status, { retry: true });
-  return { answer };
+  return { value: answer };
 }
 
-/** The Grader's answer as a `GradeResponse`, its Highlights mapped to ranges of the stored texts. */
+/**
+ * The Grader's answer as a `GradeResponse` naming the `model` that answered,
+ * its Highlights mapped to ranges of the stored texts.
+ */
 function gradeResponseOf(
   answered: z.infer<typeof ModelGrade>,
+  model: ModelId,
   back: ReturnType<typeof gradingRequest>["back"],
   answer: ReturnType<typeof gradingRequest>["answer"],
 ): GradeResponse {
@@ -272,5 +298,5 @@ function gradeResponseOf(
     const range = highlightRange(answer, highlight);
     if (range !== undefined) mistakes.push({ ...range, note: highlight.note });
   }
-  return { rating: answered.rating, feedback: answered.feedback, missing, mistakes };
+  return { rating: answered.rating, feedback: answered.feedback, missing, mistakes, model };
 }

@@ -71,6 +71,16 @@ describe("SettingsPatch's Session timeout", () => {
   });
 });
 
+describe("SettingsPatch's Answer mode", () => {
+  test.each(["self-rate", "write"])("takes %s", (answerMode) => {
+    expect(SettingsPatch.parse({ answerMode })).toEqual({ answerMode });
+  });
+
+  test.each(["grade", "", "Write", null, 1])("refuses %j", (answerMode) => {
+    expect(SettingsPatch.safeParse({ answerMode }).success).toBe(false);
+  });
+});
+
 describe("SettingsPatch's model", () => {
   test("takes a Model on the list", () => {
     expect(SettingsPatch.parse({ model: "openai/gpt-6-luna" })).toEqual({
