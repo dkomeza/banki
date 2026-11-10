@@ -16,6 +16,8 @@ import {
   SettingsResponse,
   StudyNextResponse,
   TagListResponse,
+  TUNING_REVIEW_INTERVAL,
+  TuningStatus,
 } from "@banki/shared";
 import { SEED_IDS } from "../seed/seed-ids";
 import { EMAIL, ORIGIN, PASSWORD, bootApps, cookiesFrom, get, signIn } from "../testing/app";
@@ -602,5 +604,41 @@ describe("banki seed's Deletions", () => {
       renamed: true,
     });
     expect((await restore(D.termin)).status).toBe(409);
+  });
+});
+
+describe("banki seed's Tuning", () => {
+  test("is one automatic Tuning that applied, after the Reviews, so Settings shows the tuned state", async () => {
+    await setup();
+    await seed({ BANKI_SEED_NOW: "2026-10-26T12:00:00.000Z" });
+
+    const { app } = boot();
+    const cookie = cookiesFrom(await signIn(app));
+    const status = TuningStatus.parse(await (await get(app, "/api/tuning", cookie)).json());
+
+    const sqlite = new SQLite(join(dataDir(), "banki.db"), { readonly: true });
+    const reviews = sqlite.query<{ n: number }, []>("SELECT count(*) AS n FROM review").get()?.n;
+    sqlite.close();
+    expect(status).toEqual({
+      parameters: "tuned",
+      tuned: { at: "2026-10-26T11:00:00.000Z", reviews: reviews ?? -1 },
+      lastAttempt: { at: "2026-10-26T11:00:00.000Z", trigger: "automatic", outcome: "applied" },
+      reviewsUntilAutomatic: TUNING_REVIEW_INTERVAL,
+      paused: false,
+      running: false,
+    });
+  });
+
+  test("refuses to seed a User who has a Tuning log row", async () => {
+    await setup();
+    const { app, close } = boot();
+    const cookie = cookiesFrom(await signIn(app));
+    await app.request("/api/tuning", { method: "POST", headers: { origin: ORIGIN, cookie } });
+    close();
+
+    const result = await seed();
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("The User already has content, so nothing was seeded.");
   });
 });

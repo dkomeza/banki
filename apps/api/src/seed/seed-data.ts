@@ -8,6 +8,8 @@ import { createImportRepository, hasImports } from "../repositories/imports";
 import { hasProgressResets } from "../repositories/progress-resets";
 import { createReviewRepository, hasReviews } from "../repositories/reviews";
 import { setInitialMacros, setInitialTimezone } from "../repositories/settings";
+import { hasTunings, writeAppliedTuning } from "../repositories/tuning";
+import { DEFAULT_PARAMETERS } from "../scheduling/fsrs";
 import { DEFAULT_MODEL_ID, type Rating } from "@banki/shared";
 
 import { SEED_IDS, SEED_TIMEZONE } from "./seed-ids";
@@ -504,6 +506,9 @@ const REVIEWS: readonly {
   { cardId: spanish[0], hoursAgo: 2, rating: "again", durationMs: 9_800, suggestedRating: "hard" },
 ];
 
+/** When the Seed data's one Tuning ran: after its Reviews, as a Rating starts one. */
+const TUNING_HOURS_AGO = 1;
+
 /** The fixed ID of the Seed data's `n`th Review. */
 const reviewSeedId = (n: number) =>
   `5eed0000-0000-4000-8000-${(0xe0000000000 + n).toString(16).padStart(12, "0")}`;
@@ -800,11 +805,18 @@ export function writeSeedData({
   importSeed(db, userId, importsDir, uploadsDir, now);
 
   deletions.rest();
+
+  // One applied Tuning, so Settings shows the tuned state; its Parameters are
+  // FSRS-6's defaults, so its replay changes no other seeded screen.
+  writeAppliedTuning(db, userId, [...DEFAULT_PARAMETERS], {
+    ranAt: new Date(now.getTime() - TUNING_HOURS_AGO * HOUR_MS),
+    id: SEED_IDS.tuning,
+  });
 }
 
 /**
  * Whether the User owns any content (folders, decks, cards, images, reviews,
- * Progress resets, Imports), in which
+ * Progress resets, Imports, Tuning log rows), in which
  * case `banki seed` refuses. Deleted Folders, Decks and Cards count too: they
  * are still the User's until they are purged. Settings aren't content: seeding leaves a
  * stored choice alone instead.
@@ -817,6 +829,7 @@ export function userHasContent(db: Queryable, userId: string): boolean {
     hasImages(db, userId) ||
     hasReviews(db, userId) ||
     hasProgressResets(db, userId) ||
-    hasImports(db, userId)
+    hasImports(db, userId) ||
+    hasTunings(db, userId)
   );
 }

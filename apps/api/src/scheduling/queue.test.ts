@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { DefaultScheduler } from "ts-fsrs";
-import { predictedRecall } from "./fsrs";
+import { DEFAULT_PARAMETERS, predictedRecall } from "./fsrs";
 import { type QueueCard, type QueueLimits, type QueueProgress, nextInQueue } from "./queue";
 
 const NOW = new Date("2026-05-20T12:00:00Z");
@@ -70,7 +70,7 @@ const news = (count: number) =>
 
 /** The Card the Queue shows next, or null, under `limits`. */
 const pick = (cards: readonly QueueCard[], progress: QueueProgress, limits = LOOSE) =>
-  nextInQueue(cards, progress, limits, NOW, TOMORROW).next;
+  nextInQueue(cards, progress, limits, NOW, TOMORROW, DEFAULT_PARAMETERS).next;
 
 /**
  * Walks the Queue as a Session would, without Ratings: each Card shown leaves
@@ -100,22 +100,23 @@ describe("predictedRecall", () => {
 
     for (const days of [0.25, 1, 3.5, 7.3, 40]) {
       const lastReviewAt = ago(days * DAY);
-      expect(predictedRecall({ stability: memory.stability, lastReviewAt }, NOW)).toBe(
-        scheduler.model.forgettingCurve(memory, days),
-      );
+      expect(
+        predictedRecall({ stability: memory.stability, lastReviewAt }, NOW, DEFAULT_PARAMETERS),
+      ).toBe(scheduler.model.forgettingCurve(memory, days));
     }
     // FSRS's own definition: at elapsed days equal to the stability, recall is 90%.
-    expect(predictedRecall({ stability: 7.3, lastReviewAt: ago(7.3 * DAY) }, NOW)).toBeCloseTo(
-      0.9,
-      6,
-    );
+    expect(
+      predictedRecall({ stability: 7.3, lastReviewAt: ago(7.3 * DAY) }, NOW, DEFAULT_PARAMETERS),
+    ).toBeCloseTo(0.9, 6);
   });
 
   test("is 1 just after a Review, and falls as time passes", () => {
-    expect(predictedRecall({ stability: 5, lastReviewAt: NOW }, NOW)).toBe(1);
-    expect(predictedRecall({ stability: 5, lastReviewAt: null }, NOW)).toBe(1);
-    expect(predictedRecall({ stability: 5, lastReviewAt: ago(DAY) }, NOW)).toBeGreaterThan(
-      predictedRecall({ stability: 5, lastReviewAt: ago(2 * DAY) }, NOW),
+    expect(predictedRecall({ stability: 5, lastReviewAt: NOW }, NOW, DEFAULT_PARAMETERS)).toBe(1);
+    expect(predictedRecall({ stability: 5, lastReviewAt: null }, NOW, DEFAULT_PARAMETERS)).toBe(1);
+    expect(
+      predictedRecall({ stability: 5, lastReviewAt: ago(DAY) }, NOW, DEFAULT_PARAMETERS),
+    ).toBeGreaterThan(
+      predictedRecall({ stability: 5, lastReviewAt: ago(2 * DAY) }, NOW, DEFAULT_PARAMETERS),
     );
   });
 });
@@ -382,7 +383,10 @@ describe("nextInQueue", () => {
     });
 
     test("never empties the Queue: no New card is held when it answers none", () => {
-      expect(nextInQueue([...pile(5), fresh("n")], START, limits, NOW, TOMORROW).newHeld).toBe(0);
+      expect(
+        nextInQueue([...pile(5), fresh("n")], START, limits, NOW, TOMORROW, DEFAULT_PARAMETERS)
+          .newHeld,
+      ).toBe(0);
     });
   });
 
@@ -411,17 +415,35 @@ describe("nextInQueue", () => {
     });
 
     test("once reached, answers no Card with the New cards it held", () => {
-      const answer = nextInQueue(news(37), { ...START, newShown: 5 }, limits, NOW, TOMORROW);
+      const answer = nextInQueue(
+        news(37),
+        { ...START, newShown: 5 },
+        limits,
+        NOW,
+        TOMORROW,
+        DEFAULT_PARAMETERS,
+      );
 
       expect(answer).toEqual({ next: null, newHeld: 37 });
     });
 
     test("holds none back while it shows a Card, or when no New card is left", () => {
-      expect(nextInQueue(news(8), START, limits, NOW, TOMORROW).newHeld).toBe(0);
+      expect(nextInQueue(news(8), START, limits, NOW, TOMORROW, DEFAULT_PARAMETERS).newHeld).toBe(
+        0,
+      );
       expect(
-        nextInQueue([review("r")], { ...START, newShown: 5 }, limits, NOW, TOMORROW).newHeld,
+        nextInQueue(
+          [review("r")],
+          { ...START, newShown: 5 },
+          limits,
+          NOW,
+          TOMORROW,
+          DEFAULT_PARAMETERS,
+        ).newHeld,
       ).toBe(0);
-      expect(nextInQueue([], { ...START, newShown: 5 }, limits, NOW, TOMORROW)).toEqual({
+      expect(
+        nextInQueue([], { ...START, newShown: 5 }, limits, NOW, TOMORROW, DEFAULT_PARAMETERS),
+      ).toEqual({
         next: null,
         newHeld: 0,
       });
@@ -433,7 +455,14 @@ describe("nextInQueue", () => {
 
       expect(pick(cards, second, limits)).toEqual({ id: "n005", kind: "new" });
       expect(
-        nextInQueue(cards.slice(5), { ...second, newShown: 10 }, limits, NOW, TOMORROW),
+        nextInQueue(
+          cards.slice(5),
+          { ...second, newShown: 10 },
+          limits,
+          NOW,
+          TOMORROW,
+          DEFAULT_PARAMETERS,
+        ),
       ).toEqual({
         next: null,
         newHeld: 2,
@@ -441,7 +470,14 @@ describe("nextInQueue", () => {
     });
 
     test("counts what the Session has shown, even past a batch made smaller meanwhile", () => {
-      const answer = nextInQueue(news(3), { ...START, newShown: 12 }, limits, NOW, TOMORROW);
+      const answer = nextInQueue(
+        news(3),
+        { ...START, newShown: 12 },
+        limits,
+        NOW,
+        TOMORROW,
+        DEFAULT_PARAMETERS,
+      );
 
       expect(answer).toEqual({ next: null, newHeld: 3 });
     });

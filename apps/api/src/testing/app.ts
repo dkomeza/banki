@@ -7,6 +7,7 @@ import { createApp } from "../app";
 import type { Config } from "../config";
 import type { Wait } from "../grader/grade";
 import type { OpenRouterFetch } from "../openrouter/check-api-key";
+import type { Optimizer } from "../scheduling/tuning";
 
 export const ORIGIN = "http://localhost:5173";
 export const EMAIL = "user@example.com";
@@ -34,14 +35,16 @@ export function bootApps() {
     /**
      * Boots an app. OpenRouter is stubbed: unless `openRouterFetch` says
      * otherwise, it can't be reached, so no test calls the real service. The
-     * Grader's retries wait `graderWait`, by default not at all.
+     * Grader's retries wait `graderWait`, by default not at all. Tuning fits
+     * with `tuningOptimizer`, by default FSRS's own.
      */
     boot: (
       overrides: Partial<Config> = {},
       {
         openRouterFetch = unreachableOpenRouter,
         graderWait = async () => {},
-      }: { openRouterFetch?: OpenRouterFetch; graderWait?: Wait } = {},
+        tuningOptimizer,
+      }: { openRouterFetch?: OpenRouterFetch; graderWait?: Wait; tuningOptimizer?: Optimizer } = {},
     ) => {
       const booted = createApp(
         {
@@ -56,7 +59,7 @@ export function bootApps() {
           release: false,
           ...overrides,
         },
-        { openRouterFetch, graderWait },
+        { openRouterFetch, graderWait, tuningOptimizer },
       );
       opened.push(booted);
       return booted;

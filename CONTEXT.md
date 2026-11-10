@@ -148,6 +148,14 @@ _Avoid_: retrievability, strength, score
 The share of its Cards the User wants to still remember when they come due, from 70% to 97%: higher means more Reviews. Settings hold one for every Deck, 90% unless the User changes it, and a Deck follows it until it is given its own. Changing it reschedules every Card it applies to at once.
 _Avoid_: target retention (except for a Plan's), retention rate, success rate
 
+**Parameters**:
+The numbers FSRS models the User's memory with: FSRS's defaults until a Tuning applies the User's own. Everything FSRS works out (Intervals, due dates, Predicted recall) uses the current ones. Applying new ones works out every Card's memory state again from its Reviews, but leaves its due date as it was until its next Rating.
+_Avoid_: weights, FSRS settings, model (the Model is the Grader's)
+
+**Tuning**:
+Fitting the Parameters to the User's own Reviews, of every kind and of Cards that are gone too. Banki does it by itself every 200 Reviews, or at once when the User asks (Tune now), and applies the result only when it predicts the User's recall better than the current Parameters. Reset to defaults puts FSRS's defaults back and pauses Tuning by itself until the User next asks for one.
+_Avoid_: optimization, training, calibration, fitting (alone)
+
 **Recall rate**:
 The share of the review Cards a Session showed that the User recalled the first time: their first Rating in it wasn't Again. New Cards and Cards in their learning steps don't count, so it measures what Desired retention aims at. A Card counts by how it first came in the Session, so a review Card the User then puts back to New (Progress reset) and rates still counts. A Session with no review Card has none.
 _Avoid_: accuracy, score, retention (alone)

@@ -6,7 +6,7 @@ import { DEFAULT_DAY_START_HOUR, DEFAULT_DESIRED_RETENTION, type Rating } from "
 import { sql } from "drizzle-orm";
 import { type OpenedDatabase, openDatabase } from "../db/database";
 import { applyMigrations } from "../db/migrate";
-import { NEW_MEMORY_STATE, previewIntervals } from "../scheduling/fsrs";
+import { DEFAULT_PARAMETERS, NEW_MEMORY_STATE, previewIntervals } from "../scheduling/fsrs";
 import type { QueueProgress } from "../scheduling/queue";
 import { type CardRepository, createCardRepository } from "./cards";
 import { type DeckRepository, createDeckRepository } from "./decks";
@@ -161,6 +161,7 @@ describe("next", () => {
           now: START,
           desiredRetention: DEFAULT_DESIRED_RETENTION,
           studyDay: { timezone: null, dayStartHour: DEFAULT_DAY_START_HOUR },
+          parameters: DEFAULT_PARAMETERS,
         }),
       },
       newHeld: 0,
