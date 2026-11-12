@@ -132,6 +132,10 @@ _Avoid_: playlist, deck order, schedule
 A Card with no Review since its newest Progress reset: never rated, every Rating of it undone, or put back to New by a Progress reset. A Session introduces New cards a New-card batch at a time.
 _Avoid_: unseen card, fresh card
 
+**Learned card**:
+A Card past its learning steps, due on a Study day rather than at a moment, until a lapse puts it back in them. Statistics count a Deck's Cards as new, learning (in their learning steps) or learned.
+_Avoid_: mature card, graduated card, stage (which is the pipeline's)
+
 **New-card batch**:
 How many New cards a Session introduces before it stops introducing them and offers another batch of the same size. Due Cards and Cards in their learning steps go on regardless. A Setting, 20 unless the User changes it.
 _Avoid_: new-card limit, daily new cards, new cards per session
@@ -159,6 +163,10 @@ _Avoid_: optimization, training, calibration, fitting (alone)
 **Recall rate**:
 The share of the review Cards a Session showed that the User recalled the first time: their first Rating in it wasn't Again. New Cards and Cards in their learning steps don't count, so it measures what Desired retention aims at. A Card counts by how it first came in the Session, so a review Card the User then puts back to New (Progress reset) and rates still counts. A Session with no review Card has none.
 _Avoid_: accuracy, score, retention (alone)
+
+**Actual retention**:
+The share of Reviews of Learned cards, over a range of Study days, whose Rating wasn't Again: how often the User really recalls Cards when they come due, which statistics show beside Desired retention. Every such Review counts, graded or self-rated, of a Card that is gone too. Unlike the Recall rate, it counts Reviews, not a Session's first Ratings.
+_Avoid_: true retention, recall rate, retention (alone)
 
 **Email**:
 The address the User signs in with, together with the Password. Banki never sends mail to it; it only identifies the User.
