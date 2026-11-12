@@ -88,9 +88,27 @@ const fromWall = (wall: number): StudyDay => new Date(wall).toISOString().slice(
 export const addStudyDays = (day: StudyDay, days: number): StudyDay =>
   fromWall(toWall(day) + days * DAY_MS);
 
-/** When `day`'s Day start happens, as an instant in milliseconds. */
-const startOf = (day: StudyDay, { timezone, dayStartHour }: StudyDaySettings) =>
-  firstInstantAt(toWall(day) + dayStartHour * HOUR_MS, timezone ?? "UTC");
+/** Day starts already worked out, by Timezone, Day start and Study day. */
+const starts = new Map<string, number>();
+/** Past this many, the Day starts are worked out afresh. */
+const STARTS_MAX = 10_000;
+
+/**
+ * When `day`'s Day start happens, as an instant in milliseconds. Remembered,
+ * as working it out takes several time zone lookups, and the feasibility
+ * check asks for the same few hundred days many times over.
+ */
+function startOf(day: StudyDay, { timezone, dayStartHour }: StudyDaySettings): number {
+  const zone = timezone ?? "UTC";
+  const key = `${zone}\u0000${dayStartHour}\u0000${day}`;
+  let start = starts.get(key);
+  if (start === undefined) {
+    if (starts.size >= STARTS_MAX) starts.clear();
+    start = firstInstantAt(toWall(day) + dayStartHour * HOUR_MS, zone);
+    starts.set(key, start);
+  }
+  return start;
+}
 
 /** When the Study day `day` starts and ends: its Day start, and the next one. */
 export function studyDayBounds(

@@ -7,10 +7,11 @@ import {
   type ReviewRequest,
   type StudyDaySettings,
 } from "@banki/shared";
-import { type SQLWrapper, and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { type SQLWrapper, and, desc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Queryable } from "../db/database";
 import { card, deck, review, user_settings } from "../db/schema";
+import type { TimedReview } from "../scheduling/estimate";
 import {
   DEFAULT_PARAMETERS,
   type LastReview,
@@ -157,6 +158,29 @@ export function lastReviewOf(
     .limit(1)
     .get();
   return last === undefined ? undefined : { ...last, before: fromStored(last.before) };
+}
+
+/**
+ * The User's Reviews in every Deck from `since` on, as the time estimates
+ * take them (`cardDayAverages`), with the Deck each was in.
+ */
+export function timedReviewsSince(
+  db: Queryable,
+  userId: string,
+  since: Date,
+): (TimedReview & { deckId: string })[] {
+  return db
+    .select({
+      cardId: review.cardId,
+      deckId: review.deckId,
+      reviewedAt: review.reviewedAt,
+      durationMs: review.durationMs,
+      wasNew: sql<number>`json_extract(${review.cardBefore}, '$.state') = 'new'`,
+    })
+    .from(review)
+    .where(and(eq(review.userId, userId), gte(review.reviewedAt, since)))
+    .all()
+    .map((r) => ({ ...r, wasNew: Boolean(r.wasNew) }));
 }
 
 /** Whether the User has any Review at all, of a Card that is gone too. */

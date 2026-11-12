@@ -18,7 +18,7 @@ import {
 } from "@banki/shared";
 import { and, desc, eq, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import type { Queryable } from "../db/database";
-import { card, card_import, deck, review, user_settings } from "../db/schema";
+import { card, card_import, deck, review } from "../db/schema";
 import type { ImportReport, StagedImport } from "../imports/stored";
 import {
   type ImageStatus,
@@ -69,14 +69,6 @@ const liveCardsOf = (tx: Queryable, userId: string, id: string, deckId: string) 
     .from(card)
     .where(and(eq(card.userId, userId), eq(card.importId, id), isNull(card.deletedAt)))
     .get() ?? { live: 0, studied: 0, edited: 0, moved: 0 };
-
-/** The Settings' Macros of the User, under every Deck's own. */
-const settingsMacros = (db: Queryable, userId: string): Macro[] =>
-  db
-    .select({ macros: user_settings.macros })
-    .from(user_settings)
-    .where(eq(user_settings.userId, userId))
-    .get()?.macros ?? [];
 
 /** The User's Deck `deckId`'s own Macros, deleted or not; undefined for no such Deck. */
 const deckMacros = (db: Queryable, userId: string, deckId: string): Macro[] | undefined =>
@@ -183,11 +175,7 @@ export function createImportRepository(db: Queryable, importsDir: string, upload
         total: preview.total,
         invalid: preview.invalid,
         cards: preview.cards.map((one, i) => ({ ...one, duplicateOf: duplicates[i] ?? null })),
-        macros: planMacros(
-          preview.macros,
-          settingsMacros(tx, userId),
-          deckMacros(tx, userId, row.deckId) ?? [],
-        ),
+        macros: planMacros(preview.macros, deckMacros(tx, userId, row.deckId) ?? []),
         images: imageProblems(preview.cards, images, preview.zipped, hasImageOf(tx, userId)),
         stagedImages: Object.keys(preview.images).filter(
           (file) => preview.images[file] === "staged",
@@ -373,11 +361,7 @@ export function createImportRepository(db: Queryable, importsDir: string, upload
           }
 
           const own = deckMacros(tx, userId, row.deckId) ?? [];
-          const plan: MacroPlanEntry[] = planMacros(
-            preview.macros,
-            settingsMacros(tx, userId),
-            own,
-          );
+          const plan: MacroPlanEntry[] = planMacros(preview.macros, own);
           const gained = plan.flatMap((entry) =>
             entry.outcome === "added" ? [{ name: entry.name, definition: entry.definition }] : [],
           );

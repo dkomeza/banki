@@ -137,6 +137,7 @@ describe("migrations", () => {
       "0020_graded_reviews",
       "0021_parameter_tuning",
       "0022_import_undo",
+      "0023_plan",
     ]);
     first.close();
 

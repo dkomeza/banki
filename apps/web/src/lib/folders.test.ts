@@ -42,6 +42,7 @@ const deck = (id: string, name: string, folderId: string | null): Deck => ({
   desiredRetention: null,
   macros: [],
   answerMode: null,
+  plan: null,
 });
 
 // Languages and Maths › Analysis › Real, Archive empty, Organic at the Root.

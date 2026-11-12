@@ -174,8 +174,9 @@ describe("banki seed's Macros", () => {
       { name: "\\d", definition: "\\mathrm{d}" },
       { name: "\\eps", definition: "\\epsilon" },
     ]);
-    // Spanish vocabulary's own are the two its Import added.
+    // Spanish vocabulary's own are its \pl and the two its Import added.
     expect((await deckOf(D.spanish)).macros).toEqual([
+      { name: "\\pl", definition: "\\textsf{\\small pl.}" },
       { name: "\\m", definition: "\\textsf{\\small m.}" },
       { name: "\\f", definition: "\\textsf{\\small f.}" },
     ]);
@@ -476,7 +477,7 @@ describe("banki seed's Import", () => {
     expect(report.macros.map((entry) => [entry.name, entry.outcome])).toEqual([
       ["\\m", "added"],
       ["\\f", "added"],
-      ["\\eps", "kept"],
+      ["\\pl", "kept"],
     ]);
   });
 

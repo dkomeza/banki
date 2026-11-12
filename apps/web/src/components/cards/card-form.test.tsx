@@ -28,6 +28,7 @@ const DECK: Deck = {
   desiredRetention: null,
   macros: [],
   answerMode: null,
+  plan: null,
 };
 
 const SETTINGS: SettingsResponse = {
