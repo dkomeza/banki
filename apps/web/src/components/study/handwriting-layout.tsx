@@ -1,28 +1,73 @@
-import { ChevronDown, ChevronUp } from "lucide-react";
-import { useState } from "react";
-import { CardText } from "@/components/cards/card-text";
+import { useRef, useState } from "react";
+import { FoldedNote, NOTE_HEADER, Note } from "@/components/study/handwriting-note";
 import {
+  clamp,
   type Handwriting,
   InkCanvas,
+  NOTE_SCALE,
   ToolBar,
+  useDrag,
   useInk,
-  useOverflows,
+  useNoteFrame,
+  useSize,
 } from "@/components/study/handwriting-proto";
-import { cn } from "@/lib/utils";
 
-// PROTOTYPE (BAN-45), Variant c, "Note": the canvas is the whole screen
-// between the top bar and the dock, on grid paper, and the Front is a note
-// pinned over its top-left corner (across the top below 1024 px, 26 rem wide
-// from there). The note scrolls on its own when the Front is long, up to 45%
-// of the screen, and folds away to a one-line tab with its first words, which
-// opens it again. The canvas pans under it, so nothing written is ever lost
-// behind it. The tool bar is a column floating at the canvas's right edge,
-// where the hand that isn't writing reaches it.
+// PROTOTYPE (BAN-45), Variant d, "Free note": Variant c's full-screen grid
+// canvas, with the Front as a note that goes wherever it's put. Its header
+// moves it anywhere over the canvas, and the handle at its bottom-right corner
+// scales it, like a picture: the type, Formulas and Image grow and shrink with
+// it, from 60% to 200%. Ctrl+wheel (a trackpad's pinch) scales it too. It
+// stays where it was left from Card to Card. It folds away to a one-line tab
+// where it sits, and a wheel or a finger over it scrolls the Front, never the
+// canvas.
+
+type Frame = { x: number; y: number; scale: number | null; folded: boolean };
 
 export function HandwritingView({ hw }: { hw: Handwriting }) {
   const ink = useInk(hw.state === "ink-written");
-  const [folded, setFolded] = useState(false);
-  const [noteRef, note] = useOverflows<HTMLDivElement>();
+  const [areaRef, area] = useSize<HTMLDivElement>();
+  const [frame, setFrame] = useNoteFrame<Frame>("d", { x: 12, y: 12, scale: null, folded: false });
+  const [lifted, setLifted] = useState(false);
+  const from = useRef(frame);
+
+  const wide = area.w >= 1000;
+  // At 100% the note is Variant c's: 26 rem from 1024 px, across the top
+  // below, clear of the tool bar.
+  const base = wide ? 416 : Math.max(240, area.w - 24 - 56);
+  const scale = clamp(
+    frame.scale ?? 1,
+    NOTE_SCALE.min,
+    Math.min(NOTE_SCALE.max, (area.w - 16) / base),
+  );
+  const width = base * scale;
+  const x = clamp(frame.x, 64 - width, area.w - 64);
+  const y = clamp(frame.y, 0, area.h - NOTE_HEADER);
+  const maxHeight = Math.max(96, Math.min(area.h * 0.45 * scale, area.h - y - NOTE_HEADER - 12));
+
+  const begin = () => {
+    from.current = { ...frame, x, y, scale };
+    setLifted(true);
+  };
+  const end = () => setLifted(false);
+  const move = useDrag(
+    (dx, dy) => setFrame((f) => ({ ...f, x: from.current.x + dx, y: from.current.y + dy })),
+    end,
+    begin,
+  );
+  const resize = useDrag(
+    (dx, dy) => {
+      const start = from.current.scale ?? 1;
+      // Along the diagonal: whichever way the corner went further.
+      const grow = Math.abs(dx) >= Math.abs(dy) ? dx : dy * (base / 260);
+      setFrame((f) => ({
+        ...f,
+        scale: clamp((base * start + grow) / base, NOTE_SCALE.min, NOTE_SCALE.max),
+      }));
+    },
+    end,
+    begin,
+  );
+
   return (
     <InkCanvas
       ink={ink}
@@ -30,59 +75,50 @@ export function HandwritingView({ hw }: { hw: Handwriting }) {
       sample={hw.state === "ink-written"}
       className="flex-1 bg-card"
     >
-      <section
-        aria-label="Front"
-        className="pointer-events-none absolute inset-x-3 top-3 flex flex-col items-start sm:inset-x-4 lg:right-auto lg:left-6 lg:w-[26rem]"
-      >
-        {folded && (
-          <button
-            type="button"
-            aria-expanded={false}
-            onClick={() => setFolded(false)}
-            className="pointer-events-auto flex h-11 max-w-[min(100%,calc(100vw-6rem))] items-center gap-2 rounded-full border bg-background/95 pr-3 pl-4 text-sm font-medium shadow-sm backdrop-blur outline-none hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring lg:h-9"
-          >
-            <span className="min-w-0 truncate">
-              <CardText text={firstLine(hw.front)} className="inline" />
-            </span>
-            <ChevronDown aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-            <span className="sr-only">Show the Front</span>
-          </button>
-        )}
-        <div
-          className={cn(
-            "pointer-events-auto relative flex max-h-[45svh] w-full flex-col overflow-hidden rounded-2xl border bg-background/95 shadow-[0_12px_32px_-16px_rgb(0_0_0/0.35)] backdrop-blur max-lg:w-[calc(100%-3.5rem)]",
-            folded && "hidden",
-          )}
-        >
-          <div
-            ref={noteRef}
-            // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a note that scrolls on its own takes the keyboard too
-            tabIndex={note.overflows ? 0 : undefined}
-            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pt-4 pb-3 outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
-          >
-            <CardText
-              text={hw.front}
-              className="text-lg leading-snug font-medium tracking-[-0.01em] lg:text-xl [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden [&_img]:max-h-48 [&_img]:rounded-md"
+      <div ref={areaRef} className="pointer-events-none absolute inset-0">
+        {area.w > 0 &&
+          (frame.folded ? (
+            <FoldedNote
+              front={hw.front}
+              onOpen={() => setFrame((f) => ({ ...f, folded: false }))}
+              style={{ left: Math.max(8, x), top: y }}
             />
-          </div>
-          <div
-            className={cn(
-              "flex shrink-0 justify-end px-1.5 pb-1.5",
-              note.overflows && !note.atEnd && "border-t",
-            )}
-          >
-            <button
-              type="button"
-              aria-expanded
-              onClick={() => setFolded(true)}
-              className="flex h-11 items-center gap-1 rounded-full pr-3 pl-2 text-sm font-medium text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring lg:h-8"
-            >
-              <ChevronUp aria-hidden className="size-4" />
-              Fold away
-            </button>
-          </div>
-        </div>
-      </section>
+          ) : (
+            <Note
+              front={hw.front}
+              scale={scale}
+              width={width}
+              maxHeight={maxHeight}
+              move={move}
+              resize={resize}
+              lifted={lifted}
+              onScaleWheel={(event) =>
+                setFrame((f) => ({
+                  ...f,
+                  scale: clamp(
+                    scale * Math.exp(-event.deltaY * 0.01),
+                    NOTE_SCALE.min,
+                    NOTE_SCALE.max,
+                  ),
+                }))
+              }
+              tools={
+                scale !== 1 && (
+                  <button
+                    type="button"
+                    title="Back to 100%"
+                    onClick={() => setFrame((f) => ({ ...f, scale: 1 }))}
+                    className="flex h-11 items-center rounded-full px-2 text-xs font-medium text-muted-foreground tabular-nums outline-none hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring lg:h-8"
+                  >
+                    {Math.round(scale * 100)}%
+                  </button>
+                )
+              }
+              onFold={() => setFrame((f) => ({ ...f, folded: true }))}
+              style={{ left: x, top: y }}
+            />
+          ))}
+      </div>
       <div className="pointer-events-none absolute inset-y-0 right-2 flex items-center lg:right-4">
         <ToolBar
           ink={ink}
@@ -92,9 +128,4 @@ export function HandwritingView({ hw }: { hw: Handwriting }) {
       </div>
     </InkCanvas>
   );
-}
-
-/** The Front's first line, for the folded tab. */
-function firstLine(front: string): string {
-  return front.split("\n").find((line) => line.trim() !== "") ?? front;
 }
