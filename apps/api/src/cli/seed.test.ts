@@ -10,6 +10,7 @@ import {
   DEFAULT_MODEL_ID,
   DeckResponse,
   DeletionListResponse,
+  ImportHistoryResponse,
   FolderListResponse,
   FolderResponse,
   RestoreResponse,
@@ -478,6 +479,29 @@ describe("banki seed's Import", () => {
       ["\\eps", "kept"],
     ]);
   });
+
+  test("beside an older one, undone, which Past imports shows with it", async () => {
+    await setup();
+    await seed({ BANKI_SEED_NOW: "2026-10-26T12:00:00.000Z" });
+
+    const { app } = boot();
+    const cookie = cookiesFrom(await signIn(app));
+    const history = ImportHistoryResponse.parse(
+      await (await get(app, `/api/decks/${SEED_IDS.decks.spanish}/imports`, cookie)).json(),
+    );
+    expect(history.map((e) => [e.id, e.imported, e.live, e.undoneAt])).toEqual([
+      [SEED_IDS.import, 5, 5, null],
+      [SEED_IDS.undoneImport, 6, 0, "2026-10-24T13:00:00.000Z"],
+    ]);
+    const report = ImportReportResponse.parse(
+      await (await get(app, `/api/imports/${SEED_IDS.undoneImport}`, cookie)).json(),
+    );
+    expect(report).toMatchObject({
+      imported: 6,
+      live: 0,
+      undoDeletionId: SEED_IDS.deletions.verbos,
+    });
+  });
 });
 
 describe("banki seed's Reviews", () => {
@@ -573,6 +597,7 @@ describe("banki seed's Deletions", () => {
       D.physics,
       D.madrugada,
       D.statistics,
+      D.verbos,
       D.spanish,
       D.oldSemester,
       D.linearAlgebra,
@@ -586,6 +611,11 @@ describe("banki seed's Deletions", () => {
       counts: { folders: 1, decks: 2, cards: 30 },
     });
     expect(byId(D.madrugada)?.deck?.id).toBe(SEED_IDS.decks.spanish);
+    expect(byId(D.verbos)).toMatchObject({
+      top: { kind: "import", id: SEED_IDS.undoneImport, name: "verbos-irregulares.json" },
+      deck: { id: SEED_IDS.decks.spanish },
+      counts: { cards: 6 },
+    });
     expect(byId(D.calculus1)).toMatchObject({
       path: ["Maths", "Analysis"],
       removesAt: "2026-10-27T10:00:00.000Z",

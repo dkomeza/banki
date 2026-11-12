@@ -9,8 +9,10 @@ import { applyMigrations } from "../db/migrate";
 import { makeZip } from "../testing/zip";
 import { type CardRepository, createCardRepository } from "./cards";
 import { type DeckRepository, createDeckRepository } from "./decks";
+import { createDeletionRepository } from "./deletions";
 import { createImageRepository } from "./images";
 import { type ImportRepository, createImportRepository, hasImports } from "./imports";
+import { createReviewRepository } from "./reviews";
 import { createUserRepository } from "./user";
 
 let tempDir: string;
@@ -324,6 +326,170 @@ describe("confirm", () => {
       invalid: [{ number: 2 }],
       confirmedAt: NOW.toISOString(),
     });
+  });
+});
+
+describe("history", () => {
+  test("lists the Deck's confirmed Imports newest first, with what each added and what is still live", () => {
+    const older = create(fileText([card("a"), card("b"), card("c")]));
+    confirm(older, asRead(older), new Date(NOW.getTime() - 2 * HOUR_MS));
+    const newer = create(fileText([card("d")]));
+    confirm(newer, asRead(newer), new Date(NOW.getTime() - HOUR_MS));
+    create(fileText([card("unconfirmed")]));
+    const [first] = deckCards().filter((c) => c.front === "a");
+    cards.softDelete(USER, first!.id, NOW);
+
+    expect(imports.history(USER, deckId)).toEqual([
+      {
+        id: newer,
+        fileName: "pasted JSON",
+        source: "paste",
+        confirmedAt: new Date(NOW.getTime() - HOUR_MS).toISOString(),
+        imported: 1,
+        live: 1,
+        undoneAt: null,
+      },
+      {
+        id: older,
+        fileName: "pasted JSON",
+        source: "paste",
+        confirmedAt: new Date(NOW.getTime() - 2 * HOUR_MS).toISOString(),
+        imported: 3,
+        live: 2,
+        undoneAt: null,
+      },
+    ]);
+  });
+
+  test("counts a moved Card as still live, and an undone Import's as none", () => {
+    const id = create(fileText([card("a"), card("b")]));
+    confirm(id, asRead(id));
+    const other = decks.create(USER, { name: "Other", description: null, folderId: null });
+    if (typeof other === "string") throw new Error(other);
+    cards.move(USER, [deckCards()[0]!.id], other.id);
+    expect(imports.history(USER, deckId)).toMatchObject([{ imported: 2, live: 2 }]);
+
+    imports.undo(USER, id, { now: NOW });
+    expect(imports.history(USER, deckId)).toMatchObject([
+      { imported: 2, live: 0, undoneAt: NOW.toISOString() },
+    ]);
+  });
+
+  test("is not found for a deleted Deck, an unknown one and another User's", () => {
+    expect(imports.history(USER, "nope")).toBe("not_found");
+    expect(imports.history(OTHER, deckId)).toBe("not_found");
+    decks.softDelete(USER, deckId);
+    expect(imports.history(USER, deckId)).toBe("not_found");
+  });
+});
+
+describe("undo", () => {
+  test("soft-deletes every live Card the Import added as one Deletion, recorded on the Import", () => {
+    const id = create(fileText([card("a"), card("b")], [{ name: "\\m", definition: "m" }]));
+    confirm(id, asRead(id));
+    const undone = imports.undo(USER, id, { now: NOW, deletionId: "del-1" });
+
+    expect(undone).toEqual({ deletionId: "del-1", cards: 2 });
+    expect(deckCards()).toEqual([]);
+    expect(opened.db.values(sql`SELECT deletion_id, deleted_at FROM card`)).toEqual([
+      ["del-1", NOW.getTime()],
+      ["del-1", NOW.getTime()],
+    ]);
+    expect(imports.find(USER, id)).toMatchObject({
+      live: 0,
+      undoneAt: NOW.toISOString(),
+      undoDeletionId: "del-1",
+    });
+    // The Macros it added stay.
+    expect(decks.find(USER, deckId)).toMatchObject({ macros: [{ name: "\\m", definition: "m" }] });
+  });
+
+  test("takes moved, edited and studied Cards too, counted beforehand; one deleted on its own keeps its Deletion", () => {
+    const id = create(fileText([card("a"), card("b"), card("c"), card("d"), card("e")]));
+    confirm(id, asRead(id), new Date(NOW.getTime() - 2 * HOUR_MS));
+    const byFront = new Map(deckCards().map((c) => [c.front, c.id]));
+    const other = decks.create(USER, { name: "Other", description: null, folderId: null });
+    if (typeof other === "string") throw new Error(other);
+    cards.move(USER, [byFront.get("a")!], other.id, new Date(NOW.getTime() - HOUR_MS));
+    cards.update(USER, byFront.get("b")!, { back: "edited" }, new Date(NOW.getTime() - HOUR_MS));
+    const rated = createReviewRepository(opened.db).rate(
+      USER,
+      byFront.get("c")!,
+      { rating: "good", durationMs: 1000 },
+      { now: new Date(NOW.getTime() - HOUR_MS) },
+    );
+    if (rated === "not_found") throw new Error("not rated");
+    const own = cards.softDelete(USER, byFront.get("e")!, NOW, "own");
+
+    // A Card moved counts as changed as well: its updatedAt moves with it.
+    expect(imports.find(USER, id)).toMatchObject({ live: 4, studied: 1, edited: 2, moved: 1 });
+    expect(imports.undo(USER, id, { now: NOW, deletionId: "undo" })).toEqual({
+      deletionId: "undo",
+      cards: 4,
+    });
+    const rows = opened.db.values(sql`SELECT front, deletion_id FROM card ORDER BY front`);
+    expect(rows).toEqual([
+      ["a", "undo"],
+      ["b", "undo"],
+      ["c", "undo"],
+      ["d", "undo"],
+      ["e", own],
+    ]);
+    // Its Reviews stay.
+    expect(opened.db.values(sql`SELECT card_id FROM review`)).toEqual([[byFront.get("c")]]);
+  });
+
+  test("counts a studied Card whose progress was reset by its Reviews", () => {
+    const id = create(fileText([card("a")]));
+    confirm(id, asRead(id), new Date(NOW.getTime() - 2 * HOUR_MS));
+    const [one] = deckCards();
+    const rated = createReviewRepository(opened.db).rate(
+      USER,
+      one!.id,
+      { rating: "good", durationMs: 1000 },
+      { now: new Date(NOW.getTime() - HOUR_MS) },
+    );
+    if (rated === "not_found") throw new Error("not rated");
+    cards.update(USER, one!.id, { resetProgress: true }, NOW);
+    expect(imports.find(USER, id)).toMatchObject({ studied: 1 });
+  });
+
+  test("with no live Card is nothing to undo, and changes nothing", () => {
+    const empty = create(fileText([card("a")]));
+    confirm(empty, []);
+    expect(imports.undo(USER, empty)).toBe("nothing_to_undo");
+
+    const id = create(fileText([card("b")]));
+    confirm(id, asRead(id));
+    imports.undo(USER, id, { now: NOW, deletionId: "first" });
+    expect(imports.undo(USER, id, { deletionId: "second" })).toBe("nothing_to_undo");
+    expect(imports.find(USER, id)).toMatchObject({ undoDeletionId: "first" });
+  });
+
+  test("is not found for an unconfirmed Import, an unknown one and another User's", () => {
+    const id = create(fileText([card("a")]));
+    expect(imports.undo(USER, id)).toBe("not_found");
+    expect(imports.undo(USER, "nope")).toBe("not_found");
+    confirm(id, asRead(id));
+    expect(imports.undo(OTHER, id)).toBe("not_found");
+    expect(deckCards()).toHaveLength(1);
+  });
+
+  test("can undo again after a Restore, as a new Deletion", () => {
+    const id = create(fileText([card("a"), card("b")]));
+    confirm(id, asRead(id));
+    imports.undo(USER, id, { now: NOW, deletionId: "first" });
+    const deletions = createDeletionRepository(opened.db);
+    expect(deletions.restore(USER, "first")).toMatchObject({ kind: "import", id });
+
+    expect(imports.find(USER, id)).toMatchObject({ live: 2, undoneAt: null, undoDeletionId: null });
+    // Neither the Undo nor the Restore counts as an edit.
+    expect(imports.find(USER, id)).toMatchObject({ edited: 0 });
+    expect(imports.undo(USER, id, { deletionId: "second" })).toEqual({
+      deletionId: "second",
+      cards: 2,
+    });
+    expect(imports.find(USER, id)).toMatchObject({ live: 0, undoDeletionId: "second" });
   });
 });
 

@@ -717,6 +717,65 @@ function importSeed(
   if (typeof confirmed === "string") throw new Error(`The seed Import is ${confirmed}`);
 }
 
+/** The undone Import's file: six irregular verbs, every one imported. */
+const UNDONE_IMPORT_FILE = {
+  $schema: null,
+  format: "banki",
+  version: 1,
+  macros: [],
+  cards: [
+    ["tener", "to have (tengo, tienes)"],
+    ["hacer", "to do, to make (hago, haces)"],
+    ["poder", "to be able to (puedo, puedes)"],
+    ["decir", "to say (digo, dices)"],
+    ["venir", "to come (vengo, vienes)"],
+    ["salir", "to go out (salgo, sales)"],
+  ].map(([front, back]) => ({ front, back, tags: ["a2", "verb"], gradingNotes: null })),
+};
+
+/** Reads, confirms and then undoes an older Import into the seed Deck. */
+function undoneImportSeed(
+  db: Queryable,
+  userId: string,
+  importsDir: string,
+  uploadsDir: string,
+  now: Date,
+) {
+  const imports = createImportRepository(db, importsDir, uploadsDir);
+  const id = SEED_IDS.undoneImport;
+  const created = imports.create(
+    userId,
+    SEED_IDS.deck,
+    {
+      bytes: new TextEncoder().encode(JSON.stringify(UNDONE_IMPORT_FILE)),
+      kind: "file",
+      fileName: "verbos-irregulares.json",
+    },
+    { id, now: new Date(now.getTime() - 50 * HOUR_MS) },
+  );
+  if (created === "not_found" || "problems" in created) {
+    throw new Error(`The undone seed Import is ${JSON.stringify(created)}`);
+  }
+  const preview = imports.find(userId, id);
+  if (preview?.status !== "unconfirmed")
+    throw new Error("The undone seed Import isn't unconfirmed");
+  const ticked = preview.cards.map((one) => {
+    const { duplicateOf: _, ...read } = one;
+    return read;
+  });
+  const imported: Record<number, string> = SEED_IDS.cards.undoneImport;
+  const confirmed = imports.confirm(userId, id, ticked, {
+    now: new Date(now.getTime() - 50 * HOUR_MS + 2 * 60 * 1000),
+    cardIdFor: (number) => imported[number] ?? `unknown-${number}`,
+  });
+  if (typeof confirmed === "string") throw new Error(`The undone seed Import is ${confirmed}`);
+  const undone = imports.undo(userId, id, {
+    now: new Date(now.getTime() - 47 * HOUR_MS),
+    deletionId: SEED_IDS.deletions.verbos,
+  });
+  if (typeof undone === "string") throw new Error(`The undone seed Import is ${undone}`);
+}
+
 /**
  * Writes the Seed data for `userId` through the repositories, timed relative
  * to `now`, its Image stored in `uploadsDir` and its Import read through
@@ -803,6 +862,7 @@ export function writeSeedData({
   }
 
   importSeed(db, userId, importsDir, uploadsDir, now);
+  undoneImportSeed(db, userId, importsDir, uploadsDir, now);
 
   deletions.rest();
 
