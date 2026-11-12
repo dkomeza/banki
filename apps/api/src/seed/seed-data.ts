@@ -104,6 +104,8 @@ const SETTINGS_MACROS = [
   { name: "\\abs", definition: "\\left| #1 \\right|" },
   { name: "\\eps", definition: "\\varepsilon" },
 ];
+/** Spanish vocabulary's own Macro, before its Import adds \m and \f. */
+const SPANISH_MACROS = [{ name: "\\pl", definition: "\\textsf{\\small pl.}" }];
 const CALCULUS_2_MACROS = [
   { name: "\\d", definition: "\\mathrm{d}" },
   { name: "\\eps", definition: "\\epsilon" },
@@ -618,8 +620,8 @@ function deletedSeed(db: Queryable, userId: string, now: Date) {
 
 /**
  * The Import's file: market and café words for Spanish vocabulary, from a zip,
- * with \m and \f for gender (added to the Deck) and an \eps the Deck has
- * from Settings defined differently (kept). Card 3 repeats one of the Deck's,
+ * with \m and \f for gender (added to the Deck) and a \pl the Deck has of
+ * its own defined differently (kept). Card 3 repeats one of the Deck's,
  * card 4 has no Back, card 6 refers to an image the zip didn't hold, and
  * card 7 is left out.
  */
@@ -630,7 +632,7 @@ const IMPORT_FILE = {
   macros: [
     { name: "\\m", definition: "\\textsf{\\small m.}" },
     { name: "\\f", definition: "\\textsf{\\small f.}" },
-    { name: "\\eps", definition: "\\epsilon" },
+    { name: "\\pl", definition: "\\textsf{pl.}" },
   ],
   cards: [
     {
@@ -828,6 +830,8 @@ export function writeSeedData({
     macros: CALCULUS_2_MACROS,
     answerMode: "write",
   });
+  // Spanish vocabulary has a \pl of its own, which its Import keeps.
+  decks.update(userId, SEED_IDS.decks.spanish, { macros: SPANISH_MACROS });
 
   const stored = createImageRepository(db, uploadsDir).store(userId, readFileSync(IMAGE.file), {
     id: IMAGE.id,

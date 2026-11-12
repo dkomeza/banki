@@ -1,9 +1,10 @@
-import { inflateRawSync } from "node:zlib";
+import { crc32, deflateRawSync, inflateRawSync } from "node:zlib";
 
 // A reader of zip archives, enough for an Import's `.zip` (ADR-0026): the
 // central directory's entries, and each one's bytes, stored or deflated. It
 // trusts nothing the archive says: every offset is checked against the
-// archive, and inflating stops at the size the entry claims.
+// archive, and inflating stops at the size the entry claims. Beside it, the
+// writer of an export's `.zip` (BAN-34), which the reader reads back.
 
 /** One file in a zip: its path, and its sizes as the central directory gives them. */
 export type ZipEntry = {
@@ -116,6 +117,99 @@ export function zipEntryBytes(bytes: Uint8Array, entry: ZipEntry): Uint8Array {
   }
   if (out.length !== entry.size) {
     throw new ZipError(`This zip can't be read: ${entry.name} is damaged`);
+  }
+  return out;
+}
+
+/** A file to write into a zip: its path, its bytes, and whether to deflate them or store them as they are. */
+export type ZipInput = { name: string; data: Uint8Array; deflate: boolean };
+
+/** The most entries, and bytes, a zip without Zip64 can hold. */
+const ZIP_MAX_ENTRIES = 0xffff;
+const ZIP_MAX_BYTES = 0xffffffff;
+
+/** Bit 11 of an entry's flags: its name is UTF-8. */
+const UTF8_NAME = 1 << 11;
+
+/** `date` as MS-DOS writes it, in local time, 1980 at the earliest: its time and its date. */
+function dosDateTime(date: Date): { time: number; date: number } {
+  const year = Math.max(date.getFullYear(), 1980);
+  return {
+    time: (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2),
+    date: ((year - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate(),
+  };
+}
+
+/**
+ * A zip archive of `files`, in their order, each dated `modified`: what the
+ * reader above reads and other tools open. Each is deflated or stored as it
+ * says, with its CRC and its name in UTF-8. No Zip64, so more than 65,535
+ * files, or 4 GB, is an error.
+ */
+export function writeZip(
+  files: readonly ZipInput[],
+  modified = new Date(),
+): Uint8Array<ArrayBuffer> {
+  if (files.length >= ZIP_MAX_ENTRIES) throw new Error("A zip without Zip64 holds fewer files");
+  const encoder = new TextEncoder();
+  const { time, date } = dosDateTime(modified);
+  const locals: Uint8Array[] = [];
+  const centrals: Uint8Array[] = [];
+  let offset = 0;
+  for (const file of files) {
+    const name = encoder.encode(file.name);
+    const data = file.deflate ? new Uint8Array(deflateRawSync(file.data)) : file.data;
+    const crc = crc32(file.data);
+    const method = file.deflate ? DEFLATED : STORED;
+    // The fields a local header and its central directory entry share, from "version needed" on.
+    const shared = (view: DataView, at: number) => {
+      view.setUint16(at, 20, true);
+      view.setUint16(at + 2, UTF8_NAME, true);
+      view.setUint16(at + 4, method, true);
+      view.setUint16(at + 6, time, true);
+      view.setUint16(at + 8, date, true);
+      view.setUint32(at + 10, crc, true);
+      view.setUint32(at + 14, data.length, true);
+      view.setUint32(at + 18, file.data.length, true);
+      view.setUint16(at + 22, name.length, true);
+    };
+
+    const local = new Uint8Array(30 + name.length);
+    const lv = new DataView(local.buffer);
+    lv.setUint32(0, LOCAL_SIGNATURE, true);
+    shared(lv, 4);
+    local.set(name, 30);
+
+    const central = new Uint8Array(46 + name.length);
+    const cv = new DataView(central.buffer);
+    cv.setUint32(0, CENTRAL_SIGNATURE, true);
+    cv.setUint16(4, 20, true);
+    shared(cv, 6);
+    cv.setUint32(42, offset, true);
+    central.set(name, 46);
+
+    locals.push(local, data);
+    centrals.push(central);
+    offset += local.length + data.length;
+    if (offset > ZIP_MAX_BYTES) throw new Error("A zip without Zip64 holds up to 4 GB");
+  }
+  const directorySize = centrals.reduce((sum, central) => sum + central.length, 0);
+  if (offset + directorySize > ZIP_MAX_BYTES) {
+    throw new Error("A zip without Zip64 holds up to 4 GB");
+  }
+  const end = new Uint8Array(22);
+  const ev = new DataView(end.buffer);
+  ev.setUint32(0, EOCD_SIGNATURE, true);
+  ev.setUint16(8, files.length, true);
+  ev.setUint16(10, files.length, true);
+  ev.setUint32(12, directorySize, true);
+  ev.setUint32(16, offset, true);
+
+  const out = new Uint8Array(offset + directorySize + end.length);
+  let at = 0;
+  for (const part of [...locals, ...centrals, end]) {
+    out.set(part, at);
+    at += part.length;
   }
   return out;
 }

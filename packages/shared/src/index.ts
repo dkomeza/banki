@@ -78,6 +78,7 @@ export {
   CARD_FILE_VERSION,
   CardFile,
   CardFileCard,
+  cardFileSchemaUrl,
   CardFileMacro,
   NEWER_BANKI_MESSAGE,
   NOT_A_CARD_FILE_MESSAGE,
@@ -158,6 +159,20 @@ export {
   SettingsResponse,
   Timezone,
 } from "./settings";
+export {
+  DAILY_MINUTES_MAX,
+  DAILY_MINUTES_MIN,
+  DailyMinutes,
+  Deadline,
+  DEADLINE_MAX_YEARS,
+  deadlineProblem,
+  lastDeadline,
+  NEEDED_MINUTES_STEP,
+  PlanCheckQuery,
+  PlanCheckResponse,
+  PlanResponse,
+  PutPlanRequest,
+} from "./plans";
 export {
   CARD_STATES,
   CardSchedule,

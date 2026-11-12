@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { Macro, MacroList } from "./macros";
+import { PlanResponse } from "./plans";
 import { DesiredRetention } from "./scheduling";
 
 /**
@@ -98,6 +99,7 @@ export type NameClashError = z.infer<typeof NameClashError>;
  * `desiredRetention` is its own, or null while it follows Settings. `macros`
  * are its own Macros, [] for none, which its Cards use on top of Settings'.
  * `answerMode` is its own Answer mode, or null while it follows Settings.
+ * `plan` is its Plan, or null when it has none.
  */
 export const DeckResponse = z.object({
   id: z.string(),
@@ -109,6 +111,7 @@ export const DeckResponse = z.object({
   desiredRetention: z.number().int().nullable(),
   macros: z.array(Macro),
   answerMode: AnswerMode.nullable(),
+  plan: PlanResponse.nullable(),
 });
 export type DeckResponse = z.infer<typeof DeckResponse>;
 

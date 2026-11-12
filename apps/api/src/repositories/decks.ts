@@ -40,6 +40,13 @@ const COLUMNS = {
     sql<number>`(SELECT count(*) FROM "card" WHERE "card"."deck_id" = "deck"."id" AND "card"."user_id" = "deck"."user_id" AND "card"."deleted_at" IS NULL)`.mapWith(
       Number,
     ),
+  /** Its Plan's Deadline and Daily goal, null without one. */
+  planDeadline: sql<
+    string | null
+  >`(SELECT "plan"."deadline" FROM "plan" WHERE "plan"."deck_id" = "deck"."id" AND "plan"."user_id" = "deck"."user_id")`,
+  planDailyMinutes: sql<
+    number | null
+  >`(SELECT "plan"."daily_minutes" FROM "plan" WHERE "plan"."deck_id" = "deck"."id" AND "plan"."user_id" = "deck"."user_id")`,
 } as const;
 
 type Row = {
@@ -52,9 +59,18 @@ type Row = {
   macros: Macro[];
   answerMode: AnswerMode | null;
   cardCount: number;
+  planDeadline: string | null;
+  planDailyMinutes: number | null;
 };
 
-const toDeck = (row: Row): Deck => ({ ...row, createdAt: row.createdAt.toISOString() });
+const toDeck = ({ planDeadline, planDailyMinutes, ...row }: Row): Deck => ({
+  ...row,
+  createdAt: row.createdAt.toISOString(),
+  plan:
+    planDeadline === null || planDailyMinutes === null
+      ? null
+      : { deadline: planDeadline, dailyMinutes: planDailyMinutes },
+});
 
 /** The User's Deck `id`, unless it is deleted. */
 const live = (userId: string, id: string) =>
@@ -165,6 +181,8 @@ export function createDeckRepository(db: Queryable) {
             macros: [],
             answerMode: null,
             cardCount: 0,
+            planDeadline: null,
+            planDailyMinutes: null,
           });
         },
         { behavior: "immediate" },

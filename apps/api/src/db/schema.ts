@@ -7,6 +7,8 @@
 import {
   ANSWER_MODES,
   CARD_STATES,
+  DAILY_MINUTES_MAX,
+  DAILY_MINUTES_MIN,
   DEFAULT_ANSWER_MODE,
   DEFAULT_DAY_START_HOUR,
   DEFAULT_DESIRED_RETENTION,
@@ -444,5 +446,36 @@ export const parameter_tuning = sqliteTable(
     check("parameter_tuning_trigger", sql`${table.trigger} IN (${sqlList(TUNING_TRIGGERS)})`),
     check("parameter_tuning_outcome", sql`${table.outcome} IN (${sqlList(TUNING_OUTCOMES)})`),
     index("parameter_tuning_user_id").on(table.userId),
+  ],
+);
+
+/**
+ * The User's Plans (CONTEXT.md: Plan; ADR-0031): a Deadline and a Daily goal
+ * for a Deck, one per Deck for now. `deadline` is the Study day itself
+ * (`YYYY-MM-DD`), read with the Timezone and Day start as they are. A Deck's
+ * delete leaves its Plan, so a Restore brings it back; its Removal deletes it.
+ */
+export const plan = sqliteTable(
+  "plan",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    deckId: text("deck_id")
+      .notNull()
+      .references(() => deck.id, { onDelete: "cascade" }),
+    deadline: text("deadline").notNull(),
+    dailyMinutes: integer("daily_minutes").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    check(
+      "plan_daily_minutes",
+      sql`${table.dailyMinutes} BETWEEN ${sql.raw(String(DAILY_MINUTES_MIN))} AND ${sql.raw(String(DAILY_MINUTES_MAX))}`,
+    ),
+    uniqueIndex("plan_deck_id").on(table.deckId),
+    index("plan_user_id").on(table.userId),
   ],
 );
