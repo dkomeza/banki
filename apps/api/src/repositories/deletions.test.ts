@@ -66,8 +66,28 @@ const makeDeck = (name: string, folderId: string | null = null, userId = USER, n
 
 const write = (deckId: string, front: string, userId = USER) => {
   const created = cards.create(userId, deckId, { front, back: "b" });
-  if (typeof created === "string") throw new Error(`${front}: ${created}`);
+  if (typeof created === "string" || "deckFull" in created)
+    throw new Error(`${front}: ${JSON.stringify(created)}`);
   return created.id;
+};
+
+/** Puts `n` live Cards straight into the Deck `deckId`, as if they were written one by one. */
+const fill = (deckId: string, n: number) => {
+  const now = new Date("2026-09-01T00:00:00.000Z");
+  opened.db
+    .insert(card)
+    .values(
+      Array.from({ length: n }, (_, i) => ({
+        id: `filled-${deckId}-${i}`,
+        userId: USER,
+        deckId,
+        front: `filled ${i}`,
+        back: "b",
+        createdAt: now,
+        updatedAt: now,
+      })),
+    )
+    .run();
 };
 
 const deleted = (id: string | undefined) => {
@@ -300,7 +320,7 @@ describe("restore", () => {
     makeDeck(long);
 
     const restored = deletions.restore(USER, id);
-    if (typeof restored === "string" || "placeDeleted" in restored) throw new Error("refused");
+    if (typeof restored === "string" || !("kind" in restored)) throw new Error("refused");
     expect(restored.name).toBe(`${"x".repeat(96)} (2)`);
   });
 
@@ -639,5 +659,99 @@ describe("an Import's Undo", () => {
     expect(second.cardIds.map(cardRow)).toEqual([undefined]);
     expect(importRow(second.importId)).toMatchObject({ undoneAt: NOW, undoDeletionId: "second" });
     expect(deletions.list(USER)).toEqual([]);
+  });
+  test("refuses a Restore, all or none, when a Deck its Cards are in has no room, naming the first by name", () => {
+    const spanish = makeDeck("Spanish");
+    const verbs = makeDeck("Verbs");
+    const archive = makeDeck("Archive");
+    const { importId, cardIds, undo } = undoneImport(spanish, ["a", "b", "c", "d"]);
+    cards.move(USER, [cardIds[0]!, cardIds[1]!], verbs);
+    cards.move(USER, [cardIds[2]!], archive);
+    undo();
+    fill(verbs, 999);
+    fill(archive, 1000);
+
+    // Both lack room; Archive comes before Verbs by name.
+    expect(deletions.restore(USER, "undo")).toEqual({
+      deckFull: { id: archive, name: "Archive", room: 0 },
+    });
+    cards.softDelete(USER, `filled-${archive}-0`);
+    expect(deletions.restore(USER, "undo")).toEqual({
+      deckFull: { id: verbs, name: "Verbs", room: 1 },
+    });
+    expect(cardIds.map((id) => cardRow(id)?.deletionId)).toEqual(["undo", "undo", "undo", "undo"]);
+    expect(importRow(importId)).toMatchObject({ undoDeletionId: "undo" });
+
+    cards.softDelete(USER, `filled-${verbs}-0`);
+    expect(deletions.restore(USER, "undo")).toMatchObject({ kind: "import", id: importId });
+  });
+
+  test("refuses place_deleted before deck_full", () => {
+    const spanish = makeDeck("Spanish");
+    const other = makeDeck("Other");
+    const { cardIds, undo } = undoneImport(spanish, ["a", "b"]);
+    cards.move(USER, [cardIds[0]!], other);
+    undo();
+    fill(spanish, 1000);
+    decks.softDelete(USER, other);
+
+    expect(deletions.restore(USER, "undo")).toEqual({ placeDeleted: { id: other, name: "Other" } });
+  });
+});
+
+describe("the Card limit (ADR-0032)", () => {
+  test("refuses a Card's Restore into a Deck with no room, naming it", () => {
+    const deckId = makeDeck("Spanish");
+    const id = deleted(cards.softDelete(USER, write(deckId, "one")));
+    fill(deckId, 1000);
+
+    expect(deletions.restore(USER, id)).toEqual({
+      deckFull: { id: deckId, name: "Spanish", room: 0 },
+    });
+    expect(deletions.list(USER)).toHaveLength(1);
+  });
+
+  test("refuses place_deleted before deck_full", () => {
+    const deckId = makeDeck("Spanish");
+    const id = deleted(cards.softDelete(USER, write(deckId, "one")));
+    fill(deckId, 1000);
+    decks.softDelete(USER, deckId);
+
+    expect(deletions.restore(USER, id)).toEqual({ placeDeleted: { id: deckId, name: "Spanish" } });
+  });
+
+  test("restoreAll counts as it goes across two Decks, and the first refusal rolls back every one", () => {
+    const spanish = makeDeck("Spanish");
+    const verbs = makeDeck("Verbs");
+    const ids = deleteAll([
+      write(spanish, "s1"),
+      write(verbs, "v1"),
+      write(verbs, "v2"),
+      write(verbs, "v3"),
+    ]);
+    fill(verbs, 998);
+
+    expect(deletions.restoreAll(USER, ids)).toEqual({
+      deckFull: { id: verbs, name: "Verbs", room: 0 },
+    });
+    expect(deletions.list(USER)).toHaveLength(4);
+
+    cards.softDelete(USER, `filled-${verbs}-0`);
+    expect(deletions.restoreAll(USER, ids)).toHaveLength(4);
+  });
+
+  test("doesn't check a Deck's or a Folder's Restore: its Cards come back with it", () => {
+    const folderId = makeFolder("Languages");
+    const inFolder = makeDeck("Spanish", folderId);
+    const alone = makeDeck("Verbs");
+    fill(inFolder, 1000);
+    fill(alone, 1000);
+    const deckDeletion = deleted(decks.softDelete(USER, alone));
+    const folderDeletion = deleted(folders.softDelete(USER, folderId));
+
+    expect(deletions.restore(USER, deckDeletion)).toMatchObject({ kind: "deck", id: alone });
+    expect(deletions.restore(USER, folderDeletion)).toMatchObject({ kind: "folder", id: folderId });
+    expect(cards.list(USER, alone)).toHaveLength(1000);
+    expect(cards.list(USER, inFolder)).toHaveLength(1000);
   });
 });

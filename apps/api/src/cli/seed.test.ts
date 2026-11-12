@@ -4,6 +4,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   CardListResponse,
+  DECK_CARDS_MAX,
   ImportReportResponse,
   CardResponse,
   DeckListResponse,
@@ -22,7 +23,7 @@ import {
   TUNING_REVIEW_INTERVAL,
   TuningStatus,
 } from "@banki/shared";
-import { SEED_IDS } from "../seed/seed-ids";
+import { SEED_IDS, fullDeckCardId } from "../seed/seed-ids";
 import { EMAIL, ORIGIN, PASSWORD, bootApps, cookiesFrom, get, signIn } from "../testing/app";
 import { runCli } from "../testing/cli";
 
@@ -157,6 +158,7 @@ describe("banki seed's Macros", () => {
       [SEED_IDS.decks.kanji]: null,
       [SEED_IDS.decks.chemistry]: null,
       [SEED_IDS.decks.calculus10]: null,
+      [SEED_IDS.decks.full]: null,
     });
     const settings = await get(app, "/api/settings", cookie);
     expect(SettingsResponse.parse(await settings.json()).answerMode).toBe("self-rate");
@@ -195,7 +197,7 @@ describe("banki seed's Macros", () => {
 });
 
 describe("banki seed's Decks", () => {
-  test("loads the five Decks, with their fixed IDs, created at different times", async () => {
+  test("loads the six Decks, with their fixed IDs, created at different times", async () => {
     await setup();
     await seed();
 
@@ -207,13 +209,35 @@ describe("banki seed's Decks", () => {
       Object.values(SEED_IDS.decks).toSorted(),
     );
     expect(decks.find((deck) => deck.id === SEED_IDS.deck)?.name).toBe("Spanish vocabulary");
-    expect(new Set(decks.map((deck) => deck.createdAt)).size).toBe(5);
+    expect(new Set(decks.map((deck) => deck.createdAt)).size).toBe(6);
     expect(decks.map((deck) => deck.name)).toEqual(
       expect.arrayContaining(["Calculus 2", "Calculus 10"]),
     );
     expect(decks.some((deck) => deck.description === null)).toBe(true);
     expect(decks.some((deck) => deck.description?.includes("\n"))).toBe(true);
     expect(Math.max(...decks.map((deck) => deck.name.length))).toBeGreaterThan(90);
+  });
+
+  test("fills Spanish numbers to exactly 1,000 New Cards, with their fixed IDs (ADR-0032)", async () => {
+    await setup();
+    await seed();
+
+    const { app } = boot();
+    const cookie = cookiesFrom(await signIn(app));
+    const res = await get(app, `/api/decks/${SEED_IDS.decks.full}/cards`, cookie);
+    const cards = CardListResponse.parse(await res.json());
+
+    expect(cards).toHaveLength(DECK_CARDS_MAX);
+    expect(cards.every((card) => !card.studied)).toBe(true);
+    expect(cards.map((card) => card.id).toSorted()).toEqual(
+      Array.from({ length: DECK_CARDS_MAX }, (_, i) => fullDeckCardId(i + 1)).toSorted(),
+    );
+    const refused = await app.request(`/api/decks/${SEED_IDS.decks.full}/cards`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: ORIGIN, cookie },
+      body: JSON.stringify({ front: "1001", back: "one more" }),
+    });
+    expect(refused.status).toBe(409);
   });
 
   test("refuses to seed a User who has a Deck, even a deleted one", async () => {
@@ -259,6 +283,7 @@ describe("banki seed's Folders", () => {
     expect(Object.fromEntries(decks.map((d) => [d.id, d.folderId]))).toEqual({
       [D.spanish]: F.languages,
       [D.kanji]: F.languages,
+      [D.full]: F.languages,
       [D.calculus2]: F.analysis,
       [D.calculus10]: F.analysis,
       [D.chemistry]: null,

@@ -3,8 +3,10 @@ import { afterEach, beforeEach } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { sql } from "drizzle-orm";
 import { createApp } from "../app";
 import type { Config } from "../config";
+import { openDatabase } from "../db/database";
 import type { Wait } from "../grader/grade";
 import type { OpenRouterFetch } from "../openrouter/check-api-key";
 import type { Optimizer } from "../scheduling/tuning";
@@ -134,3 +136,21 @@ export const send = (app: App, method: string, path: string, body: unknown, cook
 
 /** The `code` of an error response. */
 export const codeOf = async (res: Response) => ApiError.parse(await res.json()).error.code;
+
+/**
+ * Puts `n` live Cards straight into the Deck `deckId` of the app booted on
+ * `dataDir`, its owner's, Fronts `filled 0` on: quicker than `n` requests, to
+ * bring a Deck to its limit (ADR-0032).
+ */
+export function fillDeck(dataDir: string, deckId: string, n: number) {
+  const opened = openDatabase(dataDir);
+  try {
+    opened.db.run(sql`
+      WITH RECURSIVE seq(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM seq WHERE i + 1 < ${n})
+      INSERT INTO card (id, user_id, deck_id, front, back, created_at, updated_at)
+      SELECT 'filled-' || deck.id || '-' || i, deck.user_id, deck.id, 'filled ' || i, 'b', 0, 0
+      FROM seq, deck WHERE deck.id = ${deckId}`);
+  } finally {
+    opened.close();
+  }
+}

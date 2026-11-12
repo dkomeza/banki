@@ -4,7 +4,7 @@ import {
   type RestoreDeletionsResponse,
 } from "@banki/shared";
 import { Hono } from "hono";
-import { apiError } from "../http/errors";
+import { apiError, deckFullError } from "../http/errors";
 import type { SignedInEnv } from "../http/require-signed-in";
 import type { DeletionRepository, RestoreRefusal } from "../repositories/deletions";
 import { json } from "./json";
@@ -12,7 +12,7 @@ import { json } from "./json";
 const NOT_FOUND = apiError("not_found", "Deletion not found");
 
 /** The 409 `place_deleted` a Card's Restore answers while its Deck is deleted. */
-const placeDeleted = ({ placeDeleted: deck }: Exclude<RestoreRefusal, "not_found">) =>
+const placeDeleted = ({ placeDeleted: deck }: Extract<RestoreRefusal, { placeDeleted: unknown }>) =>
   ({
     error: { code: "place_deleted", message: `Restore ${deck.name} first` },
     deck,
@@ -24,7 +24,8 @@ const placeDeleted = ({ placeDeleted: deck }: Exclude<RestoreRefusal, "not_found
  * /:id` removes one at once (Delete permanently). An unknown Deletion, one
  * restored or removed already, and another User's all answer 404 `not_found`.
  * A Card's Deletion whose Deck is deleted answers 409 `place_deleted`, naming
- * the Deck. `POST /restore` restores several Deletions together, 1 to 10,000,
+ * the Deck, and then a Card's or an Import's whose Deck has no room for its
+ * Cards 409 `deck_full` (ADR-0032), naming the first such Deck. `POST /restore` restores several Deletions together, 1 to 10,000,
  * all of them or none, answering as one of them would have.
  */
 export function deletionRoutes({ deletions }: { deletions: DeletionRepository }) {
@@ -34,12 +35,14 @@ export function deletionRoutes({ deletions }: { deletions: DeletionRepository })
       const restored = deletions.restore(c.var.user.id, c.req.param("id"));
       if (restored === "not_found") return c.json(NOT_FOUND, 404);
       if ("placeDeleted" in restored) return c.json(placeDeleted(restored), 409);
+      if ("deckFull" in restored) return c.json(deckFullError(restored), 409);
       return c.json(restored, 200);
     })
     .post("/restore", json(RestoreDeletionsRequest, "Invalid restore"), (c) => {
       const restored = deletions.restoreAll(c.var.user.id, c.req.valid("json").deletionIds);
       if (restored === "not_found") return c.json(NOT_FOUND, 404);
       if ("placeDeleted" in restored) return c.json(placeDeleted(restored), 409);
+      if ("deckFull" in restored) return c.json(deckFullError(restored), 409);
       const body: RestoreDeletionsResponse = { restored };
       return c.json(body, 200);
     })

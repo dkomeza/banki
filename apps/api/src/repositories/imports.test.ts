@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ImportPreviewResponse, MacroPlanEntry, NumberedCard } from "@banki/shared";
 import { sql } from "drizzle-orm";
+import { card as cardTable } from "../db/schema";
 import { type OpenedDatabase, importsDirOf, openDatabase, uploadsDirOf } from "../db/database";
 import { applyMigrations } from "../db/migrate";
 import { makeZip } from "../testing/zip";
@@ -97,7 +98,7 @@ const asRead = (id: string, numbers?: number[]): NumberedCard[] =>
 
 const confirm = (id: string, ticked: NumberedCard[], at = NOW) => {
   const done = imports.confirm(USER, id, ticked, { now: at });
-  if (typeof done === "string" || done.status !== "confirmed")
+  if (typeof done === "string" || "deckFull" in done || done.status !== "confirmed")
     throw new Error(JSON.stringify(done));
   return done;
 };
@@ -353,6 +354,58 @@ describe("confirm", () => {
       invalid: [{ number: 2 }],
       confirmedAt: NOW.toISOString(),
     });
+  });
+});
+
+/** Puts `n` live Cards straight into the Deck, each Front unlike any file's. */
+const fill = (n: number) => {
+  opened.db
+    .insert(cardTable)
+    .values(
+      Array.from({ length: n }, (_, i) => ({
+        id: `filled-${i}`,
+        userId: USER,
+        deckId,
+        front: `filled ${i}`,
+        back: "b",
+        createdAt: NOW,
+        updatedAt: NOW,
+      })),
+    )
+    .run();
+};
+
+describe("the Card limit (ADR-0032)", () => {
+  test("the preview carries the Deck's room now", () => {
+    const id = create(fileText([card("a")]));
+    expect(preview(id).room).toBe(1000);
+    fill(997);
+    expect(preview(id).room).toBe(3);
+    cards.create(USER, deckId, { front: "x", back: "b" });
+    cards.create(USER, deckId, { front: "y", back: "b" });
+    cards.create(USER, deckId, { front: "z", back: "b" });
+    expect(preview(id).room).toBe(0);
+  });
+
+  test("refuses a confirm, adding nothing, when the Cards to add outnumber the room at confirm", () => {
+    const id = create(fileText([card("a"), card("b"), card("c")]));
+    const ticked = asRead(id);
+    fill(998);
+
+    expect(imports.confirm(USER, id, ticked, { now: NOW })).toEqual({
+      deckFull: { id: deckId, name: "D", room: 2 },
+    });
+    expect(deckCards()).toHaveLength(998);
+    expect(preview(id).status).toBe("unconfirmed");
+  });
+
+  test("doesn't count the Duplicates it skips against the room", () => {
+    const id = create(fileText([card("a"), card("b"), card("filled 0"), card("a")]));
+    const ticked = asRead(id);
+    fill(998);
+
+    expect(confirm(id, ticked)).toMatchObject({ imported: 2 });
+    expect(deckCards()).toHaveLength(1000);
   });
 });
 

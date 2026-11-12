@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { CardFileCard } from "./card-file";
 import { type CardFileProblem, formatProblems } from "./card-file-parser";
+import { DECK_CARDS_MAX } from "./decks";
 
 // An Import (CONTEXT.md, ADR-0026): the API reads a Card file into an
 // unconfirmed Import, the preview shows it, and confirming it adds the ticked
@@ -12,8 +13,11 @@ export const IMPORT_JSON_MAX_BYTES = 20 * 1024 * 1024;
 /** The largest an upload may be, and a zip's unpacked contents in total: 500 MB. */
 export const IMPORT_UPLOAD_MAX_BYTES = 500 * 1024 * 1024;
 
-/** The most entries a Card file's `cards` may hold, valid or not, for one Import. */
-export const IMPORT_CARDS_MAX = 1_000;
+/**
+ * The most entries a Card file's `cards` may hold, valid or not, for one
+ * Import: as many as a Deck holds, so the two can't drift apart.
+ */
+export const IMPORT_CARDS_MAX = DECK_CARDS_MAX;
 
 /** How an Import's file came: a `.json`, a `.zip` with its Images, or pasted text. */
 export const IMPORT_SOURCES = ["json", "zip", "paste"] as const;
@@ -114,6 +118,8 @@ export const ImportPreviewResponse = ImportBase.extend({
   macros: z.array(MacroPlanEntry),
   images: z.array(ImageProblem),
   stagedImages: z.array(z.string()),
+  /** The Deck's room now: how many more Cards it takes (ADR-0032). */
+  room: z.number().int().nonnegative(),
 });
 export type ImportPreviewResponse = z.infer<typeof ImportPreviewResponse>;
 

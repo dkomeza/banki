@@ -10,9 +10,9 @@ import { createReviewRepository, hasReviews } from "../repositories/reviews";
 import { setInitialMacros, setInitialTimezone } from "../repositories/settings";
 import { hasTunings, writeAppliedTuning } from "../repositories/tuning";
 import { DEFAULT_PARAMETERS } from "../scheduling/fsrs";
-import { DEFAULT_MODEL_ID, type Rating } from "@banki/shared";
+import { DECK_CARDS_MAX, DEFAULT_MODEL_ID, type Rating } from "@banki/shared";
 
-import { SEED_IDS, SEED_TIMEZONE } from "./seed-ids";
+import { SEED_IDS, SEED_TIMEZONE, fullDeckCardId } from "./seed-ids";
 
 export { SEED_IDS, SEED_TIMEZONE } from "./seed-ids";
 
@@ -29,6 +29,9 @@ export { SEED_IDS, SEED_TIMEZONE } from "./seed-ids";
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
+
+/** How long before the seed time Spanish numbers' Cards were written. */
+const FULL_DECK_HOURS_AGO = 200;
 
 /**
  * The four Folders, each created this many days before the seed time, so the
@@ -48,7 +51,7 @@ const FOLDERS = [
 ] as const;
 
 /**
- * The five Decks, in their Folders (Organic chemistry at the Root), each created this many days before the seed time, so the
+ * The six Decks, in their Folders (Organic chemistry at the Root), each created this many days before the seed time, so the
  * Alphabetical and Newest sorts differ: some with a description and some
  * without, one description with line breaks, one name close to the 100
  * characters a name may have, and "Calculus 2" before "Calculus 10" only in
@@ -83,6 +86,13 @@ const DECKS = [
     daysAgo: 12,
     name: "Organic chemistry: reaction mechanisms, named reactions and the reagents behind each of the steps",
     description: null,
+  },
+  {
+    id: SEED_IDS.decks.full,
+    folderId: SEED_IDS.folders.languages,
+    daysAgo: 9,
+    name: "Spanish numbers",
+    description: "One to a thousand, written out: a Deck as full as a Deck gets.",
   },
   {
     id: SEED_IDS.decks.calculus10,
@@ -559,6 +569,7 @@ function deletedSeed(db: Queryable, userId: string, now: Date) {
     const id = deletedSeedId(++written);
     const created = cards.create(userId, deckId, { front, back, tags }, { id, now: createdAt });
     if (typeof created === "string") throw new Error(`The seed Card ${front} is ${created}`);
+    if ("deckFull" in created) throw new Error(`The seed Card ${front} finds its Deck full`);
     return id;
   };
   const deck = (name: string, folderId: string | null, cardCount: number) => {
@@ -783,6 +794,26 @@ function undoneImportSeed(
  * to `now`, its Image stored in `uploadsDir` and its Import read through
  * `importsDir`.
  */
+/**
+ * Fills Spanish numbers with exactly `DECK_CARDS_MAX` short New Cards, a
+ * millisecond apart, the first the oldest: 1 to 1,000, written out.
+ */
+function fullDeckSeed(db: Queryable, userId: string, now: Date) {
+  const cards = createCardRepository(db);
+  const createdAt = now.getTime() - FULL_DECK_HOURS_AGO * HOUR_MS;
+  for (let n = 1; n <= DECK_CARDS_MAX; n++) {
+    const id = fullDeckCardId(n);
+    const created = cards.create(
+      userId,
+      SEED_IDS.decks.full,
+      { front: String(n), back: `number ${n}` },
+      { id, now: new Date(createdAt + n) },
+    );
+    if (typeof created === "string") throw new Error(`The seed Card ${id} is ${created}`);
+    if ("deckFull" in created) throw new Error(`The seed Card ${id} finds its Deck full`);
+  }
+}
+
 export function writeSeedData({
   db,
   userId,
@@ -850,6 +881,7 @@ export function writeSeedData({
       { id, now: new Date(now.getTime() - hoursAgo * HOUR_MS) },
     );
     if (typeof created === "string") throw new Error(`The seed Card ${id} is ${created}`);
+    if ("deckFull" in created) throw new Error(`The seed Card ${id} finds its Deck full`);
   }
 
   const reviews = createReviewRepository(db);
@@ -864,6 +896,8 @@ export function writeSeedData({
     );
     if (rated === "not_found") throw new Error(`The seed Review of ${cardId} found no Card`);
   }
+
+  fullDeckSeed(db, userId, now);
 
   importSeed(db, userId, importsDir, uploadsDir, now);
   undoneImportSeed(db, userId, importsDir, uploadsDir, now);

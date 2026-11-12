@@ -37,10 +37,12 @@ export {
   ANSWER_MODES,
   AnswerMode,
   CreateDeckRequest,
+  DECK_CARDS_MAX,
   DECK_DESCRIPTION_MAX_LENGTH,
   DECK_NAME_MAX_LENGTH,
   DeckDescription,
   DeckListResponse,
+  deckRoom,
   DeckName,
   deckNameKey,
   deckAnswerMode,
@@ -61,6 +63,7 @@ export {
   UpdateFolderRequest,
 } from "./folders";
 export {
+  DeckFullError,
   DeleteCardsResponse,
   DeleteResponse,
   DELETION_KEPT_MS,

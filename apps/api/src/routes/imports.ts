@@ -8,7 +8,7 @@ import {
   UploadImportQuery,
 } from "@banki/shared";
 import { Hono } from "hono";
-import { apiError } from "../http/errors";
+import { apiError, deckFullError } from "../http/errors";
 import type { SignedInEnv } from "../http/require-signed-in";
 import { type Refused, uploadTooLarge } from "../imports/read";
 import type { ImportRepository } from "../repositories/imports";
@@ -110,7 +110,8 @@ export function deckImportRoutes({ imports }: { imports: ImportRepository }) {
  * its preview shows it. `POST /:id/confirm` takes the ticked Cards and adds
  * them in one transaction, answering the report: one already confirmed
  * answers 409 `import_confirmed`, and one whose Deck is no longer live 409
- * `deck_gone`, each adding nothing. `POST /:id/undo` undoes a confirmed one
+ * `deck_gone`, and one whose Cards to add, Duplicates skipped, outnumber the
+ * Deck's room 409 `deck_full` (ADR-0032), each adding nothing. `POST /:id/undo` undoes a confirmed one
  * (ADR-0030), answering its one Deletion and how many Cards it took, or 409
  * `nothing_to_undo` with no live Card stamped with it; an unconfirmed one
  * answers 404. An unknown Import and another User's answer 404.
@@ -144,6 +145,7 @@ export function importRoutes({ imports }: { imports: ImportRepository }) {
       if (confirmed === "confirmed") return c.json(CONFIRMED, 409);
       if (confirmed === "deck_gone") return c.json(DECK_GONE, 409);
       if (confirmed === "unknown_card") return c.json(UNKNOWN_CARD, 400);
+      if ("deckFull" in confirmed) return c.json(deckFullError(confirmed), 409);
       return c.json(confirmed, 200);
     })
     .post("/:id/undo", (c) => {

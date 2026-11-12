@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   CardListResponse,
   CreateImportResponse,
+  DeckFullError,
   DeletionListResponse,
   ImportHistoryResponse,
   ImportPreviewResponse,
@@ -11,10 +12,10 @@ import {
   RestoreResponse,
   UndoImportResponse,
 } from "@banki/shared";
-import { type App, ORIGIN, bootApps, codeOf, get, send, setUp } from "../testing/app";
+import { type App, ORIGIN, bootApps, codeOf, fillDeck, get, send, setUp } from "../testing/app";
 import { makeZip } from "../testing/zip";
 
-const { boot } = bootApps();
+const { boot, dataDir } = bootApps();
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
 
@@ -99,6 +100,27 @@ describe("POST /api/decks/:deckId/imports", () => {
     expect((await upload(app, deckId, "{}", cookie, { type: "text/plain" })).status).toBe(400);
     const res = await upload(app, "nope", fileText([]), cookie);
     expect(res.status).toBe(404);
+  });
+
+  test("restoring it into a Deck with no room answers 409 deck_full, naming it", async () => {
+    const { app, cookie, deckId } = await withDeck();
+    const id = await confirmed(app, deckId, cookie, ["a"]);
+    const res = await send(app, "POST", `/api/imports/${id}/undo`, undefined, cookie);
+    const { deletionId } = UndoImportResponse.parse(await res.json());
+    fillDeck(dataDir(), deckId, 1000);
+
+    const restored = await send(
+      app,
+      "POST",
+      `/api/deletions/${deletionId}/restore`,
+      undefined,
+      cookie,
+    );
+    expect(restored.status).toBe(409);
+    expect(DeckFullError.parse(await restored.json())).toMatchObject({
+      deck: { id: deckId, name: "Spanish" },
+      room: 0,
+    });
   });
 
   test("signed out, it is refused", async () => {
@@ -189,6 +211,39 @@ async function confirmed(app: App, deckId: string, cookie: string, fronts: strin
   await send(app, "POST", `/api/imports/${id}/confirm`, { cards }, cookie);
   return id;
 }
+
+describe("the Card limit (ADR-0032)", () => {
+  test("the preview carries the room, and a confirm over it answers 409 deck_full, adding nothing", async () => {
+    const { app, cookie, deckId } = await withDeck();
+    const created = await upload(app, deckId, fileText([card("a"), card("b")]), cookie);
+    const { id } = CreateImportResponse.parse(await created.json());
+    fillDeck(dataDir(), deckId, 999);
+
+    const found = await get(app, `/api/imports/${id}`, cookie);
+    expect(ImportPreviewResponse.parse(await found.json()).room).toBe(1);
+
+    const res = await send(
+      app,
+      "POST",
+      `/api/imports/${id}/confirm`,
+      {
+        cards: [
+          { number: 1, ...card("a") },
+          { number: 2, ...card("b") },
+        ],
+      },
+      cookie,
+    );
+    expect(res.status).toBe(409);
+    expect(DeckFullError.parse(await res.json())).toMatchObject({
+      error: { code: "deck_full" },
+      deck: { id: deckId, name: "Spanish" },
+      room: 1,
+    });
+    const listed = await get(app, `/api/decks/${deckId}/cards`, cookie);
+    expect(CardListResponse.parse(await listed.json())).toHaveLength(999);
+  });
+});
 
 describe("GET /api/decks/:deckId/imports", () => {
   test("answers the Deck's confirmed Imports, newest first, and not an unconfirmed one", async () => {
