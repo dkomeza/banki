@@ -1,7 +1,6 @@
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { Flag } from "lucide-react";
-import { type ReactNode, useId, useSyncExternalStore } from "react";
+import { useId, useSyncExternalStore } from "react";
 import { Breadcrumb } from "@/components/folders/breadcrumb";
 import { usePlaceActions } from "@/components/folders/place-actions";
 import { useLibrary } from "@/components/folders/use-library";
@@ -10,6 +9,7 @@ import { Page } from "@/components/page";
 import { AnswerModeCard } from "@/components/settings/answer-mode-card";
 import { DeckMacrosCard } from "@/components/settings/macros-card";
 import { SaveState } from "@/components/settings/parts";
+import { PlanCard } from "@/components/settings/plan-card";
 import { DeckRetentionPicker, RetentionError } from "@/components/settings/retention-picker";
 import { RetentionPicture } from "@/components/settings/retention-picture";
 import { type Section, SectionIndex } from "@/components/settings/section-index";
@@ -21,8 +21,8 @@ import { settingsQueryOptions } from "@/lib/settings";
 import { useHiddenScrollbar } from "@/lib/use-hidden-scrollbar";
 
 // A Deck's settings, on a page of their own built like Settings: the setting
-// the page is about first, full width, then its Math macros and Answer mode,
-// and a card for each setting to come, which shows the page holds them. Desired retention is one picker whose first
+// the page is about first, full width, then its Math macros, Answer mode and
+// Plan. Desired retention is one picker whose first
 // choice is Follow Settings, and a picture of ten cards coming due.
 
 export const Route = createFileRoute("/_shell/decks/$deckId_/settings")({
@@ -91,15 +91,7 @@ function Body({ deck }: { deck: Deck }) {
         <div className="gap-x-5 md:columns-2 lg:gap-x-6 [&>section]:mb-5 [&>section]:break-inside-avoid lg:[&>section]:mb-6">
           <DeckMacrosCard deck={deck} />
           <AnswerModeCard deck={deck} />
-          <Later
-            id="plan"
-            title="Plan"
-            icon={<Flag aria-hidden className="size-4" />}
-            follows="No Plan"
-          >
-            An exam date to work towards. While a Plan runs, it raises Desired retention as the day
-            gets closer.
-          </Later>
+          <PlanCard deck={deck} />
         </div>
       </div>
       {actions.dialogs}
@@ -156,48 +148,6 @@ function RetentionSection({ deck }: { deck: Deck }) {
           />
         )}
       </div>
-    </section>
-  );
-}
-
-/** A setting to come: its card, what it will do, and what the deck does until then. */
-function Later({
-  id,
-  title,
-  icon,
-  follows,
-  children,
-}: {
-  id: string;
-  title: string;
-  icon: ReactNode;
-  follows: string;
-  children: ReactNode;
-}) {
-  return (
-    <section
-      id={id}
-      aria-labelledby={`${id}-title`}
-      className="flex scroll-mt-28 flex-col gap-3 rounded-[1.25rem] border border-dashed bg-card/60 p-5 text-card-foreground sm:p-6"
-    >
-      <div className="flex items-center justify-between gap-3">
-        <h2
-          id={`${id}-title`}
-          className="flex items-center gap-2 text-xl font-semibold tracking-tight"
-        >
-          <span className="text-muted-foreground">{icon}</span>
-          {title}
-        </h2>
-        <span className="rounded-full border px-3 py-1 text-xs text-muted-foreground">
-          Coming later
-        </span>
-      </div>
-      <p className="text-[0.95rem] text-muted-foreground">{children}</p>
-      <p className="text-sm">
-        <span className="text-muted-foreground">For now: </span>
-        <span className="font-medium">{follows}</span>
-        <span className="text-muted-foreground"> · follows Settings</span>
-      </p>
     </section>
   );
 }

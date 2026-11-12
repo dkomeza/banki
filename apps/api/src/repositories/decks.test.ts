@@ -82,6 +82,7 @@ describe("create", () => {
       desiredRetention: null,
       macros: [],
       answerMode: null,
+      plan: null,
     });
     expect(decks.find(USER, "deck-1")).toEqual(decks.list(USER)[0]);
   });
@@ -187,6 +188,7 @@ describe("update", () => {
       desiredRetention: null,
       macros: [],
       answerMode: null,
+      plan: null,
     });
   });
 

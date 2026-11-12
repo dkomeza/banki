@@ -64,6 +64,7 @@ const COMMITTED = [
   "0020_graded_reviews",
   "0021_parameter_tuning",
   "0022_import_undo",
+  "0023_plan",
 ];
 
 /** The tables the committed migrations create. */
@@ -78,6 +79,7 @@ const COMMITTED_TABLES = [
   "image",
   "import",
   "parameter_tuning",
+  "plan",
   "progress_reset",
   "review",
   "user",
@@ -698,6 +700,51 @@ test("0022_import_undo keeps every Import, none of them undone, and finds an Und
     sql`EXPLAIN QUERY PLAN SELECT id FROM import WHERE user_id = 'u' AND undo_deletion_id = 'x'`,
   );
   expect(JSON.stringify(plan)).toContain("import_undo_deletion_id");
+});
+
+test("0023_plan keeps every Deck and Card, with no Plan, and a Deck's Removal takes its Plan", () => {
+  const journalPath = join(folder, "meta", "_journal.json");
+  const full = readFileSync(journalPath, "utf8");
+  const journal = z
+    .looseObject({ entries: z.array(z.looseObject({ tag: z.string() })) })
+    .parse(JSON.parse(full));
+  writeFileSync(
+    journalPath,
+    JSON.stringify({
+      ...journal,
+      entries: journal.entries.filter((entry) => entry.tag < "0023_plan"),
+    }),
+  );
+  applyMigrations(opened.db, folder);
+  opened.db.run(
+    sql`INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES ('u', 'n', 'u@x.y', 1, 0, 0)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO deck (id, user_id, name, name_key, created_at, updated_at, desired_retention) VALUES ('d', 'u', 'D', 'd', 0, 0, 85)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO card (id, user_id, deck_id, front, back, created_at, updated_at) VALUES ('c', 'u', 'd', 'f', 'b', 0, 0)`,
+  );
+
+  writeFileSync(journalPath, full);
+  expect(applyMigrations(opened.db, folder)).toEqual(["0023_plan"]);
+
+  expect(opened.db.values(sql`SELECT id, desired_retention FROM deck`)).toEqual([["d", 85]]);
+  expect(opened.db.values(sql`SELECT id FROM card`)).toEqual([["c"]]);
+  expect(opened.db.values(sql`SELECT id FROM plan`)).toEqual([]);
+  const plan = (id: string, minutes: number) =>
+    opened.db.run(
+      sql`INSERT INTO plan (id, user_id, deck_id, deadline, daily_minutes, created_at, updated_at) VALUES (${id}, 'u', 'd', '2026-12-12', ${minutes}, 0, 0)`,
+    );
+  // Whole minutes from 5 to 600, and one Plan a Deck.
+  expect(() => plan("p0", 4)).toThrow();
+  expect(() => plan("p0", 601)).toThrow();
+  plan("p1", 30);
+  expect(() => plan("p2", 30)).toThrow();
+  // A Deck's Removal takes its Plan with it.
+  opened.db.run(sql`DELETE FROM card`);
+  opened.db.run(sql`DELETE FROM deck`);
+  expect(opened.db.values(sql`SELECT id FROM plan`)).toEqual([]);
 });
 
 test("a Card's newest Review, its Progress resets since and the next place in the Write order are found through an index, not the User's whole history", () => {
