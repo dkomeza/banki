@@ -36,7 +36,7 @@ import { cn } from "@/lib/utils";
 //   together, as on a Miro board.
 // - i, "Frame": the sides' handles change its width (the text reflows) and its
 //   height (a long Front scrolls inside it), while the corners scale it.
-const VARIANT = { zoom: false, frame: false };
+const VARIANT = { zoom: true, frame: false };
 
 /** The smallest and largest the Front scales to, on the paper. */
 const SCALE = { min: 0.4, max: 2.5 } as const;
