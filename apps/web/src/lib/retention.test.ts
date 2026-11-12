@@ -8,6 +8,8 @@ import {
   globalRetentionErrorText,
   matchDeckOptions,
   matchPercents,
+  recommendedText,
+  withRecommended,
 } from "./retention";
 
 const values = (options: readonly { value: string }[]) => options.map((option) => option.value);
@@ -96,5 +98,44 @@ describe("deckRetentionLabel", () => {
   test("says whether the Deck follows Settings or has its own", () => {
     expect(deckRetentionLabel(null, 90)).toBe("90% retention, from Settings");
     expect(deckRetentionLabel(85, 90)).toBe("its own 85% retention");
+  });
+});
+
+describe("withRecommended", () => {
+  test("tags the Recommended retention's percent, after any detail it has", () => {
+    expect(withRecommended(PERCENT_OPTIONS, 84).find((o) => o.value === "84")).toEqual({
+      value: "84",
+      label: "84%",
+      detail: "Recommended",
+    });
+    expect(withRecommended(PERCENT_OPTIONS, 90).find((o) => o.value === "90")?.detail).toBe(
+      "default · Recommended",
+    );
+    expect(
+      withRecommended(PERCENT_OPTIONS, 84).filter((o) => o.detail?.includes("Recommended")),
+    ).toHaveLength(1);
+  });
+
+  test("leaves the options as they are while there is none", () => {
+    expect(withRecommended(PERCENT_OPTIONS, null)).toBe(PERCENT_OPTIONS);
+  });
+
+  test("tags a Deck's percent, never Follow Settings", () => {
+    const options = withRecommended(deckOptions(84), 84);
+    expect(options[0]?.detail).toBe("84%");
+    expect(options.find((o) => o.value === "84")?.detail).toBe("Recommended");
+  });
+
+  test("a search for it finds it", () => {
+    expect(values(matchPercents(withRecommended(PERCENT_OPTIONS, 84), "recomm"))).toEqual(["84"]);
+    expect(values(matchDeckOptions(withRecommended(deckOptions(90), 84), "rec"))).toEqual(["84"]);
+  });
+});
+
+describe("recommendedText", () => {
+  test("says the percent and why, never FSRS or parameters", () => {
+    const { title, reason } = recommendedText(84);
+    expect(title).toBe("Recommended for you: 84%");
+    expect(`${title} ${reason}`).not.toMatch(/fsrs|parameter/i);
   });
 });

@@ -7,6 +7,8 @@
 import {
   ANSWER_MODES,
   CARD_STATES,
+  DAILY_MINUTES_MAX,
+  DAILY_MINUTES_MIN,
   DEFAULT_ANSWER_MODE,
   DEFAULT_DAY_START_HOUR,
   DEFAULT_DESIRED_RETENTION,
@@ -399,18 +401,24 @@ export const card_import = sqliteTable(
     preview: text("preview", { mode: "json" }).$type<StagedImport>(),
     /** The report, as JSON (`ImportReport`, repositories/imports.ts); null until confirmed. */
     report: text("report", { mode: "json" }).$type<ImportReport>(),
+    /** When it was last undone (ADR-0030); null unless undone. Restoring that Deletion clears it; Removal keeps it. */
+    undoneAt: integer("undone_at", { mode: "timestamp_ms" }),
+    /** The Deletion its last Undo made, the one its Cards carry; null unless undone. */
+    undoDeletionId: text("undo_deletion_id"),
   },
   (table) => [
     check("import_source", sql`${table.source} IN ('json', 'zip', 'paste')`),
     index("import_user_id").on(table.userId),
     index("import_deck_id").on(table.deckId),
     index("import_created_at").on(table.createdAt),
+    index("import_undo_deletion_id").on(table.undoDeletionId),
   ],
 );
 
 /**
  * The User's Tuning log (CONTEXT.md: Tuning): one row per Tuning attempt or
- * Reset to defaults, never changed once written. `reviewCount` is how many of
+ * Reset to defaults, never changed once written but for its Recommended
+ * retention, set right after (ADR-0032). `reviewCount` is how many of
  * the User's Reviews there were when it ran: the next automatic Tuning waits
  * for `TUNING_REVIEW_INTERVAL` more than the newest row's. The newest row is
  * the last written (`rowid`), as clocks can tie or step back. The log losses
@@ -434,10 +442,48 @@ export const parameter_tuning = sqliteTable(
     /** The log loss of the Parameters it produced. */
     newLogLoss: real("new_log_loss"),
     parameters: text("parameters", { mode: "json" }).$type<number[]>(),
+    /**
+     * The Recommended retention worked out right after the row was written
+     * (CONTEXT.md, ADR-0032), a whole percent from 70 to 97: null for a Reset,
+     * while FSRS-6's defaults are in use, when working it out failed, and on
+     * rows from before it existed. The newest row's is the current one.
+     */
+    recommendedRetention: integer("recommended_retention"),
   },
   (table) => [
     check("parameter_tuning_trigger", sql`${table.trigger} IN (${sqlList(TUNING_TRIGGERS)})`),
     check("parameter_tuning_outcome", sql`${table.outcome} IN (${sqlList(TUNING_OUTCOMES)})`),
     index("parameter_tuning_user_id").on(table.userId),
+  ],
+);
+
+/**
+ * The User's Plans (CONTEXT.md: Plan; ADR-0031): a Deadline and a Daily goal
+ * for a Deck, one per Deck for now. `deadline` is the Study day itself
+ * (`YYYY-MM-DD`), read with the Timezone and Day start as they are. A Deck's
+ * delete leaves its Plan, so a Restore brings it back; its Removal deletes it.
+ */
+export const plan = sqliteTable(
+  "plan",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    deckId: text("deck_id")
+      .notNull()
+      .references(() => deck.id, { onDelete: "cascade" }),
+    deadline: text("deadline").notNull(),
+    dailyMinutes: integer("daily_minutes").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    check(
+      "plan_daily_minutes",
+      sql`${table.dailyMinutes} BETWEEN ${sql.raw(String(DAILY_MINUTES_MIN))} AND ${sql.raw(String(DAILY_MINUTES_MAX))}`,
+    ),
+    uniqueIndex("plan_deck_id").on(table.deckId),
+    index("plan_user_id").on(table.userId),
   ],
 );

@@ -21,6 +21,29 @@ export const DEFAULT_REVIEW_MS = 10_000;
 /** What one New card takes on the Study day it is first rated, until there are enough Card-days. */
 export const DEFAULT_NEW_MS = 60_000;
 
+/** One Card's Reviews on one Study day (`YYYY-MM-DD`), in the order they were given. */
+export type CardDay<T> = { cardId: string; day: string; reviews: T[] };
+
+/** `reviews` grouped into Card-days under `studyDay`, each keeping their order. */
+export function cardDaysOf<T extends { cardId: string; reviewedAt: Date }>(
+  reviews: readonly T[],
+  studyDay: StudyDaySettings,
+): CardDay<T>[] {
+  const cardDays = new Map<string, CardDay<T>>();
+  for (const review of reviews) {
+    const day = studyDayOf(review.reviewedAt, studyDay);
+    const key = `${review.cardId}\u0000${day}`;
+    const cardDay = cardDays.get(key);
+    if (cardDay === undefined) cardDays.set(key, { cardId: review.cardId, day, reviews: [review] });
+    else cardDay.reviews.push(review);
+  }
+  return [...cardDays.values()];
+}
+
+/** A Card-day's time: its Reviews', each counted for at most 2 minutes. */
+export const cardDayMs = (reviews: readonly { durationMs: number }[]): number =>
+  reviews.reduce((sum, r) => sum + Math.min(Math.max(0, r.durationMs), REVIEW_CAP_MS), 0);
+
 /** The average time one Card takes in a Study day, per kind. */
 export type CardDayAverages = { reviewMs: number; newMs: number };
 
@@ -37,18 +60,12 @@ export function cardDayAverages(
   { now, studyDay }: { now: Date; studyDay: StudyDaySettings },
 ): CardDayAverages {
   const firstDay = addStudyDays(studyDayOf(now, studyDay), -(ESTIMATE_WINDOW_DAYS - 1));
-  const cardDays = new Map<string, { ms: number; isNew: boolean }>();
-  for (const review of reviews) {
-    if (review.reviewedAt.getTime() > now.getTime()) continue;
-    const day = studyDayOf(review.reviewedAt, studyDay);
-    if (day < firstDay) continue;
-    const key = `${review.cardId}\u0000${day}`;
-    const cardDay = cardDays.get(key) ?? { ms: 0, isNew: false };
-    cardDay.ms += Math.min(Math.max(0, review.durationMs), REVIEW_CAP_MS);
-    cardDay.isNew ||= review.wasNew;
-    cardDays.set(key, cardDay);
-  }
-  const all = [...cardDays.values()];
+  const all = cardDaysOf(
+    reviews.filter((review) => review.reviewedAt.getTime() <= now.getTime()),
+    studyDay,
+  )
+    .filter(({ day }) => day >= firstDay)
+    .map(({ reviews: one }) => ({ ms: cardDayMs(one), isNew: one.some((r) => r.wasNew) }));
   return {
     reviewMs: averageOr(
       all.filter((d) => !d.isNew),

@@ -22,8 +22,20 @@ export type DeckRetentionSaver = ReturnType<typeof createDeckRetentionSaver>;
  */
 const savers = new WeakMap<QueryClient, Map<string, DeckRetentionSaver>>();
 
-/** The saver of the Deck `deckId`'s Desired retention, which keeps the cache in step. */
-export function deckRetentionSaverFor(queryClient: QueryClient, deckId: string) {
+/**
+ * The saver of the Deck `deckId`'s Desired retention, which keeps the cache in
+ * step. `save` is for tests.
+ */
+export function deckRetentionSaverFor(
+  queryClient: QueryClient,
+  deckId: string,
+  {
+    save = async (desiredRetention) => {
+      const outcome = await updateDeck(queryClient, deckId, { desiredRetention });
+      if (!outcome.ok) throw new Error(outcome.message);
+    },
+  }: { save?: (desiredRetention: number | null) => Promise<void> } = {},
+) {
   let byDeck = savers.get(queryClient);
   if (byDeck === undefined) {
     byDeck = new Map();
@@ -31,12 +43,7 @@ export function deckRetentionSaverFor(queryClient: QueryClient, deckId: string) 
   }
   let saver = byDeck.get(deckId);
   if (saver === undefined) {
-    saver = createDeckRetentionSaver({
-      save: async (desiredRetention) => {
-        const outcome = await updateDeck(queryClient, deckId, { desiredRetention });
-        if (!outcome.ok) throw new Error(outcome.message);
-      },
-    });
+    saver = createDeckRetentionSaver({ save });
     byDeck.set(deckId, saver);
   }
   return saver;

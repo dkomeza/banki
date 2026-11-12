@@ -11,6 +11,11 @@ import { and, asc, count, desc, eq, sql } from "drizzle-orm";
 import type { Queryable } from "../db/database";
 import { card, parameter_tuning, progress_reset, review, user_settings } from "../db/schema";
 import { DEFAULT_PARAMETERS, type MemoryState, NEW_MEMORY_STATE, rate } from "../scheduling/fsrs";
+import {
+  type RetentionInputs,
+  recommendedRetention as simulateRecommendedRetention,
+  retentionInputs,
+} from "../scheduling/retention";
 import { type Optimizer, libraryOptimizer, trainingItems, tune } from "../scheduling/tuning";
 import {
   MEMORY_COLUMNS,
@@ -23,7 +28,8 @@ import {
 const logger = getLogger(["banki", "tuning"]);
 
 // Tuning (CONTEXT.md, ADR-0029): the User's Parameters fitted to their own
-// Reviews, and Reset to defaults, with the Tuning log recording each.
+// Reviews, and Reset to defaults, with the Tuning log recording each and the
+// Recommended retention worked out after each Tuning (ADR-0032).
 
 export type TuningRepository = ReturnType<typeof createTuningRepository>;
 
@@ -138,14 +144,15 @@ export function applyParameters(db: Queryable, userId: string, parameters: numbe
 
 /**
  * Records an automatic Tuning of the User's that applied `parameters` at
- * `ranAt`, from the Reviews they have, its log losses unmeasured. For the
- * Seed data, which shows the tuned state. `id` is the log row's.
+ * `ranAt`, from the Reviews they have, its log losses unmeasured, with
+ * `recommendedRetention` as its Recommended retention. For the Seed data,
+ * which shows the tuned state. `id` is the log row's.
  */
 export function writeAppliedTuning(
   db: Queryable,
   userId: string,
   parameters: number[],
-  { ranAt, id }: { ranAt: Date; id: string },
+  { ranAt, id, recommendedRetention }: { ranAt: Date; id: string; recommendedRetention: number },
 ): void {
   applyParameters(db, userId, parameters);
   db.insert(parameter_tuning)
@@ -157,6 +164,7 @@ export function writeAppliedTuning(
       reviewCount: reviewCountOf(db, userId),
       outcome: "applied",
       parameters,
+      recommendedRetention,
     })
     .run();
 }
@@ -187,6 +195,29 @@ const newestRowOf = (db: Queryable, userId: string) =>
     .limit(1)
     .get();
 
+/**
+ * What the Recommended retention is worked out from: all the User's Reviews,
+ * of every kind and of Cards that are gone too (ADR-0018), each with whether
+ * its Card was New.
+ */
+const ratedReviewsOf = (db: Queryable, userId: string) =>
+  db
+    .select({
+      cardId: review.cardId,
+      seq: review.seq,
+      reviewedAt: review.reviewedAt,
+      rating: review.rating,
+      durationMs: review.durationMs,
+      wasNew: sql<number>`json_extract(${review.cardBefore}, '$.state') = 'new'`,
+    })
+    .from(review)
+    .where(eq(review.userId, userId))
+    .all()
+    .map((one) => ({ ...one, wasNew: Boolean(one.wasNew) }));
+
+/** Works out a Recommended retention; `recommendedRetention` unless a test stubs it. */
+export type Recommender = (parameters: number[], inputs: RetentionInputs) => Promise<number>;
+
 /** The User's stored Parameters; null while FSRS-6's defaults are in use. */
 const storedParametersOf = (db: Queryable, userId: string): number[] | null =>
   db
@@ -209,11 +240,15 @@ function automaticDue(db: Queryable, userId: string): boolean {
 /**
  * Tuning the User's Parameters. Every query is scoped by the User (ADR-0001).
  * Tune now, automatic Tuning and Reset to defaults run one at a time per User,
- * in this process; a Rating never waits for them. `optimizer` is for tests.
+ * in this process; a Rating never waits for them. `optimizer` and `recommend`
+ * are for tests.
  */
 export function createTuningRepository(
   db: Queryable,
-  { optimizer = libraryOptimizer }: { optimizer?: Optimizer } = {},
+  {
+    optimizer = libraryOptimizer,
+    recommend = simulateRecommendedRetention,
+  }: { optimizer?: Optimizer; recommend?: Recommender } = {},
 ) {
   /** Each User's last queued operation, which the next one waits for. */
   const queues = new Map<string, Promise<unknown>>();
@@ -237,15 +272,43 @@ export function createTuningRepository(
     userId: string,
     row: Omit<typeof parameter_tuning.$inferInsert, "id" | "userId">,
     on: Queryable = db,
-  ) =>
-    on
-      .insert(parameter_tuning)
-      .values({ id: randomUUID(), userId, ...row })
+  ): string => {
+    const id = randomUUID();
+    on.insert(parameter_tuning)
+      .values({ id, userId, ...row })
       .run();
+    return id;
+  };
+
+  /**
+   * Works out the Recommended retention right after the Tuning log row `rowId`
+   * is written, and stores it on the row, while tuned Parameters are in use;
+   * while the defaults are, there is none. A failure is logged and leaves the
+   * row's null.
+   */
+  async function recommendAfter(userId: string, rowId: string): Promise<void> {
+    try {
+      const parameters = storedParametersOf(db, userId);
+      if (parameters === null) return;
+      const { studyDay } = schedulingSettingsOf(db, userId);
+      const percent = await recommend(
+        parameters,
+        retentionInputs(ratedReviewsOf(db, userId), studyDay),
+      );
+      db.update(parameter_tuning)
+        .set({ recommendedRetention: percent })
+        .where(and(eq(parameter_tuning.userId, userId), eq(parameter_tuning.id, rowId)))
+        .run();
+      logger.info("Recommended retention: {percent}%", { percent });
+    } catch (error) {
+      logger.error("Working out the Recommended retention failed: {error}", { error });
+    }
+  }
 
   /**
    * One Tuning: fits new Parameters to all the User's Reviews, applies them if
-   * they predict better, and logs the attempt, whatever its result. An
+   * they predict better, and logs the attempt, whatever its result, then
+   * works out the Recommended retention for its row (`recommendAfter`). An
    * automatic one that is no longer due when its turn comes runs not at all
    * (null).
    */
@@ -255,6 +318,8 @@ export function createTuningRepository(
     now: () => Date,
   ): Promise<TuningResult | null> {
     let reviewCount = 0;
+    let result: TuningResult;
+    let rowId: string;
     try {
       if (trigger === "automatic" && !automaticDue(db, userId)) return null;
       const { studyDay, parameters } = schedulingSettingsOf(db, userId);
@@ -280,13 +345,13 @@ export function createTuningRepository(
       const tuned = await tune(items, parameters, optimizer);
       const ranAt = now();
       if (tuned.result === "not_enough_data") {
-        log(userId, { ranAt, trigger, reviewCount, outcome: "not_enough_data" });
+        rowId = log(userId, { ranAt, trigger, reviewCount, outcome: "not_enough_data" });
       } else {
-        const { result, ...measured } = tuned;
-        db.transaction(
+        const { result: outcome, ...measured } = tuned;
+        rowId = db.transaction(
           (tx) => {
-            if (result === "applied") applyParameters(tx, userId, measured.parameters);
-            log(userId, { ranAt, trigger, reviewCount, outcome: result, ...measured }, tx);
+            if (outcome === "applied") applyParameters(tx, userId, measured.parameters);
+            return log(userId, { ranAt, trigger, reviewCount, outcome, ...measured }, tx);
           },
           { behavior: "immediate" },
         );
@@ -296,17 +361,20 @@ export function createTuningRepository(
         result: tuned.result,
         reviewCount,
       });
-      return tuned.result;
+      result = tuned.result;
     } catch (error) {
       logger.error("Tuning {trigger} failed: {error}", { trigger, error });
+      result = "failed";
       try {
-        log(userId, { ranAt: now(), trigger, reviewCount, outcome: "failed" });
+        rowId = log(userId, { ranAt: now(), trigger, reviewCount, outcome: "failed" });
       } catch (logError) {
         // Never rejects: an automatic Tuning's promise has no one to catch it.
         logger.error("Logging a failed Tuning failed too: {error}", { error: logError });
+        return result;
       }
-      return "failed";
     }
+    await recommendAfter(userId, rowId);
+    return result;
   }
 
   const startTuning = (
@@ -355,6 +423,7 @@ export function createTuningRepository(
       ),
       paused: newest?.outcome === "reset",
       running: running.has(userId),
+      recommendedRetention: stored === null ? null : (newest?.recommendedRetention ?? null),
     };
   };
 
@@ -364,7 +433,7 @@ export function createTuningRepository(
 
     /**
      * Tune now: a Tuning at once, answered with its result and the new
-     * status. It applies only an improvement, and its log row ends a pause.
+     * status, its Recommended retention worked out. It applies only an improvement, and its log row ends a pause.
      * During a queued or running Tuning it waits for that one and answers its
      * result. `now` is for tests.
      */

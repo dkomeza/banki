@@ -104,6 +104,8 @@ const SETTINGS_MACROS = [
   { name: "\\abs", definition: "\\left| #1 \\right|" },
   { name: "\\eps", definition: "\\varepsilon" },
 ];
+/** Spanish vocabulary's own Macro, before its Import adds \m and \f. */
+const SPANISH_MACROS = [{ name: "\\pl", definition: "\\textsf{\\small pl.}" }];
 const CALCULUS_2_MACROS = [
   { name: "\\d", definition: "\\mathrm{d}" },
   { name: "\\eps", definition: "\\epsilon" },
@@ -618,8 +620,8 @@ function deletedSeed(db: Queryable, userId: string, now: Date) {
 
 /**
  * The Import's file: market and café words for Spanish vocabulary, from a zip,
- * with \m and \f for gender (added to the Deck) and an \eps the Deck has
- * from Settings defined differently (kept). Card 3 repeats one of the Deck's,
+ * with \m and \f for gender (added to the Deck) and a \pl the Deck has of
+ * its own defined differently (kept). Card 3 repeats one of the Deck's,
  * card 4 has no Back, card 6 refers to an image the zip didn't hold, and
  * card 7 is left out.
  */
@@ -630,7 +632,7 @@ const IMPORT_FILE = {
   macros: [
     { name: "\\m", definition: "\\textsf{\\small m.}" },
     { name: "\\f", definition: "\\textsf{\\small f.}" },
-    { name: "\\eps", definition: "\\epsilon" },
+    { name: "\\pl", definition: "\\textsf{pl.}" },
   ],
   cards: [
     {
@@ -717,6 +719,65 @@ function importSeed(
   if (typeof confirmed === "string") throw new Error(`The seed Import is ${confirmed}`);
 }
 
+/** The undone Import's file: six irregular verbs, every one imported. */
+const UNDONE_IMPORT_FILE = {
+  $schema: null,
+  format: "banki",
+  version: 1,
+  macros: [],
+  cards: [
+    ["tener", "to have (tengo, tienes)"],
+    ["hacer", "to do, to make (hago, haces)"],
+    ["poder", "to be able to (puedo, puedes)"],
+    ["decir", "to say (digo, dices)"],
+    ["venir", "to come (vengo, vienes)"],
+    ["salir", "to go out (salgo, sales)"],
+  ].map(([front, back]) => ({ front, back, tags: ["a2", "verb"], gradingNotes: null })),
+};
+
+/** Reads, confirms and then undoes an older Import into the seed Deck. */
+function undoneImportSeed(
+  db: Queryable,
+  userId: string,
+  importsDir: string,
+  uploadsDir: string,
+  now: Date,
+) {
+  const imports = createImportRepository(db, importsDir, uploadsDir);
+  const id = SEED_IDS.undoneImport;
+  const created = imports.create(
+    userId,
+    SEED_IDS.deck,
+    {
+      bytes: new TextEncoder().encode(JSON.stringify(UNDONE_IMPORT_FILE)),
+      kind: "file",
+      fileName: "verbos-irregulares.json",
+    },
+    { id, now: new Date(now.getTime() - 50 * HOUR_MS) },
+  );
+  if (created === "not_found" || "problems" in created) {
+    throw new Error(`The undone seed Import is ${JSON.stringify(created)}`);
+  }
+  const preview = imports.find(userId, id);
+  if (preview?.status !== "unconfirmed")
+    throw new Error("The undone seed Import isn't unconfirmed");
+  const ticked = preview.cards.map((one) => {
+    const { duplicateOf: _, ...read } = one;
+    return read;
+  });
+  const imported: Record<number, string> = SEED_IDS.cards.undoneImport;
+  const confirmed = imports.confirm(userId, id, ticked, {
+    now: new Date(now.getTime() - 50 * HOUR_MS + 2 * 60 * 1000),
+    cardIdFor: (number) => imported[number] ?? `unknown-${number}`,
+  });
+  if (typeof confirmed === "string") throw new Error(`The undone seed Import is ${confirmed}`);
+  const undone = imports.undo(userId, id, {
+    now: new Date(now.getTime() - 47 * HOUR_MS),
+    deletionId: SEED_IDS.deletions.verbos,
+  });
+  if (typeof undone === "string") throw new Error(`The undone seed Import is ${undone}`);
+}
+
 /**
  * Writes the Seed data for `userId` through the repositories, timed relative
  * to `now`, its Image stored in `uploadsDir` and its Import read through
@@ -769,6 +830,8 @@ export function writeSeedData({
     macros: CALCULUS_2_MACROS,
     answerMode: "write",
   });
+  // Spanish vocabulary has a \pl of its own, which its Import keeps.
+  decks.update(userId, SEED_IDS.decks.spanish, { macros: SPANISH_MACROS });
 
   const stored = createImageRepository(db, uploadsDir).store(userId, readFileSync(IMAGE.file), {
     id: IMAGE.id,
@@ -803,16 +866,23 @@ export function writeSeedData({
   }
 
   importSeed(db, userId, importsDir, uploadsDir, now);
+  undoneImportSeed(db, userId, importsDir, uploadsDir, now);
 
   deletions.rest();
 
   // One applied Tuning, so Settings shows the tuned state; its Parameters are
-  // FSRS-6's defaults, so its replay changes no other seeded screen.
+  // FSRS-6's defaults, so its replay changes no other seeded screen. Its
+  // Recommended retention is fixed rather than simulated, below the 90% every
+  // seeded Deck follows, so both retention screens offer to use it.
   writeAppliedTuning(db, userId, [...DEFAULT_PARAMETERS], {
     ranAt: new Date(now.getTime() - TUNING_HOURS_AGO * HOUR_MS),
     id: SEED_IDS.tuning,
+    recommendedRetention: SEED_RECOMMENDED_RETENTION,
   });
 }
+
+/** The seeded Tuning's Recommended retention. */
+export const SEED_RECOMMENDED_RETENTION = 85;
 
 /**
  * Whether the User owns any content (folders, decks, cards, images, reviews,

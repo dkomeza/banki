@@ -11,6 +11,7 @@ import { type QueryClient, queryOptions } from "@tanstack/react-query";
 import { type ApiClient, api } from "./api";
 import { CANT_REACH } from "./decks";
 import { ROOT_NAME } from "./folders";
+import { refreshImports } from "./imports";
 import { ApiRequestError } from "./query";
 
 export type Deletion = DeletionResponse;
@@ -39,14 +40,16 @@ export async function deletionIdOf(res: Response): Promise<string | undefined> {
 
 /**
  * Has everything a Restore or a Removal can change fetched again: Recently
- * deleted, the Folders and Decks, each Deck's Cards and each Card, and the Tags.
+ * deleted, the Folders and Decks, each Deck's Cards and each Card, the Tags,
+ * and the Imports' reports and Past imports, which count their live Cards.
  */
 export async function refreshAfterDeletion(queryClient: QueryClient) {
-  await Promise.all(
-    [["deletions"], ["folders"], ["decks"], ["cards"], ["tags"]].map((queryKey) =>
+  await Promise.all([
+    ...[["deletions"], ["folders"], ["decks"], ["cards"], ["tags"]].map((queryKey) =>
       queryClient.invalidateQueries({ queryKey }),
     ),
-  );
+    refreshImports(queryClient),
+  ]);
 }
 
 export type RestoreOutcome =
@@ -187,14 +190,20 @@ export function firstLine(front: string): string {
 /** What Recently deleted calls its top item: a Card by its Front's first line. */
 export const nameOf = (d: Deletion) => (d.top.kind === "card" ? firstLine(d.top.name) : d.top.name);
 
-/** Where it was: "Decks › Maths" for a Deck or Folder, its Deck for a Card. */
+/** Where it was: "Decks › Maths" for a Deck or Folder, its Deck for a Card or an Import. */
 export function whereLabel(d: Deletion): string {
   if (d.deck !== null) return d.deck.name;
   return [ROOT_NAME, ...(d.path ?? [])].join(" › ");
 }
 
-export const kindLabel = (kind: DeletionKind) =>
-  kind === "folder" ? "Folder" : kind === "deck" ? "Deck" : "Card";
+const KIND_LABELS: Record<DeletionKind, string> = {
+  folder: "Folder",
+  deck: "Deck",
+  card: "Card",
+  import: "Import",
+};
+
+export const kindLabel = (kind: DeletionKind) => KIND_LABELS[kind];
 
 /** The start of `date`'s day, in this device's timezone. */
 const midnight = (date: Date) => new Date(date.toDateString()).getTime();
@@ -231,9 +240,11 @@ export function deleteQuestion(d: Deletion): string {
   const what =
     d.top.kind === "card"
       ? `the card “${nameOf(d)}”`
-      : counts === ""
-        ? d.top.name
-        : `${d.top.name} and the ${counts} in it`;
+      : d.top.kind === "import"
+        ? `the ${counts === "" ? "cards" : counts} ${d.top.name} imported`
+        : counts === ""
+          ? d.top.name
+          : `${d.top.name} and the ${counts} in it`;
   return `Delete ${what} permanently? This can't be undone.`;
 }
 
@@ -256,6 +267,9 @@ export function restoredToast(restored: Restored, was: string, where: string) {
       title: `${name} restored to ${ROOT_NAME}`,
       description: `Its folder is deleted, so it's back at the top of ${ROOT_NAME}.`,
     };
+  }
+  if (kind === "import") {
+    return { title: "Import restored", description: `Its cards are back in their decks.` };
   }
   return {
     title: kind === "card" ? "Card restored" : `${name} restored`,

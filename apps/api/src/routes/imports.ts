@@ -2,7 +2,9 @@ import {
   ConfirmImportRequest,
   type CreateImportResponse,
   IMPORT_UPLOAD_MAX_BYTES,
+  type ImportHistoryResponse,
   type ImportRefusedResponse,
+  type UndoImportResponse,
   UploadImportQuery,
 } from "@banki/shared";
 import { Hono } from "hono";
@@ -18,6 +20,7 @@ const IMAGE_NOT_FOUND = apiError("not_found", "Image not found");
 const CONFIRMED = apiError("import_confirmed", "This import is already done");
 const DECK_GONE = apiError("deck_gone", "The deck was deleted, so nothing was imported");
 const UNKNOWN_CARD = apiError("invalid_request", "A card isn't one of the file's");
+const NOTHING_TO_UNDO = apiError("nothing_to_undo", "None of this import's cards are here to undo");
 
 /**
  * Whether an upload's `Content-Type` is one a browser sends across origins
@@ -64,32 +67,40 @@ async function readUpload(request: Request): Promise<Uint8Array | Refused> {
  * text, `?kind=file&name=<its name>` for a `.json` or a `.zip`), reads it and
  * answers 201 with the new unconfirmed Import's `id`. A refused file creates
  * nothing and answers 422 `import_refused` with its `problems`, one line
- * each. A deleted Deck, an unknown one and another User's answer 404.
+ * each. `GET /:deckId/imports` answers its Past imports, the confirmed ones,
+ * newest first. A deleted Deck, an unknown one and another User's answer 404.
  */
 export function deckImportRoutes({ imports }: { imports: ImportRepository }) {
-  return new Hono<SignedInEnv>().post(
-    "/:deckId/imports",
-    query(UploadImportQuery, "Say whether the file is pasted or chosen"),
-    async (c) => {
-      const type = c.req.header("content-type")?.split(";")[0]?.trim().toLowerCase() ?? "";
-      if (!isUploadType(type)) {
-        return c.json(apiError("invalid_request", "Send the file as the request's body"), 400);
-      }
-      const { kind, name } = c.req.valid("query");
-      const fileName = name === undefined || name === "" ? "Card file" : name;
-      const bytes = await readUpload(c.req.raw);
-      if ("problems" in bytes) return c.json(refused(bytes), 422);
-      const created = imports.create(c.var.user.id, c.req.param("deckId"), {
-        bytes,
-        kind,
-        fileName,
-      });
-      if (created === "not_found") return c.json(DECK_NOT_FOUND, 404);
-      if ("problems" in created) return c.json(refused(created), 422);
-      const body: CreateImportResponse = created;
-      return c.json(body, 201);
-    },
-  );
+  return new Hono<SignedInEnv>()
+    .get("/:deckId/imports", (c) => {
+      const history = imports.history(c.var.user.id, c.req.param("deckId"));
+      if (history === "not_found") return c.json(DECK_NOT_FOUND, 404);
+      const body: ImportHistoryResponse = history;
+      return c.json(body, 200);
+    })
+    .post(
+      "/:deckId/imports",
+      query(UploadImportQuery, "Say whether the file is pasted or chosen"),
+      async (c) => {
+        const type = c.req.header("content-type")?.split(";")[0]?.trim().toLowerCase() ?? "";
+        if (!isUploadType(type)) {
+          return c.json(apiError("invalid_request", "Send the file as the request's body"), 400);
+        }
+        const { kind, name } = c.req.valid("query");
+        const fileName = name === undefined || name === "" ? "Card file" : name;
+        const bytes = await readUpload(c.req.raw);
+        if ("problems" in bytes) return c.json(refused(bytes), 422);
+        const created = imports.create(c.var.user.id, c.req.param("deckId"), {
+          bytes,
+          kind,
+          fileName,
+        });
+        if (created === "not_found") return c.json(DECK_NOT_FOUND, 404);
+        if ("problems" in created) return c.json(refused(created), 422);
+        const body: CreateImportResponse = created;
+        return c.json(body, 201);
+      },
+    );
 }
 
 /**
@@ -99,8 +110,10 @@ export function deckImportRoutes({ imports }: { imports: ImportRepository }) {
  * its preview shows it. `POST /:id/confirm` takes the ticked Cards and adds
  * them in one transaction, answering the report: one already confirmed
  * answers 409 `import_confirmed`, and one whose Deck is no longer live 409
- * `deck_gone`, each adding nothing. An unknown Import and another User's
- * answer 404.
+ * `deck_gone`, each adding nothing. `POST /:id/undo` undoes a confirmed one
+ * (ADR-0030), answering its one Deletion and how many Cards it took, or 409
+ * `nothing_to_undo` with no live Card stamped with it; an unconfirmed one
+ * answers 404. An unknown Import and another User's answer 404.
  */
 export function importRoutes({ imports }: { imports: ImportRepository }) {
   return new Hono<SignedInEnv>()
@@ -132,5 +145,12 @@ export function importRoutes({ imports }: { imports: ImportRepository }) {
       if (confirmed === "deck_gone") return c.json(DECK_GONE, 409);
       if (confirmed === "unknown_card") return c.json(UNKNOWN_CARD, 400);
       return c.json(confirmed, 200);
+    })
+    .post("/:id/undo", (c) => {
+      const undone = imports.undo(c.var.user.id, c.req.param("id"));
+      if (undone === "not_found") return c.json(NOT_FOUND, 404);
+      if (undone === "nothing_to_undo") return c.json(NOTHING_TO_UNDO, 409);
+      const body: UndoImportResponse = undone;
+      return c.json(body, 200);
     });
 }

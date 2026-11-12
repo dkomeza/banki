@@ -5,17 +5,21 @@ import { Macro } from "./macros";
 /** How long a Deletion waits in Recently deleted before its Removal: 30 × 24 h. */
 export const DELETION_KEPT_MS = 30 * 24 * 60 * 60 * 1000;
 
-/** What a Deletion's top item is: what was deleted, with everything that went with it. */
-export const DeletionKind = z.enum(["folder", "deck", "card"]);
+/**
+ * What a Deletion's top item is: what was deleted, with everything that went
+ * with it. An `import` is an Import's Undo (ADR-0030): the Cards it added.
+ */
+export const DeletionKind = z.enum(["folder", "deck", "card", "import"]);
 export type DeletionKind = z.infer<typeof DeletionKind>;
 
 /**
  * One Deletion in Recently deleted, as `GET /api/deletions` answers it: when it
  * was deleted and will be removed, its top item (a Card's `name` is its
- * Front), where that was (`path`, the Folder names from the Root, for a Deck or
- * Folder; `deck`, for a Card, with its own Macros for its Front to render
- * with, even once that Deck is deleted; the other null), and how many folders,
- * decks and cards went with it, the top item not counted.
+ * Front, an Import's its file name), where that was (`path`, the Folder names
+ * from the Root, for a Deck or Folder; `deck`, for a Card or an Import, with
+ * its own Macros for a Front to render with, even once that Deck is deleted;
+ * the other null), and how many folders, decks and cards went with it, the top
+ * item not counted (an Import's Cards are all counted).
  */
 export const DeletionResponse = z.object({
   id: z.string(),
@@ -51,8 +55,8 @@ export const RestoreResponse = z.object({
 export type RestoreResponse = z.infer<typeof RestoreResponse>;
 
 /**
- * The body of a 409 `place_deleted`: a Card's Deletion can't be restored while
- * its Deck is deleted; `deck` names that Deck.
+ * The body of a 409 `place_deleted`: a Card's Deletion, or an Import's, can't
+ * be restored while a Deck its Cards are in is deleted; `deck` names that Deck.
  */
 export const PlaceDeletedError = z.object({
   error: z.object({ code: z.literal("place_deleted"), message: z.string() }),

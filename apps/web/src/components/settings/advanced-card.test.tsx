@@ -28,6 +28,7 @@ const TUNING: TuningStatus = {
   reviewsUntilAutomatic: 200,
   paused: false,
   running: false,
+  recommendedRetention: null,
 };
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));

@@ -5,7 +5,8 @@ import {
 } from "@banki/shared";
 
 // Desired retention as Settings and a Deck's settings show it: the pickers'
-// options and search, and what a change that didn't save says.
+// options and search, the Recommended retention, and what a change that
+// didn't save says. Nothing here says "FSRS" or "parameters".
 
 /** A picker's choice, as the settings Combobox takes it. */
 export type RetentionOption = { value: string; label: string; display?: string; detail?: string };
@@ -23,7 +24,37 @@ export const PERCENT_OPTIONS: readonly RetentionOption[] = Array.from(
   },
 );
 
-/** The percents a search finds: by number ("8" finds 80–89), or "default". */
+/** The tag a picker gives the Recommended retention's percent. */
+export const RECOMMENDED_TAG = "Recommended";
+
+/**
+ * `options` with the Recommended retention's percent tagged, after any
+ * detail it has ("default · Recommended"); as they are while there is none.
+ */
+export function withRecommended(
+  options: readonly RetentionOption[],
+  recommended: number | null,
+): readonly RetentionOption[] {
+  if (recommended === null) return options;
+  return options.map((option) =>
+    option.value === String(recommended)
+      ? {
+          ...option,
+          detail:
+            option.detail === undefined ? RECOMMENDED_TAG : `${option.detail} · ${RECOMMENDED_TAG}`,
+        }
+      : option,
+  );
+}
+
+/** What the line under a picker says of the Recommended retention, and why. */
+export const recommendedText = (percent: number) => ({
+  title: `Recommended for you: ${percent}%`,
+  reason:
+    "From how well you remember and how long your cards take you, this is where you keep the most for the time you study.",
+});
+
+/** The percents a search finds: by number ("8" finds 80–89), or by tag ("default", "recommended"). */
 export function matchPercents(
   options: readonly RetentionOption[],
   query: string,

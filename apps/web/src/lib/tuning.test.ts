@@ -13,6 +13,7 @@ const STATUS: TuningStatus = {
   reviewsUntilAutomatic: 200,
   paused: false,
   running: false,
+  recommendedRetention: null,
 };
 
 const TUNED: TuningStatus = {
@@ -22,6 +23,7 @@ const TUNED: TuningStatus = {
   reviewsUntilAutomatic: 57,
   paused: false,
   running: false,
+  recommendedRetention: null,
 };
 
 describe("tuningStatusLines", () => {

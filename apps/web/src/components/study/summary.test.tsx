@@ -21,6 +21,7 @@ const DECK: Deck = {
   desiredRetention: null,
   macros: [],
   answerMode: null,
+  plan: null,
 };
 
 // Saturday 31 October 2026.

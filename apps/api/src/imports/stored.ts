@@ -23,8 +23,23 @@ export type StagedImport = {
   images: Record<string, ImageStatus>;
 };
 
-/** What a confirmed Import did, in its `report` column. */
+/**
+ * What a confirmed Import did, in its `report` column. How many of its Cards
+ * are live now, and its Undo, are read fresh, not kept.
+ */
 export type ImportReport = Omit<
   ImportReportResponse,
-  "id" | "deckId" | "fileName" | "source" | "createdAt" | "status" | "confirmedAt"
+  | "id"
+  | "deckId"
+  | "fileName"
+  | "source"
+  | "createdAt"
+  | "status"
+  | "confirmedAt"
+  | "live"
+  | "undoneAt"
+  | "undoDeletionId"
+  | "studied"
+  | "edited"
+  | "moved"
 >;

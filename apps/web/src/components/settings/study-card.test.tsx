@@ -1,11 +1,12 @@
 // @vitest-environment happy-dom
-import type { SettingsPatch, SettingsResponse } from "@banki/shared";
+import type { SettingsPatch, SettingsResponse, TuningStatus } from "@banki/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, test } from "vitest";
 import { type Deck, decksQueryOptions } from "@/lib/decks";
 import { settingsQueryOptions } from "@/lib/settings";
 import { settingsSaverFor } from "@/lib/settings-store";
+import { tuningQueryOptions } from "@/lib/tuning";
 import { StudyCard } from "./study-card";
 
 const SETTINGS: SettingsResponse = {
@@ -32,28 +33,46 @@ const deck = (id: string, own: Partial<Deck> = {}): Deck => ({
   desiredRetention: null,
   macros: [],
   answerMode: null,
+  plan: null,
   ...own,
+});
+
+/** How Tuning stands: tuned, with `recommendedRetention`. */
+const tuning = (recommendedRetention: number | null): TuningStatus => ({
+  parameters: recommendedRetention === null ? "default" : "tuned",
+  tuned: recommendedRetention === null ? null : { at: "2026-05-01T09:00:00.000Z", reviews: 400 },
+  lastAttempt: null,
+  reviewsUntilAutomatic: 200,
+  paused: false,
+  running: false,
+  recommendedRetention,
 });
 
 afterEach(cleanup);
 
-/** The Study card over `decks`, the Settings saving through `save`. */
+/**
+ * The Study card over `decks`, the Settings saving through `save`, with
+ * `recommended` as the Recommended retention.
+ */
 function renderCard(
   decks: Deck[],
   save: (patch: SettingsPatch) => Promise<SettingsResponse> = async (patch) => ({
     ...SETTINGS,
     ...patch,
   }),
+  recommended: number | null = null,
 ) {
   const queryClient = new QueryClient();
   queryClient.setQueryData(settingsQueryOptions().queryKey, { settings: SETTINGS, issuedAt: 0 });
   queryClient.setQueryData(decksQueryOptions().queryKey, decks);
+  queryClient.setQueryData(tuningQueryOptions().queryKey, tuning(recommended));
   settingsSaverFor(queryClient, { save });
   render(
     <QueryClientProvider client={queryClient}>
       <StudyCard />
     </QueryClientProvider>,
   );
+  return queryClient;
 }
 
 const answerMode = () => screen.getByRole<HTMLInputElement>("combobox", { name: "Answer mode" });
@@ -142,5 +161,98 @@ describe("StudyCard's Answer mode", () => {
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
     expect(answerMode().value).toBe("Write and grade");
     expect(sent).toEqual([{ answerMode: "write" }, { answerMode: "write" }]);
+  });
+});
+
+const retention = () =>
+  screen.getByRole<HTMLInputElement>("combobox", { name: "Desired retention" });
+const useButton = (percent: number) => screen.queryByRole("button", { name: `Use ${percent}%` });
+
+describe("StudyCard's Recommended retention", () => {
+  test("shows nothing while there is none", () => {
+    renderCard([deck("a")]);
+
+    expect(screen.queryByText(/Recommended/)).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Use/ })).toBeNull();
+    fireEvent.focus(retention());
+    expect(screen.queryByRole("option", { name: /Recommended/ })).toBeNull();
+  });
+
+  test("says what it is and why, in plain words, under the picker", () => {
+    renderCard([deck("a")], undefined, 84);
+
+    const line = screen.getByText("Recommended for you: 84%").parentElement;
+    if (line === null) throw new Error("No line");
+    expect(line.textContent).toBe(
+      "Recommended for you: 84% · From how well you remember and how long your cards take you, this is where you keep the most for the time you study.",
+    );
+    expect(line.textContent).not.toMatch(/fsrs|parameter/i);
+    // Under the picker, before what the value means.
+    const hint = document.getElementById(retention().getAttribute("aria-describedby") ?? "");
+    expect(
+      retention().compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      (hint?.compareDocumentPosition(line) ?? 0) & Node.DOCUMENT_POSITION_PRECEDING,
+    ).toBeTruthy();
+  });
+
+  test("tags its percent in the picker, and a search for it finds it", () => {
+    renderCard([deck("a")], undefined, 84);
+
+    fireEvent.focus(retention());
+    expect(screen.getByRole("option", { name: "84% Recommended" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "90% default" })).toBeTruthy();
+    fireEvent.change(retention(), { target: { value: "recomm" } });
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "84%Recommended",
+    ]);
+  });
+
+  test("tags the default percent too, when it is the one", () => {
+    renderCard([deck("a")], undefined, 90);
+
+    fireEvent.focus(retention());
+    expect(screen.getByRole("option", { name: "90% default · Recommended" })).toBeTruthy();
+  });
+
+  test("Use saves it as a pick does, and goes once it is the value", async () => {
+    const sent: SettingsPatch[] = [];
+    renderCard(
+      [deck("a")],
+      async (patch) => {
+        sent.push(patch);
+        return { ...SETTINGS, ...patch };
+      },
+      84,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Use 84%" }));
+
+    expect(sent).toEqual([{ desiredRetention: 84 }]);
+    expect(retention().value).toBe("84%");
+    expect(useButton(84)).toBeNull();
+    await waitFor(() => expect(screen.getByText("Saved")).toBeTruthy());
+    expect(screen.getByText("Recommended for you: 84%")).toBeTruthy();
+  });
+
+  test("Use shows only while the value differs", () => {
+    renderCard([deck("a")], undefined, 90);
+
+    expect(screen.getByText("Recommended for you: 90%")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Use/ })).toBeNull();
+  });
+
+  test("follows the tuning status as it is fetched again, after Tune now or Reset", async () => {
+    const queryClient = renderCard([deck("a")], undefined, 84);
+
+    await act(async () => {
+      queryClient.setQueryData(tuningQueryOptions().queryKey, tuning(80));
+    });
+    await waitFor(() => expect(screen.getByText("Recommended for you: 80%")).toBeTruthy());
+    await act(async () => {
+      queryClient.setQueryData(tuningQueryOptions().queryKey, tuning(null));
+    });
+    await waitFor(() => expect(screen.queryByText(/Recommended for you/)).toBeNull());
   });
 });

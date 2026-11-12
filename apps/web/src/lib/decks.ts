@@ -38,6 +38,9 @@ export const deckQueryOptions = (id: string, client: ApiClient = api) =>
     },
   });
 
+/** Where the Deck `id` downloads as a `.zip`, `GET /api/decks/:id/export`: a link the browser saves itself. */
+export const deckExportUrl = (id: string) => `/api/decks/${encodeURIComponent(id)}/export`;
+
 // What creating, editing and deleting a Deck say, and under which field.
 
 export const CANT_REACH = "Can't reach Banki. Check your connection and try again.";

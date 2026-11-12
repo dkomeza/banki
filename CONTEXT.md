@@ -61,11 +61,11 @@ A file in Banki's own versioned JSON format that holds Cards, their Tags and gra
 _Avoid_: deck file, export file, Banki JSON
 
 **Import**:
-One act of bringing the Cards of a Card file into one live Deck, and the Cards it added. It starts unconfirmed, while the User previews the file's Cards and picks which to keep; one never confirmed is gone after 24 hours. Confirming it adds the Cards, skipping Duplicates and invalid Cards, adds the file's Macros the Deck lacks, and keeps a report of what it did.
+One act of bringing the Cards of a Card file into one live Deck, and the Cards it added. It starts unconfirmed, while the User previews the file's Cards and picks which to keep; one never confirmed is gone after 24 hours. Confirming it adds the Cards, skipping Duplicates and invalid Cards, adds the file's Macros the Deck lacks, and keeps a report of what it did. A confirmed Import can be undone while a Card it added is live: the Undo deletes every such Card, wherever it is now, and leaves the Macros and Images it added.
 _Avoid_: upload, batch
 
 **Deletion**:
-One act of deleting, and everything it took with it: a Card on its own, a Deck with its Cards, or a Folder with everything inside it. It is restored or removed as a whole. Something deleted earlier on its own keeps its own Deletion. Deleting several picked Cards at once makes one Deletion per Card, though the delete's Undo brings them all back.
+One act of deleting, and everything it took with it: a Card on its own, a Deck with its Cards, a Folder with everything inside it, or an Import's Undo with the Cards it took. It is restored or removed as a whole. Something deleted earlier on its own keeps its own Deletion. Deleting several picked Cards at once makes one Deletion per Card, though the delete's Undo brings them all back.
 _Avoid_: trash item, deleted item
 
 **Recently deleted**:
@@ -159,6 +159,22 @@ _Avoid_: weights, FSRS settings, model (the Model is the Grader's)
 **Tuning**:
 Fitting the Parameters to the User's own Reviews, of every kind and of Cards that are gone too. Banki does it by itself every 200 Reviews, or at once when the User asks (Tune now), and applies the result only when it predicts the User's recall better than the current Parameters. Reset to defaults puts FSRS's defaults back and pauses Tuning by itself until the User next asks for one.
 _Avoid_: optimization, training, calibration, fitting (alone)
+
+**Recommended retention**:
+The Desired retention, from 70% to 97%, that Banki works out leaves the User remembering the most Cards per minute studied, from their Parameters and their own time and Ratings per Card. It exists only while the Parameters are tuned, and each Tuning works it out again. Banki shows it next to Desired retention, in Settings and in each Deck's settings, and never applies it by itself: the User picks it.
+_Avoid_: optimal retention, suggested retention, CMRR
+
+**Plan**:
+What a Deck works toward for an exam: a Deadline and a Daily goal. A Deck has at most one. Creating or editing it checks whether the Daily goal covers the Deck's New cards by the Deadline, and says what goal would.
+_Avoid_: schedule, study plan, goal (alone)
+
+**Deadline**:
+The Study day a Plan works toward, such as the exam day. Studying for it happens on the Study days before it, so it is at least tomorrow. It is a Study day, not a moment, so it stays the same day when the Timezone or Day start changes.
+_Avoid_: due date, exam date (in the code), end date
+
+**Daily goal**:
+The minutes a day a Plan expects the User to study its Deck, from 5 to 600. A goal, never a limit: nothing stops a Session at it.
+_Avoid_: daily limit, quota, minutes (alone)
 
 **Recall rate**:
 The share of the review Cards a Session showed that the User recalled the first time: their first Rating in it wasn't Again. New Cards and Cards in their learning steps don't count, so it measures what Desired retention aims at. A Card counts by how it first came in the Session, so a review Card the User then puts back to New (Progress reset) and rates still counts. A Session with no review Card has none.
