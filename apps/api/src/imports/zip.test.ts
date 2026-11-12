@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { makeZip } from "../testing/zip";
-import { ZipError, looksLikeZip, zipEntries, zipEntryBytes } from "./zip";
+import { ZipError, looksLikeZip, writeZip, zipEntries, zipEntryBytes } from "./zip";
 
 const text = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 
@@ -45,5 +48,48 @@ describe("zip", () => {
     const zip = makeZip([{ name: "a.json", data: "{}" }]);
     const [entry] = zipEntries(zip);
     expect(() => zipEntryBytes(zip, { ...entry!, compressedSize: 1_000_000 })).toThrow(ZipError);
+  });
+});
+
+const encode = (data: string) => new TextEncoder().encode(data);
+
+describe("writeZip", () => {
+  const png = Uint8Array.from({ length: 2048 }, (_, i) => (i * 37) % 256);
+  const files = [
+    {
+      name: "Żółw – słówka.json",
+      data: encode(`{"cards":${"[1],".repeat(500)}[]}`),
+      deflate: true,
+    },
+    { name: "images/0b1c.png", data: png, deflate: false },
+  ];
+
+  test("zipEntries and zipEntryBytes read back what it wrote, unchanged", () => {
+    const zip = writeZip(files);
+    expect(looksLikeZip(zip)).toBe(true);
+    const entries = zipEntries(zip);
+    expect(entries.map((entry) => entry.name)).toEqual(files.map((file) => file.name));
+    expect(entries.map((entry) => entry.method)).toEqual([8, 0]);
+    expect(entries[0]!.compressedSize).toBeLessThan(files[0]!.data.length);
+    expect(entries.map((entry) => zipEntryBytes(zip, entry))).toEqual(files.map((f) => f.data));
+  });
+
+  test("an empty zip reads back with no entries", () => {
+    const zip = writeZip([]);
+    expect(looksLikeZip(zip)).toBe(true);
+    expect(zipEntries(zip)).toEqual([]);
+  });
+
+  test.skipIf(Bun.which("unzip") === null)("unzip -t accepts its output", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "banki-zip-"));
+    try {
+      const path = join(dir, "deck.zip");
+      writeFileSync(path, writeZip(files, new Date(2026, 10, 9, 12, 30, 15)));
+      const tested = Bun.spawnSync(["unzip", "-t", path]);
+      expect(tested.stdout.toString()).toContain("No errors detected");
+      expect(tested.exitCode).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

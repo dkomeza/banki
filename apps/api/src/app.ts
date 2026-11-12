@@ -21,6 +21,7 @@ import { createImportRepository } from "./repositories/imports";
 import { createReviewRepository } from "./repositories/reviews";
 import { createFolderRepository } from "./repositories/folders";
 import { createSettingsRepository } from "./repositories/settings";
+import { createPlanRepository } from "./repositories/plans";
 import { createStudyRepository } from "./repositories/study";
 import { createTuningRepository } from "./repositories/tuning";
 import { createUserRepository } from "./repositories/user";
@@ -28,6 +29,7 @@ import { authRoutes } from "./routes/auth";
 import { cardRoutes, deckCardRoutes } from "./routes/cards";
 import { deckRoutes } from "./routes/decks";
 import { deletionRoutes } from "./routes/deletions";
+import { deckExportRoutes } from "./routes/exports";
 import { folderRoutes } from "./routes/folders";
 import type { Wait } from "./grader/grade";
 import { gradeRoutes } from "./routes/grade";
@@ -35,6 +37,7 @@ import { healthRoutes } from "./routes/health";
 import { imageRoutes } from "./routes/images";
 import { deckImportRoutes, importRoutes } from "./routes/imports";
 import { meRoutes } from "./routes/me";
+import { planRoutes } from "./routes/plans";
 import { schemaRoutes } from "./routes/schemas";
 import { settingsRoutes } from "./routes/settings";
 import { setupRoutes } from "./routes/setup";
@@ -112,6 +115,7 @@ export function createApp(
     onRated: (userId) => void tuning.afterRating(userId),
   });
   const study = createStudyRepository(database.db);
+  const plans = createPlanRepository(database.db);
   const deletions = createDeletionRepository(database.db);
   const images = createImageRepository(database.db, uploadsDirOf(config.dataDir));
   const imports = createImportRepository(
@@ -150,7 +154,9 @@ export function createApp(
     .route("/api/decks", deckRoutes({ decks }))
     .route("/api/decks", deckCardRoutes({ cards }))
     .route("/api/decks", studyRoutes({ study }))
+    .route("/api/decks", planRoutes({ plans }))
     .route("/api/decks", deckImportRoutes({ imports }))
+    .route("/api/decks", deckExportRoutes({ decks, cards, settings, images, config }))
     .route("/api/imports", importRoutes({ imports }))
     .route("/api/cards", cardRoutes({ cards, reviews, study }))
     .route(

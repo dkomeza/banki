@@ -32,6 +32,7 @@ const deck = (id: string, own: Partial<Deck> = {}): Deck => ({
   desiredRetention: null,
   macros: [],
   answerMode: null,
+  plan: null,
   ...own,
 });
 
