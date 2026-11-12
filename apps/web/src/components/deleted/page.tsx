@@ -38,7 +38,10 @@ import { showRestoredToast } from "./toasts";
  * The Deck a refused Restore names: one to restore first (`placeDeleted`), or
  * one to make room in first (`deckFull`, ADR-0032).
  */
-type Refusal = { id: string; name: string; why: "placeDeleted" | "deckFull" };
+type Refusal = { id: string; name: string } & (
+  | { why: "placeDeleted" }
+  | { why: "deckFull"; room: number }
+);
 
 export function DeletedPage() {
   const queryClient = useQueryClient();
@@ -69,8 +72,7 @@ export function DeletedPage() {
     } else if ("placeDeleted" in outcome) {
       setRefused((all) => new Map(all).set(d.id, { ...outcome.placeDeleted, why: "placeDeleted" }));
     } else if ("deckFull" in outcome) {
-      const { id, name } = outcome.deckFull;
-      setRefused((all) => new Map(all).set(d.id, { id, name, why: "deckFull" }));
+      setRefused((all) => new Map(all).set(d.id, { ...outcome.deckFull, why: "deckFull" }));
     } else toast.error(outcome.message);
   };
 
@@ -205,7 +207,9 @@ function Tile({
               <>
                 <span className="font-medium">Make room in {refusal.name} first.</span>{" "}
                 <span className="text-muted-foreground">
-                  It holds {DECK_CARDS_MAX.toLocaleString("en-GB")} cards, so{" "}
+                  {refusal.room === 0
+                    ? `It holds ${DECK_CARDS_MAX.toLocaleString("en-GB")} cards, so`
+                    : `It has room for ${refusal.room.toLocaleString("en-GB")} more, so`}{" "}
                   {d.top.kind === "import" ? "these don't" : "this one doesn't"} fit. Move or delete
                   some of its cards, then restore {d.top.kind === "import" ? "them" : "it"}.
                 </span>

@@ -71,7 +71,7 @@ function NewCard({ deck }: { deck: Deck }) {
   const [formError, setFormError] = useState<string>();
   const saving = useRef(false);
   const [busy, setBusy] = useState(false);
-  // A Save refused for room, before the Deck's count has caught up with it.
+  // A Save refused for room, until the Deck's count has been fetched again.
   const [refusedFull, setRefusedFull] = useState(false);
   const full = refusedFull || deckRoom(deck.cardCount) === 0;
 
@@ -96,8 +96,13 @@ function NewCard({ deck }: { deck: Deck }) {
     setAdded(false);
     if ("errors" in outcome) form.setErrors(outcome.errors);
     else if ("notFound" in outcome) setFormError("This deck was deleted meanwhile.");
-    else if ("deckFull" in outcome) setRefusedFull(true);
-    else setFormError(outcome.message);
+    else if ("deckFull" in outcome) {
+      setRefusedFull(true);
+      // Then the count says it: the note stays only while the Deck is full.
+      void queryClient
+        .invalidateQueries({ queryKey: deckQueryOptions(deck.id).queryKey })
+        .then(() => setRefusedFull(false));
+    } else setFormError(outcome.message);
   };
 
   return (

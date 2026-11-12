@@ -790,11 +790,6 @@ function undoneImportSeed(
 }
 
 /**
- * Writes the Seed data for `userId` through the repositories, timed relative
- * to `now`, its Image stored in `uploadsDir` and its Import read through
- * `importsDir`.
- */
-/**
  * Fills Spanish numbers with exactly `DECK_CARDS_MAX` short New Cards, a
  * millisecond apart, the first the oldest: 1 to 1,000, written out.
  */
@@ -814,6 +809,11 @@ function fullDeckSeed(db: Queryable, userId: string, now: Date) {
   }
 }
 
+/**
+ * Writes the Seed data for `userId` through the repositories, timed relative
+ * to `now`, its Image stored in `uploadsDir` and its Import read through
+ * `importsDir`.
+ */
 export function writeSeedData({
   db,
   userId,

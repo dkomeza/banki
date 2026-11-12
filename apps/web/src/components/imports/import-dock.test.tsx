@@ -35,7 +35,7 @@ describe("ImportDock", () => {
 
   test("with more ticked than fit, Import is off and says how many to untick", () => {
     const html = dock(11, 8);
-    expect(html).toContain("Room for 8 more cards");
+    expect(html).toContain("Room for 8 more cards · untick 3");
     expect(confirmButton(html)).toEqual({ disabled: true, text: "Untick 3" });
     expect(confirmButton(dock(1_204, 0))).toEqual({ disabled: true, text: "Untick 1,204" });
   });
@@ -43,6 +43,6 @@ describe("ImportDock", () => {
   test("words the room", () => {
     expect(roomLine(1_000)).toBe("Room for 1,000 more cards");
     expect(roomLine(1)).toBe("Room for 1 more card");
-    expect(roomLine(0)).toBe("No room for more cards");
+    expect(roomLine(0)).toBe("Room for 0 more cards");
   });
 });

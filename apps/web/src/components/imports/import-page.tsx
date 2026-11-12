@@ -100,11 +100,9 @@ function Head({
   );
 }
 
-/** "Room for 24 more cards", "Room for 1 more card", or "No room for more cards". */
+/** "Room for 24 more cards", "Room for 1 more card". */
 export const roomLine = (room: number) =>
-  room === 0
-    ? "No room for more cards"
-    : `Room for ${room.toLocaleString("en-GB")} more ${room === 1 ? "card" : "cards"}`;
+  `Room for ${room.toLocaleString("en-GB")} more ${room === 1 ? "card" : "cards"}`;
 
 /** What a confirm refused for room says, the preview showing the room now. */
 const roomChangedNote = ({ name, room }: DeckFull) =>
@@ -347,6 +345,7 @@ export function ImportDock({
           )}
         >
           {roomLine(room)}
+          {over > 0 && ` · untick ${over.toLocaleString("en-GB")}`}
         </span>
       </p>
       <Button
