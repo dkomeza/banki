@@ -57,15 +57,16 @@ export function FrontObject({
   lifted: boolean;
   onSelect: () => void;
   move: Drag;
-  corner: (corner: Corner) => Drag;
+  /** The corner handles' drags, where it scales. */
+  corner?: (corner: Corner) => Drag;
   /** The side handles' drags, where it has them: the right one sets its width, the bottom one its height. */
   side?: (side: Side) => Drag;
   /** Arrow keys and + / − while it has focus. */
   onKey: (event: KeyboardEvent) => void;
   /** Ctrl+wheel (a trackpad's pinch) over it, where the board doesn't zoom: the canvas stops the page's zoom. */
   onScaleWheel?: (deltaY: number) => void;
-  /** The menu over it while it's selected. */
-  menu: ReactNode;
+  /** The menu over it while it's selected, where it has one. */
+  menu?: ReactNode;
   /** No room over it: the menu goes below. */
   menuBelow?: boolean;
   /** An unseen copy of the Front at 100%, for measuring how tall all of it is. */
@@ -156,9 +157,10 @@ export function FrontObject({
             aria-hidden
             className="pointer-events-none absolute -inset-[3px] rounded-[0.6rem] border-2 border-primary"
           />
-          {CORNERS.map((c) => (
-            <Handle key={c} drag={corner(c)} className={CORNER_AT[c]} title="Drag to scale" />
-          ))}
+          {corner !== undefined &&
+            CORNERS.map((c) => (
+              <Handle key={c} drag={corner(c)} className={CORNER_AT[c]} title="Drag to scale" />
+            ))}
           {side !== undefined &&
             (["r", "b"] as const).map((s) => (
               <Handle
@@ -169,17 +171,19 @@ export function FrontObject({
                 bar={s}
               />
             ))}
-          <div
-            className={cn(
-              "absolute left-0 flex w-max items-center gap-0.5 rounded-full border bg-background p-1 shadow-md",
-              menuBelow
-                ? "top-[calc(100%+1.75rem)]"
-                : "bottom-[calc(100%+1.75rem)] lg:bottom-[calc(100%+1.25rem)]",
-            )}
-            onPointerDown={(event) => event.stopPropagation()}
-          >
-            {menu}
-          </div>
+          {menu !== undefined && (
+            <div
+              className={cn(
+                "absolute left-0 flex w-max items-center gap-0.5 rounded-full border bg-background p-1 shadow-md",
+                menuBelow
+                  ? "top-[calc(100%+1.75rem)]"
+                  : "bottom-[calc(100%+1.75rem)] lg:bottom-[calc(100%+1.25rem)]",
+              )}
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              {menu}
+            </div>
+          )}
         </>
       )}
     </section>

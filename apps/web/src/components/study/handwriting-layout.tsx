@@ -1,6 +1,5 @@
-import { ChevronUp, LocateFixed, Maximize, Minus, Plus, ScanSearch } from "lucide-react";
+import { Minus, Plus, ScanSearch } from "lucide-react";
 import { type KeyboardEvent, type PointerEvent, useRef, useState } from "react";
-import { FoldedNote } from "@/components/study/handwriting-note";
 import {
   type Corner,
   FrontObject,
@@ -36,7 +35,12 @@ import { cn } from "@/lib/utils";
 //   together, as on a Miro board.
 // - i, "Frame": the sides' handles change its width (the text reflows) and its
 //   height (a long Front scrolls inside it), while the corners scale it.
-const VARIANT = { zoom: true, frame: false };
+//
+// Round 4, from h: k, "Zoom only". As j (no menu, no Fold away, nothing fetches
+// it back; Fit finds it), and the Front has no scale of its own either: no
+// corner handles. It moves, and only the board's zoom makes it larger or
+// smaller, with the ink. A long one still starts drawn to fit.
+const VARIANT = { zoom: true, frame: false, scale: false };
 
 /** The smallest and largest the Front scales to, on the paper. */
 const SCALE = { min: 0.4, max: 2.5 } as const;
@@ -52,7 +56,6 @@ type Frame = {
   base: number | null;
   /** How tall its frame is at 100%, or `null` for the default (i). */
   height: number | null;
-  folded: boolean;
 };
 
 export function HandwritingView({ hw }: { hw: Handwriting }) {
@@ -64,10 +67,9 @@ export function HandwritingView({ hw }: { hw: Handwriting }) {
     scale: null,
     base: null,
     height: null,
-    folded: false,
   });
   const [kept, setKept] = useNoteFrame<{ scale: number | null }>(
-    VARIANT.zoom ? "h" : VARIANT.frame ? "i" : "g",
+    VARIANT.scale ? (VARIANT.zoom ? "h" : VARIANT.frame ? "i" : "g") : "k",
     { scale: null },
   );
   const [selected, setSelected] = useState(false);
@@ -164,7 +166,6 @@ function OnPaper({
     frameHeight === null || natural === 0 ? null : Math.min(frameHeight, natural * shown);
   const fullHeight = natural * shown;
   const onScreenHeight = height ?? fullHeight;
-  const cut = height !== null && height < fullHeight - 1;
 
   const left = (frame.x - board.x) * zoom;
   const top = (frame.y - board.y) * zoom;
@@ -271,6 +272,8 @@ function OnPaper({
     if (d !== undefined) {
       event.preventDefault();
       setFrame((f) => ({ ...f, x: Math.max(0, f.x + d[0]), y: Math.max(0, f.y + d[1]) }));
+    } else if (!VARIANT.scale) {
+      return;
     } else if (event.key === "+" || event.key === "=") {
       event.preventDefault();
       scaleTo(scale * 1.1);
@@ -283,10 +286,7 @@ function OnPaper({
     }
   };
 
-  const h = frame.folded ? 44 : onScreenHeight;
-  const w = frame.folded ? 200 : width;
-  const away =
-    area.w > 0 && (left + w < 24 || top + h < 24 || left > area.w - 24 || top > area.h - 24);
+  const h = onScreenHeight;
 
   const fitAll = () => {
     const rect = { x: frame.x, y: frame.y - 28 / zoom, w: width / zoom, h: h / zoom + 28 / zoom };
@@ -306,81 +306,24 @@ function OnPaper({
 
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden">
-      {area.w > 0 &&
-        (frame.folded ? (
-          <FoldedNote
-            front={front}
-            onOpen={() => setFrame((f) => ({ ...f, folded: false }))}
-            style={{ left, top }}
-          />
-        ) : (
-          <FrontObject
-            front={front}
-            scale={shown}
-            width={width}
-            height={height}
-            selected={selected}
-            lifted={lifted}
-            onSelect={() => setSelected(true)}
-            move={move}
-            corner={corner}
-            side={VARIANT.frame ? (s) => sides[s] : undefined}
-            onKey={onKey}
-            onScaleWheel={
-              VARIANT.zoom ? undefined : (deltaY) => scaleTo(scale * wheelFactor(deltaY))
-            }
-            measureRef={measureRef}
-            base={base}
-            menuBelow={top < 72}
-            style={{ left, top }}
-            menu={
-              <>
-                <button
-                  type="button"
-                  title="Back to 100%"
-                  disabled={Math.abs(scale - 1) < 0.005}
-                  onClick={() => scaleTo(1)}
-                  className={cn(MENU_BUTTON, "tabular-nums")}
-                >
-                  {Math.round(scale * 100)}%
-                </button>
-                {VARIANT.frame && cut && (
-                  <button
-                    type="button"
-                    onClick={() => setFrame((f) => ({ ...f, height: 100000 }))}
-                    className={MENU_BUTTON}
-                  >
-                    <Maximize aria-hidden className="size-4" />
-                    Show all
-                  </button>
-                )}
-                <span aria-hidden className="mx-0.5 h-6 w-px bg-border" />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelected(false);
-                    setFrame((f) => ({ ...f, folded: true }));
-                  }}
-                  className={MENU_BUTTON}
-                >
-                  <ChevronUp aria-hidden className="size-4" />
-                  Fold away
-                </button>
-              </>
-            }
-          />
-        ))}
-      {away && (
-        <button
-          type="button"
-          onClick={() =>
-            setFrame((f) => ({ ...f, x: board.x + 12 / zoom, y: board.y + 28 / zoom }))
-          }
-          className="pointer-events-auto absolute top-3 left-3 flex h-11 items-center gap-2 rounded-full border bg-background/95 pr-4 pl-3 text-sm font-medium shadow-sm backdrop-blur outline-none hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring lg:h-9"
-        >
-          <LocateFixed aria-hidden className="size-4 text-primary" />
-          Bring the Front here
-        </button>
+      {area.w > 0 && (
+        <FrontObject
+          front={front}
+          scale={shown}
+          width={width}
+          height={height}
+          selected={selected}
+          lifted={lifted}
+          onSelect={() => setSelected(true)}
+          move={move}
+          corner={VARIANT.scale ? corner : undefined}
+          side={VARIANT.frame ? (s) => sides[s] : undefined}
+          onKey={onKey}
+          onScaleWheel={VARIANT.zoom ? undefined : (deltaY) => scaleTo(scale * wheelFactor(deltaY))}
+          measureRef={measureRef}
+          base={base}
+          style={{ left, top }}
+        />
       )}
       {VARIANT.zoom && (
         <div
