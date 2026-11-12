@@ -149,8 +149,7 @@ function OnPaper({
   const base = frame.base ?? (wide ? 416 : Math.max(240, area.w - 24 - 56));
   // How tall all of the Front is at 100%.
   const natural = naturalHeight;
-  const fit =
-    !VARIANT.frame && natural > 0 && area.h > 0 ? (area.h * FIT_SHARE) / (natural * zoom) : 1;
+  const fit = !VARIANT.frame && natural > 0 && area.h > 0 ? (area.h * FIT_SHARE) / natural : 1;
   const scale = clamp(frame.scale ?? Math.min(kept ?? 1, fit), SCALE.min, SCALE.max);
   const shown = scale * zoom;
   const width = base * shown;
@@ -178,6 +177,9 @@ function OnPaper({
       height: onScreenHeight,
       natural,
     };
+    // i: from here on the frame keeps its height at 100%, so a corner scales it too.
+    if (VARIANT.frame && frame.height === null)
+      setFrame((f) => ({ ...f, height: onScreenHeight / shown }));
     setLifted(true);
   };
   const end = () => setLifted(false);
