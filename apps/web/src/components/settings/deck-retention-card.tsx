@@ -1,4 +1,4 @@
-import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useId, useSyncExternalStore } from "react";
 import { SaveState } from "@/components/settings/parts";
 import {
@@ -21,7 +21,9 @@ import { tuningQueryOptions } from "@/lib/tuning";
 export function DeckRetentionCard({ deck }: { deck: Deck }) {
   const queryClient = useQueryClient();
   const global = useSuspenseQuery(settingsQueryOptions()).data.settings.desiredRetention;
-  const recommended = useSuspenseQuery(tuningQueryOptions()).data.recommendedRetention;
+  // The page doesn't wait for, or fail on, the tuning status: until it loads,
+  // and if it can't, there is no Recommended retention to show.
+  const recommended = useQuery(tuningQueryOptions()).data?.recommendedRetention ?? null;
   const saver = deckRetentionSaverFor(queryClient, deck.id);
   const state = useSyncExternalStore(saver.subscribe, saver.getState);
   const own = shownRetention(state, deck.desiredRetention);

@@ -27,7 +27,8 @@ export const Route = createFileRoute("/_shell/decks/$deckId_/settings")({
     Promise.all([
       queryClient.ensureQueryData(deckQueryOptions(deckId)),
       queryClient.ensureQueryData(settingsQueryOptions()),
-      queryClient.ensureQueryData(tuningQueryOptions()),
+      // Never fails the page: without it there is just no Recommended retention.
+      queryClient.prefetchQuery(tuningQueryOptions()),
       ensureLibrary(queryClient),
     ]),
   component: DeckSettingsPage,

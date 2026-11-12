@@ -86,6 +86,8 @@ export function DeckRetentionPicker({
 /**
  * The Recommended retention under a picker: what it is and why, with Use
  * while the value in effect (`current`) differs. Nothing while there is none.
+ * Use sits beside the text only where the box itself is wide enough (a
+ * container query), so a half-width card keeps it below.
  */
 export function RecommendedRetention({
   percent,
@@ -99,22 +101,24 @@ export function RecommendedRetention({
   if (percent === null) return null;
   const { title, reason } = recommendedText(percent);
   return (
-    <div className="flex flex-col gap-3 rounded-xl bg-muted/60 p-4 text-sm sm:flex-row sm:items-center">
-      <Sparkle aria-hidden className="hidden size-5 shrink-0 text-primary sm:block" />
-      <p className="min-w-0 flex-1">
-        <span className="font-medium">{title}</span>
-        <span className="text-muted-foreground"> · {reason}</span>
-      </p>
-      {current !== percent && (
-        <Button
-          variant="outline"
-          size="lg"
-          className={cn(OUTLINE_PILL, "self-start sm:self-auto")}
-          onClick={() => onUse(percent)}
-        >
-          Use {percent}%
-        </Button>
-      )}
+    <div className="@container rounded-xl bg-muted/60 p-4 text-sm">
+      <div className="flex flex-col gap-3 @md:flex-row @md:items-center">
+        <Sparkle aria-hidden className="hidden size-5 shrink-0 text-primary @md:block" />
+        <p className="min-w-0 flex-1">
+          <span className="font-medium">{title}</span>
+          <span className="text-muted-foreground"> · {reason}</span>
+        </p>
+        {current !== percent && (
+          <Button
+            variant="outline"
+            size="lg"
+            className={cn(OUTLINE_PILL, "self-start @md:self-auto")}
+            onClick={() => onUse(percent)}
+          >
+            Use {percent}%
+          </Button>
+        )}
+      </div>
     </div>
   );
 }

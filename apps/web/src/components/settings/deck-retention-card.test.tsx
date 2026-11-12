@@ -52,12 +52,14 @@ afterEach(cleanup);
 /** The section for `deck`, saving through `save`, with `recommended` as the Recommended retention. */
 function renderCard(
   deck: Deck,
-  recommended: number | null,
+  recommended: number | null | "unavailable",
   save: (retention: number | null) => Promise<void> = async () => {},
 ) {
-  const queryClient = new QueryClient();
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   queryClient.setQueryData(settingsQueryOptions().queryKey, { settings: SETTINGS, issuedAt: 0 });
-  queryClient.setQueryData(tuningQueryOptions().queryKey, tuning(recommended));
+  if (recommended !== "unavailable") {
+    queryClient.setQueryData(tuningQueryOptions().queryKey, tuning(recommended));
+  }
   deckRetentionSaverFor(queryClient, deck.id, { save });
   render(
     <QueryClientProvider client={queryClient}>
@@ -78,6 +80,18 @@ describe("DeckRetentionCard's Recommended retention", () => {
     expect(screen.queryByRole("button", { name: /^Use/ })).toBeNull();
     fireEvent.focus(picker());
     expect(screen.queryByRole("option", { name: /Recommended/ })).toBeNull();
+  });
+
+  test("never waits for, or fails on, the tuning status: without it there is no line", async () => {
+    // Nothing loaded, and the request fails: there is no API here.
+    const queryClient = renderCard(DECK, "unavailable");
+
+    expect(picker().value).toBe("Follow Settings (90%)");
+    await waitFor(() =>
+      expect(queryClient.getQueryState(tuningQueryOptions().queryKey)?.status).toBe("error"),
+    );
+    expect(picker().value).toBe("Follow Settings (90%)");
+    expect(screen.queryByText(/Recommended for you/)).toBeNull();
   });
 
   test("shows the same line as Settings, and tags its percent in the picker", () => {
