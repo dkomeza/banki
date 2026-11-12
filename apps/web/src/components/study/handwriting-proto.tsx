@@ -240,6 +240,7 @@ export function InkCanvas({
   label = "Handwritten answer",
   className,
   inset = 0,
+  overlay,
   children,
 }: {
   ink: Ink;
@@ -248,6 +249,8 @@ export function InkCanvas({
   label?: string;
   className?: string;
   inset?: number;
+  /** What sits on the paper itself, so it pans with the ink: drawn at the pan it's given. */
+  overlay?: (pan: { x: number; y: number }) => ReactNode;
   children?: ReactNode;
 }) {
   const box = useRef<HTMLDivElement>(null);
@@ -320,7 +323,10 @@ export function InkCanvas({
       role="img"
       aria-label={label}
       className={cn("relative min-h-0 overflow-hidden", className)}
-      onWheel={(event) => panBy(-event.deltaX, -event.deltaY)}
+      // Only the paper pans: a wheel over the Front or the tool bar is theirs.
+      onWheel={(event) => {
+        if (event.target === canvas.current) panBy(-event.deltaX, -event.deltaY);
+      }}
     >
       <div
         aria-hidden
@@ -379,6 +385,7 @@ export function InkCanvas({
           draw();
         }}
       />
+      {overlay?.(pan)}
       {children}
     </div>
   );
@@ -510,4 +517,100 @@ export function useOverflows<T extends HTMLElement>() {
     };
   }, []);
   return [ref, { overflows, atEnd }] as const;
+}
+
+// --- Moving and scaling the note --------------------------------------------------
+
+/**
+ * Pointer handlers for a drag, by pen, mouse or finger: `move` gets the
+ * distance from where it started, `end` runs when it's let go. A press on a
+ * button inside it stays the button's.
+ */
+export function useDrag(
+  move: (dx: number, dy: number) => void,
+  end?: () => void,
+  start?: () => void,
+) {
+  const from = useRef<{ id: number; x: number; y: number } | null>(null);
+  const handlers = useRef({ move, end, start });
+  useLayoutEffect(() => {
+    handlers.current = { move, end, start };
+  });
+  return {
+    onPointerDown: (event: ReactPointerEvent) => {
+      if (event.pointerType === "mouse" && event.button !== 0) return;
+      const target = event.target;
+      if (
+        target !== event.currentTarget &&
+        target instanceof Element &&
+        target.closest("button") !== null
+      )
+        return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      from.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
+      handlers.current.start?.();
+    },
+    onPointerMove: (event: ReactPointerEvent) => {
+      const f = from.current;
+      if (f === null || f.id !== event.pointerId) return;
+      handlers.current.move(event.clientX - f.x, event.clientY - f.y);
+    },
+    onPointerUp: (event: ReactPointerEvent) => {
+      if (from.current === null || from.current.id !== event.pointerId) return;
+      from.current = null;
+      handlers.current.end?.();
+    },
+    onPointerCancel: () => {
+      if (from.current === null) return;
+      from.current = null;
+      handlers.current.end?.();
+    },
+  };
+}
+export type Drag = ReturnType<typeof useDrag>;
+
+/** The smallest and largest the note scales to. */
+export const NOTE_SCALE = { min: 0.6, max: 2 } as const;
+
+export function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), Math.max(min, max));
+}
+
+/**
+ * Where the note sits and how large it is, kept in localStorage for the
+ * Variant, so it stays put from Card to Card and across reloads.
+ */
+export function useNoteFrame<T extends object>(key: string, initial: T) {
+  const storageKey = `banki.proto.ban45.${key}`;
+  const [frame, setFrame] = useState<T>(() => {
+    try {
+      const stored = localStorage.getItem(storageKey);
+      const parsed: unknown = stored === null ? null : JSON.parse(stored);
+      return typeof parsed === "object" && parsed !== null ? { ...initial, ...parsed } : initial;
+    } catch {
+      return initial;
+    }
+  });
+  useEffect(() => {
+    localStorage.setItem(storageKey, JSON.stringify(frame));
+  }, [storageKey, frame]);
+  return [frame, setFrame] as const;
+}
+
+/** The size of `el`, kept up to date. */
+export function useSize<T extends HTMLElement>() {
+  const ref = useRef<T>(null);
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el === null) return () => {};
+    const measure = () => setSize({ w: el.offsetWidth, h: el.offsetHeight });
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    measure();
+    return () => observer.disconnect();
+  }, []);
+  return [ref, size] as const;
 }
