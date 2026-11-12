@@ -82,10 +82,10 @@ export function Note({
           type="button"
           aria-expanded
           onClick={onFold}
-          className="flex h-11 items-center gap-1 rounded-full pr-3 pl-2 text-sm font-medium text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring lg:h-8"
+          className="flex h-11 min-w-11 shrink-0 items-center justify-center gap-1 rounded-full text-sm font-medium text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring sm:pr-3 sm:pl-2 lg:h-8"
         >
           <ChevronUp aria-hidden className="size-4" />
-          Fold away
+          <span className="max-sm:sr-only">Fold away</span>
         </button>
       </header>
       <div
@@ -98,7 +98,7 @@ export function Note({
         <div style={{ zoom: scale, width: width / scale }} className="px-5 pt-1 pb-5">
           <CardText
             text={front}
-            className="text-lg leading-snug font-medium tracking-[-0.01em] lg:text-xl [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden [&_img]:max-h-48 [&_img]:rounded-md"
+            className="text-lg leading-snug font-medium tracking-[-0.01em] lg:text-xl [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden [&_img]:max-h-48 [&_img]:max-w-full [&_img]:rounded-md"
           />
         </div>
       </div>
