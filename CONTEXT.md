@@ -149,11 +149,11 @@ The share of its Cards the User wants to still remember when they come due, from
 _Avoid_: target retention (except for a Plan's), retention rate, success rate
 
 **Parameters**:
-The numbers FSRS models the User's memory with: FSRS's defaults until a Tuning applies the User's own. Everything FSRS works out (Intervals, due dates, Predicted recall) uses the current ones. Applying new ones works out every Card's memory state again from its Reviews, but leaves its due date as it was until its next Rating.
+The numbers FSRS models the User's memory with: FSRS's defaults until a Tuning applies the User's own. The **overall** Parameters are fitted from all of the User's Reviews; a Deck with 1,000 Reviews or more may get **its own**, fitted from its Reviews alone, and follows the overall ones until it does. Everything FSRS works out for a Card (Intervals, due dates, Predicted recall) uses its Deck's current ones. Applying new ones works out the memory state of every Card they apply to again from its Reviews, but leaves its due date as it was until its next Rating.
 _Avoid_: weights, FSRS settings, model (the Model is the Grader's)
 
 **Tuning**:
-Fitting the Parameters to the User's own Reviews, of every kind and of Cards that are gone too. Banki does it by itself every 200 Reviews, or at once when the User asks (Tune now), and applies the result only when it predicts the User's recall better than the current Parameters. Reset to defaults puts FSRS's defaults back and pauses Tuning by itself until the User next asks for one.
+Fitting the Parameters to the User's own Reviews, of every kind and of Cards that are gone too. Banki does it by itself every 200 Reviews, or at once when the User asks (Tune now): first the overall Parameters, then each live Deck with 1,000 Reviews or more, from its own. Each result applies only when it predicts that recall better than the Parameters in use. Reset to defaults puts FSRS's defaults back, for every Deck too, and pauses Tuning by itself until the User next asks for one.
 _Avoid_: optimization, training, calibration, fitting (alone)
 
 **Recommended retention**:
