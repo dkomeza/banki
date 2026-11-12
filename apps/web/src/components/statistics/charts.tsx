@@ -91,7 +91,7 @@ export function RangeTabs({ value, className }: { value: Range; className?: stri
 
 export const rangeLabel = (stats: Statistics) =>
   stats.range === "all"
-    ? `${shortDay(stats.from)} – today`
+    ? `since ${shortDay(stats.from)}`
     : stats.range === "7"
       ? "the last 7 days"
       : `the last ${stats.range} days`;
