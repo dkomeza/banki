@@ -212,6 +212,12 @@ const decksToTune = (db: Queryable, userId: string) =>
     .orderBy(asc(deck.createdAt), asc(sql`${deck}.rowid`))
     .all();
 
+/** A Tuning log row as a status's last attempt; null for none. */
+const attemptOf = (row: typeof parameter_tuning.$inferSelect | undefined) =>
+  row === undefined
+    ? null
+    : { at: row.ranAt.toISOString(), trigger: row.trigger, outcome: row.outcome };
+
 /**
  * Whether an automatic Tuning is due for the User: their Review count is
  * `TUNING_REVIEW_INTERVAL` or more above the newest overall Tuning log row's
@@ -447,11 +453,6 @@ export function createTuningRepository(
       ? null
       : { at: applied.ranAt.toISOString(), reviews: applied.reviewCount };
   };
-
-  const attemptOf = (row: typeof parameter_tuning.$inferSelect | undefined) =>
-    row === undefined
-      ? null
-      : { at: row.ranAt.toISOString(), trigger: row.trigger, outcome: row.outcome };
 
   const status = (userId: string): TuningStatus => {
     const stored = storedParametersOf(db, userId);

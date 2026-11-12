@@ -10,7 +10,7 @@ import {
 } from "@banki/shared";
 import { eq, sql } from "drizzle-orm";
 import { openDatabase } from "../db/database";
-import { deck, review } from "../db/schema";
+import { deck as deckTable, review } from "../db/schema";
 import { createCardRepository } from "../repositories/cards";
 import { createDeckRepository } from "../repositories/decks";
 import { createReviewRepository, toStored } from "../repositories/reviews";
@@ -276,7 +276,11 @@ const deckTuningOf = async (res: Response) => DeckTuningStatus.parse(await res.j
 function giveOwnParameters(deckId: string) {
   const opened = openDatabase(dataDir());
   try {
-    opened.db.update(deck).set({ fsrsParameters: TUNED }).where(eq(deck.id, deckId)).run();
+    opened.db
+      .update(deckTable)
+      .set({ fsrsParameters: TUNED })
+      .where(eq(deckTable.id, deckId))
+      .run();
   } finally {
     opened.close();
   }

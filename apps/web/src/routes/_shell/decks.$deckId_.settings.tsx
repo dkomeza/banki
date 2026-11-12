@@ -7,18 +7,19 @@ import { DeckNotFound } from "@/components/not-found";
 import { Page } from "@/components/page";
 import { AnswerModeCard } from "@/components/settings/answer-mode-card";
 import { DeckRetentionCard } from "@/components/settings/deck-retention-card";
+import { DeckSchedulingCard } from "@/components/settings/deck-scheduling-card";
 import { DeckMacrosCard } from "@/components/settings/macros-card";
 import { PlanCard } from "@/components/settings/plan-card";
 import { type Section, SectionIndex } from "@/components/settings/section-index";
 import { type Deck, deckQueryOptions } from "@/lib/decks";
 import { ensureLibrary } from "@/lib/folders";
 import { settingsQueryOptions } from "@/lib/settings";
-import { tuningQueryOptions } from "@/lib/tuning";
+import { deckTuningQueryOptions } from "@/lib/tuning";
 import { useHiddenScrollbar } from "@/lib/use-hidden-scrollbar";
 
 // A Deck's settings, on a page of their own built like Settings: the setting
-// the page is about first, full width, then its Math macros, Answer mode and
-// Plan. Desired retention is one picker whose first
+// the page is about first, full width, then its Math macros, Answer mode, Plan
+// and how it is scheduled. Desired retention is one picker whose first
 // choice is Follow Settings, the Recommended retention, and a picture of ten
 // cards coming due.
 
@@ -27,8 +28,9 @@ export const Route = createFileRoute("/_shell/decks/$deckId_/settings")({
     Promise.all([
       queryClient.ensureQueryData(deckQueryOptions(deckId)),
       queryClient.ensureQueryData(settingsQueryOptions()),
-      // Never fails the page: without it there is just no Recommended retention.
-      queryClient.prefetchQuery(tuningQueryOptions()),
+      // Never fails the page: without it there is just no Recommended retention,
+      // and the Scheduling card says it couldn't load.
+      queryClient.prefetchQuery(deckTuningQueryOptions(deckId)),
       ensureLibrary(queryClient),
     ]),
   component: DeckSettingsPage,
@@ -39,6 +41,7 @@ const SECTIONS: readonly Section[] = [
   { id: "macros", title: "Math macros" },
   { id: "answer-mode", title: "Answer mode" },
   { id: "plan", title: "Plan" },
+  { id: "scheduling", title: "Scheduling" },
 ];
 
 function DeckSettingsPage() {
@@ -91,6 +94,7 @@ function Body({ deck }: { deck: Deck }) {
           <DeckMacrosCard deck={deck} />
           <AnswerModeCard deck={deck} />
           <PlanCard deck={deck} />
+          <DeckSchedulingCard deck={deck} />
         </div>
       </div>
       {actions.dialogs}

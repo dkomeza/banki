@@ -1044,29 +1044,37 @@ describe("a Deck's own Tuning", () => {
   });
 });
 
+/** Two Decks, each with Cards rated through a few days, one deleted. */
+const twoDecks = () => {
+  const own = deckNamed("Own");
+  const overall = deckNamed("Overall");
+  const ownCards = [write(own, "uno"), write(own, "dos")];
+  const overallCards = [write(overall, "eins"), write(overall, "zwei")];
+  for (const cardId of [...ownCards, ...overallCards]) {
+    rateThrough(cardId, ["again", "good", "good", "hard", "good"]);
+  }
+  cards.softDelete(USER, ownCards[1] ?? "");
+  cards.softDelete(USER, overallCards[1] ?? "");
+  return { own, overall, ownCards, overallCards };
+};
+
+const cardsOf = (ids: readonly string[]) => {
+  const all = everything();
+  return {
+    cards: all.cards.filter((c) => ids.includes(c.id)),
+    reviews: all.reviews.filter((r) => ids.includes(r.cardId)),
+  };
+};
+
+/** A Card rated Easy once and one rated Good three times, in the Deck `deckId`. */
+const pair = (deckId: string) => {
+  const easy = write(deckId, "easy");
+  const good = write(deckId, "good");
+  rateThrough(easy, ["easy"]);
+  rateThrough(good, ["good", "good", "good"]);
+  return { easy, good };
+};
 describe("a Deck's own Parameters", () => {
-  /** Two Decks, each with Cards rated through a few days, one deleted. */
-  const twoDecks = () => {
-    const own = deckNamed("Own");
-    const overall = deckNamed("Overall");
-    const ownCards = [write(own, "uno"), write(own, "dos")];
-    const overallCards = [write(overall, "eins"), write(overall, "zwei")];
-    for (const cardId of [...ownCards, ...overallCards]) {
-      rateThrough(cardId, ["again", "good", "good", "hard", "good"]);
-    }
-    cards.softDelete(USER, ownCards[1] ?? "");
-    cards.softDelete(USER, overallCards[1] ?? "");
-    return { own, overall, ownCards, overallCards };
-  };
-
-  const cardsOf = (ids: readonly string[]) => {
-    const all = everything();
-    return {
-      cards: all.cards.filter((c) => ids.includes(c.id)),
-      reviews: all.reviews.filter((r) => ids.includes(r.cardId)),
-    };
-  };
-
   test("applying a Deck's replays only its live and deleted Cards, keeping their due dates and Intervals", () => {
     const { own, ownCards, overallCards } = twoDecks();
     const before = everything();
@@ -1112,13 +1120,6 @@ describe("a Deck's own Parameters", () => {
   test("schedule a Card wherever it is scheduled: Ratings, Interval previews, rescheduling, Undo and the Queue, while another Deck stays on the overall ones", () => {
     const own = deckNamed("Own");
     const overall = deckNamed("Overall");
-    const pair = (deckId: string) => {
-      const easy = write(deckId, "easy");
-      const good = write(deckId, "good");
-      rateThrough(easy, ["easy"]);
-      rateThrough(good, ["good", "good", "good"]);
-      return { easy, good };
-    };
     const mine = pair(own);
     const theirs = pair(overall);
     const late = { now: later(60 * DAY) };

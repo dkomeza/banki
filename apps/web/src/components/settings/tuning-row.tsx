@@ -18,15 +18,15 @@ import {
 } from "@/lib/tuning";
 
 const HINT =
-  "Every 200 reviews, Banki checks whether scheduling fitted to how you remember would predict your recall better, and switches only if it would. Your cards keep their due dates.";
+  "Every 200 reviews, Banki checks whether scheduling fitted to how you remember would predict your recall better, and switches only if it would. A deck with 1,000 reviews of its own gets a fit of its own. Your cards keep their due dates.";
 const PAUSED_HINT =
-  "Tune now checks at once whether scheduling fitted to how you remember would predict your recall better, and starts the checks every 200 reviews again. Your cards keep their due dates.";
+  "Tune now checks at once whether scheduling fitted to how you remember would predict your recall better, and starts the checks every 200 reviews again. A deck with 1,000 reviews of its own gets a fit of its own. Your cards keep their due dates.";
 
 /**
  * Advanced's scheduling row (CONTEXT.md: Tuning), in plain words: how
  * Banki's fit to the User's memory stands, Tune now with its result inline,
  * and Reset to defaults behind a confirmation, disabled while the defaults
- * are in use.
+ * are in use and no Deck has a fit of its own.
  */
 export function TuningRow() {
   const queryClient = useQueryClient();
@@ -83,7 +83,7 @@ export function TuningRow() {
           variant="outline"
           size="lg"
           className={OUTLINE_PILL}
-          disabled={tuning || status.parameters === "default"}
+          disabled={tuning || (status.parameters === "default" && status.ownDecks === 0)}
           onClick={() => {
             setResult(undefined);
             setConfirming(true);
@@ -155,8 +155,8 @@ function ConfirmReset({
             Reset scheduling to defaults?
           </AlertDialog.Title>
           <AlertDialog.Description className="text-[0.95rem] text-muted-foreground">
-            Banki goes back to its standard scheduling and stops fitting it to how you remember
-            until you press Tune now. Your cards keep their due dates.
+            Banki goes back to its standard scheduling, for every deck too, and stops fitting it to
+            how you remember until you press Tune now. Your cards keep their due dates.
           </AlertDialog.Description>
           {error !== undefined && <FormError>{error}</FormError>}
           <div className="mt-2 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">

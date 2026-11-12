@@ -114,9 +114,10 @@ const OUTCOME_LINES: Record<TuningOutcome, string> = {
 
 /**
  * The status line: paused after a Reset; tuned on a date from so many
- * Reviews; or standard scheduling until there is enough history. Then the
- * last check and how it went, unless that was the Reset or the Tuning that
- * applied, which the first part says.
+ * Reviews; or standard scheduling until there is enough history. Then how
+ * many Decks have a fit of their own, if any; the last check and how it
+ * went, unless that was the Reset or the Tuning that applied, which the first
+ * part says.
  */
 export function tuningStatusLines(status: TuningStatus, now = new Date()): string[] {
   const { tuned, lastAttempt } = status;
@@ -131,6 +132,13 @@ export function tuningStatusLines(status: TuningStatus, now = new Date()): strin
     );
   } else {
     lines.push("Standard scheduling until there's enough of your review history to fit it to you.");
+  }
+  if (status.ownDecks > 0) {
+    lines.push(
+      status.ownDecks === 1
+        ? "1 deck has a fit of its own."
+        : `${status.ownDecks.toLocaleString("en-GB")} decks have a fit of their own.`,
+    );
   }
   const said =
     lastAttempt === null ||
@@ -149,6 +157,28 @@ export function tuningStatusLines(status: TuningStatus, now = new Date()): strin
     );
   }
   return lines;
+}
+
+/**
+ * How Deck settings says the Deck is scheduled (ADR-0033): fitted to it on a
+ * date from so many Reviews; following the overall scheduling until it has
+ * the Reviews it needs; following it because the last check found it fits
+ * the Deck best; or, with the Reviews it needs, following it until a check.
+ */
+export function deckSchedulingLine(status: DeckTuningStatus, now = new Date()): string {
+  const { tuned, reviewCount, threshold, lastAttempt } = status;
+  if (status.parameters === "own") {
+    return tuned === null
+      ? "Fitted to how you remember this deck."
+      : `Fitted to how you remember this deck on ${dateLabel(tuned.at, now)}, from ${reviews(tuned.reviews)}.`;
+  }
+  if (reviewCount < threshold) {
+    return `Follows your overall scheduling until this deck has ${reviews(threshold)} (${reviewCount.toLocaleString("en-GB")} so far).`;
+  }
+  if (lastAttempt?.outcome === "kept") {
+    return "Follows your overall scheduling, which fits this deck best.";
+  }
+  return `Follows your overall scheduling for now. With ${reviews(reviewCount)}, the next check sees whether a fit of its own would suit it better.`;
 }
 
 /** What Tune now says once it has run. */
