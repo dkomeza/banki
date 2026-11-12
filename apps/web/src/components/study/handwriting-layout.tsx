@@ -19,6 +19,7 @@ import {
   useInk,
   useNoteFrame,
   useSize,
+  wheelFactor,
 } from "@/components/study/handwriting-proto";
 import { cn } from "@/lib/utils";
 
@@ -326,7 +327,7 @@ function OnPaper({
             side={VARIANT.frame ? (s) => sides[s] : undefined}
             onKey={onKey}
             onScaleWheel={
-              VARIANT.zoom ? undefined : (deltaY) => scaleTo(scale * Math.exp(-deltaY * 0.01))
+              VARIANT.zoom ? undefined : (deltaY) => scaleTo(scale * wheelFactor(deltaY))
             }
             measureRef={measureRef}
             base={base}

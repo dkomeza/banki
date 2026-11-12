@@ -231,6 +231,11 @@ const PAPER: Record<Paper, string> = {
 /** Where the canvas looks: the paper's point at its top-left, and how large the paper is drawn. */
 export type View = { x: number; y: number; zoom: number };
 
+/** How much one wheel event zooms: about 18% a mouse wheel notch, a little for each step of a trackpad pinch. */
+export function wheelFactor(deltaY: number): number {
+  return Math.exp(-clamp(deltaY, -50, 50) * 0.004);
+}
+
 /** The smallest and largest the board zooms to, where it zooms. */
 export const BOARD_ZOOM = { min: 0.3, max: 3 } as const;
 
@@ -392,7 +397,7 @@ export function InkCanvas({
         event.preventDefault();
         if (w.zoomable) {
           const rect = el.getBoundingClientRect();
-          w.zoomWith((z) => z * Math.exp(-event.deltaY * 0.01), {
+          w.zoomWith((z) => z * wheelFactor(event.deltaY), {
             x: event.clientX - rect.left,
             y: event.clientY - rect.top,
           });
