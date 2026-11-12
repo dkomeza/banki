@@ -1,6 +1,7 @@
 // The destination picker of a Move of Cards, a sibling of the Move deck
 // picker: the same sheet and list, every live Deck under its Folders, the
 // Folders as headings that can't be picked, each Deck with its cover.
+import { deckRoom } from "@banki/shared";
 import { Dialog } from "@base-ui/react/dialog";
 import { Check, CornerDownRight, Folder as FolderIcon } from "lucide-react";
 import { useState } from "react";
@@ -10,14 +11,16 @@ import { BACKDROP, Head, SHEET } from "@/components/folders/dialogs";
 import { OUTLINE_PILL, PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
 import type { Card } from "@/lib/cards";
-import type { Deck } from "@/lib/decks";
+import { type Deck, roomLabel } from "@/lib/decks";
 import { type Library, deckRows } from "@/lib/folders";
 import { firstLine } from "@/lib/deletions";
 import { cn } from "@/lib/utils";
 
 /**
  * The picker for `cards`, out of the Deck `from`, open while there are Cards
- * to move. `from` shows "Here now" and can't be picked. Picking a Deck and
+ * to move. `from` shows "Here now" and can't be picked, and neither can a
+ * Deck without room for them all (ADR-0032), which shows "Full" or "Room for
+ * n". Picking a Deck and
  * pressing Move sends the Move; while it is `busy` nothing else can be done,
  * and an `error` shows under the list.
  */
@@ -83,7 +86,11 @@ function PickerBody({
   onClose: () => void;
 }) {
   const rows = deckRows(library);
-  const [picked, setPicked] = useState<Deck>();
+  const fits = (deck: Deck) => deckRoom(deck.cardCount) >= cards.length;
+  const [pickedId, setPickedId] = useState<string>();
+  // The Deck as the library has it now: one that filled up since it was picked is picked no more.
+  const current = library.decks.find((deck) => deck.id === pickedId);
+  const picked = current !== undefined && fits(current) ? current : undefined;
   const one = cards.length === 1 ? cards[0] : undefined;
   return (
     <div className="flex flex-col gap-5">
@@ -115,6 +122,8 @@ function PickerBody({
             );
           }
           const here = row.deck.id === from.id;
+          const room = deckRoom(row.deck.cardCount);
+          const fitsAll = fits(row.deck);
           const selected = picked?.id === row.deck.id;
           return (
             <li key={row.deck.id} role="presentation">
@@ -122,9 +131,9 @@ function PickerBody({
                 type="button"
                 role="option"
                 aria-selected={selected}
-                aria-disabled={here}
-                disabled={here || busy}
-                onClick={() => setPicked(row.deck)}
+                aria-disabled={here || !fitsAll}
+                disabled={here || !fitsAll || busy}
+                onClick={() => setPickedId(row.deck.id)}
                 style={indent}
                 className="flex min-h-11 w-full items-center gap-2.5 rounded-lg pr-3 text-left text-[0.95rem] outline-none hover:bg-muted focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid disabled:cursor-not-allowed disabled:text-muted-foreground disabled:hover:bg-transparent aria-selected:bg-accent aria-selected:font-medium lg:min-h-9"
               >
@@ -133,7 +142,15 @@ function PickerBody({
                   className="h-5 w-6 shrink-0 rounded-[0.3rem] border text-[0.55rem] [&>span:first-child]:left-1.5 [&>span:last-child]:pl-2"
                 />
                 <span className="min-w-0 flex-1 truncate">{row.deck.name}</span>
-                {here && <span className="shrink-0 text-xs text-muted-foreground">Here now</span>}
+                {here ? (
+                  <span className="shrink-0 text-xs text-muted-foreground">Here now</span>
+                ) : (
+                  !fitsAll && (
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {roomLabel(room)}
+                    </span>
+                  )
+                )}
                 {selected && <Check aria-hidden className="size-4 shrink-0 text-primary" />}
               </button>
             </li>

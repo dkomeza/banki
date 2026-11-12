@@ -1,5 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { undoRefusedNote } from "@/lib/decks";
 import { type Restored, restoreDeletion, restoredToast } from "@/lib/deletions";
 
 /** How long "… deleted" stays up; hovering or focusing it keeps it open. */
@@ -39,6 +40,7 @@ export function showDeletedToast(
               void restoreDeletion(queryClient, deletionId).then((outcome) => {
                 if (outcome.ok) showRestoredToast(outcome.restored, name, where);
                 else if ("message" in outcome) toast.error(outcome.message);
+                else if ("deckFull" in outcome) toast.error(undoRefusedNote(outcome.deckFull));
                 else toast.error(`Restore ${outcome.placeDeleted.name} first.`);
               });
             },
@@ -50,7 +52,7 @@ export function showDeletedToast(
 /**
  * Shows "Import undone" after an Import's Undo, with Undo for about 8
  * seconds, which restores its Deletion: "24 cards restored", or why it
- * couldn't be.
+ * couldn't be, such as a Deck of its Cards deleted or full meanwhile.
  */
 export function showImportUndoneToast(
   queryClient: QueryClient,
@@ -71,6 +73,7 @@ export function showImportUndoneToast(
               description: "Back in their decks, as they were.",
             });
           } else if ("message" in outcome) toast.error(outcome.message);
+          else if ("deckFull" in outcome) toast.error(undoRefusedNote(outcome.deckFull));
           else toast.error(`Restore ${outcome.placeDeleted.name} first.`);
         });
       },

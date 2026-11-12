@@ -160,6 +160,27 @@ describe("createCard", () => {
     expect(queryClient.getQueryData(cardQueryOptions("c1").queryKey)).toEqual(created);
   });
 
+  test("names the Deck and its room on 409 deck_full", async () => {
+    const { client } = answering(() =>
+      Response.json(
+        {
+          error: {
+            code: "deck_full",
+            message: "Spanish holds 1,000 cards. Move or delete some to add more.",
+          },
+          deck: { id: "d2", name: "Spanish" },
+          room: 0,
+        },
+        { status: 409 },
+      ),
+    );
+
+    expect(await createCard(new QueryClient(), "d2", sides("f", "b"), [], client)).toEqual({
+      ok: false,
+      deckFull: { id: "d2", name: "Spanish", room: 0 },
+    });
+  });
+
   test("sends nothing when a side is blank, naming it", async () => {
     const { client, fetch } = answering(() => Response.json({}, { status: 201 }));
 
@@ -456,6 +477,30 @@ describe("moveCards", () => {
     expect(await moveCards(queryClient, ["c1"], "d1", "d2", client)).toEqual({
       ok: false,
       notFound: true,
+    });
+    expect(queryClient.getQueryData(cardsQueryOptions("d1").queryKey)).toHaveLength(1);
+  });
+
+  test("names the Deck and its room on 409 deck_full, moving nothing", async () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(cardsQueryOptions("d1").queryKey, [card("c1")]);
+    const { client } = answering(() =>
+      Response.json(
+        {
+          error: {
+            code: "deck_full",
+            message: "Spanish holds 1,000 cards. Move or delete some to add more.",
+          },
+          deck: { id: "d2", name: "Spanish" },
+          room: 3,
+        },
+        { status: 409 },
+      ),
+    );
+
+    expect(await moveCards(queryClient, ["c1"], "d1", "d2", client)).toEqual({
+      ok: false,
+      deckFull: { id: "d2", name: "Spanish", room: 3 },
     });
     expect(queryClient.getQueryData(cardsQueryOptions("d1").queryKey)).toHaveLength(1);
   });

@@ -3,13 +3,14 @@ import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { UNDO_MS } from "@/components/deleted/toasts";
 import { type Card, deleteCard, deleteCards, forgetCard, moveCards } from "@/lib/cards";
+import { undoRefusedNote } from "@/lib/decks";
 import { restoreDeletion, restoreDeletions } from "@/lib/deletions";
 
 /**
  * Deletes a Card at once, without asking, and shows "Card deleted" with Undo
  * for about 8 seconds. The toaster lives in the shell, so the toast outlasts
  * the page it was shown from. Undo restores the Card's Deletion, or says why
- * it couldn't, such as its Deck being deleted meanwhile. `then` runs once the
+ * it couldn't, such as its Deck being deleted or full meanwhile. `then` runs once the
  * Card is deleted, before the toast shows, such as leaving its edit page; a
  * delete that fails shows an error toast instead, and leaves nothing.
  * `written` runs earlier, as soon as the Card is deleted, before its Deck's
@@ -43,7 +44,9 @@ export async function deleteWithUndo(
                 toast.error(
                   "placeDeleted" in restored
                     ? "Couldn't undo: the card's deck was deleted."
-                    : restored.message,
+                    : "deckFull" in restored
+                      ? undoRefusedNote(restored.deckFull)
+                      : restored.message,
                 );
               });
             },
@@ -61,7 +64,7 @@ export const movedTitle = (count: number) =>
  * After a Move: "Moved 3 cards to Verbs", the Deck's name linking to it, with
  * Undo for about 8 seconds, which moves the Cards back to `from` in one
  * request, or says why it couldn't: `from` or one of the Cards deleted
- * meanwhile.
+ * meanwhile, or `from` without room for them now (ADR-0032).
  */
 export function showMovedToast(
   queryClient: QueryClient,
@@ -93,7 +96,9 @@ export function showMovedToast(
             toast.error(
               "notFound" in back
                 ? `Couldn't undo: ${from.name} or one of the cards was deleted.`
-                : back.message,
+                : "deckFull" in back
+                  ? undoRefusedNote(back.deckFull)
+                  : back.message,
             );
           });
         },
@@ -140,7 +145,9 @@ export async function deleteAllWithUndo(
           toast.error(
             "placeDeleted" in restored
               ? "Couldn't undo: the cards' deck was deleted."
-              : restored.message,
+              : "deckFull" in restored
+                ? undoRefusedNote(restored.deckFull)
+                : restored.message,
           );
         });
       },

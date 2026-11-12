@@ -7,6 +7,8 @@ import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { ArrowUp, FileText, Folder, RotateCcw, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { DECK_CARDS_MAX } from "@banki/shared";
+import { Link } from "@tanstack/react-router";
 import { DeckMacros } from "@/components/cards/deck-macros";
 import { CardLine } from "@/components/cards/card-text";
 import { monogram } from "@/components/decks/cover";
@@ -32,8 +34,11 @@ import { cn } from "@/lib/utils";
 import { ConfirmRemove } from "./confirm-remove";
 import { showRestoredToast } from "./toasts";
 
-/** The Deck a refused Restore names, which must be restored first. */
-type Refusal = { id: string; name: string };
+/**
+ * The Deck a refused Restore names: one to restore first (`placeDeleted`), or
+ * one to make room in first (`deckFull`, ADR-0032).
+ */
+type Refusal = { id: string; name: string; why: "placeDeleted" | "deckFull" };
 
 export function DeletedPage() {
   const queryClient = useQueryClient();
@@ -62,7 +67,10 @@ export function DeletedPage() {
       setRefused(new Map());
       showRestoredToast(outcome.restored, nameOf(d), whereLabel(d));
     } else if ("placeDeleted" in outcome) {
-      setRefused((all) => new Map(all).set(d.id, outcome.placeDeleted));
+      setRefused((all) => new Map(all).set(d.id, { ...outcome.placeDeleted, why: "placeDeleted" }));
+    } else if ("deckFull" in outcome) {
+      const { id, name } = outcome.deckFull;
+      setRefused((all) => new Map(all).set(d.id, { id, name, why: "deckFull" }));
     } else toast.error(outcome.message);
   };
 
@@ -75,7 +83,9 @@ export function DeletedPage() {
 
   /** The Deck's own entry, when it was deleted on its own. */
   const entryOf = (deck: Refusal) =>
-    entries.find((e) => e.top.kind === "deck" && e.top.id === deck.id);
+    deck.why === "deckFull"
+      ? undefined
+      : entries.find((e) => e.top.kind === "deck" && e.top.id === deck.id);
 
   const point = (id: string) => {
     setPointed(id);
@@ -191,13 +201,36 @@ function Tile({
       {refusal !== undefined && (
         <div role="alert" className="flex flex-col gap-2 rounded-xl bg-muted p-3 text-sm">
           <p>
-            <span className="font-medium">Restore {refusal.name} first.</span>{" "}
-            <span className="text-muted-foreground">
-              {d.top.kind === "import"
-                ? "Its cards can only come back into their decks, and this one is deleted."
-                : "This card can only come back into its deck, which is deleted too."}
-            </span>
+            {refusal.why === "deckFull" ? (
+              <>
+                <span className="font-medium">Make room in {refusal.name} first.</span>{" "}
+                <span className="text-muted-foreground">
+                  It holds {DECK_CARDS_MAX.toLocaleString("en-GB")} cards, so{" "}
+                  {d.top.kind === "import" ? "these don't" : "this one doesn't"} fit. Move or delete
+                  some of its cards, then restore {d.top.kind === "import" ? "them" : "it"}.
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="font-medium">Restore {refusal.name} first.</span>{" "}
+                <span className="text-muted-foreground">
+                  {d.top.kind === "import"
+                    ? "Its cards can only come back into their decks, and this one is deleted."
+                    : "This card can only come back into its deck, which is deleted too."}
+                </span>
+              </>
+            )}
           </p>
+          {refusal.why === "deckFull" && (
+            <Button
+              variant="outline"
+              className={cn(OUTLINE_PILL, "h-11 self-start text-foreground no-underline lg:h-9")}
+              render={<Link to="/decks/$deckId" params={{ deckId: refusal.id }} />}
+              nativeButton={false}
+            >
+              Open {refusal.name}
+            </Button>
+          )}
           {onPoint !== undefined && (
             <Button
               variant="outline"

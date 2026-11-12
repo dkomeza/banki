@@ -214,17 +214,20 @@ export function Field({
 
 /**
  * The writing page: the breadcrumb down to the Deck, the dateline over the
- * title, then the form (`CardForm`), with `after` below it.
+ * title, any `notice` under it, then the form (`CardForm`), with `after`
+ * below it.
  */
 export function CardEditor({
   deck,
   title,
   dateline,
+  notice,
   after,
   ...form
 }: Omit<CardFormProps, "stacked" | "className"> & {
   title: string;
   dateline: ReactNode;
+  notice?: ReactNode;
   after?: ReactNode;
 }) {
   const library = useLibrary();
@@ -244,6 +247,7 @@ export function CardEditor({
             {title}
           </h1>
         </div>
+        {notice}
         <CardForm deck={deck} {...form} />
         {after}
       </div>

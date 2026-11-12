@@ -1,7 +1,9 @@
 import {
   ApiError,
+  DECK_CARDS_MAX,
   DECK_DESCRIPTION_MAX_LENGTH,
   DECK_NAME_MAX_LENGTH,
+  DeckFullError,
   DeckListResponse,
   DeckResponse,
   type UpdateDeckRequest,
@@ -12,6 +14,33 @@ import { deletionIdOf, deletionsQueryOptions } from "./deletions";
 import { ApiRequestError } from "./query";
 
 export type Deck = DeckResponse;
+
+/** A write refused with 409 `deck_full` (ADR-0032): the Deck it would take past the limit, and its room. */
+export type DeckFull = { id: string; name: string; room: number };
+
+/** The Deck and room a `deck_full` body names, or undefined for any other body. */
+export function deckFullOf(body: unknown): DeckFull | undefined {
+  const parsed = DeckFullError.safeParse(body);
+  return parsed.success ? { ...parsed.data.deck, room: parsed.data.room } : undefined;
+}
+
+/** "Spanish holds 1,000 cards. Move or delete some to add more." */
+export const deckFullNote = (name: string) =>
+  `${name} holds ${DECK_CARDS_MAX.toLocaleString("en-GB")} cards. Move or delete some to add more.`;
+
+/** What a refused Move says under the picker: the Deck is full, or has room for fewer. */
+export const moveRefusedNote = ({ name, room }: DeckFull) =>
+  room === 0
+    ? deckFullNote(name)
+    : `${name} has room for ${room.toLocaleString("en-GB")} more ${room === 1 ? "card" : "cards"}, so nothing moved.`;
+
+/** What an Undo that couldn't restore or move Cards back says: "Couldn't undo: Spanish has no room for them." */
+export const undoRefusedNote = ({ name }: DeckFull) =>
+  `Couldn't undo: ${name} has no room for them.`;
+
+/** "Full", or "Room for 3", for a Deck in the Move picker that can't take the picked Cards. */
+export const roomLabel = (room: number) =>
+  room === 0 ? "Full" : `Room for ${room.toLocaleString("en-GB")}`;
 
 /** The User's Decks that aren't deleted, from `GET /api/decks`. */
 export const decksQueryOptions = (client: ApiClient = api) =>
