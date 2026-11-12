@@ -32,6 +32,7 @@ const DECK: Deck = {
   desiredRetention: null,
   macros: [{ name: "\\dd", definition: "\\mathrm{d}" }],
   answerMode: "write",
+  plan: null,
 };
 
 const SETTINGS: SettingsResponse = {

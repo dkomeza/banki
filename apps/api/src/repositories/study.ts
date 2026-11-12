@@ -10,7 +10,7 @@ import {
   studyDayBounds,
   studyDayOf,
 } from "@banki/shared";
-import { and, eq, gte, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { and, eq, isNull, lt, ne, or } from "drizzle-orm";
 import type { z } from "zod";
 import type { Queryable } from "../db/database";
 import { card, review, user_settings } from "../db/schema";
@@ -25,6 +25,7 @@ import {
   fromStored,
   lastReviewOf,
   schedulingSettingsOf,
+  timedReviewsSince,
 } from "./reviews";
 
 export type StudyRepository = ReturnType<typeof createStudyRepository>;
@@ -187,17 +188,7 @@ export function createStudyRepository(db: Queryable) {
         const nextDay = [...later.keys()].toSorted()[0];
 
         const since = studyDayBounds(addStudyDays(today, -(ESTIMATE_WINDOW_DAYS - 1)), studyDay);
-        const reviews = tx
-          .select({
-            cardId: review.cardId,
-            reviewedAt: review.reviewedAt,
-            durationMs: review.durationMs,
-            wasNew: sql<number>`json_extract(${review.cardBefore}, '$.state') = 'new'`,
-          })
-          .from(review)
-          .where(and(eq(review.userId, userId), gte(review.reviewedAt, since.start)))
-          .all()
-          .map((r) => ({ ...r, wasNew: Boolean(r.wasNew) }));
+        const reviews = timedReviewsSince(tx, userId, since.start);
 
         return {
           due,
