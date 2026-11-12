@@ -64,8 +64,8 @@ export function FrontObject({
   onKey: (event: KeyboardEvent) => void;
   /** Ctrl+wheel (a trackpad's pinch) over it, where the board doesn't zoom: the canvas stops the page's zoom. */
   onScaleWheel?: (deltaY: number) => void;
-  /** The menu over it while it's selected. */
-  menu: ReactNode;
+  /** The menu over it while it's selected, where it has one. */
+  menu?: ReactNode;
   /** No room over it: the menu goes below. */
   menuBelow?: boolean;
   /** An unseen copy of the Front at 100%, for measuring how tall all of it is. */
@@ -169,17 +169,19 @@ export function FrontObject({
                 bar={s}
               />
             ))}
-          <div
-            className={cn(
-              "absolute left-0 flex w-max items-center gap-0.5 rounded-full border bg-background p-1 shadow-md",
-              menuBelow
-                ? "top-[calc(100%+1.75rem)]"
-                : "bottom-[calc(100%+1.75rem)] lg:bottom-[calc(100%+1.25rem)]",
-            )}
-            onPointerDown={(event) => event.stopPropagation()}
-          >
-            {menu}
-          </div>
+          {menu !== undefined && (
+            <div
+              className={cn(
+                "absolute left-0 flex w-max items-center gap-0.5 rounded-full border bg-background p-1 shadow-md",
+                menuBelow
+                  ? "top-[calc(100%+1.75rem)]"
+                  : "bottom-[calc(100%+1.75rem)] lg:bottom-[calc(100%+1.25rem)]",
+              )}
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              {menu}
+            </div>
+          )}
         </>
       )}
     </section>
