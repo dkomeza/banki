@@ -111,7 +111,7 @@ export function deckImportRoutes({ imports }: { imports: ImportRepository }) {
  * them in one transaction, answering the report: one already confirmed
  * answers 409 `import_confirmed`, and one whose Deck is no longer live 409
  * `deck_gone`, each adding nothing. `POST /:id/undo` undoes a confirmed one
- * (ADR-0029), answering its one Deletion and how many Cards it took, or 409
+ * (ADR-0030), answering its one Deletion and how many Cards it took, or 409
  * `nothing_to_undo` with no live Card stamped with it; an unconfirmed one
  * answers 404. An unknown Import and another User's answer 404.
  */

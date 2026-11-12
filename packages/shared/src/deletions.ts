@@ -7,7 +7,7 @@ export const DELETION_KEPT_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
  * What a Deletion's top item is: what was deleted, with everything that went
- * with it. An `import` is an Import's Undo (ADR-0029): the Cards it added.
+ * with it. An `import` is an Import's Undo (ADR-0030): the Cards it added.
  */
 export const DeletionKind = z.enum(["folder", "deck", "card", "import"]);
 export type DeletionKind = z.infer<typeof DeletionKind>;

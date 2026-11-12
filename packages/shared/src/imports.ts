@@ -136,7 +136,7 @@ export const ImportReportResponse = ImportBase.extend({
   imageCount: z.number().int(),
   /** How many of the Cards it added are live now, wherever they are. */
   live: z.number().int(),
-  /** When it was last undone (ADR-0029); null unless undone. */
+  /** When it was last undone (ADR-0030); null unless undone. */
   undoneAt: z.iso.datetime().nullable(),
   /** The Deletion its last Undo made; null unless undone. */
   undoDeletionId: z.string().nullable(),

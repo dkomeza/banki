@@ -22,7 +22,7 @@ export const SEED_IDS = {
    */
   import: "5eed0000-0000-4000-8000-0000000001a1",
   /**
-   * An older confirmed Import into the seed Deck, undone since (ADR-0029), so
+   * An older confirmed Import into the seed Deck, undone since (ADR-0030), so
    * Past imports shows an undone entry and Recently deleted an Import's.
    */
   undoneImport: "5eed0000-0000-4000-8000-0000000001a2",

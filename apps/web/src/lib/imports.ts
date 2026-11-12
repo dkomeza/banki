@@ -20,7 +20,7 @@ import { ApiRequestError } from "./query";
 
 // An Import (CONTEXT.md, ADR-0026): the file goes to the API as it is, which
 // reads it into an unconfirmed Import; its page previews it, and confirming
-// it turns the page into its report. A confirmed one can be undone (ADR-0029),
+// it turns the page into its report. A confirmed one can be undone (ADR-0030),
 // its Cards going to Recently deleted as one Deletion.
 
 export type Import = ImportResponse;

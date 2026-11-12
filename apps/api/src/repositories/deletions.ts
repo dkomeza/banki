@@ -62,7 +62,7 @@ function topOf(db: Queryable, userId: string, id: string): Top | undefined {
   if (deckRow !== undefined) {
     return { ...deckRow, kind: "deck", deletedAt: deckRow.deletedAt ?? new Date(0) };
   }
-  // An Import's Undo (ADR-0029), before its Cards could pass for a lone Card's.
+  // An Import's Undo (ADR-0030), before its Cards could pass for a lone Card's.
   const importRow = db
     .select({
       id: card_import.id,
@@ -322,7 +322,7 @@ export function createDeletionRepository(db: Queryable) {
       const lone = [...groups]
         .filter(([, g]) => g.folders.length === 0 && g.decks.length === 0)
         .map(([id]) => id);
-      // An Import's Undo, before its Cards could pass for a lone Card (ADR-0029).
+      // An Import's Undo, before its Cards could pass for a lone Card (ADR-0030).
       const undone = new Map(
         (lone.length === 0
           ? []

@@ -130,7 +130,7 @@ const SAFE_FILE = /^[\w-]+\.[A-Za-z0-9]+$/;
  * unconfirmed Import, its images staged in `importsDir`; `find` answers its
  * preview, planned against the Deck as it is now, or its report; `confirm`
  * adds the ticked Cards in one transaction; `history` lists a Deck's confirmed
- * ones; `undo` takes a confirmed one's Cards back out (ADR-0029); `sweep`
+ * ones; `undo` takes a confirmed one's Cards back out (ADR-0030); `sweep`
  * removes Imports never confirmed. Every query but the sweep's is scoped by the User, so another
  * User's Import is as unknown as one that never existed.
  */
@@ -476,7 +476,7 @@ export function createImportRepository(db: Queryable, importsDir: string, upload
     },
 
     /**
-     * Undoes the User's confirmed Import `id` (ADR-0029): every live Card
+     * Undoes the User's confirmed Import `id` (ADR-0030): every live Card
      * stamped with it, wherever it is now, edited or studied, is soft-deleted
      * as one Deletion, which the Import records with when, all in one
      * transaction. A Card deleted on its own before keeps its own Deletion.
