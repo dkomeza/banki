@@ -7,6 +7,7 @@ import {
   ImportReportResponse,
   CardResponse,
   DeckListResponse,
+  DEFAULT_CARD_PROMPT_OPTIONS,
   DEFAULT_MODEL_ID,
   DeckResponse,
   DeletionListResponse,
@@ -158,6 +159,22 @@ describe("banki seed's Macros", () => {
     });
     const settings = await get(app, "/api/settings", cookie);
     expect(SettingsResponse.parse(await settings.json()).answerMode).toBe("self-rate");
+  });
+
+  test("gives Spanish vocabulary Card prompt options of its own, and the other Decks the defaults", async () => {
+    await setup();
+    await seed();
+
+    const { app } = boot();
+    const cookie = cookiesFrom(await signIn(app));
+    const decks = DeckListResponse.parse(await (await get(app, "/api/decks", cookie)).json());
+    for (const deck of decks) {
+      expect(deck.cardPrompt).toEqual(
+        deck.id === SEED_IDS.decks.spanish
+          ? expect.objectContaining({ language: "Spanish", count: 30 })
+          : DEFAULT_CARD_PROMPT_OPTIONS,
+      );
+    }
   });
 
   test("gives Calculus 2 its own \\d and an \\eps over Settings', and Cards that use them", async () => {

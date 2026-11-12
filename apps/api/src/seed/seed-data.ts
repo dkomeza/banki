@@ -831,7 +831,18 @@ export function writeSeedData({
     answerMode: "write",
   });
   // Spanish vocabulary has a \pl of its own, which its Import keeps.
-  decks.update(userId, SEED_IDS.decks.spanish, { macros: SPANISH_MACROS });
+  // It has Card prompt options of its own too; Calculus 2 keeps the defaults,
+  // as a Deck that never set them.
+  decks.update(userId, SEED_IDS.decks.spanish, {
+    macros: SPANISH_MACROS,
+    cardPrompt: {
+      language: "Spanish",
+      count: 30,
+      difficulty: "introductory",
+      instructions:
+        "Everyday words from my evening class. Put the Spanish on the Front and the English on the Back, with the article for every noun.",
+    },
+  });
 
   const stored = createImageRepository(db, uploadsDir).store(userId, readFileSync(IMAGE.file), {
     id: IMAGE.id,

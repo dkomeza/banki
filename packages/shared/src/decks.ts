@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CardPromptOptions } from "./card-prompt";
 import { Macro, MacroList } from "./macros";
 import { PlanResponse } from "./plans";
 import { DesiredRetention } from "./scheduling";
@@ -99,7 +100,8 @@ export type NameClashError = z.infer<typeof NameClashError>;
  * `desiredRetention` is its own, or null while it follows Settings. `macros`
  * are its own Macros, [] for none, which its Cards use on top of Settings'.
  * `answerMode` is its own Answer mode, or null while it follows Settings.
- * `plan` is its Plan, or null when it has none.
+ * `plan` is its Plan, or null when it has none. `cardPrompt` is its options for
+ * the Card prompt, the defaults until it sets them.
  */
 export const DeckResponse = z.object({
   id: z.string(),
@@ -112,6 +114,7 @@ export const DeckResponse = z.object({
   macros: z.array(Macro),
   answerMode: AnswerMode.nullable(),
   plan: PlanResponse.nullable(),
+  cardPrompt: CardPromptOptions,
 });
 export type DeckResponse = z.infer<typeof DeckResponse>;
 
@@ -134,7 +137,8 @@ export type CreateDeckRequest = z.input<typeof CreateDeckRequest>;
  * The body of `PATCH /api/decks/:id`: a new name, a new description, a Folder
  * to move it to (null for the Root), a Desired retention of its own (null to
  * follow Settings), its own Macros (the whole list, replaced as given), an
- * Answer mode of its own (null to follow Settings), or any of them together. `onClash` says what a move does
+ * Answer mode of its own (null to follow Settings), its options for the Card
+ * prompt (all four, replaced as given), or any of them together. `onClash` says what a move does
  * about a name clash, and goes only with `folderId`.
  */
 export const UpdateDeckRequest = z
@@ -146,6 +150,7 @@ export const UpdateDeckRequest = z
     desiredRetention: DesiredRetention.nullable().optional(),
     macros: MacroList.optional(),
     answerMode: AnswerMode.nullable().optional(),
+    cardPrompt: CardPromptOptions.optional(),
   })
   .refine(
     (patch) =>
@@ -154,8 +159,9 @@ export const UpdateDeckRequest = z
       patch.folderId !== undefined ||
       patch.desiredRetention !== undefined ||
       patch.macros !== undefined ||
-      patch.answerMode !== undefined,
-    "Expected a name, a description, a folder, a Desired retention, macros or an Answer mode",
+      patch.answerMode !== undefined ||
+      patch.cardPrompt !== undefined,
+    "Expected a name, a description, a folder, a Desired retention, macros, an Answer mode or Card prompt options",
   )
   .refine(
     (patch) => patch.onClash === undefined || patch.folderId !== undefined,
