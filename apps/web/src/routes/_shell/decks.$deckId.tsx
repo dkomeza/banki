@@ -216,15 +216,6 @@ function DeckBody({ deck }: { deck: Deck }) {
             <Button
               variant="outline"
               className={cn(OUTLINE_PILL, "h-11 text-foreground no-underline")}
-              render={<Link to="/decks/$deckId/statistics" params={{ deckId: deck.id }} />}
-              nativeButton={false}
-            >
-              <ChartColumn aria-hidden />
-              Statistics
-            </Button>
-            <Button
-              variant="outline"
-              className={cn(OUTLINE_PILL, "h-11 text-foreground no-underline")}
               render={<Link to="/decks/$deckId/import" params={{ deckId: deck.id }} />}
               nativeButton={false}
             >
@@ -240,6 +231,15 @@ function DeckBody({ deck }: { deck: Deck }) {
             >
               <FileDown aria-hidden />
               Export
+            </Button>
+            <Button
+              variant="outline"
+              className={cn(OUTLINE_PILL, "h-11 text-foreground no-underline")}
+              render={<Link to="/decks/$deckId/statistics" params={{ deckId: deck.id }} />}
+              nativeButton={false}
+            >
+              <ChartColumn aria-hidden />
+              Statistics
             </Button>
             <Button
               variant="outline"

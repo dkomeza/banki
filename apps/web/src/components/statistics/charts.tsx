@@ -128,7 +128,7 @@ const WEEKDAYS = ["Mon", "", "Wed", "", "Fri", "", ""];
 /**
  * The activity calendar: 53 weeks to the current one, Monday first, each Study
  * day shaded in 5 levels. Weeks run left to right as columns, or, `vertical`,
- * top to bottom as rows. A tooltip gives the date, the Reviews and the minutes;
+ * as rows, this week at the top. A tooltip gives the date, the Reviews and the minutes;
  * arrow keys move it while the calendar has focus.
  */
 export function ActivityCalendar({
@@ -162,7 +162,7 @@ export function ActivityCalendar({
   const height = vertical ? labelH + weeks.length * step : labelH + 7 * step;
   const at = (w: number, d: number) =>
     vertical
-      ? { x: labelW + d * step, y: labelH + w * step }
+      ? { x: labelW + d * step, y: labelH + (weeks.length - 1 - w) * step }
       : { x: labelW + w * step, y: labelH + d * step };
 
   const months: { label: string; pos: number }[] = [];
@@ -184,7 +184,7 @@ export function ActivityCalendar({
 
   const onKey = (event: KeyboardEvent) => {
     const moves: Record<string, number> = vertical
-      ? { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }
+      ? { ArrowLeft: -1, ArrowRight: 1, ArrowUp: 7, ArrowDown: -7 }
       : { ArrowLeft: -7, ArrowRight: 7, ArrowUp: -1, ArrowDown: 1 };
     const by = moves[event.key];
     if (by === undefined) return;
@@ -219,7 +219,7 @@ export function ActivityCalendar({
             <text
               key={pos}
               x={0}
-              y={labelH + pos * step + cell - 1}
+              y={labelH + (weeks.length - 1 - pos) * step + cell - 1}
               className="fill-muted-foreground text-[9px]"
             >
               {label}
