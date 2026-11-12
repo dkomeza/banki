@@ -84,7 +84,7 @@ function entriesOf(cardId: string, now: number): CardHistoryEntry[] {
         durationMs,
       };
     })
-    .reverse();
+    .toReversed();
 }
 
 /** Which Card's history a state shows, or the Card's own. */
