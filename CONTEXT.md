@@ -9,7 +9,7 @@ The person who owns everything in a Banki installation: folders, decks, cards, r
 _Avoid_: Learner, account, owner
 
 **Deck**:
-A named set of cards the User studies together, with an optional description and, later, settings of its own. It sits at the root or in one folder, and no two decks beside each other share a name, ignoring case. A deleted deck no longer counts as beside anything.
+A named set of cards the User studies together, with an optional description and, later, settings of its own. It sits at the root or in one folder, and no two decks beside each other share a name, ignoring case. A deleted deck no longer counts as beside anything. It holds at most 1,000 live Cards; its Cards in Recently deleted don't count, so deleting Cards makes room at once. One already holding more keeps them, but takes no more until it is under.
 _Avoid_: collection, set
 
 **Folder**:
@@ -73,7 +73,7 @@ Where each Deletion waits for 30 days after it, until it is restored or removed.
 _Avoid_: trash, bin, archive
 
 **Restore**:
-Bringing a Deletion back where it was. A Deck or Folder whose place is gone comes back at the Root, and one whose name is taken beside it comes back as the next free "Name (2)". A Card whose Deck is deleted can't come back until its Deck does.
+Bringing a Deletion back where it was. A Deck or Folder whose place is gone comes back at the Root, and one whose name is taken beside it comes back as the next free "Name (2)". A Card whose Deck is deleted can't come back until its Deck does, and one whose Deck has no room for it can't come back until the Deck has.
 _Avoid_: undelete, recover
 
 **Removal**:
