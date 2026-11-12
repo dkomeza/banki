@@ -590,7 +590,7 @@ describe("A Deck's options for the Card prompt", () => {
     const atLimits = {
       language: "x".repeat(50),
       count: 1000,
-      difficulty: "introductory",
+      difficulty: "introductory" as const,
       instructions: "y".repeat(2000),
     };
 

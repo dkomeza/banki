@@ -155,7 +155,7 @@ describe("buildCardPrompt", () => {
       "## Output",
     ].map((heading) => text.indexOf(`\n${heading}\n`));
     expect(at.every((index) => index > 0)).toBe(true);
-    expect(at).toEqual([...at].sort((a, b) => a - b));
+    expect(at).toEqual(at.toSorted((a, b) => a - b));
   });
 
   test("lists the effective Macros as name → definition", () => {

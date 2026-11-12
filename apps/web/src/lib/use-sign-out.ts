@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { authClient } from "./auth-client";
+import { dropDeckCardPromptSavers } from "./card-prompt";
 import { dropDeckAnswerModeSavers } from "./deck-answer-mode";
 import { dropDeckMacrosSavers } from "./deck-macros";
 import { dropDeckRetentionSavers } from "./deck-retention";
@@ -33,6 +34,7 @@ export function useSignOut() {
         dropDeckRetentionSavers(queryClient);
         dropDeckMacrosSavers(queryClient);
         dropDeckAnswerModeSavers(queryClient);
+        dropDeckCardPromptSavers(queryClient);
         queryClient.removeQueries({ queryKey: settingsQueryOptions().queryKey });
         await navigate({ to: "/login" });
       },
