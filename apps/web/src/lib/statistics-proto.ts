@@ -86,10 +86,15 @@ type Day = {
   graded: { model: string; kept: number; higher: number; lower: number }[];
 };
 
-const split = (n: number, keep: number, up: number) => {
-  const kept = Math.round(n * keep);
-  const higher = Math.round((n - kept) * up);
-  return { kept, higher, lower: n - kept - higher };
+/** Each of n graded Reviews kept with odds `keep`, else rated higher with odds `up`, else lower. */
+const split = (rand: () => number, n: number, keep: number, up: number) => {
+  const out = { kept: 0, higher: 0, lower: 0 };
+  for (let i = 0; i < n; i++) {
+    if (rand() < keep) out.kept++;
+    else if (rand() < up) out.higher++;
+    else out.lower++;
+  }
+  return out;
 };
 
 function history(today: string, seed: number, scale: number): Day[] {
@@ -116,8 +121,8 @@ function history(today: string, seed: number, scale: number): Day[] {
       learned,
       recalled,
       graded: [
-        { model: HAIKU, ...split(haiku, 0.88 + rand() * 0.08, 0.5) },
-        { model: LUNA, ...split(luna, 0.5 + rand() * 0.15, 0.7) },
+        { model: HAIKU, ...split(rand, haiku, 0.9, 0.55) },
+        { model: LUNA, ...split(rand, luna, 0.58, 0.7) },
       ],
     });
   }
