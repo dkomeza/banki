@@ -1,6 +1,6 @@
 import { type CardFileProblem, formatProblems } from "@banki/shared";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { FileUp, LoaderCircle } from "lucide-react";
+import { ChevronRight, FileUp, LoaderCircle, Sparkles } from "lucide-react";
 import { useRef, useState } from "react";
 import { Breadcrumb } from "@/components/folders/breadcrumb";
 import { useLibrary } from "@/components/folders/use-library";
@@ -134,6 +134,20 @@ export function ImportSource({ deck }: { deck: Deck }) {
               )}
             </div>
           )}
+
+          {/* The way to the Card prompt, for someone with no Card file yet. */}
+          <Link
+            to="/decks/$deckId/prompt"
+            params={{ deckId: deck.id }}
+            className="flex min-h-14 items-center gap-3 rounded-xl border border-dashed px-4 py-3 text-foreground no-underline hover:bg-muted/60"
+          >
+            <Sparkles aria-hidden className="size-5 shrink-0 text-primary" />
+            <span className="min-w-0 flex-1 text-sm">
+              <span className="text-muted-foreground">No Card file yet? </span>
+              <span className="font-medium">Get one from an LLM</span>
+            </span>
+            <ChevronRight aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+          </Link>
 
           {refused !== undefined && (
             <div id="refused" role="alert" className="flex flex-col gap-2">
