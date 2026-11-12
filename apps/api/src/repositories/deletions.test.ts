@@ -3,13 +3,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq, sql } from "drizzle-orm";
-import { type OpenedDatabase, openDatabase } from "../db/database";
+import { type OpenedDatabase, importsDirOf, openDatabase, uploadsDirOf } from "../db/database";
 import { applyMigrations } from "../db/migrate";
-import { card, deck, folder } from "../db/schema";
+import { card, card_import, deck, folder } from "../db/schema";
 import { type CardRepository, createCardRepository } from "./cards";
 import { type DeckRepository, createDeckRepository } from "./decks";
 import { type DeletionRepository, createDeletionRepository } from "./deletions";
 import { type FolderRepository, createFolderRepository } from "./folders";
+import { createImportRepository } from "./imports";
 import { createUserRepository } from "./user";
 
 let tempDir: string;
@@ -77,6 +78,8 @@ const deleted = (id: string | undefined) => {
 const folderRow = (id: string) => opened.db.select().from(folder).where(eq(folder.id, id)).get();
 const deckRow = (id: string) => opened.db.select().from(deck).where(eq(deck.id, id)).get();
 const cardRow = (id: string) => opened.db.select().from(card).where(eq(card.id, id)).get();
+const importRow = (id: string) =>
+  opened.db.select().from(card_import).where(eq(card_import.id, id)).get();
 
 describe("list", () => {
   test("lists one entry per Deletion, newest first, with its top item, where it was and what went with it", () => {
@@ -496,5 +499,145 @@ describe("removeExpired", () => {
     expect(cardRow(s1)).toBeUndefined();
     expect(folderRow(maths)?.deletedAt).not.toBeNull();
     expect(deletions.list(USER).map((d) => d.id)).not.toContain(statsDeletion);
+  });
+});
+
+describe("an Import's Undo", () => {
+  const NOW = at("2026-10-26T12:00:00.000Z");
+
+  /** Confirms an Import of `fronts` into `deckId` and undoes it as `deletionId`. */
+  const undoneImport = (deckId: string, fronts: string[], deletionId = "undo") => {
+    const imports = createImportRepository(opened.db, importsDirOf(tempDir), uploadsDirOf(tempDir));
+    const text = JSON.stringify({
+      $schema: null,
+      format: "banki",
+      version: 1,
+      macros: [],
+      cards: fronts.map((front) => ({ front, back: "b", tags: [], gradingNotes: null })),
+    });
+    const created = imports.create(USER, deckId, {
+      bytes: new TextEncoder().encode(text),
+      kind: "file",
+      fileName: "words.json",
+    });
+    if (created === "not_found" || "problems" in created) throw new Error("not created");
+    const found = imports.find(USER, created.id);
+    if (found?.status !== "unconfirmed") throw new Error("not a preview");
+    imports.confirm(
+      USER,
+      created.id,
+      found.cards.map((one) => {
+        const { duplicateOf: _, ...read } = one;
+        return read;
+      }),
+      { now: new Date(NOW.getTime() - DAY_MS) },
+    );
+    const cardIds = opened.db
+      .select({ id: card.id })
+      .from(card)
+      .where(eq(card.importId, created.id))
+      .all()
+      .map((row) => row.id);
+    return {
+      imports,
+      importId: created.id,
+      cardIds,
+      undo: () => imports.undo(USER, created.id, { now: NOW, deletionId }),
+    };
+  };
+
+  test("is one entry of kind Import, named by its file, with its Deck and every Card it took", () => {
+    const spanish = makeDeck("Spanish");
+    const { importId, undo } = undoneImport(spanish, ["a", "b", "c"]);
+    undo();
+
+    expect(deletions.list(USER)).toEqual([
+      {
+        id: "undo",
+        deletedAt: NOW.toISOString(),
+        removesAt: new Date(NOW.getTime() + 30 * DAY_MS).toISOString(),
+        top: { kind: "import", id: importId, name: "words.json" },
+        path: null,
+        deck: { id: spanish, name: "Spanish", macros: [] },
+        counts: { folders: 0, decks: 0, cards: 3 },
+      },
+    ]);
+  });
+
+  test("of a single Card is still the Import, not a lone Card", () => {
+    const spanish = makeDeck("Spanish");
+    const { importId, undo } = undoneImport(spanish, ["a"]);
+    undo();
+    expect(deletions.list(USER)[0]?.top).toEqual({
+      kind: "import",
+      id: importId,
+      name: "words.json",
+    });
+    expect(deletions.restore(USER, "undo")).toMatchObject({ kind: "import", id: importId });
+  });
+
+  test("restores every Card where it is now, keeping createdAt, and clears the Import's Undo", () => {
+    const spanish = makeDeck("Spanish");
+    const other = makeDeck("Other");
+    const { importId, cardIds, undo } = undoneImport(spanish, ["a", "b"]);
+    cards.move(USER, [cardIds[0]!], other);
+    const before = cardIds.map((id) => cardRow(id)?.createdAt);
+    undo();
+
+    expect(deletions.restore(USER, "undo")).toEqual({
+      kind: "import",
+      id: importId,
+      name: "words.json",
+      movedToRoot: false,
+      renamed: false,
+    });
+    expect(cardIds.map((id) => [cardRow(id)?.deletedAt, cardRow(id)?.deletionId])).toEqual([
+      [null, null],
+      [null, null],
+    ]);
+    expect(cardIds.map((id) => cardRow(id)?.createdAt)).toEqual(before);
+    expect(cardRow(cardIds[0]!)?.deckId).toBe(other);
+    expect(importRow(importId)).toMatchObject({ undoneAt: null, undoDeletionId: null });
+    expect(deletions.list(USER)).toEqual([]);
+  });
+
+  test("refuses a Restore while a Deck one of its Cards is in is deleted, naming that Deck", () => {
+    const spanish = makeDeck("Spanish");
+    const other = makeDeck("Other");
+    const { importId, cardIds, undo } = undoneImport(spanish, ["a", "b"]);
+    cards.move(USER, [cardIds[0]!], other);
+    undo();
+    decks.softDelete(USER, other);
+
+    expect(deletions.restore(USER, "undo")).toEqual({ placeDeleted: { id: other, name: "Other" } });
+    expect(cardIds.map((id) => cardRow(id)?.deletionId)).toEqual(["undo", "undo"]);
+    expect(importRow(importId)).toMatchObject({ undoDeletionId: "undo" });
+  });
+
+  test("Delete permanently and the 30-day Removal remove its Cards, and keep the Import still undone", () => {
+    const spanish = makeDeck("Spanish");
+    const first = undoneImport(spanish, ["a", "b"], "first");
+    first.undo();
+    expect(deletions.remove(USER, "first")).toBe(true);
+    expect(first.cardIds.map(cardRow)).toEqual([undefined, undefined]);
+    expect(first.imports.find(USER, first.importId)).toMatchObject({
+      status: "confirmed",
+      imported: 2,
+      live: 0,
+      undoneAt: NOW.toISOString(),
+      undoDeletionId: "first",
+    });
+
+    // Gone, its Deletion can't be restored or removed again, and the Import stays undone.
+    expect(deletions.restore(USER, "first")).toBe("not_found");
+    expect(deletions.remove(USER, "first")).toBe(false);
+    expect(importRow(first.importId)).toMatchObject({ undoDeletionId: "first" });
+
+    const second = undoneImport(spanish, ["c"], "second");
+    second.undo();
+    expect(deletions.removeExpired(new Date(NOW.getTime() + 30 * DAY_MS))).toBe(1);
+    expect(second.cardIds.map(cardRow)).toEqual([undefined]);
+    expect(importRow(second.importId)).toMatchObject({ undoneAt: NOW, undoDeletionId: "second" });
+    expect(deletions.list(USER)).toEqual([]);
   });
 });

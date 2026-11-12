@@ -8,7 +8,7 @@ import {
 } from "@banki/shared";
 import { and, eq, inArray, isNotNull, lte, ne, or, isNull, sql } from "drizzle-orm";
 import type { Queryable } from "../db/database";
-import { card, deck, folder } from "../db/schema";
+import { card, card_import, deck, folder } from "../db/schema";
 import { deckNamed } from "./decks";
 import { folderNamed } from "./folders";
 import { type Place, isLivePlace } from "./places";
@@ -17,7 +17,7 @@ export type Deletion = DeletionResponse;
 
 export type DeletionRepository = ReturnType<typeof createDeletionRepository>;
 
-/** Why a Restore was refused: no such Deletion, or a Card's whose Deck is deleted. */
+/** Why a Restore was refused: no such Deletion, or a Card's or an Import's whose Deck is deleted. */
 export type RestoreRefusal = "not_found" | { placeDeleted: { id: string; name: string } };
 
 /** A Deletion's top item: the row whose parent isn't in the same Deletion. */
@@ -25,7 +25,7 @@ type Top = {
   kind: DeletionKind;
   id: string;
   name: string;
-  /** Where it sat: a Folder (or the Root) for a Deck or Folder, its Deck for a Card. */
+  /** Where it sat: a Folder (or the Root) for a Deck or Folder, its Deck for a Card or an Import. */
   parent: string | null;
   deletedAt: Date;
 };
@@ -61,6 +61,27 @@ function topOf(db: Queryable, userId: string, id: string): Top | undefined {
     .get();
   if (deckRow !== undefined) {
     return { ...deckRow, kind: "deck", deletedAt: deckRow.deletedAt ?? new Date(0) };
+  }
+  // An Import's Undo (ADR-0030), before its Cards could pass for a lone Card's.
+  const importRow = db
+    .select({
+      id: card_import.id,
+      name: card_import.fileName,
+      parent: card_import.deckId,
+      deletedAt: card_import.undoneAt,
+    })
+    .from(card_import)
+    .where(and(eq(card_import.userId, userId), eq(card_import.undoDeletionId, id)))
+    .get();
+  if (importRow !== undefined) {
+    // Removal keeps the Import's Undo, so it is a Deletion only while a Card still carries it.
+    const kept = db
+      .select({ id: card.id })
+      .from(card)
+      .where(stampedWith(card, userId, id))
+      .get();
+    if (kept === undefined) return undefined;
+    return { ...importRow, kind: "import", deletedAt: importRow.deletedAt ?? new Date(0) };
   }
   const cardRow = db
     .select({ id: card.id, name: card.front, parent: card.deckId, deletedAt: card.deletedAt })
@@ -155,7 +176,10 @@ export function removeDeletion(db: Queryable, userId: string, id: string): boole
  * Folder whose Folder is deleted comes back at the Root (`movedToRoot`), and
  * one whose name a live one of its kind beside it now has, as the next free
  * "Name (n)" (`renamed`). A Card's Deletion whose Deck is deleted is refused,
- * naming the Deck.
+ * naming the Deck, and so is an Import's while any Deck its Cards are in now
+ * is. An Import's Restore brings its Cards back where they are now and clears
+ * its Undo, so it can be undone again; like its Undo, it leaves the Cards'
+ * `updatedAt` alone, so they don't count as edited.
  */
 function restoreIn(
   tx: Queryable,
@@ -180,6 +204,26 @@ function restoreIn(
       .where(stampedWith(card, userId, id))
       .run();
     return { kind: "card", id: top.id, name: top.name, movedToRoot: false, renamed: false };
+  }
+
+  if (top.kind === "import") {
+    const gone = tx
+      .selectDistinct({ id: deck.id, name: deck.name })
+      .from(card)
+      .innerJoin(deck, eq(deck.id, card.deckId))
+      .where(and(stampedWith(card, userId, id), isNotNull(deck.deletedAt)))
+      .orderBy(deck.name, deck.id)
+      .get();
+    if (gone !== undefined) return { placeDeleted: gone };
+    tx.update(card)
+      .set({ deletedAt: null, deletionId: null })
+      .where(stampedWith(card, userId, id))
+      .run();
+    tx.update(card_import)
+      .set({ undoneAt: null, undoDeletionId: null })
+      .where(and(eq(card_import.userId, userId), eq(card_import.id, top.id)))
+      .run();
+    return { kind: "import", id: top.id, name: top.name, movedToRoot: false, renamed: false };
   }
 
   const movedToRoot = !isLivePlace(tx, userId, top.parent);
@@ -278,6 +322,26 @@ export function createDeletionRepository(db: Queryable) {
       const lone = [...groups]
         .filter(([, g]) => g.folders.length === 0 && g.decks.length === 0)
         .map(([id]) => id);
+      // An Import's Undo, before its Cards could pass for a lone Card (ADR-0030).
+      const undone = new Map(
+        (lone.length === 0
+          ? []
+          : db
+              .select({
+                id: card_import.id,
+                fileName: card_import.fileName,
+                undoneAt: card_import.undoneAt,
+                deletionId: card_import.undoDeletionId,
+                deckId: deck.id,
+                deckName: deck.name,
+                deckMacros: deck.macros,
+              })
+              .from(card_import)
+              .innerJoin(deck, eq(deck.id, card_import.deckId))
+              .where(and(eq(card_import.userId, userId), inArray(card_import.undoDeletionId, lone)))
+              .all()
+        ).map((row) => [row.deletionId, row]),
+      );
       const loneCards = new Map(
         (lone.length === 0
           ? []
@@ -319,6 +383,16 @@ export function createDeletionRepository(db: Queryable) {
             top: { kind: "deck", id: top.id, name: top.name },
             path: pathTo(folderTree, top.folderId),
             deck: null,
+            counts: { folders: 0, decks: 0, cards: g.cards },
+          };
+        } else if (undone.has(id)) {
+          const top = undone.get(id);
+          if (top === undefined) continue;
+          entry = {
+            deletedAt: top.undoneAt,
+            top: { kind: "import", id: top.id, name: top.fileName },
+            path: null,
+            deck: { id: top.deckId, name: top.deckName, macros: top.deckMacros },
             counts: { folders: 0, decks: 0, cards: g.cards },
           };
         } else {

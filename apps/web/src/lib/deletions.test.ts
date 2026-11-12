@@ -11,6 +11,7 @@ import {
   deletionsQueryOptions,
   firstLine,
   groupOf,
+  kindLabel,
   nameOf,
   removeDeletion,
   restoreDeletion,
@@ -101,6 +102,22 @@ describe("what went with it", () => {
       ),
     ).toBe("Delete the card “der Termin” permanently? This can't be undone.");
   });
+
+  test("names an Import's Undo by its file, from its Deck, with every Card it took", () => {
+    const undone = deletion({
+      top: { kind: "import", id: "i1", name: "verbos.json" },
+      path: null,
+      deck: { id: "d1", name: "Spanish vocabulary", macros: [] },
+      counts: { folders: 0, decks: 0, cards: 24 },
+    });
+    expect(kindLabel(undone.top.kind)).toBe("Import");
+    expect(nameOf(undone)).toBe("verbos.json");
+    expect(whereLabel(undone)).toBe("Spanish vocabulary");
+    expect(withLabel(undone)).toBe("with 24 cards");
+    expect(deleteQuestion(undone)).toBe(
+      "Delete the 24 cards verbos.json imported permanently? This can't be undone.",
+    );
+  });
 });
 
 /** 10:00 on `day` October 2026, in this device's timezone. */
@@ -160,6 +177,9 @@ describe("restoredToast", () => {
       restoredToast({ ...restored, kind: "card", name: "la madrugada" }, "la madrugada", "Spanish")
         .title,
     ).toBe("Card restored");
+    expect(
+      restoredToast({ ...restored, kind: "import", name: "verbos.json" }, "verbos.json", "Spanish"),
+    ).toEqual({ title: "Import restored", description: "Its cards are back in their decks." });
   });
 
   test("says when it went to the Root, or came back under a new name", () => {

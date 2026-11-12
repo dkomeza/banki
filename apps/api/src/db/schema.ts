@@ -399,12 +399,17 @@ export const card_import = sqliteTable(
     preview: text("preview", { mode: "json" }).$type<StagedImport>(),
     /** The report, as JSON (`ImportReport`, repositories/imports.ts); null until confirmed. */
     report: text("report", { mode: "json" }).$type<ImportReport>(),
+    /** When it was last undone (ADR-0030); null unless undone. Restoring that Deletion clears it; Removal keeps it. */
+    undoneAt: integer("undone_at", { mode: "timestamp_ms" }),
+    /** The Deletion its last Undo made, the one its Cards carry; null unless undone. */
+    undoDeletionId: text("undo_deletion_id"),
   },
   (table) => [
     check("import_source", sql`${table.source} IN ('json', 'zip', 'paste')`),
     index("import_user_id").on(table.userId),
     index("import_deck_id").on(table.deckId),
     index("import_created_at").on(table.createdAt),
+    index("import_undo_deletion_id").on(table.undoDeletionId),
   ],
 );
 

@@ -2,9 +2,14 @@ import { describe, expect, test } from "bun:test";
 import {
   CardListResponse,
   CreateImportResponse,
+  DeletionListResponse,
+  ImportHistoryResponse,
   ImportPreviewResponse,
   ImportRefusedResponse,
   ImportReportResponse,
+  PlaceDeletedError,
+  RestoreResponse,
+  UndoImportResponse,
 } from "@banki/shared";
 import { type App, ORIGIN, bootApps, codeOf, get, send, setUp } from "../testing/app";
 import { makeZip } from "../testing/zip";
@@ -171,5 +176,141 @@ describe("POST /api/imports/:id/confirm", () => {
     expect((await get(app, "/api/imports/nope", cookie)).status).toBe(404);
     const res = await send(app, "POST", "/api/imports/nope/confirm", { cards: [] }, cookie);
     expect(res.status).toBe(404);
+  });
+});
+
+/** An Import of `fronts` into `deckId`, confirmed with every Card ticked; answers its ID. */
+async function confirmed(app: App, deckId: string, cookie: string, fronts: string[]) {
+  const created = await upload(app, deckId, fileText(fronts.map((f) => card(f))), cookie, {
+    query: "kind=file&name=words.json",
+  });
+  const { id } = CreateImportResponse.parse(await created.json());
+  const cards = fronts.map((front, i) => ({ number: i + 1, ...card(front) }));
+  await send(app, "POST", `/api/imports/${id}/confirm`, { cards }, cookie);
+  return id;
+}
+
+describe("GET /api/decks/:deckId/imports", () => {
+  test("answers the Deck's confirmed Imports, newest first, and not an unconfirmed one", async () => {
+    const { app, cookie, deckId } = await withDeck();
+    const first = await confirmed(app, deckId, cookie, ["a", "b"]);
+    const second = await confirmed(app, deckId, cookie, ["c"]);
+    await upload(app, deckId, fileText([card("d")]), cookie);
+
+    const res = await get(app, `/api/decks/${deckId}/imports`, cookie);
+    expect(res.status).toBe(200);
+    const history = ImportHistoryResponse.parse(await res.json());
+    expect(history.map((e) => [e.id, e.fileName, e.source, e.imported, e.live])).toEqual([
+      [second, "words.json", "json", 1, 1],
+      [first, "words.json", "json", 2, 2],
+    ]);
+  });
+
+  test("a deleted Deck and an unknown one are not found", async () => {
+    const { app, cookie, deckId } = await withDeck();
+    expect((await get(app, "/api/decks/nope/imports", cookie)).status).toBe(404);
+    await send(app, "DELETE", `/api/decks/${deckId}`, undefined, cookie);
+    const gone = await get(app, `/api/decks/${deckId}/imports`, cookie);
+    expect(gone.status).toBe(404);
+    expect(await codeOf(gone)).toBe("not_found");
+  });
+});
+
+describe("POST /api/imports/:id/undo", () => {
+  test("takes the Cards into one Deletion, which the report and Recently deleted show, and Restore undoes", async () => {
+    const { app, cookie, deckId } = await withDeck();
+    const id = await confirmed(app, deckId, cookie, ["a", "b"]);
+    const before = ImportReportResponse.parse(
+      await (await get(app, `/api/imports/${id}`, cookie)).json(),
+    );
+    expect(before).toMatchObject({
+      live: 2,
+      undoneAt: null,
+      undoDeletionId: null,
+      studied: 0,
+      edited: 0,
+      moved: 0,
+    });
+
+    const res = await send(app, "POST", `/api/imports/${id}/undo`, undefined, cookie);
+    expect(res.status).toBe(200);
+    const { deletionId, cards } = UndoImportResponse.parse(await res.json());
+    expect(cards).toBe(2);
+
+    const listed = await get(app, `/api/decks/${deckId}/cards`, cookie);
+    expect(CardListResponse.parse(await listed.json())).toEqual([]);
+    const report = ImportReportResponse.parse(
+      await (await get(app, `/api/imports/${id}`, cookie)).json(),
+    );
+    expect(report).toMatchObject({ live: 0, undoDeletionId: deletionId });
+    expect(report.undoneAt).not.toBeNull();
+    const deleted = DeletionListResponse.parse(
+      await (await get(app, "/api/deletions", cookie)).json(),
+    );
+    expect(deleted).toMatchObject([
+      { id: deletionId, top: { kind: "import", id, name: "words.json" }, counts: { cards: 2 } },
+    ]);
+
+    const restored = await send(
+      app,
+      "POST",
+      `/api/deletions/${deletionId}/restore`,
+      undefined,
+      cookie,
+    );
+    expect(restored.status).toBe(200);
+    expect(RestoreResponse.parse(await restored.json())).toMatchObject({ kind: "import", id });
+    const back = ImportReportResponse.parse(
+      await (await get(app, `/api/imports/${id}`, cookie)).json(),
+    );
+    expect(back).toMatchObject({ live: 2, undoneAt: null, undoDeletionId: null });
+  });
+
+  test("with no live Card answers 409 nothing_to_undo", async () => {
+    const { app, cookie, deckId } = await withDeck();
+    const id = await confirmed(app, deckId, cookie, ["a"]);
+    await send(app, "POST", `/api/imports/${id}/undo`, undefined, cookie);
+    const again = await send(app, "POST", `/api/imports/${id}/undo`, undefined, cookie);
+    expect(again.status).toBe(409);
+    expect(await codeOf(again)).toBe("nothing_to_undo");
+  });
+
+  test("an unconfirmed Import and an unknown one are not found", async () => {
+    const { app, cookie, deckId } = await withDeck();
+    const created = await upload(app, deckId, fileText([card("a")]), cookie);
+    const { id } = CreateImportResponse.parse(await created.json());
+    for (const path of [`/api/imports/${id}/undo`, "/api/imports/nope/undo"]) {
+      const res = await send(app, "POST", path, undefined, cookie);
+      expect(res.status).toBe(404);
+      expect(await codeOf(res)).toBe("not_found");
+    }
+  });
+
+  test("restoring it while a Deck its Cards are in is deleted answers 409 place_deleted, naming it", async () => {
+    const { app, cookie, deckId } = await withDeck();
+    const id = await confirmed(app, deckId, cookie, ["a"]);
+    const res = await send(app, "POST", `/api/imports/${id}/undo`, undefined, cookie);
+    const { deletionId } = UndoImportResponse.parse(await res.json());
+    await send(app, "DELETE", `/api/decks/${deckId}`, undefined, cookie);
+
+    const restored = await send(
+      app,
+      "POST",
+      `/api/deletions/${deletionId}/restore`,
+      undefined,
+      cookie,
+    );
+    expect(restored.status).toBe(409);
+    expect(PlaceDeletedError.parse(await restored.json())).toMatchObject({
+      error: { message: "Restore Spanish first" },
+      deck: { id: deckId, name: "Spanish" },
+    });
+  });
+
+  test("signed out, it is refused", async () => {
+    const booted = boot();
+    await setUp(booted);
+    const res = await send(booted.app, "POST", "/api/imports/nope/undo", undefined);
+    expect(res.status).toBe(401);
   });
 });

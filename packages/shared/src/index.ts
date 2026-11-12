@@ -218,6 +218,8 @@ export {
   IMPORT_UPLOAD_MAX_BYTES,
   ImportCard,
   ImportDuplicateOf,
+  ImportHistoryEntry,
+  ImportHistoryResponse,
   ImportInvalidCard,
   ImportPreviewResponse,
   ImportRefusedResponse,
@@ -228,6 +230,7 @@ export {
   macroPlanLine,
   PreviewCard,
   SkippedDuplicate,
+  UndoImportResponse,
   UploadImportQuery,
 } from "./imports";
 export {
