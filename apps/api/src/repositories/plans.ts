@@ -87,15 +87,16 @@ export function createPlanRepository(db: Queryable) {
      * The feasibility check (`checkPlan`) of a Plan of `dailyMinutes` a day to
      * `deadline` for the User's Deck `deckId`, from its live Cards as they are,
      * its Desired retention, and the User's Reviews over the last 30 Study days.
-     * Saves nothing.
+     * Saves nothing. It reads them in one go, then runs the check giving way to
+     * other work (`CheckOptions`): `signal` stops it.
      */
-    check(
+    async check(
       userId: string,
       deckId: string,
       { deadline, dailyMinutes }: PlanResponse,
-      { now = new Date() }: { now?: Date } = {},
-    ): PlanCheckResponse | "not_found" | "invalid_deadline" {
-      return db.transaction((tx) => {
+      { now = new Date(), signal }: { now?: Date; signal?: AbortSignal } = {},
+    ): Promise<PlanCheckResponse | "not_found" | "invalid_deadline"> {
+      const read = db.transaction((tx) => {
         if (!isLiveDeck(tx, userId, deckId)) return "not_found";
         const { studyDay, parameters } = schedulingSettingsOf(tx, userId);
         const today = studyDayOf(now, studyDay);
@@ -106,20 +107,19 @@ export function createPlanRepository(db: Queryable) {
           .where(and(eq(card.userId, userId), eq(card.deckId, deckId), isNull(card.deletedAt)))
           .all();
         const since = studyDayBounds(addStudyDays(today, -(ESTIMATE_WINDOW_DAYS - 1)), studyDay);
-        return checkPlan(
-          {
-            deckId,
-            cards,
-            reviews: timedReviewsSince(tx, userId, since.start),
-            deadline,
-            now,
-            desiredRetention: deckRetentionOf(tx, userId, deckId),
-            studyDay,
-            parameters,
-          },
-          dailyMinutes,
-        );
+        return {
+          deckId,
+          cards,
+          reviews: timedReviewsSince(tx, userId, since.start),
+          deadline,
+          now,
+          desiredRetention: deckRetentionOf(tx, userId, deckId),
+          studyDay,
+          parameters,
+        };
       });
+      if (typeof read === "string") return read;
+      return checkPlan(read, dailyMinutes, { signal });
     },
   };
 }

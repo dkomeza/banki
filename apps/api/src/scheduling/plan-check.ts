@@ -45,6 +45,17 @@ export type PlanCheckInput = {
 };
 
 const MINUTE_MS = 60_000;
+/** How long the check runs at a stretch before it lets the event loop take other work. */
+const SLICE_MS = 15;
+
+/**
+ * How a check shares the thread: `pause` lets other work run, by default
+ * until the event loop's next turn; `signal` stops the check, for one no one
+ * waits for any more.
+ */
+export type CheckOptions = { signal?: AbortSignal; pause?: () => Promise<void> };
+
+const nextTurn = () => new Promise<void>((resolve) => setImmediate(resolve));
 /** A Card more than this many Good Ratings in its learning steps is taken as graduated. */
 const STEPS_MAX = 10;
 
@@ -128,9 +139,16 @@ function dueDayIndex(memory: MemoryState, days: Simulation["days"]): number {
 
 /**
  * How many of the Deck's New cards are never introduced before the Deadline
- * at `dailyMinutes` a day.
+ * at `dailyMinutes` a day. With `coveredOnly`, only whether that is none
+ * counts: the run stops as soon as the New cards left take more than the
+ * days left could give them, and answers those left.
  */
-function unlearnedAt(sim: Simulation, dailyMinutes: number): number {
+async function unlearnedAt(
+  sim: Simulation,
+  dailyMinutes: number,
+  breathe: () => Promise<void>,
+  coveredOnly = false,
+): Promise<number> {
   const { days, fresh, averages, input } = sim;
   const { reviewMs, newMs } = averages;
   const settings = {
@@ -170,6 +188,7 @@ function unlearnedAt(sim: Simulation, dailyMinutes: number): number {
   let introduced = 0;
   let carried: SimCard[] = [];
   for (const [index, { start }] of days.entries()) {
+    await breathe();
     let budget = dailyMinutes * MINUTE_MS - (index === 0 ? sim.spentTodayMs : 0);
     const due = [...carried, ...(dueOn[index] ?? [])].toSorted(byDueThenId);
     carried = [];
@@ -190,6 +209,10 @@ function unlearnedAt(sim: Simulation, dailyMinutes: number): number {
       place(learn({ id: card.id, memory: NEW_MEMORY_STATE }, start), index + 1);
     }
     if (introduced === fresh.length) return 0;
+    const daysLeft = days.length - index - 1;
+    if (coveredOnly && (fresh.length - introduced) * newMs > daysLeft * dailyMinutes * MINUTE_MS) {
+      return fresh.length - introduced;
+    }
   }
   return fresh.length - introduced;
 }
@@ -201,10 +224,23 @@ function unlearnedAt(sim: Simulation, dailyMinutes: number): number {
  * at which none is left (null when even 600 leaves some). Timings are the
  * User's `cardDayAverages`, in every Deck.
  */
-export function checkPlan(input: PlanCheckInput, dailyMinutes: number): PlanCheckResponse {
+export async function checkPlan(
+  input: PlanCheckInput,
+  dailyMinutes: number,
+  { signal, pause = nextTurn }: CheckOptions = {},
+): Promise<PlanCheckResponse> {
+  // A big Deck takes seconds, so the check gives way every so often.
+  let ranFrom = performance.now();
+  const breathe = async () => {
+    signal?.throwIfAborted();
+    if (performance.now() - ranFrom < SLICE_MS) return;
+    await pause();
+    signal?.throwIfAborted();
+    ranFrom = performance.now();
+  };
   const sim = prepare(input);
   const newCards = sim.fresh.length;
-  const unlearned = unlearnedAt(sim, dailyMinutes);
+  const unlearned = await unlearnedAt(sim, dailyMinutes, breathe);
   // More minutes introduce as many New cards or more, so the smallest step
   // that covers them is searched for between two bounds: at or below the goal
   // when it covers them, above it when it doesn't, and never below what the
@@ -216,11 +252,11 @@ export function checkPlan(input: PlanCheckInput, dailyMinutes: number): PlanChec
   const guessFrom = (minutes: number, left: number) =>
     Math.ceil((minutes * newCards) / Math.max(1, newCards - left) / NEEDED_MINUTES_STEP);
   const goalStep = Math.ceil(dailyMinutes / NEEDED_MINUTES_STEP);
-  if (unlearned > 0 && unlearnedAt(sim, steps * NEEDED_MINUTES_STEP) > 0) {
+  if (unlearned > 0 && (await unlearnedAt(sim, steps * NEEDED_MINUTES_STEP, breathe, true)) > 0) {
     return { newCards, unlearned, neededMinutes: null };
   }
-  const freshMinutes =
-    (newCards * sim.averages.newMs + sim.spentTodayMs) / (Math.max(1, sim.days.length) * MINUTE_MS);
+  // No day gives more than the goal, so the New cards alone need at least this.
+  const freshMinutes = (newCards * sim.averages.newMs) / (Math.max(1, sim.days.length) * MINUTE_MS);
   const floorStep = Math.max(1, Math.floor(freshMinutes / NEEDED_MINUTES_STEP));
   let lo =
     unlearned > 0
@@ -232,7 +268,7 @@ export function checkPlan(input: PlanCheckInput, dailyMinutes: number): PlanChec
   while (lo < hi) {
     const probe =
       guess !== undefined && guesses < 2 ? Math.min(Math.max(guess, lo), hi - 1) : (lo + hi) >> 1;
-    const left = unlearnedAt(sim, probe * NEEDED_MINUTES_STEP);
+    const left = await unlearnedAt(sim, probe * NEEDED_MINUTES_STEP, breathe, true);
     if (left === 0) {
       hi = probe;
       guess = undefined;

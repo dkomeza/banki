@@ -17,9 +17,9 @@ const INVALID_DEADLINE = apiError(
  * it and answers it; `DELETE /:deckId/plan` removes it, answering 204 also
  * when there was none; `GET /:deckId/plan/check` answers the feasibility
  * check of the Plan its `deadline` and `dailyMinutes` give, and saves
- * nothing. A Deadline that isn't a Study day after today and within 2 years,
- * by the Timezone and Day start in Settings on each call, or minutes outside
- * 5–600, answer 400 `invalid_request`. A deleted Deck, an unknown one and
+ * nothing; it stops when the request is given up. A Deadline that isn't a
+ * Study day after today and within 2 years, by the Timezone and Day start in
+ * Settings on each call, or minutes outside 5–600, answer 400 `invalid_request`. A deleted Deck, an unknown one and
  * another User's all answer 404 `not_found`.
  */
 export function planRoutes({ plans }: { plans: PlanRepository }) {
@@ -35,8 +35,19 @@ export function planRoutes({ plans }: { plans: PlanRepository }) {
       if (removed === "not_found") return c.json(DECK_NOT_FOUND, 404);
       return c.body(null, 204);
     })
-    .get("/:deckId/plan/check", query(PlanCheckQuery, INVALID_PLAN), (c) => {
-      const checked = plans.check(c.var.user.id, c.req.param("deckId"), c.req.valid("query"));
+    .get("/:deckId/plan/check", query(PlanCheckQuery, INVALID_PLAN), async (c) => {
+      // A check the browser gave up on, such as one its next keystroke replaced, stops.
+      const { signal } = c.req.raw;
+      let checked;
+      try {
+        checked = await plans.check(c.var.user.id, c.req.param("deckId"), c.req.valid("query"), {
+          signal,
+        });
+      } catch (error) {
+        // No one is waiting for an answer.
+        if (signal.aborted) return c.body(null, 204);
+        throw error;
+      }
       if (checked === "not_found") return c.json(DECK_NOT_FOUND, 404);
       if (checked === "invalid_deadline") return c.json(INVALID_DEADLINE, 400);
       return c.json(checked, 200);

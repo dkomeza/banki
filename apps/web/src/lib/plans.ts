@@ -29,11 +29,15 @@ export const NEW_PLAN_MINUTES = 30;
 export const planCheckQueryOptions = (deckId: string, plan: Plan, client: ApiClient = api) =>
   queryOptions({
     queryKey: [...planCheckKey(deckId), plan.deadline, plan.dailyMinutes],
-    queryFn: async (): Promise<PlanCheck | null> => {
-      const res = await client.api.decks[":deckId"].plan.check.$get({
-        param: { deckId },
-        query: { deadline: plan.deadline, dailyMinutes: String(plan.dailyMinutes) },
-      });
+    // A check no one waits for any more, as the fields changed, is given up.
+    queryFn: async ({ signal }): Promise<PlanCheck | null> => {
+      const res = await client.api.decks[":deckId"].plan.check.$get(
+        {
+          param: { deckId },
+          query: { deadline: plan.deadline, dailyMinutes: String(plan.dailyMinutes) },
+        },
+        { init: { signal } },
+      );
       const status: number = res.status;
       if (status === 404) return null;
       if (!res.ok) throw new ApiRequestError(status);
