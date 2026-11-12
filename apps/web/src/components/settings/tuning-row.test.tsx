@@ -14,6 +14,7 @@ const STATUS: TuningStatus = {
   reviewsUntilAutomatic: 200,
   paused: false,
   running: false,
+  recommendedRetention: null,
 };
 
 const TUNED: TuningStatus = {

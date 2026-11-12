@@ -69,6 +69,7 @@ describe("GET /api/tuning", () => {
       reviewsUntilAutomatic: TUNING_REVIEW_INTERVAL,
       paused: false,
       running: false,
+      recommendedRetention: null,
     });
   });
 
@@ -82,7 +83,7 @@ describe("GET /api/tuning", () => {
 });
 
 describe("POST /api/tuning", () => {
-  test("tunes now, answering the result and the new status", async () => {
+  test("tunes now, answering the result and the new status, with its Recommended retention", async () => {
     const booted = boot({}, { tuningOptimizer: improving });
     const cookie = await setUp(booted);
     rateOverDays();
@@ -102,6 +103,8 @@ describe("POST /api/tuning", () => {
         running: false,
       },
     });
+    expect(body.status.recommendedRetention).toBeGreaterThanOrEqual(70);
+    expect(body.status.recommendedRetention).toBeLessThanOrEqual(97);
     expect(await statusOf(await get(booted.app, "/api/tuning", cookie))).toEqual(body.status);
   });
 
@@ -114,7 +117,11 @@ describe("POST /api/tuning", () => {
 
     expect(TuneResponse.parse(await res.json())).toMatchObject({
       result: "not_enough_data",
-      status: { parameters: "default", lastAttempt: { outcome: "not_enough_data" } },
+      status: {
+        parameters: "default",
+        lastAttempt: { outcome: "not_enough_data" },
+        recommendedRetention: null,
+      },
     });
   });
 
@@ -149,7 +156,7 @@ describe("POST /api/tuning/reset", () => {
     expect(await codeOf(res)).toBe("defaults_in_use");
   });
 
-  test("resets to the defaults and pauses automatic Tuning, until Tune now", async () => {
+  test("resets to the defaults, with no Recommended retention, and pauses automatic Tuning, until Tune now", async () => {
     const booted = boot({}, { tuningOptimizer: improving });
     const cookie = await setUp(booted);
     rateOverDays();
@@ -163,11 +170,13 @@ describe("POST /api/tuning/reset", () => {
       tuned: null,
       lastAttempt: { trigger: "reset", outcome: "reset" },
       paused: true,
+      recommendedRetention: null,
     });
     const again = await send(booted.app, "POST", "/api/tuning", {}, cookie);
     expect(TuneResponse.parse(await again.json()).status).toMatchObject({
       parameters: "tuned",
       paused: false,
+      recommendedRetention: expect.any(Number),
     });
   });
 });

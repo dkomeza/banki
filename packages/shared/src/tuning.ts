@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DesiredRetention } from "./scheduling";
 
 // Tuning (CONTEXT.md): fitting the Parameters FSRS schedules with to the
 // User's own Reviews. The API tunes; both apps use these.
@@ -29,8 +30,10 @@ export type TuningOutcome = z.infer<typeof TuningOutcome>;
  * are FSRS's defaults or tuned; when the tuned ones were applied, and from how
  * many Reviews (null while the defaults are in use); the newest Tuning log row
  * (null before any); the Reviews left until the next automatic Tuning; whether
- * automatic Tuning is paused, after a Reset to defaults until Tune now; and
- * whether a Tuning is running. Times are ISO 8601.
+ * automatic Tuning is paused, after a Reset to defaults until Tune now;
+ * whether a Tuning is running; and the Recommended retention, a whole percent
+ * from 70 to 97, the newest Tuning log row's, null while the defaults are in
+ * use or when there is none. Times are ISO 8601.
  */
 export const TuningStatus = z.object({
   parameters: z.enum(["default", "tuned"]),
@@ -41,6 +44,7 @@ export const TuningStatus = z.object({
   reviewsUntilAutomatic: z.number().int().nonnegative(),
   paused: z.boolean(),
   running: z.boolean(),
+  recommendedRetention: DesiredRetention.nullable(),
 });
 export type TuningStatus = z.infer<typeof TuningStatus>;
 

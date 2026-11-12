@@ -1,35 +1,33 @@
-import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { useId, useSyncExternalStore } from "react";
 import { Breadcrumb } from "@/components/folders/breadcrumb";
 import { usePlaceActions } from "@/components/folders/place-actions";
 import { useLibrary } from "@/components/folders/use-library";
 import { DeckNotFound } from "@/components/not-found";
 import { Page } from "@/components/page";
 import { AnswerModeCard } from "@/components/settings/answer-mode-card";
+import { DeckRetentionCard } from "@/components/settings/deck-retention-card";
 import { DeckMacrosCard } from "@/components/settings/macros-card";
-import { SaveState } from "@/components/settings/parts";
 import { PlanCard } from "@/components/settings/plan-card";
-import { DeckRetentionPicker, RetentionError } from "@/components/settings/retention-picker";
-import { RetentionPicture } from "@/components/settings/retention-picture";
 import { type Section, SectionIndex } from "@/components/settings/section-index";
-import { deckRetentionSaverFor, shownRetention } from "@/lib/deck-retention";
 import { type Deck, deckQueryOptions } from "@/lib/decks";
 import { ensureLibrary } from "@/lib/folders";
-import { deckRetentionErrorText } from "@/lib/retention";
 import { settingsQueryOptions } from "@/lib/settings";
+import { tuningQueryOptions } from "@/lib/tuning";
 import { useHiddenScrollbar } from "@/lib/use-hidden-scrollbar";
 
 // A Deck's settings, on a page of their own built like Settings: the setting
 // the page is about first, full width, then its Math macros, Answer mode and
 // Plan. Desired retention is one picker whose first
-// choice is Follow Settings, and a picture of ten cards coming due.
+// choice is Follow Settings, the Recommended retention, and a picture of ten
+// cards coming due.
 
 export const Route = createFileRoute("/_shell/decks/$deckId_/settings")({
   loader: ({ context: { queryClient }, params: { deckId } }) =>
     Promise.all([
       queryClient.ensureQueryData(deckQueryOptions(deckId)),
       queryClient.ensureQueryData(settingsQueryOptions()),
+      queryClient.ensureQueryData(tuningQueryOptions()),
       ensureLibrary(queryClient),
     ]),
   component: DeckSettingsPage,
@@ -87,7 +85,7 @@ function Body({ deck }: { deck: Deck }) {
             .
           </p>
         </div>
-        <RetentionSection deck={deck} />
+        <DeckRetentionCard deck={deck} />
         <div className="gap-x-5 md:columns-2 lg:gap-x-6 [&>section]:mb-5 [&>section]:break-inside-avoid lg:[&>section]:mb-6">
           <DeckMacrosCard deck={deck} />
           <AnswerModeCard deck={deck} />
@@ -96,58 +94,5 @@ function Body({ deck }: { deck: Deck }) {
       </div>
       {actions.dialogs}
     </div>
-  );
-}
-
-/** Desired retention: the Deck's own, or Settings' while it follows them; saved as it changes. */
-function RetentionSection({ deck }: { deck: Deck }) {
-  const queryClient = useQueryClient();
-  const global = useSuspenseQuery(settingsQueryOptions()).data.settings.desiredRetention;
-  const saver = deckRetentionSaverFor(queryClient, deck.id);
-  const state = useSyncExternalStore(saver.subscribe, saver.getState);
-  const own = shownRetention(state, deck.desiredRetention);
-  const value = own ?? global;
-  const label = useId();
-  const hint = useId();
-
-  return (
-    <section
-      id="retention"
-      aria-labelledby="retention-title"
-      className="flex scroll-mt-28 flex-col gap-5 rounded-[1.5rem] border bg-card p-5 text-card-foreground sm:p-7 lg:p-8"
-    >
-      <div className="flex items-center justify-between gap-3">
-        <h2 id="retention-title" className="text-xl font-semibold tracking-tight lg:text-2xl">
-          Desired retention
-        </h2>
-        <SaveState state={state.queue.length > 0 ? "saving" : state.saved ? "saved" : undefined} />
-      </div>
-      <div className="flex max-w-xl flex-col gap-3">
-        <span id={label} className="sr-only">
-          This deck's Desired retention
-        </span>
-        <DeckRetentionPicker
-          value={own}
-          global={global}
-          onPick={(picked) => saver.change(picked)}
-          labelledBy={label}
-          describedBy={hint}
-        />
-        <RetentionPicture percent={value} />
-        <p id={hint} className="text-sm text-muted-foreground">
-          {own === null
-            ? `Follows Settings, ${global}% now. `
-            : `Its own, whatever Settings say (${global}% now). `}
-          Of every 100 of its cards that come due, you'll remember about {value}. Higher means more
-          reviews; a change reschedules this deck's cards at once.
-        </p>
-        {state.failed !== undefined && (
-          <RetentionError
-            message={deckRetentionErrorText(state.failed.attempted, deck.desiredRetention, global)}
-            onRetry={() => saver.retry()}
-          />
-        )}
-      </div>
-    </section>
   );
 }

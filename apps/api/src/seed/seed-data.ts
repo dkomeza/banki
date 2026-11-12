@@ -871,12 +871,18 @@ export function writeSeedData({
   deletions.rest();
 
   // One applied Tuning, so Settings shows the tuned state; its Parameters are
-  // FSRS-6's defaults, so its replay changes no other seeded screen.
+  // FSRS-6's defaults, so its replay changes no other seeded screen. Its
+  // Recommended retention is fixed rather than simulated, below the 90% every
+  // seeded Deck follows, so both retention screens offer to use it.
   writeAppliedTuning(db, userId, [...DEFAULT_PARAMETERS], {
     ranAt: new Date(now.getTime() - TUNING_HOURS_AGO * HOUR_MS),
     id: SEED_IDS.tuning,
+    recommendedRetention: SEED_RECOMMENDED_RETENTION,
   });
 }
+
+/** The seeded Tuning's Recommended retention. */
+export const SEED_RECOMMENDED_RETENTION = 85;
 
 /**
  * Whether the User owns any content (folders, decks, cards, images, reviews,

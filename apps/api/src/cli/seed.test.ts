@@ -639,7 +639,7 @@ describe("banki seed's Deletions", () => {
 });
 
 describe("banki seed's Tuning", () => {
-  test("is one automatic Tuning that applied, after the Reviews, so Settings shows the tuned state", async () => {
+  test("is one automatic Tuning that applied, after the Reviews, with a Recommended retention, so Settings shows the tuned state", async () => {
     await setup();
     await seed({ BANKI_SEED_NOW: "2026-10-26T12:00:00.000Z" });
 
@@ -657,6 +657,7 @@ describe("banki seed's Tuning", () => {
       reviewsUntilAutomatic: TUNING_REVIEW_INTERVAL,
       paused: false,
       running: false,
+      recommendedRetention: 85,
     });
   });
 
