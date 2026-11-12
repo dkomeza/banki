@@ -78,6 +78,7 @@ export {
   CARD_FILE_VERSION,
   CardFile,
   CardFileCard,
+  cardFileSchemaUrl,
   CardFileMacro,
   NEWER_BANKI_MESSAGE,
   NOT_A_CARD_FILE_MESSAGE,
@@ -107,7 +108,16 @@ export {
   sourceRange,
   unmapped,
 } from "./macros";
-export { GradeRequest, GradeResponse, TextRange, WRITTEN_ANSWER_MAX_LENGTH } from "./grading";
+export {
+  CHAT_REPLY_MAX_LENGTH,
+  ChatChunk,
+  ChatMessage,
+  ChatRequest,
+  GradeRequest,
+  GradeResponse,
+  TextRange,
+  WRITTEN_ANSWER_MAX_LENGTH,
+} from "./grading";
 export { frontKey } from "./front-key";
 export { HealthResponse } from "./health";
 export {
@@ -149,6 +159,20 @@ export {
   SettingsResponse,
   Timezone,
 } from "./settings";
+export {
+  DAILY_MINUTES_MAX,
+  DAILY_MINUTES_MIN,
+  DailyMinutes,
+  Deadline,
+  DEADLINE_MAX_YEARS,
+  deadlineProblem,
+  lastDeadline,
+  NEEDED_MINUTES_STEP,
+  PlanCheckQuery,
+  PlanCheckResponse,
+  PlanResponse,
+  PutPlanRequest,
+} from "./plans";
 export {
   CARD_STATES,
   CardSchedule,
@@ -209,6 +233,8 @@ export {
   IMPORT_UPLOAD_MAX_BYTES,
   ImportCard,
   ImportDuplicateOf,
+  ImportHistoryEntry,
+  ImportHistoryResponse,
   ImportInvalidCard,
   ImportPreviewResponse,
   ImportRefusedResponse,
@@ -219,5 +245,17 @@ export {
   macroPlanLine,
   PreviewCard,
   SkippedDuplicate,
+  UndoImportResponse,
   UploadImportQuery,
 } from "./imports";
+export {
+  TUNING_OUTCOMES,
+  TUNING_RESULTS,
+  TUNING_REVIEW_INTERVAL,
+  TUNING_TRIGGERS,
+  TuneResponse,
+  TuningOutcome,
+  TuningResult,
+  TuningStatus,
+  TuningTrigger,
+} from "./tuning";

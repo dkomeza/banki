@@ -1,5 +1,6 @@
 import {
   type AnswerMode,
+  type ChatRequest,
   type GradeResponse,
   type IntervalPreviews,
   type QueueKind,
@@ -17,6 +18,7 @@ import {
   INTERVALS_FAILED,
   MORE_FAILED,
   NEXT_FAILED,
+  NO_CHAT,
   type NextAnswer,
   type NextCard,
   type Progress,
@@ -25,6 +27,7 @@ import {
   UNDO_FAILED,
   UNDO_GONE,
   cardClickAction,
+  chatLength,
   copyFormula,
   createStudySession,
   editorCloseAction,
@@ -36,6 +39,7 @@ import {
   recallPercent,
   saveStudyEdit,
   spentLabel,
+  type Suggestion,
   studyApi,
   summaryOf,
 } from "./study";
@@ -130,6 +134,7 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 type UndoAnswer = Awaited<ReturnType<StudyApi["undo"]>>;
 type GradeAnswer = Awaited<ReturnType<StudyApi["grade"]>>;
+type ChatAnswer = Awaited<ReturnType<StudyApi["chat"]>>;
 
 /** The fake Grader's grade, unless a test gives another. */
 const GRADED: GradeResponse = {
@@ -137,6 +142,7 @@ const GRADED: GradeResponse = {
   feedback: "Mostly right: **one** step is missing.",
   missing: [{ from: 0, to: 1 }],
   mistakes: [{ from: 0, to: 2, note: "Not quite." }],
+  model: "anthropic/claude-haiku-5.5",
 };
 
 /** A promise the test answers when it likes. */
@@ -156,11 +162,17 @@ function deferred<T>() {
 function fakeApi(queue: NextCard[]) {
   const calls = {
     next: [] as Progress[],
-    rate: [] as { cardId: string; rating: Rating; durationMs: number }[],
+    rate: [] as {
+      cardId: string;
+      rating: Rating;
+      durationMs: number;
+      suggestion?: Suggestion;
+    }[],
     undo: [] as string[],
     intervals: [] as string[],
     card: [] as string[],
     grade: [] as { cardId: string; answer: string; signal: AbortSignal }[],
+    chat: [] as { cardId: string; request: ChatRequest; signal: AbortSignal }[],
   };
   /**
    * The fake Grader: it answers `answer` ("offline" throws), once `gate`
@@ -176,6 +188,27 @@ function fakeApi(queue: NextCard[]) {
       grader.gate = gate.promise;
       grader.open = () => {
         grader.gate = undefined;
+        gate.resolve();
+      };
+    },
+  };
+  /**
+   * The fake Grader in the chat: each reply streams `before`, then, once
+   * `gate` (if any) opens, `after`, and answers `outcome` ("offline"
+   * throws before any of it). A test opens the gate with `replier.open()`.
+   */
+  const replier = {
+    before: ["Because "] as string[],
+    after: ["$2x$ is right."] as string[],
+    outcome: "done" as ChatAnswer | "offline",
+    gate: undefined as Promise<void> | undefined,
+    open: () => {},
+    /** From now on, each reply waits for `open` after its first pieces. */
+    hold() {
+      const gate = deferred<void>();
+      replier.gate = gate.promise;
+      replier.open = () => {
+        replier.gate = undefined;
         gate.resolve();
       };
     },
@@ -200,8 +233,8 @@ function fakeApi(queue: NextCard[]) {
         ? { next: null, newHeld: held.count }
         : { next: shown, newHeld: 0 };
     },
-    rate: async (cardId, rating, durationMs) => {
-      calls.rate.push({ cardId, rating, durationMs });
+    rate: async (cardId, rating, durationMs, suggestion) => {
+      calls.rate.push({ cardId, rating, durationMs, ...(suggestion && { suggestion }) });
       if (fail.rate === "gone") return "gone";
       if (fail.rate) throw new Error("offline");
       reviews += 1;
@@ -231,8 +264,18 @@ function fakeApi(queue: NextCard[]) {
       if (grader.answer === "offline") throw new Error("offline");
       return grader.answer;
     },
+    chat: async (cardId, request, signal, onText) => {
+      calls.chat.push({ cardId, request, signal });
+      const { before, after, outcome, gate } = replier;
+      if (outcome === "offline") throw new Error("offline");
+      if (outcome !== "done" && outcome !== "cut_off") return outcome;
+      for (const text of before) onText(text);
+      await gate;
+      for (const text of after) onText(text);
+      return outcome;
+    },
   };
-  return { api, calls, fail, held, queue, missing, grader };
+  return { api, calls, fail, held, queue, missing, grader, replier };
 }
 
 function setUp(queue: NextCard[]) {
@@ -2435,6 +2478,54 @@ describe("studyApi", () => {
     ).rejects.toThrow();
   });
 
+  test("a Rating sends the suggestion and its Model when given, and neither otherwise", async () => {
+    const bodies: unknown[] = [];
+    const api = studyApi(
+      "d1",
+      createApiClient(
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = input instanceof Request ? input.url : String(input);
+          const request = new Request(new URL(url, "http://banki.test"), init);
+          bodies.push(await request.json());
+          return Response.json(
+            {
+              review: {
+                id: "r1",
+                cardId: "a",
+                deckId: "d1",
+                reviewedAt: "2026-05-01T09:00:00.000Z",
+                rating: "hard",
+                kind: "graded",
+                suggestedRating: "good",
+                model: "anthropic/claude-haiku-5.5",
+                durationMs: 1000,
+              },
+              schedule: {
+                state: "learning",
+                due: "2026-05-01T09:10:00.000Z",
+                stability: 1,
+                difficulty: 5,
+                reps: 1,
+                lapses: 0,
+                scheduledDays: 0,
+                lastReview: "2026-05-01T09:00:00.000Z",
+              },
+            },
+            { status: 201 },
+          );
+        }),
+      ),
+    );
+
+    await expect(api.rate("a", "hard", 1000, SUGGESTED)).resolves.toEqual({ reviewId: "r1" });
+    await api.rate("a", "hard", 1000);
+
+    expect(bodies).toEqual([
+      { rating: "hard", durationMs: 1000, ...SUGGESTED },
+      { rating: "hard", durationMs: 1000 },
+    ]);
+  });
+
   test("a Card's previews answer as they are, 404 as gone", async () => {
     await expect(
       answering(INTERVALS_A, () => Response.json(intervals("a"))).intervals("a"),
@@ -3505,7 +3596,9 @@ describe("write-and-grade", () => {
     t.session.rate("hard");
     await flush();
 
-    expect(t.calls.rate).toEqual([{ cardId: "a", rating: "hard", durationMs: 3000 }]);
+    expect(t.calls.rate).toEqual([
+      { cardId: "a", rating: "hard", durationMs: 3000, suggestion: SUGGESTED },
+    ]);
     expect(t.shownId()).toBe("b");
     expect(t.state()).toMatchObject({ draft: "", written: undefined, revealed: false });
   });
@@ -4192,6 +4285,190 @@ describe("the grade, kept with the Session", () => {
   });
 });
 
+/** The suggestion each Rating saved so far was sent with, in order; undefined for none. */
+const suggestionsIn = (t: { calls: { rate: { suggestion?: Suggestion }[] } }) =>
+  t.calls.rate.map((saved) => saved.suggestion);
+
+/** The fake Grader's suggestion, as a graded Review keeps it. */
+const SUGGESTED: Suggestion = { suggestedRating: "good", model: "anthropic/claude-haiku-5.5" };
+
+describe("graded and self-rated Ratings", () => {
+  test("with the grade in, a tap or 1–4 sends the suggestion and its Model, whichever Rating it is", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.grader.open();
+    await flush();
+    t.session.rate("again");
+    await flush();
+
+    expect(t.calls.rate).toEqual([
+      { cardId: "a", rating: "again", durationMs: 0, suggestion: SUGGESTED },
+    ]);
+  });
+
+  test("with the grade in, Confirm (or Enter) sends it too", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.grader.open();
+    await flush();
+    t.session.confirm();
+    await flush();
+
+    expect(ratingsIn(t)).toEqual(["good"]);
+    expect(suggestionsIn(t)).toEqual([SUGGESTED]);
+  });
+
+  test("a selection made before the suggestion and confirmed after it sends it", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.session.rate("hard");
+    t.grader.open();
+    await flush();
+    t.session.confirm();
+    await flush();
+
+    expect(ratingsIn(t)).toEqual(["hard"]);
+    expect(suggestionsIn(t)).toEqual([SUGGESTED]);
+  });
+
+  test("a model the grade names is sent as it is, curated or not", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.grader.answer = { ...GRADED, rating: "easy", model: "gone/model" };
+    t.grader.open();
+    await flush();
+    t.session.rate("good");
+    await flush();
+
+    expect(suggestionsIn(t)).toEqual([{ suggestedRating: "easy", model: "gone/model" }]);
+  });
+
+  test("a Rating confirmed before the suggestion sends none", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.session.rate("hard");
+    t.session.confirm();
+    t.grader.open();
+    await flush();
+
+    expect(ratingsIn(t)).toEqual(["hard"]);
+    expect(suggestionsIn(t)).toEqual([undefined]);
+  });
+
+  test("a Rating after grading failed sends none", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.grader.answer = "grading_failed";
+    t.grader.open();
+    await flush();
+    t.session.rate("good");
+    await flush();
+
+    expect(suggestionsIn(t)).toEqual([undefined]);
+  });
+
+  test("a Card resumed not graded sends none", async () => {
+    const t = await checked([next("a"), next("b")]);
+    await t.reload();
+    expect(t.state().grade).toMatchObject({ status: "failed", failure: "not_graded" });
+    t.session.rate("good");
+    await flush();
+
+    expect(suggestionsIn(t)).toEqual([undefined]);
+  });
+
+  test("a Card resumed with its grade sends it", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.grader.open();
+    await flush();
+    await t.reload();
+    t.session.rate("easy");
+    await flush();
+
+    expect(suggestionsIn(t)).toEqual([SUGGESTED]);
+  });
+
+  test("I don't know sends none", async () => {
+    const t = await writing([next("a"), next("b")]);
+    t.session.setDraft("no idea");
+    t.session.dontKnow();
+    await flush();
+
+    expect(ratingsIn(t)).toEqual(["again"]);
+    expect(suggestionsIn(t)).toEqual([undefined]);
+  });
+
+  test("self-rate sends none", async () => {
+    const t = browsing([next("a"), next("b")]);
+    await t.session.start();
+    await rateIn(t, "good");
+
+    expect(suggestionsIn(t)).toEqual([undefined]);
+  });
+
+  test("a Card rated again after an Undo comes back without the suggestion and sends none", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.grader.open();
+    await flush();
+    t.session.rate("hard");
+    await flush();
+    await t.session.undo();
+    expect(t.shownId()).toBe("a");
+    expect(t.state().grade).toBeUndefined();
+    t.session.rate("good");
+    await flush();
+
+    expect(ratingsIn(t)).toEqual(["hard", "good"]);
+    expect(suggestionsIn(t)).toEqual([SUGGESTED, undefined]);
+  });
+
+  test("a graded Rating that didn't save sends the suggestion again on Try again", async () => {
+    const t = await checked([next("a"), next("b")]);
+    t.grader.open();
+    await flush();
+    t.fail.rate = true;
+    t.session.rate("hard");
+    await flush();
+    expect(t.state().failure).toBe(RATE_FAILED);
+
+    t.fail.rate = false;
+    t.session.retry();
+    await flush();
+    expect(ratingsIn(t)).toEqual(["hard", "hard"]);
+    expect(suggestionsIn(t)).toEqual([SUGGESTED, SUGGESTED]);
+    expect(t.shownId()).toBe("b");
+  });
+});
+
+describe("a grade stored before grades named their Model", () => {
+  test.each([
+    ["none", undefined],
+    ["an empty one", ""],
+    ["one over 200 characters", "m".repeat(201)],
+  ])(
+    "with %s is dropped on resume: its Card resumes not graded, and the rest of the Session resumes",
+    async (_, model) => {
+      const t = await checked([next("a"), next("b")]);
+      t.grader.open();
+      await flush();
+      // The tab closes; the next release reads what the last one stored.
+      t.session.stop();
+      const key = "banki.session.d1";
+      const stored = JSON.parse(t.storage.getItem(key) ?? "null");
+      expect(stored.shown.grade.model).toBe("anthropic/claude-haiku-5.5");
+      stored.shown.grade.model = model;
+      t.storage.setItem(key, JSON.stringify(stored));
+
+      await t.reload();
+
+      expect(t.shownId()).toBe("a");
+      expect(t.state()).toMatchObject({
+        revealed: true,
+        written: "  my answer $x$ ",
+        grade: { status: "failed", failure: "not_graded" },
+      });
+      expect(t.calls.grade).toHaveLength(1);
+      t.session.rate("good");
+      await flush();
+      expect(suggestionsIn(t)).toEqual([undefined]);
+    },
+  );
+});
+
 describe("a checked Card's time", () => {
   test("leaves out the wait for the Grader, from Check to its result", async () => {
     const t = await writing([next("a"), next("b")]);
@@ -4349,5 +4626,676 @@ describe("studyApi's grade", () => {
 
     expect(sent?.body).toEqual({ answer: "  as typed " });
     expect(sent?.signal).toBe(controller.signal);
+  });
+});
+
+/** A Card checked and graded `GRADED`, its Grader's answer in. */
+async function graded(queue: NextCard[], storage?: ReturnType<typeof memoryStorage>) {
+  const t = await checked(queue, "  my answer $x$ ", storage);
+  t.grader.open();
+  await flush();
+  return t;
+}
+
+/** Types `question` in the chat and sends it. */
+function ask(t: Awaited<ReturnType<typeof graded>>, question: string) {
+  t.session.setChatDraft(question);
+  t.session.ask();
+}
+
+/** The chat's messages as the screen shows them: role, text and how a reply stands. */
+const thread = (t: Awaited<ReturnType<typeof graded>>) =>
+  t
+    .state()
+    .chat.entries.map((entry) =>
+      entry.role === "user"
+        ? `you: ${entry.text}`
+        : entry.status === "failed"
+          ? `grader (failed: ${entry.failure})`
+          : `grader (${entry.status}): ${entry.text}`,
+    );
+
+describe("the Follow-up chat", () => {
+  test("is there only once the grade is in: not while grading, after a failure, a Rating before the grade, I don't know or in self-rate", async () => {
+    const whileGrading = await checked([next("a"), next("b")]);
+    ask(whileGrading, "Why?");
+    expect(whileGrading.state()).toMatchObject({ chat: NO_CHAT, askable: false });
+
+    const failed = await checked([next("a"), next("b")]);
+    failed.grader.answer = "grading_failed";
+    failed.grader.open();
+    await flush();
+    ask(failed, "Why?");
+    expect(failed.state()).toMatchObject({ chat: NO_CHAT, askable: false });
+
+    const skipped = await checked([next("a"), next("b")]);
+    skipped.fail.rate = true;
+    skipped.session.rate("good");
+    skipped.session.confirm();
+    await flush();
+    expect(skipped.state().grade?.status).toBe("skipped");
+    ask(skipped, "Why?");
+    expect(skipped.state().chat).toEqual(NO_CHAT);
+
+    const dontKnow = await writing([next("a"), next("b")]);
+    dontKnow.session.dontKnow();
+    await flush();
+    ask(dontKnow, "Why?");
+    expect(dontKnow.state().chat).toEqual(NO_CHAT);
+
+    const selfRate = browsing([next("a"), next("b")]);
+    await selfRate.session.start();
+    selfRate.session.reveal();
+    selfRate.session.setChatDraft("Why?");
+    selfRate.session.ask();
+    expect(selfRate.state().chat).toEqual(NO_CHAT);
+
+    for (const t of [whileGrading, failed, skipped, dontKnow, selfRate]) {
+      expect(t.calls.chat).toEqual([]);
+    }
+  });
+
+  test("a question sends the Written answer, its grade and the chat so far, and the reply streams in under it", async () => {
+    const t = await graded([next("a"), next("b")]);
+    t.replier.hold();
+    t.session.setChatDraft("Why is $x$ wrong?");
+    expect(t.state().askable).toBe(true);
+
+    t.session.ask();
+    await flush();
+    expect(thread(t)).toEqual(["you: Why is $x$ wrong?", "grader (streaming): Because "]);
+    expect(t.state()).toMatchObject({ askable: false, editable: false, ratable: true });
+    expect(t.state().chat.draft).toBe("");
+    expect(t.calls.chat).toEqual([
+      {
+        cardId: "a",
+        request: {
+          answer: "  my answer $x$ ",
+          grade: GRADED,
+          messages: [{ role: "user", text: "Why is $x$ wrong?" }],
+        },
+        signal: expect.any(AbortSignal),
+      },
+    ]);
+
+    t.replier.open();
+    await flush();
+    expect(thread(t)).toEqual(["you: Why is $x$ wrong?", "grader (done): Because $2x$ is right."]);
+
+    ask(t, "And then?");
+    await flush();
+    expect(t.calls.chat[1]?.request.messages).toEqual([
+      { role: "user", text: "Why is $x$ wrong?" },
+      { role: "grader", text: "Because $2x$ is right." },
+      { role: "user", text: "And then?" },
+    ]);
+  });
+
+  test("one reply at a time: no question goes while one streams", async () => {
+    const t = await graded([next("a"), next("b")]);
+    t.replier.hold();
+    ask(t, "Why?");
+    await flush();
+
+    ask(t, "And then?");
+    await flush();
+
+    expect(t.calls.chat).toHaveLength(1);
+    expect(t.state()).toMatchObject({ askable: false, chat: { draft: "And then?" } });
+  });
+
+  test("a blank question, or one over 20,000 characters, doesn't go", async () => {
+    const t = await graded([next("a"), next("b")]);
+    for (const question of ["", "  \n", "x".repeat(20_001)]) {
+      ask(t, question);
+      expect(t.state().askable).toBe(false);
+    }
+    expect(t.calls.chat).toEqual([]);
+    ask(t, "x".repeat(20_000));
+    expect(t.calls.chat).toHaveLength(1);
+  });
+
+  test("Stop ends the reply, keeping what came; before the first word, the question shows unanswered", async () => {
+    const t = await graded([next("a"), next("b")]);
+    t.replier.hold();
+    ask(t, "Why?");
+    await flush();
+
+    t.session.stopReply();
+    expect(t.calls.chat[0]?.signal.aborted).toBe(true);
+    expect(thread(t)).toEqual(["you: Why?", "grader (done): Because "]);
+    t.replier.open();
+    await flush();
+    expect(thread(t)).toEqual(["you: Why?", "grader (done): Because "]);
+    expect(t.state().askable).toBe(false);
+
+    t.replier.before = [];
+    t.replier.hold();
+    ask(t, "And then?");
+    await flush();
+    t.session.stopReply();
+    expect(thread(t).slice(2)).toEqual(["you: And then?", "grader (failed: not_answered)"]);
+  });
+
+  test.each([
+    ["no_api_key", "no_api_key"],
+    ["api_key_refused", "api_key_refused"],
+    ["no_credits", "no_credits"],
+    ["model_unavailable", "model_unavailable"],
+    ["grading_refused", "grading_refused"],
+    ["grading_failed", "grading_failed"],
+    ["offline", "unreachable"],
+  ] as const)("a reply that fails with %s shows at its place as %s", async (outcome, failure) => {
+    const t = await graded([next("a"), next("b")]);
+    t.replier.outcome = outcome;
+
+    ask(t, "Why?");
+    await flush();
+
+    expect(thread(t)).toEqual(["you: Why?", `grader (failed: ${failure})`]);
+    expect(t.state().askable).toBe(false);
+    expect(t.state().grade).toEqual({ status: "graded", result: GRADED, selected: undefined });
+  });
+
+  test("a stream that breaks after the first word keeps its text, cut off; before it, the reply failed", async () => {
+    const t = await graded([next("a"), next("b")]);
+    t.replier.outcome = "cut_off";
+    ask(t, "Why?");
+    await flush();
+    expect(thread(t)).toEqual(["you: Why?", "grader (cut-off): Because $2x$ is right."]);
+
+    t.replier.before = [];
+    t.replier.after = [];
+    ask(t, "And then?");
+    await flush();
+    expect(thread(t).slice(2)).toEqual(["you: And then?", "grader (failed: grading_failed)"]);
+  });
+
+  test("Try again asks for the reply again, in its place, without the one that failed", async () => {
+    const t = await graded([next("a"), next("b")]);
+    t.replier.outcome = "cut_off";
+    ask(t, "Why?");
+    await flush();
+    t.replier.outcome = "done";
+
+    t.session.retryReply();
+    await flush();
+
+    expect(thread(t)).toEqual(["you: Why?", "grader (done): Because $2x$ is right."]);
+    expect(t.calls.chat.map((c) => c.request.messages)).toEqual([
+      [{ role: "user", text: "Why?" }],
+      [{ role: "user", text: "Why?" }],
+    ]);
+    // Nothing to try again now.
+    t.session.retryReply();
+    expect(t.calls.chat).toHaveLength(2);
+  });
+
+  test("a question after a failed reply leaves it out of what is sent", async () => {
+    const t = await graded([next("a"), next("b")]);
+    t.replier.outcome = "grading_failed";
+    ask(t, "Why?");
+    await flush();
+    t.replier.outcome = "done";
+
+    ask(t, "Why, really?");
+    await flush();
+
+    expect(t.calls.chat[1]?.request.messages).toEqual([
+      { role: "user", text: "Why?" },
+      { role: "user", text: "Why, really?" },
+    ]);
+  });
+
+  test("the Card deleted elsewhere: the toast, and the next Card", async () => {
+    const t = await graded([next("a"), next("b")]);
+    t.replier.outcome = "gone";
+
+    ask(t, "Why?");
+    await flush();
+
+    expect(t.messages).toEqual([CARD_GONE]);
+    expect(t.shownId()).toBe("b");
+    expect(t.state().chat).toEqual(NO_CHAT);
+  });
+
+  test("rating aborts a reply on its way, and its late pieces change nothing", async () => {
+    const t = await graded([next("a"), next("b")]);
+    t.replier.hold();
+    ask(t, "Why?");
+    await flush();
+
+    t.session.rate("hard");
+    expect(t.calls.chat[0]?.signal.aborted).toBe(true);
+    await flush();
+    expect(t.shownId()).toBe("b");
+    t.replier.open();
+    await flush();
+
+    expect(ratingsIn(t)).toEqual(["hard"]);
+    expect(t.state()).toMatchObject({ chat: NO_CHAT, mode: "write", revealed: false });
+  });
+
+  test("Confirm (or Enter) aborts it too", async () => {
+    const t = await graded([next("a"), next("b")]);
+    t.replier.hold();
+    ask(t, "Why?");
+    await flush();
+
+    t.session.confirm();
+    await flush();
+
+    expect(t.calls.chat[0]?.signal.aborted).toBe(true);
+    expect(ratingsIn(t)).toEqual(["good"]);
+  });
+
+  test("a Rating that fails leaves the reply it stopped cut off, with Try again", async () => {
+    const t = await graded([next("a"), next("b")]);
+    t.replier.hold();
+    ask(t, "Why?");
+    await flush();
+    t.fail.rate = true;
+
+    t.session.rate("hard");
+    await flush();
+
+    expect(t.state().failure).toBe(RATE_FAILED);
+    expect(thread(t)).toEqual(["you: Why?", "grader (cut-off): Because "]);
+  });
+
+  test("leaving the Session aborts a reply, and coming back shows what came, cut off", async () => {
+    const t = await graded([next("a"), next("b"), next("c")]);
+    t.session.confirm();
+    await flush();
+    t.session.setDraft("an answer");
+    t.session.check();
+    t.grader.open();
+    await flush();
+    t.replier.hold();
+    ask(t, "Why?");
+    await flush();
+
+    expect(t.session.leave()).toBe("summary");
+    expect(t.calls.chat[0]?.signal.aborted).toBe(true);
+    t.replier.open();
+    await flush();
+    t.session.resume();
+
+    expect(thread(t)).toEqual(["you: Why?", "grader (cut-off): Because "]);
+  });
+
+  test("the Session ending, and the screen going, abort a reply", async () => {
+    const ended = await graded([next("a"), next("b")]);
+    ended.session.confirm();
+    await flush();
+    ended.session.setDraft("an answer");
+    ended.session.check();
+    ended.grader.open();
+    await flush();
+    ended.replier.hold();
+    ask(ended, "Why?");
+    await flush();
+    ended.wait(TIMEOUT);
+    ended.session.checkTimeout();
+    expect(ended.state().phase).toBe("ended");
+    expect(ended.calls.chat[0]?.signal.aborted).toBe(true);
+
+    const gone = await graded([next("a"), next("b")]);
+    gone.replier.hold();
+    ask(gone, "Why?");
+    await flush();
+    gone.session.stop();
+    expect(gone.calls.chat[0]?.signal.aborted).toBe(true);
+  });
+
+  test("sending a question and a reply's pieces are activity, for the Session timeout", async () => {
+    const t = await graded([next("a"), next("b")]);
+    t.replier.hold();
+    t.wait(TIMEOUT - 1000);
+    ask(t, "Why?");
+    await flush();
+    t.wait(TIMEOUT - 1000);
+    t.replier.open();
+    await flush();
+    t.wait(TIMEOUT - 1000);
+
+    t.session.checkTimeout();
+
+    expect(t.state().phase).toBe("card");
+  });
+
+  test("Edit waits while a reply streams; after an edit the chat stays, the Highlights dropped from the next request's grade", async () => {
+    const t = await graded([next("a"), next("b")]);
+    t.replier.hold();
+    ask(t, "Why?");
+    await flush();
+    expect(t.session.edit()).toBe(false);
+    t.replier.open();
+    await flush();
+
+    expect(t.session.edit()).toBe(true);
+    await t.session.saveEdit(edited("a", "a new Front"), { progressReset: false });
+    expect(thread(t)).toEqual(["you: Why?", "grader (done): Because $2x$ is right."]);
+    ask(t, "And now?");
+    await flush();
+
+    expect(t.calls.chat[1]?.request.grade).toEqual({ ...GRADED, missing: [], mistakes: [] });
+    expect(t.state().grade).toMatchObject({ status: "graded", result: { rating: "good" } });
+  });
+
+  test("the suggestion stays as graded through any chat", async () => {
+    const t = await graded([next("a"), next("b")]);
+    t.replier.after = ["You're right: it should be Easy."];
+    ask(t, "Shouldn't it be Easy?");
+    await flush();
+    t.replier.outcome = "grading_failed";
+    ask(t, "Make it Easy.");
+    await flush();
+
+    expect(t.state().grade).toEqual({ status: "graded", result: GRADED, selected: undefined });
+    t.session.confirm();
+    await flush();
+    expect(ratingsIn(t)).toEqual(["good"]);
+  });
+
+  test("Undo after a chatted Card brings it back with no chat", async () => {
+    const t = await graded([next("a"), next("b")]);
+    ask(t, "Why?");
+    await flush();
+    t.session.rate("good");
+    await flush();
+
+    await t.session.undo();
+
+    expect(t.state()).toMatchObject({ shown: { card: { id: "a" } }, undone: true, chat: NO_CHAT });
+    expect(t.state().grade).toBeUndefined();
+  });
+
+  test("chatLength counts every message but a failed reply", () => {
+    expect(
+      chatLength({
+        draft: "",
+        entries: [
+          { role: "user", text: "a" },
+          { role: "grader", text: "", status: "failed", failure: "grading_failed" },
+          { role: "user", text: "b" },
+          { role: "grader", text: "c", status: "cut-off" },
+          { role: "grader", text: "", status: "streaming" },
+        ],
+      }),
+    ).toBe(4);
+  });
+});
+
+describe("the chat's time", () => {
+  test("leaves out the time from the first question to the Rating", async () => {
+    const t = await writing([next("a"), next("b")]);
+    t.wait(3000);
+    t.session.setDraft("an answer");
+    t.session.check();
+    await flush();
+    t.wait(2000);
+    ask(t, "Why?");
+    await flush();
+    t.wait(50_000);
+    ask(t, "And then?");
+    await flush();
+    t.wait(30_000);
+    t.session.rate("good");
+    await flush();
+
+    expect(t.calls.rate[0]?.durationMs).toBe(5000);
+  });
+
+  test("stays left out across an edit, leaving and coming back, and a reload", async () => {
+    const t = await writing([next("a"), next("b")]);
+    t.wait(3000);
+    t.session.setDraft("an answer");
+    t.session.check();
+    await flush();
+    ask(t, "Why?");
+    await flush();
+    t.wait(10_000);
+    t.session.edit();
+    t.wait(10_000);
+    t.session.cancelEdit();
+    t.wait(10_000);
+    t.session.persist();
+    expect(t.stored()?.shown?.elapsedMs).toBe(3000);
+
+    await t.reload();
+    t.wait(10_000);
+    t.session.rate("good");
+    await flush();
+
+    expect(t.calls.rate[0]?.durationMs).toBe(3000);
+  });
+});
+
+describe("the chat, kept with the Session", () => {
+  test("is stored beside the grade, and a reload resumes the Card with it", async () => {
+    const t = await graded([next("a"), next("b")]);
+    ask(t, "Why?");
+    await flush();
+    t.replier.outcome = "cut_off";
+    ask(t, "And then?");
+    await flush();
+    expect(t.stored()?.shown?.chat).toEqual([
+      { role: "user", text: "Why?" },
+      { role: "grader", text: "Because $2x$ is right." },
+      { role: "user", text: "And then?" },
+      { role: "grader", text: "Because $2x$ is right.", cutOff: true },
+    ]);
+
+    await t.reload();
+
+    expect(thread(t)).toEqual([
+      "you: Why?",
+      "grader (done): Because $2x$ is right.",
+      "you: And then?",
+      "grader (cut-off): Because $2x$ is right.",
+    ]);
+    expect(t.state().grade).toMatchObject({ status: "graded", result: GRADED });
+    expect(t.calls.chat).toHaveLength(2);
+  });
+
+  test("a reply on its way at the reload is lost: its question shows unanswered, and Try again asks again", async () => {
+    const t = await graded([next("a"), next("b")]);
+    t.replier.hold();
+    ask(t, "Why?");
+    await flush();
+    expect(t.stored()?.shown?.chat).toEqual([{ role: "user", text: "Why?" }]);
+
+    await t.reload();
+    expect(thread(t)).toEqual(["you: Why?", "grader (failed: not_answered)"]);
+
+    t.replier.gate = undefined;
+    t.session.retryReply();
+    await flush();
+    expect(thread(t)).toEqual(["you: Why?", "grader (done): Because $2x$ is right."]);
+  });
+
+  test("goes when its Card is rated, when the Session ends, and on sign-out", async () => {
+    const rated = await graded([next("a"), next("b")]);
+    ask(rated, "Why?");
+    await flush();
+    rated.session.rate("good");
+    await flush();
+    expect(rated.stored()?.shown).toMatchObject({ cardId: "b" });
+    expect(rated.stored()?.shown?.chat).toBeUndefined();
+
+    const signedOut = await graded([next("a"), next("b")]);
+    ask(signedOut, "Why?");
+    await flush();
+    clearStoredSessions(signedOut.storage);
+    expect(signedOut.stored()).toBeUndefined();
+
+    const ended = await graded([next("a"), next("b")]);
+    ended.session.confirm();
+    await flush();
+    ended.session.setDraft("an answer");
+    ended.session.check();
+    ended.grader.open();
+    await flush();
+    ask(ended, "Why?");
+    await flush();
+    ended.wait(TIMEOUT);
+    ended.session.checkTimeout();
+    expect(ended.stored()).toBeUndefined();
+  });
+
+  test("a Session stored before chats resumes its grade with no chat", async () => {
+    const t = await graded([next("a"), next("b")]);
+    const stored = t.stored();
+    if (stored?.shown === null || stored?.shown === undefined) throw new Error("No Card stored");
+    const { chat: _none, ...before } = stored.shown;
+    t.storage.setItem("banki.session.d1", JSON.stringify({ ...stored, shown: before }));
+
+    await t.reload();
+
+    expect(t.state()).toMatchObject({ grade: { status: "graded" }, chat: NO_CHAT });
+  });
+
+  test("blocked storage keeps no chat and still chats", async () => {
+    const t = await graded([next("a"), next("b")], blockedStorage());
+
+    ask(t, "Why?");
+    await flush();
+
+    expect(thread(t)).toEqual(["you: Why?", "grader (done): Because $2x$ is right."]);
+  });
+});
+
+const CHAT_REQUEST: ChatRequest = {
+  answer: "an answer",
+  grade: GRADED,
+  messages: [{ role: "user", text: "Why?" }],
+};
+
+/** What `studyApi`'s chat answers, and the pieces it hands on, when the API answers `res`. */
+async function chatting(res: () => Response) {
+  const pieces: string[] = [];
+  const answer = await studyApi(
+    "d1",
+    createApiClient(async (input, init) => {
+      expect(input instanceof Request ? input.url : input.toString()).toContain(
+        "/api/cards/a/chat",
+      );
+      expect(init?.method).toBe("POST");
+      return res();
+    }),
+  ).chat("a", CHAT_REQUEST, new AbortController().signal, (text) => pieces.push(text));
+  return { answer, pieces };
+}
+
+/** A body sent in `parts`, each as its own chunk. */
+const inParts = (...parts: string[]) =>
+  new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const part of parts) controller.enqueue(new TextEncoder().encode(part));
+        controller.close();
+      },
+    }),
+  );
+
+describe("studyApi's chat", () => {
+  test("hands on each piece of the reply as it comes, lines split across chunks too, and answers done at its end", async () => {
+    expect(
+      await chatting(() =>
+        inParts('{"text":"Because "}\n{"te', 'xt":"$2x$."}\n', '{"end":true}\n'),
+      ),
+    ).toEqual({ answer: "done", pieces: ["Because ", "$2x$."] });
+  });
+
+  test("a stream that stops without its end, or with a line that isn't a chunk, is cut off", async () => {
+    expect(await chatting(() => inParts('{"text":"Because "}\n'))).toEqual({
+      answer: "cut_off",
+      pieces: ["Because "],
+    });
+    expect(await chatting(() => inParts('{"text":"Because "}\n<html>\n'))).toEqual({
+      answer: "cut_off",
+      pieces: ["Because "],
+    });
+    let pulls = 0;
+    const broken = new Response(
+      new ReadableStream<Uint8Array>({
+        pull(controller) {
+          pulls += 1;
+          if (pulls === 1) controller.enqueue(new TextEncoder().encode('{"text":"Because "}\n'));
+          else controller.error(new TypeError("network error"));
+        },
+      }),
+    );
+    expect(await chatting(() => broken)).toEqual({ answer: "cut_off", pieces: ["Because "] });
+  });
+
+  test.each([
+    [404, "not_found", "gone"],
+    [409, "no_api_key", "no_api_key"],
+    [502, "api_key_refused", "api_key_refused"],
+    [502, "no_credits", "no_credits"],
+    [502, "model_unavailable", "model_unavailable"],
+    [502, "grading_refused", "grading_refused"],
+    [502, "grading_failed", "grading_failed"],
+    [400, "invalid_request", "grading_failed"],
+    [500, "internal_error", "grading_failed"],
+  ] as const)("answers %s %s as %s, by its code", async (status, code, answer) => {
+    expect(
+      await chatting(() => Response.json({ error: { code, message: "x" } }, { status })),
+    ).toEqual({ answer, pieces: [] });
+  });
+
+  test("sends the request as given, with the signal; throws when Banki can't be reached", async () => {
+    const controller = new AbortController();
+    let sent: { body: unknown; signal: AbortSignal | null | undefined } | undefined;
+    await studyApi(
+      "d1",
+      createApiClient(async (_input, init) => {
+        sent = {
+          body: typeof init?.body === "string" ? JSON.parse(init.body) : init?.body,
+          signal: init?.signal,
+        };
+        return inParts('{"end":true}\n');
+      }),
+    ).chat("a", CHAT_REQUEST, controller.signal, () => {});
+    expect(sent).toEqual({ body: CHAT_REQUEST, signal: controller.signal });
+
+    const offline = studyApi(
+      "d1",
+      createApiClient(async () => {
+        throw new TypeError("Failed to fetch");
+      }),
+    );
+    await expect(offline.chat("a", CHAT_REQUEST, controller.signal, () => {})).rejects.toThrow();
+  });
+});
+
+describe("a reply that stops inside a Formula", () => {
+  test("Stop keeps it up to the Formula left open, which would show as raw LaTeX", async () => {
+    const t = await graded([next("a"), next("b")]);
+    t.replier.before = ["So integrate:\n\n$$\\int_0^x \\frac{d"];
+    t.replier.hold();
+    ask(t, "Why?");
+    await flush();
+
+    t.session.stopReply();
+
+    expect(thread(t)).toEqual(["you: Why?", "grader (done): So integrate:"]);
+  });
+
+  test("a stream that breaks there keeps it up to the Formula too, cut off; with nothing before it, the reply failed", async () => {
+    const t = await graded([next("a"), next("b")]);
+    t.replier.outcome = "cut_off";
+    t.replier.before = ["At $x = 1$ the sum is $\\ln"];
+    t.replier.after = [];
+    ask(t, "Why?");
+    await flush();
+    expect(thread(t)).toEqual(["you: Why?", "grader (cut-off): At $x = 1$ the sum is"]);
+
+    t.replier.before = ["$$\\sum"];
+    ask(t, "And?");
+    await flush();
+    expect(thread(t).slice(2)).toEqual(["you: And?", "grader (failed: grading_failed)"]);
   });
 });

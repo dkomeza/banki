@@ -8,6 +8,9 @@ export const CARD_FILE_VERSION = 1;
 /** Where the API serves the Card file's JSON Schema, without signing in. */
 export const CARD_FILE_SCHEMA_PATH = "/api/schemas/card-file-v1.json";
 
+/** The Card file's JSON Schema URL at the installation opened at `origin` (no trailing slash). */
+export const cardFileSchemaUrl = (origin: string) => `${origin}${CARD_FILE_SCHEMA_PATH}`;
+
 /** Why a file whose `format` isn't `"banki"` is refused. */
 export const NOT_A_CARD_FILE_MESSAGE =
   'This is not a Card file: one is an object whose "format" is "banki"';

@@ -1,13 +1,13 @@
-import { ANSWER_MODES, type AnswerMode, DEFAULT_ANSWER_MODE } from "@banki/shared";
+import { ANSWER_MODES, type AnswerMode } from "@banki/shared";
 import type { QueryClient } from "@tanstack/react-query";
 import { createDeckSettingSaver, type DeckSettingSaver } from "./deck-setting-saver";
 import { updateDeck } from "./decks";
 import { FOLLOW } from "./retention";
 
 // A Deck's own Answer mode, saved as it changes (null to follow Settings) by a
-// Deck setting saver (deck-setting-saver.ts), and how Deck settings show it:
-// the picker's options and search, and what a change that didn't save says.
-// Until Settings hold an Answer mode (BAN-44), a Deck follows the default.
+// Deck setting saver (deck-setting-saver.ts), and how Deck settings and
+// Settings show it: the pickers' options and search, and what a change that
+// didn't save says. A following Deck shows Settings' mode, `followed`.
 
 const NAMES = {
   "self-rate": "Rate yourself",
@@ -17,25 +17,32 @@ const NAMES = {
 /** An Answer mode's name, such as "Write and grade". */
 export const answerModeName = (mode: AnswerMode): string => NAMES[mode];
 
-/** The Answer mode a following Deck has: Settings' (the default, for now). */
-export const FOLLOWED_ANSWER_MODE = DEFAULT_ANSWER_MODE;
+type AnswerModeOption = { value: string; label: string; display?: string; detail?: string };
 
-/** The picker's choices: Follow Settings (showing their mode) first, then each mode. */
-export const ANSWER_MODE_OPTIONS = [
+/** Settings' picker's choices: each mode by name. */
+export const SETTINGS_ANSWER_MODE_OPTIONS: readonly AnswerModeOption[] = ANSWER_MODES.map(
+  (mode) => ({ value: mode, label: NAMES[mode] }),
+);
+
+/** A Deck's picker's choices: Follow Settings (showing `followed`, their mode) first, then each mode. */
+export const answerModeOptions = (followed: AnswerMode): readonly AnswerModeOption[] => [
   {
     value: FOLLOW,
     label: "Follow Settings",
-    display: `Follow Settings (${NAMES[FOLLOWED_ANSWER_MODE]})`,
-    detail: NAMES[FOLLOWED_ANSWER_MODE],
+    display: `Follow Settings (${NAMES[followed]})`,
+    detail: NAMES[followed],
   },
-  ...ANSWER_MODES.map((mode) => ({ value: mode, label: NAMES[mode] })),
-] as const;
+  ...SETTINGS_ANSWER_MODE_OPTIONS,
+];
 
-/** The choices a search finds: by name, or Follow Settings for "follow" or "global". */
-export function matchAnswerModes(query: string): readonly (typeof ANSWER_MODE_OPTIONS)[number][] {
+/** The `options` a search finds: by name, or Follow Settings for "follow" or "global". */
+export function matchAnswerModes<T extends AnswerModeOption>(
+  options: readonly T[],
+  query: string,
+): readonly T[] {
   const wanted = query.trim().toLowerCase().replaceAll(/\s+/g, " ");
-  if (wanted === "") return ANSWER_MODE_OPTIONS;
-  return ANSWER_MODE_OPTIONS.filter(
+  if (wanted === "") return options;
+  return options.filter(
     (option) =>
       option.label.toLowerCase().includes(wanted) ||
       (option.value === FOLLOW && "global".includes(wanted)),
@@ -50,16 +57,23 @@ export function pickedAnswerMode(value: string): AnswerMode | null | undefined {
 
 /**
  * What a change to a Deck's Answer mode that didn't save says: the change (a
- * mode, or following Settings), and what the Deck keeps.
+ * mode, or following Settings), and what the Deck keeps, with `followed`,
+ * Settings' mode, while it follows them.
  */
-export function answerModeErrorText(attempted: AnswerMode | null, kept: AnswerMode | null): string {
+export function answerModeErrorText(
+  attempted: AnswerMode | null,
+  kept: AnswerMode | null,
+  followed: AnswerMode,
+): string {
   const tried = attempted === null ? "following Settings" : NAMES[attempted];
   const still =
-    kept === null
-      ? `it still follows Settings (${NAMES[FOLLOWED_ANSWER_MODE]})`
-      : `it's still ${NAMES[kept]}`;
+    kept === null ? `it still follows Settings (${NAMES[followed]})` : `it's still ${NAMES[kept]}`;
   return `The change to ${tried} didn't save, so ${still}.`;
 }
+
+/** What a change to Settings' Answer mode that didn't save says: the change, and the mode kept. */
+export const settingsAnswerModeErrorText = (attempted: AnswerMode, kept: AnswerMode): string =>
+  `The change to ${NAMES[attempted]} didn't save, so it's still ${NAMES[kept]}.`;
 
 export type DeckAnswerModeSaver = DeckSettingSaver<AnswerMode | null>;
 

@@ -133,6 +133,12 @@ describe("migrations", () => {
       "0016_session_timeout",
       "0017_answer_mode",
       "0018_imports",
+      "0019_settings_answer_mode",
+      "0020_graded_reviews",
+      "0021_parameter_tuning",
+      "0022_import_undo",
+      "0023_plan",
+      "0024_recommended_retention",
     ]);
     first.close();
 

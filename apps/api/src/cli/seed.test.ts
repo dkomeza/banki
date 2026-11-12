@@ -7,14 +7,18 @@ import {
   ImportReportResponse,
   CardResponse,
   DeckListResponse,
+  DEFAULT_MODEL_ID,
   DeckResponse,
   DeletionListResponse,
+  ImportHistoryResponse,
   FolderListResponse,
   FolderResponse,
   RestoreResponse,
   SettingsResponse,
   StudyNextResponse,
   TagListResponse,
+  TUNING_REVIEW_INTERVAL,
+  TuningStatus,
 } from "@banki/shared";
 import { SEED_IDS } from "../seed/seed-ids";
 import { EMAIL, ORIGIN, PASSWORD, bootApps, cookiesFrom, get, signIn } from "../testing/app";
@@ -33,6 +37,7 @@ const UNTOUCHED_DEFAULTS = {
   learningLimit: 10,
   sessionTimeoutMinutes: 30,
   macros: [] as { name: string; definition: string }[],
+  answerMode: "self-rate",
 } as const;
 
 /** Settings' Macros as the Seed data writes them. */
@@ -137,7 +142,7 @@ describe("banki seed's Macros", () => {
     expect(SettingsResponse.parse(await res.json()).macros).toEqual(mine);
   });
 
-  test("makes Calculus 2 write-and-grade, and leaves the other Decks following Settings", async () => {
+  test("makes Calculus 2 write-and-grade, and leaves the other Decks following Settings' self-rate", async () => {
     await setup();
     await seed();
 
@@ -151,6 +156,8 @@ describe("banki seed's Macros", () => {
       [SEED_IDS.decks.chemistry]: null,
       [SEED_IDS.decks.calculus10]: null,
     });
+    const settings = await get(app, "/api/settings", cookie);
+    expect(SettingsResponse.parse(await settings.json()).answerMode).toBe("self-rate");
   });
 
   test("gives Calculus 2 its own \\d and an \\eps over Settings', and Cards that use them", async () => {
@@ -167,8 +174,9 @@ describe("banki seed's Macros", () => {
       { name: "\\d", definition: "\\mathrm{d}" },
       { name: "\\eps", definition: "\\epsilon" },
     ]);
-    // Spanish vocabulary's own are the two its Import added.
+    // Spanish vocabulary's own are its \pl and the two its Import added.
     expect((await deckOf(D.spanish)).macros).toEqual([
+      { name: "\\pl", definition: "\\textsf{\\small pl.}" },
       { name: "\\m", definition: "\\textsf{\\small m.}" },
       { name: "\\f", definition: "\\textsf{\\small f.}" },
     ]);
@@ -469,8 +477,31 @@ describe("banki seed's Import", () => {
     expect(report.macros.map((entry) => [entry.name, entry.outcome])).toEqual([
       ["\\m", "added"],
       ["\\f", "added"],
-      ["\\eps", "kept"],
+      ["\\pl", "kept"],
     ]);
+  });
+
+  test("beside an older one, undone, which Past imports shows with it", async () => {
+    await setup();
+    await seed({ BANKI_SEED_NOW: "2026-10-26T12:00:00.000Z" });
+
+    const { app } = boot();
+    const cookie = cookiesFrom(await signIn(app));
+    const history = ImportHistoryResponse.parse(
+      await (await get(app, `/api/decks/${SEED_IDS.decks.spanish}/imports`, cookie)).json(),
+    );
+    expect(history.map((e) => [e.id, e.imported, e.live, e.undoneAt])).toEqual([
+      [SEED_IDS.import, 5, 5, null],
+      [SEED_IDS.undoneImport, 6, 0, "2026-10-24T13:00:00.000Z"],
+    ]);
+    const report = ImportReportResponse.parse(
+      await (await get(app, `/api/imports/${SEED_IDS.undoneImport}`, cookie)).json(),
+    );
+    expect(report).toMatchObject({
+      imported: 6,
+      live: 0,
+      undoDeletionId: SEED_IDS.deletions.verbos,
+    });
   });
 });
 
@@ -502,6 +533,37 @@ describe("banki seed's Reviews", () => {
     expect(next?.card.id).toBe(spanish[0]);
     expect(next?.kind).toBe("learning");
     expect(next?.schedule.lapses).toBe(1);
+  });
+
+  test("hold one graded Review that kept the suggestion and one that changed it, both with the default Model", async () => {
+    await setup();
+    await seed();
+
+    const sqlite = new SQLite(join(dataDir(), "banki.db"), { readonly: true });
+    const graded = sqlite
+      .query<
+        {
+          card_id: string;
+          rating: string;
+          suggested_rating: string;
+          model: string;
+        },
+        []
+      >(
+        "SELECT card_id, rating, suggested_rating, model FROM review WHERE kind = 'graded' ORDER BY seq",
+      )
+      .all();
+    sqlite.close();
+
+    expect(graded).toEqual([
+      { card_id: SEED_IDS.card, rating: "good", suggested_rating: "good", model: DEFAULT_MODEL_ID },
+      {
+        card_id: SEED_IDS.cards.spanish[0],
+        rating: "again",
+        suggested_rating: "hard",
+        model: DEFAULT_MODEL_ID,
+      },
+    ]);
   });
 
   test("take their places in the Write order oldest first", async () => {
@@ -536,6 +598,7 @@ describe("banki seed's Deletions", () => {
       D.physics,
       D.madrugada,
       D.statistics,
+      D.verbos,
       D.spanish,
       D.oldSemester,
       D.linearAlgebra,
@@ -549,6 +612,11 @@ describe("banki seed's Deletions", () => {
       counts: { folders: 1, decks: 2, cards: 30 },
     });
     expect(byId(D.madrugada)?.deck?.id).toBe(SEED_IDS.decks.spanish);
+    expect(byId(D.verbos)).toMatchObject({
+      top: { kind: "import", id: SEED_IDS.undoneImport, name: "verbos-irregulares.json" },
+      deck: { id: SEED_IDS.decks.spanish },
+      counts: { cards: 6 },
+    });
     expect(byId(D.calculus1)).toMatchObject({
       path: ["Maths", "Analysis"],
       removesAt: "2026-10-27T10:00:00.000Z",
@@ -567,5 +635,42 @@ describe("banki seed's Deletions", () => {
       renamed: true,
     });
     expect((await restore(D.termin)).status).toBe(409);
+  });
+});
+
+describe("banki seed's Tuning", () => {
+  test("is one automatic Tuning that applied, after the Reviews, with a Recommended retention, so Settings shows the tuned state", async () => {
+    await setup();
+    await seed({ BANKI_SEED_NOW: "2026-10-26T12:00:00.000Z" });
+
+    const { app } = boot();
+    const cookie = cookiesFrom(await signIn(app));
+    const status = TuningStatus.parse(await (await get(app, "/api/tuning", cookie)).json());
+
+    const sqlite = new SQLite(join(dataDir(), "banki.db"), { readonly: true });
+    const reviews = sqlite.query<{ n: number }, []>("SELECT count(*) AS n FROM review").get()?.n;
+    sqlite.close();
+    expect(status).toEqual({
+      parameters: "tuned",
+      tuned: { at: "2026-10-26T11:00:00.000Z", reviews: reviews ?? -1 },
+      lastAttempt: { at: "2026-10-26T11:00:00.000Z", trigger: "automatic", outcome: "applied" },
+      reviewsUntilAutomatic: TUNING_REVIEW_INTERVAL,
+      paused: false,
+      running: false,
+      recommendedRetention: 85,
+    });
+  });
+
+  test("refuses to seed a User who has a Tuning log row", async () => {
+    await setup();
+    const { app, close } = boot();
+    const cookie = cookiesFrom(await signIn(app));
+    await app.request("/api/tuning", { method: "POST", headers: { origin: ORIGIN, cookie } });
+    close();
+
+    const result = await seed();
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("The User already has content, so nothing was seeded.");
   });
 });

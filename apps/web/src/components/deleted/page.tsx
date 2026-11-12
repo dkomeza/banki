@@ -1,7 +1,8 @@
 // Recently deleted, as a shelf: each Deletion a tile, grouped by when it was
 // deleted, with a faded picture of what went and a bar that empties as its 30
-// days run out. A refused Restore says why inside its tile and points at what
-// to restore first. Reached from the foot of Home.
+// days run out; an Import's Undo is laid out as a Deck's. A refused Restore
+// says why inside its tile and points at what to restore first. Reached from
+// the foot of Home.
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { ArrowUp, FileText, Folder, RotateCcw, Trash2 } from "lucide-react";
 import { useState } from "react";
@@ -192,7 +193,9 @@ function Tile({
           <p>
             <span className="font-medium">Restore {refusal.name} first.</span>{" "}
             <span className="text-muted-foreground">
-              This card can only come back into its deck, which is deleted too.
+              {d.top.kind === "import"
+                ? "Its cards can only come back into their decks, and this one is deleted."
+                : "This card can only come back into its deck, which is deleted too."}
             </span>
           </p>
           {onPoint !== undefined && (
@@ -266,7 +269,7 @@ function Countdown({ left, className }: { left: number; className?: string }) {
   );
 }
 
-/** A faded picture of what went: a kraft folder, a deck's cover, or an index card. */
+/** A faded picture of what went: a kraft folder, a deck's cover (an Import's, its Deck's), or an index card. */
 function Picture({ deletion: d }: { deletion: Deletion }) {
   const frame = "relative flex h-14 w-16 shrink-0 opacity-70 grayscale-[35%]";
   if (d.top.kind === "folder")
@@ -288,12 +291,12 @@ function Picture({ deletion: d }: { deletion: Deletion }) {
         </span>
       </span>
     );
-  if (d.top.kind === "deck")
+  if (d.top.kind === "deck" || d.top.kind === "import")
     return (
       <span aria-hidden className={frame}>
         <span className="absolute inset-0 translate-x-1 translate-y-1 rotate-[2deg] rounded-lg border border-dashed bg-muted" />
         <span className="relative flex flex-1 items-end rounded-lg border border-dashed bg-[repeating-linear-gradient(to_bottom,transparent_0,transparent_calc(0.75rem-1px),color-mix(in_oklch,var(--foreground)_8%,transparent)_calc(0.75rem-1px),color-mix(in_oklch,var(--foreground)_8%,transparent)_0.75rem)] bg-card p-1.5 text-sm leading-none font-semibold tracking-tight">
-          {monogram(d.top.name)}
+          {monogram(d.top.kind === "import" ? (d.deck?.name ?? d.top.name) : d.top.name)}
         </span>
       </span>
     );

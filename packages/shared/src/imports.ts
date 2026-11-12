@@ -51,11 +51,11 @@ export const ImportInvalidCard = z.object({ number: z.number().int(), problems: 
 export type ImportInvalidCard = z.infer<typeof ImportInvalidCard>;
 
 /**
- * What the Import does with one of the file's Macros that the Deck doesn't
- * have as it is: `added` to the Deck's own; `kept`, the Deck defining it
- * differently (`deckDefinition`), which stays; or `not_added`, the Deck
- * unable to take it (`reason`). One the Deck has with the identical
- * definition isn't listed.
+ * What the Import does with one of the file's Macros that the Deck's own
+ * Macros don't have as it is, Settings' aside: `added` to the Deck's own;
+ * `kept`, the Deck's own defining it differently (`deckDefinition`), which
+ * stays; or `not_added`, the Deck unable to take it (`reason`). One the
+ * Deck's own has with the identical definition isn't listed.
  */
 export const MacroPlanEntry = z.discriminatedUnion("outcome", [
   z.object({ name: z.string(), definition: z.string(), outcome: z.literal("added") }),
@@ -134,8 +134,45 @@ export const ImportReportResponse = ImportBase.extend({
   images: z.array(ImageProblem),
   /** How many Images it added, from the zip. */
   imageCount: z.number().int(),
+  /** How many of the Cards it added are live now, wherever they are. */
+  live: z.number().int(),
+  /** When it was last undone (ADR-0030); null unless undone. */
+  undoneAt: z.iso.datetime().nullable(),
+  /** The Deletion its last Undo made; null unless undone. */
+  undoDeletionId: z.string().nullable(),
+  /** How many of its live Cards were studied, edited and moved to another Deck, for Undo to say. */
+  studied: z.number().int(),
+  edited: z.number().int(),
+  moved: z.number().int(),
 });
 export type ImportReportResponse = z.infer<typeof ImportReportResponse>;
+
+/**
+ * A confirmed Import in its Deck's Past imports: how many Cards it added
+ * (`imported`), how many of them are live now, and when it was undone, or
+ * null.
+ */
+export const ImportHistoryEntry = z.object({
+  id: z.string(),
+  fileName: z.string(),
+  source: ImportSource,
+  confirmedAt: z.iso.datetime(),
+  imported: z.number().int(),
+  live: z.number().int(),
+  undoneAt: z.iso.datetime().nullable(),
+});
+export type ImportHistoryEntry = z.infer<typeof ImportHistoryEntry>;
+
+/** The body of `GET /api/decks/:deckId/imports`: the Deck's confirmed Imports, newest first. */
+export const ImportHistoryResponse = z.array(ImportHistoryEntry);
+export type ImportHistoryResponse = z.infer<typeof ImportHistoryResponse>;
+
+/** The body `POST /api/imports/:id/undo` answers: the one Deletion it made, and how many Cards it took. */
+export const UndoImportResponse = z.object({
+  deletionId: z.string(),
+  cards: z.number().int(),
+});
+export type UndoImportResponse = z.infer<typeof UndoImportResponse>;
 
 /** The body of `GET /api/imports/:id`: its preview, or once confirmed, its report. */
 export const ImportResponse = z.discriminatedUnion("status", [

@@ -37,6 +37,7 @@ const DECK: Deck = {
   desiredRetention: null,
   macros: [],
   answerMode: null,
+  plan: null,
 };
 
 const SETTINGS: SettingsResponse = {
@@ -49,6 +50,7 @@ const SETTINGS: SettingsResponse = {
   newCardBatch: 20,
   learningLimit: 10,
   sessionTimeoutMinutes: 30,
+  answerMode: "self-rate",
   macros: [],
 };
 

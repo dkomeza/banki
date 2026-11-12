@@ -65,11 +65,11 @@ The text Banki gives the User to paste into any LLM, with their material, so tha
 _Avoid_: LLM prompt, generation prompt, AI prompt
 
 **Import**:
-One act of bringing the Cards of a Card file into one live Deck, and the Cards it added. It starts unconfirmed, while the User previews the file's Cards and picks which to keep; one never confirmed is gone after 24 hours. Confirming it adds the Cards, skipping Duplicates and invalid Cards, adds the file's Macros the Deck lacks, and keeps a report of what it did.
+One act of bringing the Cards of a Card file into one live Deck, and the Cards it added. It starts unconfirmed, while the User previews the file's Cards and picks which to keep; one never confirmed is gone after 24 hours. Confirming it adds the Cards, skipping Duplicates and invalid Cards, adds the file's Macros the Deck lacks, and keeps a report of what it did. A confirmed Import can be undone while a Card it added is live: the Undo deletes every such Card, wherever it is now, and leaves the Macros and Images it added.
 _Avoid_: upload, batch
 
 **Deletion**:
-One act of deleting, and everything it took with it: a Card on its own, a Deck with its Cards, or a Folder with everything inside it. It is restored or removed as a whole. Something deleted earlier on its own keeps its own Deletion. Deleting several picked Cards at once makes one Deletion per Card, though the delete's Undo brings them all back.
+One act of deleting, and everything it took with it: a Card on its own, a Deck with its Cards, a Folder with everything inside it, or an Import's Undo with the Cards it took. It is restored or removed as a whole. Something deleted earlier on its own keeps its own Deletion. Deleting several picked Cards at once makes one Deletion per Card, though the delete's Undo brings them all back.
 _Avoid_: trash item, deleted item
 
 **Recently deleted**:
@@ -101,7 +101,7 @@ How well the User recalled a Card: Again, Hard, Good or Easy. The User always gi
 _Avoid_: grade, score, ease
 
 **Answer mode**:
-How the User answers a Card in a Session: **self-rate** (reveal the Back, then give a Rating) or **write-and-grade** (write an answer first, for the Grader). Settings hold one for every Deck, self-rate, and a Deck follows it until it is given its own. A Session starts in its Deck's and keeps whichever the User last switched to, Card after Card.
+How the User answers a Card in a Session: **self-rate** (reveal the Back, then give a Rating) or **write-and-grade** (write an answer first, for the Grader). Settings hold one for every Deck, self-rate unless the User changes it, and a Deck follows it until it is given its own, so changing it changes how every following Deck's next Session starts. A Session starts in its Deck's and keeps whichever the User last switched to, Card after Card.
 _Avoid_: study mode, review mode
 
 **Written answer**:
@@ -109,7 +109,7 @@ What the User writes for a Card's Front in write-and-grade, typed or, later, han
 _Avoid_: answer (alone), response, attempt
 
 **Review**:
-One Rating of one Card at one moment, with the time the User spent studying it, at most 2 minutes (time spent editing it, or waiting for the Grader, is left out), and whether it was self-rated or graded. Reviews, with the Card's Progress resets among them, are the Card's history: they are what FSRS learns from (since the Card's newest Progress reset), and they outlive the Card. Undoing a Rating takes its Review back as if it had never been given.
+One Rating of one Card at one moment, with the time the User spent studying it, at most 2 minutes (time spent editing it, waiting for the Grader, or in its Follow-up chat, is left out), and whether it was self-rated or graded. It is **graded** when the User rated it with the Grader's suggested Rating on screen, whichever Rating they gave, and then keeps that suggested Rating and the Model that suggested it; otherwise it is **self-rated**, I don't know, a Rating given before the suggestion came and one after grading failed included. Reviews, with the Card's Progress resets among them, are the Card's history: they are what FSRS learns from (since the Card's newest Progress reset), and they outlive the Card. Undoing a Rating takes its Review back as if it had never been given.
 _Avoid_: answer, attempt, repetition
 
 **Progress reset**:
@@ -152,6 +152,30 @@ _Avoid_: retrievability, strength, score
 The share of its Cards the User wants to still remember when they come due, from 70% to 97%: higher means more Reviews. Settings hold one for every Deck, 90% unless the User changes it, and a Deck follows it until it is given its own. Changing it reschedules every Card it applies to at once.
 _Avoid_: target retention (except for a Plan's), retention rate, success rate
 
+**Parameters**:
+The numbers FSRS models the User's memory with: FSRS's defaults until a Tuning applies the User's own. Everything FSRS works out (Intervals, due dates, Predicted recall) uses the current ones. Applying new ones works out every Card's memory state again from its Reviews, but leaves its due date as it was until its next Rating.
+_Avoid_: weights, FSRS settings, model (the Model is the Grader's)
+
+**Tuning**:
+Fitting the Parameters to the User's own Reviews, of every kind and of Cards that are gone too. Banki does it by itself every 200 Reviews, or at once when the User asks (Tune now), and applies the result only when it predicts the User's recall better than the current Parameters. Reset to defaults puts FSRS's defaults back and pauses Tuning by itself until the User next asks for one.
+_Avoid_: optimization, training, calibration, fitting (alone)
+
+**Recommended retention**:
+The Desired retention, from 70% to 97%, that Banki works out leaves the User remembering the most Cards per minute studied, from their Parameters and their own time and Ratings per Card. It exists only while the Parameters are tuned, and each Tuning works it out again. Banki shows it next to Desired retention, in Settings and in each Deck's settings, and never applies it by itself: the User picks it.
+_Avoid_: optimal retention, suggested retention, CMRR
+
+**Plan**:
+What a Deck works toward for an exam: a Deadline and a Daily goal. A Deck has at most one. Creating or editing it checks whether the Daily goal covers the Deck's New cards by the Deadline, and says what goal would.
+_Avoid_: schedule, study plan, goal (alone)
+
+**Deadline**:
+The Study day a Plan works toward, such as the exam day. Studying for it happens on the Study days before it, so it is at least tomorrow. It is a Study day, not a moment, so it stays the same day when the Timezone or Day start changes.
+_Avoid_: due date, exam date (in the code), end date
+
+**Daily goal**:
+The minutes a day a Plan expects the User to study its Deck, from 5 to 600. A goal, never a limit: nothing stops a Session at it.
+_Avoid_: daily limit, quota, minutes (alone)
+
 **Recall rate**:
 The share of the review Cards a Session showed that the User recalled the first time: their first Rating in it wasn't Again. New Cards and Cards in their learning steps don't count, so it measures what Desired retention aims at. A Card counts by how it first came in the Session, so a review Card the User then puts back to New (Progress reset) and rates still counts. A Session with no review Card has none.
 _Avoid_: accuracy, score, retention (alone)
@@ -189,8 +213,12 @@ The day a moment belongs to for everything Banki counts per day: due cards, dail
 _Avoid_: calendar day, date
 
 **Grader**:
-The LLM, reached through OpenRouter, that turns a written answer into a suggested rating with feedback. It only suggests: the User always confirms the rating.
+The LLM, reached through OpenRouter, that turns a written answer into a suggested rating with feedback, and answers the Follow-up chat about it. It only suggests: the User always confirms the rating.
 _Avoid_: AI, judge, provider
+
+**Grader agreement**:
+How often the User keeps the Grader's suggested Rating: the share of graded Reviews whose Rating is the suggested one. A low one is a sign the Grader is too lenient or too strict, and it can be told apart by the Model that suggested.
+_Avoid_: accuracy, override rate, grader score
 
 **Feedback**:
 What the Grader says about a Written answer beside its suggested Rating: what was right, what was missing or wrong, down to the step where a derivation went wrong. It is in the Written answer's language. It is never stored with the Review or on the server, but, with the suggested Rating and the Highlights, kept with the Session until its Card is rated.
@@ -199,6 +227,10 @@ _Avoid_: explanation, comment, verdict
 **Highlight**:
 A part of the Back that a Written answer is missing, or a part of the Written answer that is wrong, which the Feedback points at. It marks the text as the User wrote it, so a repeated phrase is never ambiguous.
 _Avoid_: annotation, mark, error
+
+**Follow-up chat**:
+A conversation with the Grader about one graded Card, after its Feedback and before its Rating: the User asks, such as "why is that wrong?", and the Grader answers, knowing the Card, the Written answer and its grade. It never changes the suggested Rating. Rating the Card ends it. Like the Feedback, it is never stored with the Review or on the server, but kept with the Session until its Card is rated.
+_Avoid_: conversation, thread, tutor, chat (alone)
 
 **API key**:
 The User's OpenRouter key, which the Grader runs on and bills to. It is a Setting, but once stored it never leaves the server: Settings shows only its last four characters.

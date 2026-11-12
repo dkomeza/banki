@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { Macro, MacroList } from "./macros";
+import { PlanResponse } from "./plans";
 import { DesiredRetention } from "./scheduling";
 
 /**
@@ -10,12 +11,14 @@ export const ANSWER_MODES = ["self-rate", "write"] as const;
 export const AnswerMode = z.enum(ANSWER_MODES);
 export type AnswerMode = z.infer<typeof AnswerMode>;
 
-/** The Answer mode a Deck follows until it has its own (a Setting from BAN-44). */
+/** Settings' Answer mode until the User changes it, which every Deck follows until it has its own. */
 export const DEFAULT_ANSWER_MODE: AnswerMode = "self-rate";
 
-/** A Deck's effective Answer mode: its own, or the one it follows. */
-export const deckAnswerMode = (deck: { answerMode: AnswerMode | null }): AnswerMode =>
-  deck.answerMode ?? DEFAULT_ANSWER_MODE;
+/** A Deck's effective Answer mode: its own, or `followed`, Settings' while it follows them. */
+export const deckAnswerMode = (
+  deck: { answerMode: AnswerMode | null },
+  followed: AnswerMode,
+): AnswerMode => deck.answerMode ?? followed;
 
 /** The longest Deck name, after trimming. */
 export const DECK_NAME_MAX_LENGTH = 100;
@@ -96,6 +99,7 @@ export type NameClashError = z.infer<typeof NameClashError>;
  * `desiredRetention` is its own, or null while it follows Settings. `macros`
  * are its own Macros, [] for none, which its Cards use on top of Settings'.
  * `answerMode` is its own Answer mode, or null while it follows Settings.
+ * `plan` is its Plan, or null when it has none.
  */
 export const DeckResponse = z.object({
   id: z.string(),
@@ -107,6 +111,7 @@ export const DeckResponse = z.object({
   desiredRetention: z.number().int().nullable(),
   macros: z.array(Macro),
   answerMode: AnswerMode.nullable(),
+  plan: PlanResponse.nullable(),
 });
 export type DeckResponse = z.infer<typeof DeckResponse>;
 

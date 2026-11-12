@@ -28,6 +28,7 @@ const DECK: Deck = {
   desiredRetention: null,
   macros: [],
   answerMode: null,
+  plan: null,
 };
 
 const card = (studied: boolean): Card => ({
@@ -52,6 +53,7 @@ function recordingSession() {
       intervals: async () => "gone",
       card: async () => "gone",
       grade: async () => "gone",
+      chat: async () => "gone",
     },
     notify: () => {},
   });

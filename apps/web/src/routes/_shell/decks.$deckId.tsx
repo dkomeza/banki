@@ -1,6 +1,6 @@
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
-import { CornerDownRight, FileUp, Pencil, Settings2, Trash2 } from "lucide-react";
+import { CornerDownRight, FileDown, FileUp, Pencil, Settings2, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { DeckMacros } from "@/components/cards/deck-macros";
 import { deleteAllWithUndo, showMovedToast } from "@/components/cards/card-toasts";
@@ -22,6 +22,7 @@ import { type Card, cardCountLabel, cardsQueryOptions, moveCards } from "@/lib/c
 import {
   type Deck,
   createdLabel,
+  deckExportUrl,
   deckQueryOptions,
   deleteDeck,
   forgetDeck,
@@ -40,7 +41,8 @@ import { cn } from "@/lib/utils";
 // the Deck's stack, its cover on top, beside the name and the whole
 // description, a line saying when it was created, how many Cards it has and
 // the Desired retention it schedules with (a link to its settings page), the
-// Study card (what Study will bring, StudyCard), and Edit, Settings, Import, Move… and
+// Study card (what Study will bring, StudyCard), and Edit, Settings, Import, Export
+// (a download of the Deck as a zip), Move… and
 // Delete under them. Edit opens the same dialog as
 // create; Delete asks in a dialog, naming how many Cards go with it. The Cards follow below, on a timeline (CardTimeline), searched and
 // filtered by Tag through the URL (`?q=…&tags=verb,irregular`), so Back from a
@@ -211,6 +213,16 @@ function DeckBody({ deck }: { deck: Deck }) {
             >
               <FileUp aria-hidden />
               Import
+            </Button>
+            <Button
+              variant="outline"
+              className={cn(OUTLINE_PILL, "h-11 text-foreground no-underline")}
+              // A plain download, so the browser saves the zip as it streams in.
+              render={<a href={deckExportUrl(deck.id)} download />}
+              nativeButton={false}
+            >
+              <FileDown aria-hidden />
+              Export
             </Button>
             <Button
               variant="outline"

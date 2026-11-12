@@ -60,6 +60,12 @@ const COMMITTED = [
   "0016_session_timeout",
   "0017_answer_mode",
   "0018_imports",
+  "0019_settings_answer_mode",
+  "0020_graded_reviews",
+  "0021_parameter_tuning",
+  "0022_import_undo",
+  "0023_plan",
+  "0024_recommended_retention",
 ];
 
 /** The tables the committed migrations create. */
@@ -73,6 +79,8 @@ const COMMITTED_TABLES = [
   "folder",
   "image",
   "import",
+  "parameter_tuning",
+  "plan",
   "progress_reset",
   "review",
   "user",
@@ -498,7 +506,9 @@ test("0018_imports keeps every Card, from no Import, and an Import's removal lea
   );
 
   writeFileSync(journalPath, full);
-  expect(applyMigrations(opened.db, folder)).toEqual(["0018_imports"]);
+  expect(applyMigrations(opened.db, folder)).toEqual(
+    COMMITTED.slice(COMMITTED.indexOf("0018_imports")),
+  );
   expect(opened.db.values(sql`SELECT id, import_id FROM card`)).toEqual([["c", null]]);
 
   opened.db.run(
@@ -509,6 +519,266 @@ test("0018_imports keeps every Card, from no Import, and an Import's removal lea
   // Removing an Import leaves its Cards, from no Import.
   opened.db.run(sql`DELETE FROM import`);
   expect(opened.db.values(sql`SELECT id, import_id FROM card`)).toEqual([["c", null]]);
+});
+
+test("0019_settings_answer_mode keeps every row of Settings, each in self-rate, and every Deck and Card", () => {
+  // The database as the release before it left it: this migration and later ones not applied.
+  const journalPath = join(folder, "meta", "_journal.json");
+  const full = readFileSync(journalPath, "utf8");
+  const journal = z
+    .looseObject({ entries: z.array(z.looseObject({ tag: z.string() })) })
+    .parse(JSON.parse(full));
+  writeFileSync(
+    journalPath,
+    JSON.stringify({
+      ...journal,
+      entries: journal.entries.filter((entry) => entry.tag < "0019_settings_answer_mode"),
+    }),
+  );
+  applyMigrations(opened.db, folder);
+  opened.db.run(
+    sql`INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES ('u', 'n', 'u@x.y', 1, 0, 0)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO user_settings (user_id, timezone, desired_retention) VALUES ('u', 'UTC', 85)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO deck (id, user_id, name, name_key, created_at, updated_at, answer_mode) VALUES ('d', 'u', 'D', 'd', 0, 0, 'write')`,
+  );
+  opened.db.run(
+    sql`INSERT INTO card (id, user_id, deck_id, front, back, created_at, updated_at) VALUES ('c', 'u', 'd', 'f', 'b', 0, 0)`,
+  );
+
+  writeFileSync(journalPath, full);
+  expect(applyMigrations(opened.db, folder)).toEqual(
+    COMMITTED.slice(COMMITTED.indexOf("0019_settings_answer_mode")),
+  );
+
+  expect(
+    opened.db.values(
+      sql`SELECT user_id, timezone, desired_retention, answer_mode FROM user_settings`,
+    ),
+  ).toEqual([["u", "UTC", 85, "self-rate"]]);
+  expect(opened.db.values(sql`SELECT id, answer_mode FROM deck`)).toEqual([["d", "write"]]);
+  expect(opened.db.values(sql`SELECT id FROM card`)).toEqual([["c"]]);
+  // The new column takes a mode, and refuses anything else.
+  opened.db.run(sql`UPDATE user_settings SET answer_mode = 'write'`);
+  expect(() => opened.db.run(sql`UPDATE user_settings SET answer_mode = 'grade'`)).toThrow();
+  expect(() => opened.db.run(sql`UPDATE user_settings SET answer_mode = NULL`)).toThrow();
+});
+
+test("0020_graded_reviews keeps every Review, self-rated with no suggestion, and holds a graded one to both", () => {
+  const journalPath = join(folder, "meta", "_journal.json");
+  const full = readFileSync(journalPath, "utf8");
+  const journal = z
+    .looseObject({ entries: z.array(z.looseObject({ tag: z.string() })) })
+    .parse(JSON.parse(full));
+  writeFileSync(
+    journalPath,
+    JSON.stringify({
+      ...journal,
+      entries: journal.entries.filter((entry) => entry.tag < "0020_graded_reviews"),
+    }),
+  );
+  applyMigrations(opened.db, folder);
+  opened.db.run(
+    sql`INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES ('u', 'n', 'u@x.y', 1, 0, 0)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO deck (id, user_id, name, name_key, created_at, updated_at) VALUES ('d', 'u', 'D', 'd', 0, 0)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO card (id, user_id, deck_id, front, back, created_at, updated_at, state) VALUES ('c', 'u', 'd', 'f', 'b', 0, 0, 'review')`,
+  );
+  opened.db.run(
+    sql`INSERT INTO review (id, user_id, card_id, deck_id, reviewed_at, rating, kind, duration_ms, card_before, seq) VALUES ('r', 'u', 'c', 'd', 0, 'good', 'self-rated', 0, '{}', 1)`,
+  );
+
+  writeFileSync(journalPath, full);
+  expect(applyMigrations(opened.db, folder)).toEqual(
+    COMMITTED.slice(COMMITTED.indexOf("0020_graded_reviews")),
+  );
+  expect(opened.db.values(sql`SELECT id, kind, suggested_rating, model FROM review`)).toEqual([
+    ["r", "self-rated", null, null],
+  ]);
+  expect(opened.db.values(sql`SELECT id FROM card`)).toEqual([["c"]]);
+
+  const insert = (
+    id: string,
+    seq: number,
+    kind: string,
+    suggested: string | null,
+    model: string | null,
+  ) =>
+    opened.db.run(
+      sql`INSERT INTO review (id, user_id, card_id, deck_id, reviewed_at, rating, kind, suggested_rating, model, duration_ms, card_before, seq) VALUES (${id}, 'u', 'c', 'd', 0, 'good', ${kind}, ${suggested}, ${model}, 0, '{}', ${seq})`,
+    );
+  insert("g", 2, "graded", "hard", "anthropic/claude-haiku-5.5");
+  // The CHECK refuses a graded Review missing either, and a self-rated one with either.
+  expect(() => insert("x1", 3, "graded", null, null)).toThrow();
+  expect(() => insert("x2", 4, "graded", "hard", null)).toThrow();
+  expect(() => insert("x3", 5, "graded", null, "anthropic/claude-haiku-5.5")).toThrow();
+  expect(() => insert("x4", 6, "self-rated", "hard", "anthropic/claude-haiku-5.5")).toThrow();
+  expect(() => insert("x5", 7, "self-rated", "hard", null)).toThrow();
+  expect(() => insert("x6", 8, "self-rated", null, "anthropic/claude-haiku-5.5")).toThrow();
+  expect(opened.db.values(sql`SELECT id FROM review ORDER BY seq`)).toEqual([["r"], ["g"]]);
+});
+
+test("0021_parameter_tuning keeps every row of Settings, on FSRS's defaults, and logs no Tuning", () => {
+  const journalPath = join(folder, "meta", "_journal.json");
+  const full = readFileSync(journalPath, "utf8");
+  const journal = z
+    .looseObject({ entries: z.array(z.looseObject({ tag: z.string() })) })
+    .parse(JSON.parse(full));
+  writeFileSync(
+    journalPath,
+    JSON.stringify({
+      ...journal,
+      entries: journal.entries.filter((entry) => entry.tag < "0021_parameter_tuning"),
+    }),
+  );
+  applyMigrations(opened.db, folder);
+  opened.db.run(
+    sql`INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES ('u', 'n', 'u@x.y', 1, 0, 0)`,
+  );
+  opened.db.run(sql`INSERT INTO user_settings (user_id, desired_retention) VALUES ('u', 85)`);
+
+  writeFileSync(journalPath, full);
+  expect(applyMigrations(opened.db, folder)).toEqual(
+    COMMITTED.slice(COMMITTED.indexOf("0021_parameter_tuning")),
+  );
+
+  expect(
+    opened.db.values(sql`SELECT user_id, desired_retention, fsrs_parameters FROM user_settings`),
+  ).toEqual([["u", 85, null]]);
+  expect(opened.db.values(sql`SELECT id FROM parameter_tuning`)).toEqual([]);
+  // A log row takes a trigger and an outcome Banki knows, and refuses others.
+  const row = (trigger: string, outcome: string) =>
+    opened.db.run(
+      sql`INSERT INTO parameter_tuning (id, user_id, ran_at, trigger, review_count, outcome) VALUES (${`${trigger}-${outcome}`}, 'u', 0, ${trigger}, 0, ${outcome})`,
+    );
+  row("automatic", "applied");
+  row("reset", "reset");
+  expect(() => row("cron", "applied")).toThrow();
+  expect(() => row("manual", "skipped")).toThrow();
+  // A User's removal takes their log with them.
+  opened.db.run(sql`DELETE FROM user`);
+  expect(opened.db.values(sql`SELECT id FROM parameter_tuning`)).toEqual([]);
+});
+
+test("0022_import_undo keeps every Import, none of them undone, and finds an Undo's Import through an index", () => {
+  const journalPath = join(folder, "meta", "_journal.json");
+  const full = readFileSync(journalPath, "utf8");
+  const journal = z
+    .looseObject({ entries: z.array(z.looseObject({ tag: z.string() })) })
+    .parse(JSON.parse(full));
+  writeFileSync(
+    journalPath,
+    JSON.stringify({
+      ...journal,
+      entries: journal.entries.filter((entry) => entry.tag < "0022_import_undo"),
+    }),
+  );
+  applyMigrations(opened.db, folder);
+  opened.db.run(
+    sql`INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES ('u', 'n', 'u@x.y', 1, 0, 0)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO deck (id, user_id, name, name_key, created_at, updated_at) VALUES ('d', 'u', 'D', 'd', 0, 0)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO import (id, user_id, deck_id, file_name, source, created_at, confirmed_at) VALUES ('i', 'u', 'd', 'f.json', 'json', 0, 1)`,
+  );
+
+  writeFileSync(journalPath, full);
+  expect(applyMigrations(opened.db, folder)).toEqual(
+    COMMITTED.slice(COMMITTED.indexOf("0022_import_undo")),
+  );
+  expect(
+    opened.db.values(sql`SELECT id, confirmed_at, undone_at, undo_deletion_id FROM import`),
+  ).toEqual([["i", 1, null, null]]);
+  const plan = opened.db.values(
+    sql`EXPLAIN QUERY PLAN SELECT id FROM import WHERE user_id = 'u' AND undo_deletion_id = 'x'`,
+  );
+  expect(JSON.stringify(plan)).toContain("import_undo_deletion_id");
+});
+
+test("0023_plan keeps every Deck and Card, with no Plan, and a Deck's Removal takes its Plan", () => {
+  const journalPath = join(folder, "meta", "_journal.json");
+  const full = readFileSync(journalPath, "utf8");
+  const journal = z
+    .looseObject({ entries: z.array(z.looseObject({ tag: z.string() })) })
+    .parse(JSON.parse(full));
+  writeFileSync(
+    journalPath,
+    JSON.stringify({
+      ...journal,
+      entries: journal.entries.filter((entry) => entry.tag < "0023_plan"),
+    }),
+  );
+  applyMigrations(opened.db, folder);
+  opened.db.run(
+    sql`INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES ('u', 'n', 'u@x.y', 1, 0, 0)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO deck (id, user_id, name, name_key, created_at, updated_at, desired_retention) VALUES ('d', 'u', 'D', 'd', 0, 0, 85)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO card (id, user_id, deck_id, front, back, created_at, updated_at) VALUES ('c', 'u', 'd', 'f', 'b', 0, 0)`,
+  );
+
+  writeFileSync(journalPath, full);
+  expect(applyMigrations(opened.db, folder)).toEqual(
+    COMMITTED.slice(COMMITTED.indexOf("0023_plan")),
+  );
+
+  expect(opened.db.values(sql`SELECT id, desired_retention FROM deck`)).toEqual([["d", 85]]);
+  expect(opened.db.values(sql`SELECT id FROM card`)).toEqual([["c"]]);
+  expect(opened.db.values(sql`SELECT id FROM plan`)).toEqual([]);
+  const plan = (id: string, minutes: number) =>
+    opened.db.run(
+      sql`INSERT INTO plan (id, user_id, deck_id, deadline, daily_minutes, created_at, updated_at) VALUES (${id}, 'u', 'd', '2026-12-12', ${minutes}, 0, 0)`,
+    );
+  // Whole minutes from 5 to 600, and one Plan a Deck.
+  expect(() => plan("p0", 4)).toThrow();
+  expect(() => plan("p0", 601)).toThrow();
+  plan("p1", 30);
+  expect(() => plan("p2", 30)).toThrow();
+  // A Deck's Removal takes its Plan with it.
+  opened.db.run(sql`DELETE FROM card`);
+  opened.db.run(sql`DELETE FROM deck`);
+  expect(opened.db.values(sql`SELECT id FROM plan`)).toEqual([]);
+});
+
+test("0024_recommended_retention keeps every Tuning log row, with no Recommended retention", () => {
+  const journalPath = join(folder, "meta", "_journal.json");
+  const full = readFileSync(journalPath, "utf8");
+  const journal = z
+    .looseObject({ entries: z.array(z.looseObject({ tag: z.string() })) })
+    .parse(JSON.parse(full));
+  writeFileSync(
+    journalPath,
+    JSON.stringify({
+      ...journal,
+      entries: journal.entries.filter((entry) => entry.tag < "0024_recommended_retention"),
+    }),
+  );
+  applyMigrations(opened.db, folder);
+  opened.db.run(
+    sql`INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES ('u', 'n', 'u@x.y', 1, 0, 0)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO parameter_tuning (id, user_id, ran_at, trigger, review_count, outcome, parameters) VALUES ('t', 'u', 0, 'automatic', 200, 'applied', '[1]')`,
+  );
+
+  writeFileSync(journalPath, full);
+  expect(applyMigrations(opened.db, folder)).toEqual(["0024_recommended_retention"]);
+
+  expect(
+    opened.db.values(
+      sql`SELECT id, outcome, parameters, recommended_retention FROM parameter_tuning`,
+    ),
+  ).toEqual([["t", "applied", "[1]", null]]);
 });
 
 test("a Card's newest Review, its Progress resets since and the next place in the Write order are found through an index, not the User's whole history", () => {

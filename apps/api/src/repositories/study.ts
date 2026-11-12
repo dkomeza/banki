@@ -10,7 +10,7 @@ import {
   studyDayBounds,
   studyDayOf,
 } from "@banki/shared";
-import { and, eq, gte, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { and, eq, isNull, lt, ne, or } from "drizzle-orm";
 import type { z } from "zod";
 import type { Queryable } from "../db/database";
 import { card, review, user_settings } from "../db/schema";
@@ -25,6 +25,7 @@ import {
   fromStored,
   lastReviewOf,
   schedulingSettingsOf,
+  timedReviewsSince,
 } from "./reviews";
 
 export type StudyRepository = ReturnType<typeof createStudyRepository>;
@@ -67,7 +68,7 @@ export function createStudyRepository(db: Queryable) {
     ): StudyNextResponse | "not_found" {
       return db.transaction((tx) => {
         if (!isLiveDeck(tx, userId, deckId)) return "not_found";
-        const { studyDay } = schedulingSettingsOf(tx, userId);
+        const { studyDay, parameters } = schedulingSettingsOf(tx, userId);
         const tomorrow = studyDayBounds(studyDayOf(now, studyDay), studyDay).end;
         // Reviews not yet due never count, so they stay in the database.
         const cards = tx
@@ -88,6 +89,7 @@ export function createStudyRepository(db: Queryable) {
           queueLimitsOf(tx, userId),
           now,
           tomorrow,
+          parameters,
         );
         if (picked === null) return { next: null, newHeld };
         const row = cards.find((c) => c.id === picked.id);
@@ -98,6 +100,7 @@ export function createStudyRepository(db: Queryable) {
           now,
           desiredRetention: deckRetentionOf(tx, userId, deckId),
           studyDay,
+          parameters,
         });
         return {
           next: {
@@ -131,10 +134,12 @@ export function createStudyRepository(db: Queryable) {
           .where(and(eq(card.userId, userId), eq(card.id, cardId)))
           .get();
         if (memory === undefined) return "not_found";
+        const { studyDay, parameters } = schedulingSettingsOf(tx, userId);
         return previewIntervals(cardId, memory, {
           now,
           desiredRetention: deckRetentionOf(tx, userId, found.deckId),
-          studyDay: schedulingSettingsOf(tx, userId).studyDay,
+          studyDay,
+          parameters,
         });
       });
     },
@@ -183,17 +188,7 @@ export function createStudyRepository(db: Queryable) {
         const nextDay = [...later.keys()].toSorted()[0];
 
         const since = studyDayBounds(addStudyDays(today, -(ESTIMATE_WINDOW_DAYS - 1)), studyDay);
-        const reviews = tx
-          .select({
-            cardId: review.cardId,
-            reviewedAt: review.reviewedAt,
-            durationMs: review.durationMs,
-            wasNew: sql<number>`json_extract(${review.cardBefore}, '$.state') = 'new'`,
-          })
-          .from(review)
-          .where(and(eq(review.userId, userId), gte(review.reviewedAt, since.start)))
-          .all()
-          .map((r) => ({ ...r, wasNew: Boolean(r.wasNew) }));
+        const reviews = timedReviewsSince(tx, userId, since.start);
 
         return {
           due,
@@ -208,7 +203,7 @@ export function createStudyRepository(db: Queryable) {
     /**
      * Undoes the User's Review `reviewId` (ADR-0025): deletes it and puts its
      * Card's memory state back to the one it kept from before it, rescheduled
-     * when the Deck's Desired retention changed since (`restore`). Answers the
+     * when the Deck's Desired retention or the Parameters changed since (`restore`). Answers the
      * Card, its restored schedule and each Rating's Interval preview at `now`.
      * "not_newest" when the Card has a newer Review;
      * "before_progress_reset" when, its newest, it was given before the Card's
@@ -242,10 +237,12 @@ export function createStudyRepository(db: Queryable) {
           tx.delete(review)
             .where(and(eq(review.userId, userId), eq(review.id, reviewId)))
             .run();
+          const { studyDay, parameters } = schedulingSettingsOf(tx, userId);
           const settings = {
             now,
             desiredRetention: deckRetentionOf(tx, userId, found.deckId),
-            studyDay: schedulingSettingsOf(tx, userId).studyDay,
+            studyDay,
+            parameters,
           };
           const restored = restore(
             undone.cardId,

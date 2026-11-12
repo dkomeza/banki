@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { DesiredRetention, REVIEW_CAP_MS, ReviewRequest } from "./scheduling";
+import {
+  DesiredRetention,
+  REVIEW_CAP_MS,
+  REVIEW_MODEL_MAX_LENGTH,
+  ReviewRequest,
+  ReviewResponse,
+} from "./scheduling";
 
 describe("DesiredRetention", () => {
   test.each([70, 90, 97])("takes %d", (value) => {
@@ -34,5 +40,65 @@ describe("ReviewRequest", () => {
     { rating: "good", durationMs: 1, kind: "graded" },
   ])("refuses %j", (body) => {
     expect(ReviewRequest.safeParse(body).success).toBe(false);
+  });
+
+  test("takes a suggested Rating with the Model that suggested it", () => {
+    const body = {
+      rating: "hard" as const,
+      durationMs: 5,
+      suggestedRating: "good" as const,
+      model: "anthropic/claude-haiku-5.5",
+    };
+    expect(ReviewRequest.parse(body)).toEqual(body);
+  });
+
+  test.each(["x", "not/a-curated-model", "m".repeat(REVIEW_MODEL_MAX_LENGTH)])(
+    "takes any Model ID up to 200 characters: %s",
+    (model) => {
+      const body = { rating: "good", durationMs: 1, suggestedRating: "good", model };
+      expect(ReviewRequest.parse(body).model).toBe(model);
+    },
+  );
+
+  test.each([
+    { suggestedRating: "good" },
+    { model: "anthropic/claude-haiku-5.5" },
+    { suggestedRating: "Good", model: "anthropic/claude-haiku-5.5" },
+    { suggestedRating: null, model: "anthropic/claude-haiku-5.5" },
+    { suggestedRating: "good", model: "" },
+    { suggestedRating: "good", model: "m".repeat(REVIEW_MODEL_MAX_LENGTH + 1) },
+    { suggestedRating: "good", model: null },
+  ])("refuses a suggestion that isn't whole and valid: %j", (suggestion) => {
+    expect(ReviewRequest.safeParse({ rating: "good", durationMs: 1, ...suggestion }).success).toBe(
+      false,
+    );
+  });
+});
+
+describe("ReviewResponse", () => {
+  const review = {
+    id: "r",
+    cardId: "c",
+    deckId: "d",
+    reviewedAt: "2026-11-09T12:00:00.000Z",
+    rating: "good" as const,
+    durationMs: 1,
+  };
+
+  test("takes a graded Review with its suggestion, and a self-rated one with neither", () => {
+    const graded = {
+      ...review,
+      kind: "graded" as const,
+      suggestedRating: "hard" as const,
+      model: "anthropic/claude-haiku-5.5",
+    };
+    const selfRated = {
+      ...review,
+      kind: "self-rated" as const,
+      suggestedRating: null,
+      model: null,
+    };
+    expect(ReviewResponse.parse(graded)).toEqual(graded);
+    expect(ReviewResponse.parse(selfRated)).toEqual(selfRated);
   });
 });

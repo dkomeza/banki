@@ -3,6 +3,7 @@ import type { Rating } from "@banki/shared";
 import { DefaultScheduler, type Grade } from "ts-fsrs";
 import {
   type MemoryState,
+  DEFAULT_PARAMETERS,
   NEW_MEMORY_STATE,
   dueOnStudyDay,
   previewIntervals,
@@ -29,7 +30,12 @@ function history(
   let last: { reviewedAt: Date; rating: Rating; before: MemoryState } | undefined;
   for (const rating of ratings) {
     const before = memory;
-    memory = rate(cardId, before, rating, { now, desiredRetention: 90, studyDay });
+    memory = rate(cardId, before, rating, {
+      now,
+      desiredRetention: 90,
+      studyDay,
+      parameters: DEFAULT_PARAMETERS,
+    });
     last = { reviewedAt: now, rating, before };
     now = memory.dueAt ?? now;
   }
@@ -40,7 +46,7 @@ function history(
 describe("the scheduler", () => {
   test("is ts-fsrs's FSRS-6 default scheduler, with fuzz on", async () => {
     const preset = await DefaultScheduler({ version: "FSRS-6", enableFuzz: true });
-    const ours = schedulerConfig(90);
+    const ours = schedulerConfig(90, DEFAULT_PARAMETERS);
 
     expect(ours.weights).toEqual([...preset.config.weights]);
     expect([...preset.config.learningSteps]).toEqual(ours.learningSteps);
@@ -56,7 +62,12 @@ describe("the scheduler", () => {
     const grades: Record<Rating, Grade> = { again: 1, hard: 2, good: 3, easy: 4 };
     for (const rating of ["good", "good", "good", "again", "good", "easy", "hard"] as const) {
       card = preset.review({ card, grade: grades[rating], now }).card;
-      memory = rate("c1", memory, rating, { now, desiredRetention: 90, studyDay: UTC4 });
+      memory = rate("c1", memory, rating, {
+        now,
+        desiredRetention: 90,
+        studyDay: UTC4,
+        parameters: DEFAULT_PARAMETERS,
+      });
       expect(memory.scheduledDays).toBe(card.scheduledDays);
       expect(memory.stability).toBe(card.stability);
       expect(memory.difficulty).toBe(card.difficulty);
@@ -68,7 +79,7 @@ describe("the scheduler", () => {
 describe("rate", () => {
   test("a new Card is new until its first Review, then in its learning steps: 1 min, then 10 min", () => {
     const now = at("2026-05-12T10:00:00Z");
-    const settings = { now, desiredRetention: 90, studyDay: UTC4 };
+    const settings = { now, desiredRetention: 90, studyDay: UTC4, parameters: DEFAULT_PARAMETERS };
 
     const again = rate("c1", NEW_MEMORY_STATE, "again", settings);
     expect(again.state).toBe("learning");
@@ -86,7 +97,12 @@ describe("rate", () => {
     expect(memory.state).toBe("review");
     const now = memory.dueAt ?? at("2026-05-20T10:00:00Z");
 
-    const lapsed = rate("c1", memory, "again", { now, desiredRetention: 90, studyDay: UTC4 });
+    const lapsed = rate("c1", memory, "again", {
+      now,
+      desiredRetention: 90,
+      studyDay: UTC4,
+      parameters: DEFAULT_PARAMETERS,
+    });
 
     expect(lapsed.state).toBe("relearning");
     expect(lapsed.lapses).toBe(1);
@@ -99,6 +115,7 @@ describe("rate", () => {
       now: at("2026-05-12T21:20:00Z"),
       desiredRetention: 90,
       studyDay: WARSAW,
+      parameters: DEFAULT_PARAMETERS,
     });
     const reviewedAt = at("2026-05-12T21:30:00Z");
 
@@ -106,6 +123,7 @@ describe("rate", () => {
       now: reviewedAt,
       desiredRetention: 90,
       studyDay: WARSAW,
+      parameters: DEFAULT_PARAMETERS,
     });
 
     expect(graduated.state).toBe("review");
@@ -125,7 +143,7 @@ describe("rate", () => {
   test("the same Card from the same state gets the same fuzzed interval whenever it is rated", () => {
     const { memory } = history("c1", ["good", "good", "good", "good"], at("2026-05-01T10:00:00Z"));
     const due = memory.dueAt ?? at("2026-06-01T10:00:00Z");
-    const settings = { desiredRetention: 90, studyDay: UTC4 };
+    const settings = { desiredRetention: 90, studyDay: UTC4, parameters: DEFAULT_PARAMETERS };
 
     const first = rate("c1", memory, "good", { ...settings, now: due });
     const later = rate("c1", memory, "good", { ...settings, now: new Date(due.getTime() + 7_000) });
@@ -140,8 +158,12 @@ describe("rate", () => {
       Array.from({ length: 20 }, (_, i) => {
         const { memory } = history("x", ["good", "good", "good", "good"], start);
         const now = memory.dueAt ?? start;
-        return rate(`card-${i}`, memory, "good", { now, desiredRetention: 90, studyDay: UTC4 })
-          .scheduledDays;
+        return rate(`card-${i}`, memory, "good", {
+          now,
+          desiredRetention: 90,
+          studyDay: UTC4,
+          parameters: DEFAULT_PARAMETERS,
+        }).scheduledDays;
       }),
     );
 
@@ -151,14 +173,28 @@ describe("rate", () => {
   test("a lower Desired retention schedules further out", () => {
     const { memory } = history("c1", ["good", "good", "good"], at("2026-05-01T10:00:00Z"));
     const now = memory.dueAt ?? at("2026-06-01T10:00:00Z");
-    const at70 = rate("c1", memory, "good", { now, desiredRetention: 70, studyDay: UTC4 });
-    const at97 = rate("c1", memory, "good", { now, desiredRetention: 97, studyDay: UTC4 });
+    const at70 = rate("c1", memory, "good", {
+      now,
+      desiredRetention: 70,
+      studyDay: UTC4,
+      parameters: DEFAULT_PARAMETERS,
+    });
+    const at97 = rate("c1", memory, "good", {
+      now,
+      desiredRetention: 97,
+      studyDay: UTC4,
+      parameters: DEFAULT_PARAMETERS,
+    });
 
     expect(at70.scheduledDays).toBeGreaterThan(at97.scheduledDays);
   });
 
   test("refuses a Desired retention outside 70–97", () => {
-    const settings = { now: at("2026-05-01T10:00:00Z"), studyDay: UTC4 };
+    const settings = {
+      now: at("2026-05-01T10:00:00Z"),
+      studyDay: UTC4,
+      parameters: DEFAULT_PARAMETERS,
+    };
     expect(() =>
       rate("c1", NEW_MEMORY_STATE, "good", { ...settings, desiredRetention: 69 }),
     ).toThrow();
@@ -175,11 +211,17 @@ describe("reschedule", () => {
     const { memory, last } = history("c1", ["good", "good", "good"], start);
     const now = last.reviewedAt;
 
-    const at80 = reschedule("c1", memory, last, { now, desiredRetention: 80, studyDay: UTC4 });
+    const at80 = reschedule("c1", memory, last, {
+      now,
+      desiredRetention: 80,
+      studyDay: UTC4,
+      parameters: DEFAULT_PARAMETERS,
+    });
     const direct = rate("c1", last.before, last.rating, {
       now: last.reviewedAt,
       desiredRetention: 80,
       studyDay: UTC4,
+      parameters: DEFAULT_PARAMETERS,
     });
 
     expect(at80.scheduledDays).toBe(direct.scheduledDays);
@@ -193,7 +235,7 @@ describe("reschedule", () => {
 
   test("going back to the retention it had puts the due date back", () => {
     const { memory, last } = history("c1", ["good", "good", "good"], start);
-    const settings = { now: last.reviewedAt, studyDay: UTC4 };
+    const settings = { now: last.reviewedAt, studyDay: UTC4, parameters: DEFAULT_PARAMETERS };
 
     const moved = reschedule("c1", memory, last, { ...settings, desiredRetention: 75 });
     const back = reschedule("c1", moved, last, { ...settings, desiredRetention: 90 });
@@ -206,7 +248,12 @@ describe("reschedule", () => {
     const { memory, last } = history("c1", ["good", "good", "good"], start);
     const now = at("2027-01-01T12:00:00Z");
 
-    const at97 = reschedule("c1", memory, last, { now, desiredRetention: 97, studyDay: UTC4 });
+    const at97 = reschedule("c1", memory, last, {
+      now,
+      desiredRetention: 97,
+      studyDay: UTC4,
+      parameters: DEFAULT_PARAMETERS,
+    });
 
     expect(at97.dueAt).toEqual(now);
   });
@@ -216,7 +263,12 @@ describe("reschedule", () => {
     expect(memory.state).toBe("learning");
 
     expect(
-      reschedule("c1", memory, last, { now: start, desiredRetention: 70, studyDay: UTC4 }),
+      reschedule("c1", memory, last, {
+        now: start,
+        desiredRetention: 70,
+        studyDay: UTC4,
+        parameters: DEFAULT_PARAMETERS,
+      }),
     ).toBe(memory);
   });
 });
@@ -226,7 +278,12 @@ describe("previewIntervals", () => {
 
   test("previews each Rating as exactly what it gives", () => {
     const { memory } = history("c1", ["good", "good", "good"], start);
-    const settings = { now: memory.dueAt ?? start, desiredRetention: 90, studyDay: UTC4 };
+    const settings = {
+      now: memory.dueAt ?? start,
+      desiredRetention: 90,
+      studyDay: UTC4,
+      parameters: DEFAULT_PARAMETERS,
+    };
 
     const previews = previewIntervals("c1", memory, settings);
 
@@ -247,6 +304,7 @@ describe("previewIntervals", () => {
       now: start,
       desiredRetention: 90,
       studyDay: UTC4,
+      parameters: DEFAULT_PARAMETERS,
     });
 
     expect(previews.again).toEqual({
@@ -271,14 +329,19 @@ describe("restore", () => {
   test("puts back the state the undone Review kept, with no change of retention", () => {
     const { before, previous, now } = undoable();
 
-    expect(restore("c1", before, previous, { now, desiredRetention: 90, studyDay: UTC4 })).toEqual(
-      before,
-    );
+    expect(
+      restore("c1", before, previous, {
+        now,
+        desiredRetention: 90,
+        studyDay: UTC4,
+        parameters: DEFAULT_PARAMETERS,
+      }),
+    ).toEqual(before);
   });
 
   test("reschedules it at the current retention when that changed since", () => {
     const { before, previous, now } = undoable();
-    const settings = { now, desiredRetention: 80, studyDay: UTC4 };
+    const settings = { now, desiredRetention: 80, studyDay: UTC4, parameters: DEFAULT_PARAMETERS };
 
     const restored = restore("c1", before, previous, settings);
 
@@ -288,14 +351,24 @@ describe("restore", () => {
 
   test("a state that was already rescheduled for the current retention stays as it is", () => {
     const { before, previous, now } = undoable();
-    const at80 = { now: previous.reviewedAt, desiredRetention: 80, studyDay: UTC4 };
+    const at80 = {
+      now: previous.reviewedAt,
+      desiredRetention: 80,
+      studyDay: UTC4,
+      parameters: DEFAULT_PARAMETERS,
+    };
     const moved = reschedule("c1", before, previous, at80);
 
     expect(restore("c1", moved, previous, { ...at80, now })).toEqual(moved);
   });
 
   test("a new Card, or one in its learning steps, comes back as it was", () => {
-    const settings = { now: start, desiredRetention: 80, studyDay: UTC4 };
+    const settings = {
+      now: start,
+      desiredRetention: 80,
+      studyDay: UTC4,
+      parameters: DEFAULT_PARAMETERS,
+    };
     expect(restore("c1", NEW_MEMORY_STATE, undefined, settings)).toEqual(NEW_MEMORY_STATE);
     const { memory, last } = history("c1", ["good"], start);
     expect(restore("c1", memory, last, settings)).toEqual(memory);

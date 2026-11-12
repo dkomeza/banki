@@ -8,7 +8,8 @@ import { cn } from "@/lib/utils";
 /**
  * Asks before a Deck is deleted, naming it, or a Folder, given its own
  * `title`, `description` and `confirmLabel`, and says it can be restored from
- * Recently deleted. `onConfirm` deletes it,
+ * Recently deleted; or, not `restorable`, asks before something Recently
+ * deleted doesn't keep is removed, such as a Plan. `onConfirm` deletes it,
  * answering a message when that failed, which shows in the dialog.
  */
 export function ConfirmDelete({
@@ -18,6 +19,7 @@ export function ConfirmDelete({
   title = "Delete this deck?",
   description,
   confirmLabel = "Delete deck",
+  restorable = true,
   onConfirm,
 }: {
   open: boolean;
@@ -26,6 +28,7 @@ export function ConfirmDelete({
   title?: string;
   description?: ReactNode;
   confirmLabel?: string;
+  restorable?: boolean;
   onConfirm: () => Promise<string | undefined>;
 }) {
   const [deleting, setDeleting] = useState(false);
@@ -62,8 +65,8 @@ export function ConfirmDelete({
                 </span>{" "}
                 and its cards will be deleted.
               </>
-            )}{" "}
-            You can restore it from Recently deleted for 30 days.
+            )}
+            {restorable && " You can restore it from Recently deleted for 30 days."}
           </AlertDialog.Description>
           {error !== undefined && <FormError>{error}</FormError>}
           <div className="mt-2 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
@@ -77,7 +80,7 @@ export function ConfirmDelete({
               disabled={deleting}
               onClick={() => void confirm()}
             >
-              {deleting ? "Deleting…" : confirmLabel}
+              {deleting ? (restorable ? "Deleting…" : "Removing…") : confirmLabel}
             </Button>
           </div>
         </AlertDialog.Popup>
