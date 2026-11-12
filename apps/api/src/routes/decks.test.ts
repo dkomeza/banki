@@ -3,6 +3,7 @@ import {
   ApiError,
   DeckListResponse,
   DeckResponse,
+  DEFAULT_CARD_PROMPT_OPTIONS,
   DeleteResponse,
   FolderResponse,
   NameClashError,
@@ -484,5 +485,124 @@ describe("A Deck's own Answer mode", () => {
       await (await get(app, `/api/decks/${created.id}`, cookie)).json(),
     );
     expect(read.answerMode).toBeNull();
+  });
+});
+
+describe("A Deck's options for the Card prompt", () => {
+  const FILLED = {
+    language: "Polish",
+    count: 40,
+    difficulty: "advanced",
+    instructions: "Focus on the convergence tests.\n\nSkip the history.",
+  } as const;
+
+  test("are the defaults for a new Deck", async () => {
+    const { app, cookie } = await signedIn();
+
+    expect((await createDeck(app, cookie, { name: "Calculus 2" })).cardPrompt).toEqual(
+      DEFAULT_CARD_PROMPT_OPTIONS,
+    );
+  });
+
+  test("PATCH sets them, every route answers them, and another Deck keeps its own", async () => {
+    const { app, cookie } = await signedIn();
+    const created = await createDeck(app, cookie, { name: "Calculus 2" });
+    const other = await createDeck(app, cookie, { name: "Linear algebra" });
+
+    const res = await send(
+      app,
+      "PATCH",
+      `/api/decks/${created.id}`,
+      { cardPrompt: FILLED },
+      cookie,
+    );
+    expect(res.status).toBe(200);
+    expect(DeckResponse.parse(await res.json())).toEqual({ ...created, cardPrompt: FILLED });
+    const read = DeckResponse.parse(
+      await (await get(app, `/api/decks/${created.id}`, cookie)).json(),
+    );
+    expect(read.cardPrompt).toEqual(FILLED);
+    const listed = DeckListResponse.parse(await (await get(app, "/api/decks", cookie)).json());
+    expect(listed.find((deck) => deck.id === created.id)?.cardPrompt).toEqual(FILLED);
+    expect(listed.find((deck) => deck.id === other.id)?.cardPrompt).toEqual(
+      DEFAULT_CARD_PROMPT_OPTIONS,
+    );
+
+    const back = await send(
+      app,
+      "PATCH",
+      `/api/decks/${created.id}`,
+      { cardPrompt: DEFAULT_CARD_PROMPT_OPTIONS },
+      cookie,
+    );
+    expect(DeckResponse.parse(await back.json()).cardPrompt).toEqual(DEFAULT_CARD_PROMPT_OPTIONS);
+  });
+
+  test("trims the language, and keeps the instructions as typed", async () => {
+    const { app, cookie } = await signedIn();
+    const created = await createDeck(app, cookie, { name: "Calculus 2" });
+
+    const res = await send(
+      app,
+      "PATCH",
+      `/api/decks/${created.id}`,
+      { cardPrompt: { ...FILLED, language: "  Polish ", instructions: "  As typed \n" } },
+      cookie,
+    );
+
+    expect(DeckResponse.parse(await res.json()).cardPrompt).toEqual({
+      ...FILLED,
+      instructions: "  As typed \n",
+    });
+  });
+
+  test("answers 400 invalid_request for options out of their limits, and keeps the ones it had", async () => {
+    const { app, cookie } = await signedIn();
+    const created = await createDeck(app, cookie, { name: "Calculus 2" });
+    await send(app, "PATCH", `/api/decks/${created.id}`, { cardPrompt: FILLED }, cookie);
+
+    for (const cardPrompt of [
+      { ...FILLED, language: "x".repeat(51) },
+      { ...FILLED, count: 0 },
+      { ...FILLED, count: 1001 },
+      { ...FILLED, count: 2.5 },
+      { ...FILLED, count: "40" },
+      { ...FILLED, difficulty: "expert" },
+      { ...FILLED, instructions: "y".repeat(2001) },
+      { ...FILLED, topic: "Series" },
+      { language: "Polish" },
+      null,
+      "Polish",
+    ]) {
+      const res = await send(app, "PATCH", `/api/decks/${created.id}`, { cardPrompt }, cookie);
+      expect(res.status).toBe(400);
+      expect(await codeOf(res)).toBe("invalid_request");
+    }
+    const read = DeckResponse.parse(
+      await (await get(app, `/api/decks/${created.id}`, cookie)).json(),
+    );
+    expect(read.cardPrompt).toEqual(FILLED);
+  });
+
+  test("takes each option at its limit", async () => {
+    const { app, cookie } = await signedIn();
+    const created = await createDeck(app, cookie, { name: "Calculus 2" });
+    const atLimits = {
+      language: "x".repeat(50),
+      count: 1000,
+      difficulty: "introductory" as const,
+      instructions: "y".repeat(2000),
+    };
+
+    const res = await send(
+      app,
+      "PATCH",
+      `/api/decks/${created.id}`,
+      { cardPrompt: atLimits },
+      cookie,
+    );
+
+    expect(res.status).toBe(200);
+    expect(DeckResponse.parse(await res.json()).cardPrompt).toEqual(atLimits);
   });
 });

@@ -34,6 +34,7 @@ const deck = (id: string, own: Partial<Deck> = {}): Deck => ({
   macros: [],
   answerMode: null,
   plan: null,
+  cardPrompt: { language: "", count: null, difficulty: "intermediate", instructions: "" },
   ...own,
 });
 

@@ -176,6 +176,13 @@
       "when": 1794487847795,
       "tag": "0024_recommended_retention",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1794491887760,
+      "tag": "0025_card_prompt",
+      "breakpoints": true
     }
   ]
 }

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DEFAULT_CARD_PROMPT_OPTIONS } from "@banki/shared";
 import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { z } from "zod";
@@ -66,6 +67,7 @@ const COMMITTED = [
   "0022_import_undo",
   "0023_plan",
   "0024_recommended_retention",
+  "0025_card_prompt",
 ];
 
 /** The tables the committed migrations create. */
@@ -772,13 +774,48 @@ test("0024_recommended_retention keeps every Tuning log row, with no Recommended
   );
 
   writeFileSync(journalPath, full);
-  expect(applyMigrations(opened.db, folder)).toEqual(["0024_recommended_retention"]);
+  expect(applyMigrations(opened.db, folder)).toEqual(
+    COMMITTED.slice(COMMITTED.indexOf("0024_recommended_retention")),
+  );
 
   expect(
     opened.db.values(
       sql`SELECT id, outcome, parameters, recommended_retention FROM parameter_tuning`,
     ),
   ).toEqual([["t", "applied", "[1]", null]]);
+});
+
+test("0025_card_prompt keeps every Deck, each with the default Card prompt options", () => {
+  const journalPath = join(folder, "meta", "_journal.json");
+  const full = readFileSync(journalPath, "utf8");
+  const journal = z
+    .looseObject({ entries: z.array(z.looseObject({ tag: z.string() })) })
+    .parse(JSON.parse(full));
+  writeFileSync(
+    journalPath,
+    JSON.stringify({
+      ...journal,
+      entries: journal.entries.filter((entry) => entry.tag < "0025_card_prompt"),
+    }),
+  );
+  applyMigrations(opened.db, folder);
+  opened.db.run(
+    sql`INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES ('u', 'n', 'u@x.y', 1, 0, 0)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO deck (id, user_id, name, name_key, created_at, updated_at, answer_mode) VALUES ('d', 'u', 'D', 'd', 0, 0, 'write')`,
+  );
+
+  writeFileSync(journalPath, full);
+  expect(applyMigrations(opened.db, folder)).toEqual(
+    COMMITTED.slice(COMMITTED.indexOf("0025_card_prompt")),
+  );
+
+  const [row] = opened.db.values<[string, string, string]>(
+    sql`SELECT id, answer_mode, card_prompt FROM deck`,
+  );
+  expect(row?.slice(0, 2)).toEqual(["d", "write"]);
+  expect(JSON.parse(row?.[2] ?? "")).toEqual(DEFAULT_CARD_PROMPT_OPTIONS);
 });
 
 test("a Card's newest Review, its Progress resets since and the next place in the Write order are found through an index, not the User's whole history", () => {

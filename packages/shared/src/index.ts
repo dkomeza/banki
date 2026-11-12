@@ -91,6 +91,17 @@ export {
   type ParsedCardFile,
   parseCardFile,
 } from "./card-file-parser";
+export {
+  buildCardPrompt,
+  CARD_PROMPT_COUNT_MAX,
+  CARD_PROMPT_DIFFICULTIES,
+  CARD_PROMPT_INSTRUCTIONS_MAX_LENGTH,
+  CARD_PROMPT_LANGUAGE_MAX_LENGTH,
+  CardPromptDifficulty,
+  CardPromptOptions,
+  cardPromptExample,
+  DEFAULT_CARD_PROMPT_OPTIONS,
+} from "./card-prompt";
 export { CARD_EXTENSIONS, type CardNode, cardParser, Formula } from "./card-parser";
 export { ApiError } from "./error";
 export {

@@ -57,8 +57,12 @@ A Card whose Front reads the same as another live Card's in the same Deck, ignor
 _Avoid_: copy, clone, repeat
 
 **Card file**:
-A file in Banki's own versioned JSON format that holds Cards, their Tags and grading notes, and the macros their Formulas use. An import reads one, an export writes one, and the LLM prompt asks for one. It never names a Deck or holds Reviews.
+A file in Banki's own versioned JSON format that holds Cards, their Tags and grading notes, and the macros their Formulas use. An import reads one, an export writes one, and the Card prompt asks for one. It never names a Deck or holds Reviews.
 _Avoid_: deck file, export file, Banki JSON
+
+**Card prompt**:
+The text Banki gives the User to paste into any LLM, with their material, so that it writes a Card file for one Deck: the format and its rules, good flashcard practice, and the Deck's Macros to use. Each Deck keeps its own options for it (card language, number of Cards, difficulty, extra instructions). Banki never sends it anywhere itself.
+_Avoid_: LLM prompt, generation prompt, AI prompt
 
 **Import**:
 One act of bringing the Cards of a Card file into one live Deck, and the Cards it added. It starts unconfirmed, while the User previews the file's Cards and picks which to keep; one never confirmed is gone after 24 hours. Confirming it adds the Cards, skipping Duplicates and invalid Cards, adds the file's Macros the Deck lacks, and keeps a report of what it did. A confirmed Import can be undone while a Card it added is live: the Undo deletes every such Card, wherever it is now, and leaves the Macros and Images it added.
