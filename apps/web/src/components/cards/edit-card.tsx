@@ -4,6 +4,7 @@ import { Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { FormError } from "@/components/auth-card";
 import { CardEditor, useCardForm } from "@/components/cards/card-editor";
+import { CardHistory } from "@/components/cards/card-history";
 import { deleteWithUndo } from "@/components/cards/card-toasts";
 import { useDiscardGuard } from "@/components/cards/discard-guard";
 import { ResetProgress } from "@/components/cards/reset-progress";
@@ -156,6 +157,7 @@ export function EditCard({ deck, card }: { deck: Deck; card: Card }) {
         tags={tags}
         saving={busy}
         onSave={() => void save()}
+        after={<CardHistory cardId={card.id} />}
         beforeFoot={
           <ResetProgress
             card={savingFrom ?? card}
