@@ -1,9 +1,10 @@
-import type { SettingsPatch, SettingsResponse } from "@banki/shared";
+import type { SettingsPatch, SettingsResponse, TuningStatus } from "@banki/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
 import { settingsQueryOptions } from "@/lib/settings";
 import { settingsSaverFor } from "@/lib/settings-store";
+import { tuningQueryOptions } from "@/lib/tuning";
 import { AdvancedCard } from "./advanced-card";
 
 const SETTINGS: SettingsResponse = {
@@ -16,7 +17,17 @@ const SETTINGS: SettingsResponse = {
   newCardBatch: 20,
   learningLimit: 10,
   sessionTimeoutMinutes: 30,
+  answerMode: "self-rate",
   macros: [],
+};
+
+const TUNING: TuningStatus = {
+  parameters: "default",
+  tuned: null,
+  lastAttempt: null,
+  reviewsUntilAutomatic: 200,
+  paused: false,
+  running: false,
 };
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -35,6 +46,7 @@ function clientWith(
     settings: { ...SETTINGS, ...settings },
     issuedAt: 0,
   });
+  queryClient.setQueryData(tuningQueryOptions().queryKey, TUNING);
   const saver = settingsSaverFor(queryClient, { save });
   return { queryClient, saver };
 }

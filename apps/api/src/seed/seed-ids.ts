@@ -21,6 +21,8 @@ export const SEED_IDS = {
    * one left out, Macros added and kept, and an image the zip didn't hold.
    */
   import: "5eed0000-0000-4000-8000-0000000001a1",
+  /** The one Tuning log row: an automatic Tuning that applied FSRS-6's defaults, so Settings shows Scheduling tuned. */
+  tuning: "5eed0000-0000-4000-8000-0000000007a1",
   folders: {
     languages: "5eed0000-0000-4000-8000-0000000000f1",
     maths: "5eed0000-0000-4000-8000-0000000000f2",

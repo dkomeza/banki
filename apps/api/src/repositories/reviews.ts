@@ -12,8 +12,10 @@ import { z } from "zod";
 import type { Queryable } from "../db/database";
 import { card, deck, review, user_settings } from "../db/schema";
 import {
+  DEFAULT_PARAMETERS,
   type LastReview,
   type MemoryState,
+  type Parameters,
   rate,
   reschedule,
   scheduleOf,
@@ -48,7 +50,7 @@ const StoredMemoryState = z.object({
   lastReviewAt: z.iso.datetime().nullable(),
 });
 
-const toStored = (memory: MemoryState): z.infer<typeof StoredMemoryState> => ({
+export const toStored = (memory: MemoryState): z.infer<typeof StoredMemoryState> => ({
   ...memory,
   dueAt: memory.dueAt?.toISOString() ?? null,
   lastReviewAt: memory.lastReviewAt?.toISOString() ?? null,
@@ -63,16 +65,21 @@ export const fromStored = (stored: unknown): MemoryState => {
   };
 };
 
-/** What the User's Study days and Desired retention come from: their Settings, or the defaults. */
+/**
+ * What the User's Study days, Desired retention and Parameters come from:
+ * their Settings, or the defaults. Everything that schedules takes its
+ * Parameters from here.
+ */
 export function schedulingSettingsOf(
   db: Queryable,
   userId: string,
-): { studyDay: StudyDaySettings; desiredRetention: number } {
+): { studyDay: StudyDaySettings; desiredRetention: number; parameters: Parameters } {
   const row = db
     .select({
       timezone: user_settings.timezone,
       dayStartHour: user_settings.dayStartHour,
       desiredRetention: user_settings.desiredRetention,
+      fsrsParameters: user_settings.fsrsParameters,
     })
     .from(user_settings)
     .where(eq(user_settings.userId, userId))
@@ -83,6 +90,7 @@ export function schedulingSettingsOf(
       dayStartHour: row?.dayStartHour ?? DEFAULT_DAY_START_HOUR,
     },
     desiredRetention: row?.desiredRetention ?? DEFAULT_DESIRED_RETENTION,
+    parameters: row?.fsrsParameters ?? DEFAULT_PARAMETERS,
   };
 }
 
@@ -109,7 +117,7 @@ export function rescheduleCards(
   desiredRetention: number,
   now: Date,
 ): void {
-  const { studyDay } = schedulingSettingsOf(db, userId);
+  const { studyDay, parameters } = schedulingSettingsOf(db, userId);
   const rows = db
     .select({ id: card.id, ...MEMORY_COLUMNS })
     .from(card)
@@ -118,7 +126,7 @@ export function rescheduleCards(
   for (const { id, ...current } of rows) {
     const last = lastReviewOf(db, userId, id);
     if (last === undefined) continue;
-    const next = reschedule(id, current, last, { now, desiredRetention, studyDay });
+    const next = reschedule(id, current, last, { now, desiredRetention, studyDay, parameters });
     db.update(card)
       .set({ dueAt: next.dueAt, scheduledDays: next.scheduledDays })
       .where(and(eq(card.userId, userId), eq(card.id, id)))
@@ -162,23 +170,30 @@ export function hasReviews(db: Queryable, userId: string): boolean {
 /**
  * The User's Reviews, and Rating their Cards. Every query is scoped by the
  * User (ADR-0001). A Card is rated only while it is live in a live Deck.
+ * `onRated` hears of each Rating once it has committed: the API starts an
+ * automatic Tuning from it (`TuningRepository.afterRating`).
  */
-export function createReviewRepository(db: Queryable) {
+export function createReviewRepository(
+  db: Queryable,
+  { onRated }: { onRated?: (userId: string) => void } = {},
+) {
   return {
     /**
-     * Records a Rating of the User's Card `cardId` as a self-rated Review, and
-     * reschedules the Card with FSRS at its Deck's Desired retention, all in
-     * one transaction. Answers the Review and the Card's new schedule, or
+     * Records a Rating of the User's Card `cardId` as a Review, graded with
+     * the `suggestedRating` and `model` when given and self-rated otherwise
+     * (ADR-0028), and reschedules the Card with FSRS at its Deck's Desired
+     * retention, alike for both kinds, all in one transaction, under the
+     * User's Parameters. Answers the Review and the Card's new schedule, or
      * "not_found" when it isn't a live Card in a live Deck of the User's.
      * `id` and `now` are for tests.
      */
     rate(
       userId: string,
       cardId: string,
-      { rating, durationMs }: z.output<typeof ReviewRequest>,
+      { rating, durationMs, suggestedRating, model }: z.output<typeof ReviewRequest>,
       { id = randomUUID(), now = new Date() }: { id?: string; now?: Date } = {},
     ): RateCardResponse | "not_found" {
-      return db.transaction(
+      const rated = db.transaction<RateCardResponse | "not_found">(
         (tx) => {
           const found = tx
             .select({ deckId: card.deckId, ...MEMORY_COLUMNS })
@@ -195,12 +210,17 @@ export function createReviewRepository(db: Queryable) {
             )
             .get();
           if (found === undefined) return "not_found";
+          const graded =
+            suggestedRating !== undefined && model !== undefined
+              ? { kind: "graded" as const, suggestedRating, model }
+              : { kind: "self-rated" as const, suggestedRating: null, model: null };
           const { deckId, ...before } = found;
-          const { studyDay } = schedulingSettingsOf(tx, userId);
+          const { studyDay, parameters } = schedulingSettingsOf(tx, userId);
           const after = rate(cardId, before, rating, {
             now,
             desiredRetention: deckRetentionOf(tx, userId, deckId),
             studyDay,
+            parameters,
           });
           tx.insert(review)
             .values({
@@ -210,7 +230,7 @@ export function createReviewRepository(db: Queryable) {
               deckId,
               reviewedAt: now,
               rating,
-              kind: "self-rated",
+              ...graded,
               durationMs,
               cardBefore: toStored(before),
               seq: nextSeq(tx, userId),
@@ -227,7 +247,7 @@ export function createReviewRepository(db: Queryable) {
               deckId,
               reviewedAt: now.toISOString(),
               rating,
-              kind: "self-rated",
+              ...graded,
               durationMs,
             },
             schedule: scheduleOf(after),
@@ -235,6 +255,8 @@ export function createReviewRepository(db: Queryable) {
         },
         { behavior: "immediate" },
       );
+      if (rated !== "not_found") onRated?.(userId);
+      return rated;
     },
   };
 }

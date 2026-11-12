@@ -175,7 +175,9 @@ describe("POST /api/cards/:cardId/grade", () => {
     const res = await gradeCard(app, cookie, card.id, "2x");
 
     expect(res.status).toBe(200);
-    expect(GradeResponse.parse(await res.json())).toEqual(GradeResponse.parse(GOOD));
+    expect(GradeResponse.parse(await res.json())).toEqual(
+      GradeResponse.parse({ ...GOOD, model: "anthropic/claude-haiku-5.5" }),
+    );
     expect(stub.chats).toHaveLength(1);
     expect(everything()).toEqual(before);
   });
@@ -470,6 +472,24 @@ describe("POST /api/cards/:cardId/grade", () => {
       expect(calls).toBe(1);
       expect(waits).toHaveLength(1);
     });
+  });
+
+  test("names the curated Model it asked, not the one OpenRouter's answer names", async () => {
+    const stub = openRouter(() =>
+      Response.json({
+        id: "gen-1",
+        model: "openai/gpt-6-luna-20261101",
+        choices: [{ message: { role: "assistant", content: JSON.stringify(GOOD) } }],
+      }),
+    );
+    const { app, cookie } = await signedIn(stub);
+    await send(app, "PATCH", "/api/settings", { model: "openai/gpt-6-luna" }, cookie);
+    const { card } = await aCard(app, cookie);
+
+    const res = await gradeCard(app, cookie, card.id, "2x");
+
+    expect(res.status).toBe(200);
+    expect(GradeResponse.parse(await res.json()).model).toBe("openai/gpt-6-luna");
   });
 
   test("asks the User's Model, for strict structured output from providers that honour it, at temperature 0 if it takes one", async () => {

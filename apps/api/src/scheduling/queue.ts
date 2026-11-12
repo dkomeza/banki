@@ -1,5 +1,5 @@
 import type { CardState, QueueKind } from "@banki/shared";
-import { predictedRecall } from "./fsrs";
+import { type Parameters, predictedRecall } from "./fsrs";
 
 // The Queue (CONTEXT.md): which of a Deck's Cards a Session shows next. It is
 // stateless: each answer is worked out afresh from the Cards' state, `now`
@@ -73,7 +73,7 @@ function earliestDue(learning: QueueCard[], after: string | undefined): QueueCar
  * `now`.
  *
  * 2. Otherwise a due review or a new Card: due reviews lowest Predicted recall
- *    first (then the earlier due, then the ID), with the new Cards, in the
+ *    (under `parameters`) first (then the earlier due, then the ID), with the new Cards, in the
  *    order they were written, at evenly spaced, centered positions among
  *    them: new Card `k` of `n` in `t` is at position `⌊(k+½)·t/n⌋`, where `t`
  *    and `n` count those the Session has shown too, and of the new Cards left
@@ -88,6 +88,7 @@ export function nextInQueue(
   { newCardBatch, learningLimit }: QueueLimits,
   now: Date,
   nextDayStart: Date,
+  parameters: Parameters,
 ): QueueAnswer {
   const learning = cards.filter((c) => isLearning(c.state) && c.dueAt !== null);
   const reviews = cards.filter(
@@ -116,7 +117,7 @@ export function nextInQueue(
       const first = fresh.toSorted(byThenId((c) => c.createdAt.getTime()))[0];
       if (first !== undefined) return shows(first, "new");
     }
-    const recall = new Map(reviews.map((c) => [c.id, predictedRecall(c, now)]));
+    const recall = new Map(reviews.map((c) => [c.id, predictedRecall(c, now, parameters)]));
     const mostAtRisk = reviews.toSorted(
       (a, b) =>
         (recall.get(a.id) ?? 0) - (recall.get(b.id) ?? 0) ||

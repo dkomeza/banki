@@ -44,6 +44,7 @@ const SETTINGS: SettingsResponse = {
   newCardBatch: 20,
   learningLimit: 10,
   sessionTimeoutMinutes: 30,
+  answerMode: "self-rate",
   macros: [],
 };
 
@@ -79,6 +80,7 @@ const GRADED = {
   feedback: "Close: the **constant** is missing.",
   missing: [],
   mistakes: [],
+  model: "anthropic/claude-haiku-5.5",
 };
 
 const encoder = new TextEncoder();
@@ -160,6 +162,8 @@ beforeEach(() => {
             reviewedAt: "2026-05-01T09:00:00.000Z",
             rating: "hard",
             kind: "self-rated",
+            suggestedRating: null,
+            model: null,
             durationMs: 0,
           },
           schedule,

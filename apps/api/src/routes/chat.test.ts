@@ -111,6 +111,7 @@ const GRADE: GradeResponse = {
   feedback: "Close: the factor **2** is missing.",
   missing: [{ from: 0, to: 1 }],
   mistakes: [{ from: 0, to: 1, note: "Not $x$." }],
+  model: "anthropic/claude-haiku-5.5",
 };
 
 /** A chat body: the Written answer "x", its grade, and one question. */

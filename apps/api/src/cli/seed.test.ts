@@ -7,6 +7,7 @@ import {
   ImportReportResponse,
   CardResponse,
   DeckListResponse,
+  DEFAULT_MODEL_ID,
   DeckResponse,
   DeletionListResponse,
   FolderListResponse,
@@ -15,6 +16,8 @@ import {
   SettingsResponse,
   StudyNextResponse,
   TagListResponse,
+  TUNING_REVIEW_INTERVAL,
+  TuningStatus,
 } from "@banki/shared";
 import { SEED_IDS } from "../seed/seed-ids";
 import { EMAIL, ORIGIN, PASSWORD, bootApps, cookiesFrom, get, signIn } from "../testing/app";
@@ -33,6 +36,7 @@ const UNTOUCHED_DEFAULTS = {
   learningLimit: 10,
   sessionTimeoutMinutes: 30,
   macros: [] as { name: string; definition: string }[],
+  answerMode: "self-rate",
 } as const;
 
 /** Settings' Macros as the Seed data writes them. */
@@ -137,7 +141,7 @@ describe("banki seed's Macros", () => {
     expect(SettingsResponse.parse(await res.json()).macros).toEqual(mine);
   });
 
-  test("makes Calculus 2 write-and-grade, and leaves the other Decks following Settings", async () => {
+  test("makes Calculus 2 write-and-grade, and leaves the other Decks following Settings' self-rate", async () => {
     await setup();
     await seed();
 
@@ -151,6 +155,8 @@ describe("banki seed's Macros", () => {
       [SEED_IDS.decks.chemistry]: null,
       [SEED_IDS.decks.calculus10]: null,
     });
+    const settings = await get(app, "/api/settings", cookie);
+    expect(SettingsResponse.parse(await settings.json()).answerMode).toBe("self-rate");
   });
 
   test("gives Calculus 2 its own \\d and an \\eps over Settings', and Cards that use them", async () => {
@@ -504,6 +510,37 @@ describe("banki seed's Reviews", () => {
     expect(next?.schedule.lapses).toBe(1);
   });
 
+  test("hold one graded Review that kept the suggestion and one that changed it, both with the default Model", async () => {
+    await setup();
+    await seed();
+
+    const sqlite = new SQLite(join(dataDir(), "banki.db"), { readonly: true });
+    const graded = sqlite
+      .query<
+        {
+          card_id: string;
+          rating: string;
+          suggested_rating: string;
+          model: string;
+        },
+        []
+      >(
+        "SELECT card_id, rating, suggested_rating, model FROM review WHERE kind = 'graded' ORDER BY seq",
+      )
+      .all();
+    sqlite.close();
+
+    expect(graded).toEqual([
+      { card_id: SEED_IDS.card, rating: "good", suggested_rating: "good", model: DEFAULT_MODEL_ID },
+      {
+        card_id: SEED_IDS.cards.spanish[0],
+        rating: "again",
+        suggested_rating: "hard",
+        model: DEFAULT_MODEL_ID,
+      },
+    ]);
+  });
+
   test("take their places in the Write order oldest first", async () => {
     await setup();
     await seed();
@@ -567,5 +604,41 @@ describe("banki seed's Deletions", () => {
       renamed: true,
     });
     expect((await restore(D.termin)).status).toBe(409);
+  });
+});
+
+describe("banki seed's Tuning", () => {
+  test("is one automatic Tuning that applied, after the Reviews, so Settings shows the tuned state", async () => {
+    await setup();
+    await seed({ BANKI_SEED_NOW: "2026-10-26T12:00:00.000Z" });
+
+    const { app } = boot();
+    const cookie = cookiesFrom(await signIn(app));
+    const status = TuningStatus.parse(await (await get(app, "/api/tuning", cookie)).json());
+
+    const sqlite = new SQLite(join(dataDir(), "banki.db"), { readonly: true });
+    const reviews = sqlite.query<{ n: number }, []>("SELECT count(*) AS n FROM review").get()?.n;
+    sqlite.close();
+    expect(status).toEqual({
+      parameters: "tuned",
+      tuned: { at: "2026-10-26T11:00:00.000Z", reviews: reviews ?? -1 },
+      lastAttempt: { at: "2026-10-26T11:00:00.000Z", trigger: "automatic", outcome: "applied" },
+      reviewsUntilAutomatic: TUNING_REVIEW_INTERVAL,
+      paused: false,
+      running: false,
+    });
+  });
+
+  test("refuses to seed a User who has a Tuning log row", async () => {
+    await setup();
+    const { app, close } = boot();
+    const cookie = cookiesFrom(await signIn(app));
+    await app.request("/api/tuning", { method: "POST", headers: { origin: ORIGIN, cookie } });
+    close();
+
+    const result = await seed();
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("The User already has content, so nothing was seeded.");
   });
 });

@@ -10,7 +10,13 @@ const INPUT: ChatInput = {
   gradingNotes: null,
   answer: "x\n$\\pr$",
   macros: [{ name: "\\pr", definition: "\\text{power}" }],
-  grade: { rating: "again", feedback: "No.", missing: [], mistakes: [] },
+  grade: {
+    rating: "again",
+    feedback: "No.",
+    missing: [],
+    mistakes: [],
+    model: "anthropic/claude-haiku-5.5",
+  },
   messages: [{ role: "user", text: "Why?" }],
 };
 

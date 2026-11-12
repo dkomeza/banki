@@ -27,8 +27,9 @@ import {
 } from "ts-fsrs";
 import { FSRS6Model, FSRS6_DEFAULT_WEIGHTS, forgettingCurve } from "ts-fsrs/models/fsrs-6";
 
-// FSRS (ts-fsrs, FSRS-6) schedules every Card from its Reviews: its default
-// parameters, its default learning steps (1 min then 10 min; 10 min to
+// FSRS (ts-fsrs, FSRS-6) schedules every Card from its Reviews: the User's
+// Parameters (FSRS-6's defaults until a Tuning applies others), its default
+// learning steps (1 min then 10 min; 10 min to
 // relearn) and maximum interval (36,500 days), with interval fuzz on. The fuzz
 // is seeded by the Card's ID and its Review count, never the clock, so a
 // Rating from a given state always gives the same interval.
@@ -50,10 +51,23 @@ const definition = defineScheduler({ model: FSRS6Model, chrono: dateChrono }).us
 const LEARNING_STEPS: ["1m", "10m"] = ["1m", "10m"];
 const RELEARNING_STEPS: ["10m"] = ["10m"];
 
-/** The scheduler config for a Desired retention, as `DefaultScheduler` makes it for FSRS-6. */
-export const schedulerConfig = (desiredRetention: number) => ({
+/** FSRS's Parameters: FSRS-6's 21 weights. */
+export type Parameters = readonly number[];
+
+/** FSRS-6's default Parameters, which a User has until a Tuning applies their own. */
+export const DEFAULT_PARAMETERS: Parameters = Object.freeze([...FSRS6_DEFAULT_WEIGHTS]);
+
+/** Whether two sets of Parameters are the same numbers. */
+export const sameParameters = (a: Parameters, b: Parameters): boolean =>
+  a.length === b.length && a.every((weight, i) => weight === b[i]);
+
+/**
+ * The scheduler config for a Desired retention and Parameters, as
+ * `DefaultScheduler` makes it for FSRS-6.
+ */
+export const schedulerConfig = (desiredRetention: number, parameters: Parameters) => ({
   fractionalDays: false,
-  weights: [...FSRS6_DEFAULT_WEIGHTS],
+  weights: [...parameters],
   enableShortTerm: true,
   numRelearningSteps: RELEARNING_STEPS.length,
   desiredRetention: desiredRetention / 100,
@@ -65,10 +79,16 @@ export const schedulerConfig = (desiredRetention: number) => ({
 });
 
 type Scheduler = ReturnType<typeof definition.create>;
-const schedulers = new Map<number, Scheduler>();
+/** Schedulers by Desired retention and Parameters (`schedulerKey`). */
+const schedulers = new Map<string, Scheduler>();
+/** Each Tuning that applies adds Parameters, so the cache starts over past this many. */
+const SCHEDULERS_MAX = 64;
 
-/** The scheduler for a Desired retention, a whole percent from 70 to 97. */
-function schedulerFor(desiredRetention: number): Scheduler {
+const schedulerKey = (desiredRetention: number, parameters: Parameters) =>
+  `${desiredRetention}:${parameters.join(",")}`;
+
+/** The scheduler for a Desired retention, a whole percent from 70 to 97, and Parameters. */
+function schedulerFor(desiredRetention: number, parameters: Parameters): Scheduler {
   if (
     !Number.isInteger(desiredRetention) ||
     desiredRetention < DESIRED_RETENTION_MIN ||
@@ -76,10 +96,12 @@ function schedulerFor(desiredRetention: number): Scheduler {
   ) {
     throw new RangeError(`No Desired retention of ${desiredRetention}%`);
   }
-  let scheduler = schedulers.get(desiredRetention);
+  const key = schedulerKey(desiredRetention, parameters);
+  let scheduler = schedulers.get(key);
   if (scheduler === undefined) {
-    scheduler = definition.create({ config: schedulerConfig(desiredRetention) });
-    schedulers.set(desiredRetention, scheduler);
+    if (schedulers.size >= SCHEDULERS_MAX) schedulers.clear();
+    scheduler = definition.create({ config: schedulerConfig(desiredRetention, parameters) });
+    schedulers.set(key, scheduler);
   }
   return scheduler;
 }
@@ -162,8 +184,17 @@ export function dueOnStudyDay(
   return studyDayBounds(day, studyDay).start;
 }
 
+/** What scheduling a Card depends on: when, its Desired retention, the Study days, and the Parameters. */
+export type SchedulingSettings = {
+  now: Date;
+  desiredRetention: number;
+  studyDay: StudyDaySettings;
+  parameters: Parameters;
+};
+
 /**
- * The memory state a Rating at `now` leaves a Card in, at a Desired retention.
+ * The memory state a Rating at `now` leaves a Card in, at a Desired retention
+ * and under Parameters.
  * Past its learning steps it is due on a Study day (`dueOnStudyDay`); in them,
  * at the exact moment its step ends.
  */
@@ -171,13 +202,9 @@ export function rate(
   cardId: string,
   before: MemoryState,
   rating: Rating,
-  {
-    now,
-    desiredRetention,
-    studyDay,
-  }: { now: Date; desiredRetention: number; studyDay: StudyDaySettings },
+  { now, desiredRetention, studyDay, parameters }: SchedulingSettings,
 ): MemoryState {
-  const { card } = schedulerFor(desiredRetention).review({
+  const { card } = schedulerFor(desiredRetention, parameters).review({
     card: fsrsCard(cardId, before, now),
     grade: GRADES[rating],
     now,
@@ -207,7 +234,7 @@ export function rate(
 export function previewIntervals(
   cardId: string,
   memory: MemoryState,
-  settings: { now: Date; desiredRetention: number; studyDay: StudyDaySettings },
+  settings: SchedulingSettings,
 ): IntervalPreviews {
   const preview = (rating: Rating) => {
     const after = rate(cardId, memory, rating, settings);
@@ -238,18 +265,11 @@ export function reschedule(
   cardId: string,
   current: MemoryState,
   last: LastReview,
-  {
-    now,
-    desiredRetention,
-    studyDay,
-  }: { now: Date; desiredRetention: number; studyDay: StudyDaySettings },
+  settings: SchedulingSettings,
 ): MemoryState {
   if (current.state !== "review") return current;
-  const again = rate(cardId, last.before, last.rating, {
-    now: last.reviewedAt,
-    desiredRetention,
-    studyDay,
-  });
+  const { now } = settings;
+  const again = rate(cardId, last.before, last.rating, { ...settings, now: last.reviewedAt });
   if (again.state !== "review" || again.dueAt === null) return current;
   return {
     ...current,
@@ -261,16 +281,16 @@ export function reschedule(
 /**
  * A Card's memory state after its newest Review is undone (ADR-0025): `before`,
  * the one that Review kept, given its Review `previous` before that one, if
- * any. When the Desired retention changed since `before` was scheduled, its
- * interval no longer matches the one `previous` gives at the current
- * retention, and it is rescheduled at the current one (`reschedule`), as any
- * change of retention does.
+ * any. When the Desired retention or the Parameters changed since `before`
+ * was scheduled, its interval no longer matches the one `previous` gives under
+ * the current ones, and it is rescheduled under them (`reschedule`), so it
+ * stays consistent with the current Parameters (ADR-0029).
  */
 export function restore(
   cardId: string,
   before: MemoryState,
   previous: LastReview | undefined,
-  settings: { now: Date; desiredRetention: number; studyDay: StudyDaySettings },
+  settings: SchedulingSettings,
 ): MemoryState {
   if (previous === undefined || before.state !== "review") return before;
   const again = rate(cardId, previous.before, previous.rating, {
@@ -296,8 +316,8 @@ export const scheduleOf = (memory: MemoryState): CardSchedule => ({
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * A Card's Predicted recall at `now`: FSRS-6's forgetting curve, with its
- * default parameters, over the Card's stability and the fractional days since
+ * A Card's Predicted recall at `now`: FSRS-6's forgetting curve, under the
+ * User's Parameters, over the Card's stability and the fractional days since
  * its last Review. It doesn't depend on the Desired retention. A Card never
  * reviewed, or reviewed after `now`, is taken as just reviewed; one with no
  * stability, as forgotten.
@@ -305,10 +325,11 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export function predictedRecall(
   { stability, lastReviewAt }: Pick<MemoryState, "stability" | "lastReviewAt">,
   now: Date,
+  parameters: Parameters,
 ): number {
   const elapsedDays =
     lastReviewAt === null ? 0 : Math.max(0, (now.getTime() - lastReviewAt.getTime()) / DAY_MS);
   if (elapsedDays === 0) return 1;
   if (stability <= 0) return 0;
-  return forgettingCurve(FSRS6_DEFAULT_WEIGHTS, elapsedDays, stability);
+  return forgettingCurve(parameters, elapsedDays, stability);
 }

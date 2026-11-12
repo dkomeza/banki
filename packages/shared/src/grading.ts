@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { CARD_SIDE_MAX_LENGTH } from "./cards";
-import { Rating } from "./scheduling";
+import { REVIEW_MODEL_MAX_LENGTH, Rating } from "./scheduling";
 
 // Grading (CONTEXT.md): the Grader turns a Written answer into a suggested
 // Rating, with Feedback and Highlights. The API grades; the web app shows it.
@@ -34,7 +34,10 @@ export type TextRange = z.infer<typeof TextRange>;
  * The body of a grade: the Grader's suggested Rating, its Feedback (Markdown
  * with LaTeX), and its Highlights: `missing` are ranges of the Back as stored
  * that the Written answer leaves out, and `mistakes` ranges of the Written
- * answer as it was sent that are wrong, each with a note on what is wrong.
+ * answer as it was sent that are wrong, each with a note on what is wrong,
+ * and the ID of the Model whose answer it is (any ID up to 200 characters, as
+ * a graded Review takes it: a release may remove a Model while a Session
+ * still holds its grade).
  */
 export const GradeResponse = z.object({
   rating: Rating,
@@ -45,6 +48,7 @@ export const GradeResponse = z.object({
       .object({ from: z.number().int().min(0), to: z.number().int().min(0), note: z.string() })
       .refine(({ from, to }) => to > from, "Expected a range that isn't empty"),
   ),
+  model: z.string().min(1).max(REVIEW_MODEL_MAX_LENGTH),
 });
 export type GradeResponse = z.infer<typeof GradeResponse>;
 

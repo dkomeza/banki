@@ -97,7 +97,7 @@ How well the User recalled a Card: Again, Hard, Good or Easy. The User always gi
 _Avoid_: grade, score, ease
 
 **Answer mode**:
-How the User answers a Card in a Session: **self-rate** (reveal the Back, then give a Rating) or **write-and-grade** (write an answer first, for the Grader). Settings hold one for every Deck, self-rate, and a Deck follows it until it is given its own. A Session starts in its Deck's and keeps whichever the User last switched to, Card after Card.
+How the User answers a Card in a Session: **self-rate** (reveal the Back, then give a Rating) or **write-and-grade** (write an answer first, for the Grader). Settings hold one for every Deck, self-rate unless the User changes it, and a Deck follows it until it is given its own, so changing it changes how every following Deck's next Session starts. A Session starts in its Deck's and keeps whichever the User last switched to, Card after Card.
 _Avoid_: study mode, review mode
 
 **Written answer**:
@@ -105,7 +105,7 @@ What the User writes for a Card's Front in write-and-grade, typed or, later, han
 _Avoid_: answer (alone), response, attempt
 
 **Review**:
-One Rating of one Card at one moment, with the time the User spent studying it, at most 2 minutes (time spent editing it, waiting for the Grader, or in its Follow-up chat, is left out), and whether it was self-rated or graded. Reviews, with the Card's Progress resets among them, are the Card's history: they are what FSRS learns from (since the Card's newest Progress reset), and they outlive the Card. Undoing a Rating takes its Review back as if it had never been given.
+One Rating of one Card at one moment, with the time the User spent studying it, at most 2 minutes (time spent editing it, waiting for the Grader, or in its Follow-up chat, is left out), and whether it was self-rated or graded. It is **graded** when the User rated it with the Grader's suggested Rating on screen, whichever Rating they gave, and then keeps that suggested Rating and the Model that suggested it; otherwise it is **self-rated**, I don't know, a Rating given before the suggestion came and one after grading failed included. Reviews, with the Card's Progress resets among them, are the Card's history: they are what FSRS learns from (since the Card's newest Progress reset), and they outlive the Card. Undoing a Rating takes its Review back as if it had never been given.
 _Avoid_: answer, attempt, repetition
 
 **Progress reset**:
@@ -148,6 +148,14 @@ _Avoid_: retrievability, strength, score
 The share of its Cards the User wants to still remember when they come due, from 70% to 97%: higher means more Reviews. Settings hold one for every Deck, 90% unless the User changes it, and a Deck follows it until it is given its own. Changing it reschedules every Card it applies to at once.
 _Avoid_: target retention (except for a Plan's), retention rate, success rate
 
+**Parameters**:
+The numbers FSRS models the User's memory with: FSRS's defaults until a Tuning applies the User's own. Everything FSRS works out (Intervals, due dates, Predicted recall) uses the current ones. Applying new ones works out every Card's memory state again from its Reviews, but leaves its due date as it was until its next Rating.
+_Avoid_: weights, FSRS settings, model (the Model is the Grader's)
+
+**Tuning**:
+Fitting the Parameters to the User's own Reviews, of every kind and of Cards that are gone too. Banki does it by itself every 200 Reviews, or at once when the User asks (Tune now), and applies the result only when it predicts the User's recall better than the current Parameters. Reset to defaults puts FSRS's defaults back and pauses Tuning by itself until the User next asks for one.
+_Avoid_: optimization, training, calibration, fitting (alone)
+
 **Recall rate**:
 The share of the review Cards a Session showed that the User recalled the first time: their first Rating in it wasn't Again. New Cards and Cards in their learning steps don't count, so it measures what Desired retention aims at. A Card counts by how it first came in the Session, so a review Card the User then puts back to New (Progress reset) and rates still counts. A Session with no review Card has none.
 _Avoid_: accuracy, score, retention (alone)
@@ -187,6 +195,10 @@ _Avoid_: calendar day, date
 **Grader**:
 The LLM, reached through OpenRouter, that turns a written answer into a suggested rating with feedback, and answers the Follow-up chat about it. It only suggests: the User always confirms the rating.
 _Avoid_: AI, judge, provider
+
+**Grader agreement**:
+How often the User keeps the Grader's suggested Rating: the share of graded Reviews whose Rating is the suggested one. A low one is a sign the Grader is too lenient or too strict, and it can be told apart by the Model that suggested.
+_Avoid_: accuracy, override rate, grader score
 
 **Feedback**:
 What the Grader says about a Written answer beside its suggested Rating: what was right, what was missing or wrong, down to the step where a derivation went wrong. It is in the Written answer's language. It is never stored with the Review or on the server, but, with the suggested Rating and the Highlights, kept with the Session until its Card is rated.

@@ -3,6 +3,7 @@ import { useId, useSyncExternalStore } from "react";
 import { SaveState, SettingsCard } from "@/components/settings/parts";
 import { RetentionError } from "@/components/settings/retention-picker";
 import { Stepper } from "@/components/settings/stepper";
+import { TuningRow } from "@/components/settings/tuning-row";
 import {
   LEARNING_LIMIT_RANGE,
   NEW_CARD_BATCH_RANGE,
@@ -18,7 +19,8 @@ type PacingSetting = "newCardBatch" | "learningLimit" | "sessionTimeoutMinutes";
 
 /**
  * Advanced: how a Session paces New cards, the New-card batch and the
- * Learning limit, and when it ends, the Session timeout.
+ * Learning limit; when it ends, the Session timeout; and how scheduling is
+ * fitted to the User (Tuning).
  */
 export function AdvancedCard() {
   const queryClient = useQueryClient();
@@ -52,6 +54,7 @@ export function AdvancedCard() {
         hint="A session ends after this many minutes without activity."
         name={{ fewer: "Shorter session timeout", more: "Longer session timeout" }}
       />
+      <TuningRow />
     </SettingsCard>
   );
 }

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AnswerMode } from "./decks";
 import { Macro, MacroList } from "./macros";
 import { ModelId } from "./models";
 import { DesiredRetention } from "./scheduling";
@@ -69,7 +70,7 @@ export type ApiKeyStatus = z.infer<typeof ApiKeyStatus>;
  * `learningLimit` pace a Session's New cards (CONTEXT.md: New-card batch,
  * Learning limit), and `sessionTimeoutMinutes` ends one after that many
  * minutes without activity (CONTEXT.md: Session timeout). `macros` are Settings' Macros, [] for none, which every
- * Deck's Cards use under its own.
+ * Deck's Cards use under its own. `answerMode` is the Answer mode every Deck follows until it has its own.
  */
 export const SettingsResponse = z.object({
   timezone: z.string().nullable(),
@@ -82,13 +83,15 @@ export const SettingsResponse = z.object({
   learningLimit: z.number().int(),
   sessionTimeoutMinutes: z.number().int(),
   macros: z.array(Macro),
+  answerMode: AnswerMode,
 });
 export type SettingsResponse = z.infer<typeof SettingsResponse>;
 
 /**
  * The body of `PATCH /api/settings`: any of the Settings, each changed as given.
  * A new Desired retention reschedules the Cards of every Deck that follows it.
- * `macros` replaces Settings' Macros with the whole list given.
+ * `macros` replaces Settings' Macros with the whole list given. A new `answerMode`
+ * changes only how a following Deck's next new Session starts.
  */
 export const SettingsPatch = z.strictObject({
   timezone: Timezone.optional(),
@@ -100,6 +103,7 @@ export const SettingsPatch = z.strictObject({
   learningLimit: LearningLimit.optional(),
   sessionTimeoutMinutes: SessionTimeoutMinutes.optional(),
   macros: MacroList.optional(),
+  answerMode: AnswerMode.optional(),
 });
 export type SettingsPatch = z.input<typeof SettingsPatch>;
 
