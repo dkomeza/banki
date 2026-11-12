@@ -228,10 +228,31 @@ const PAPER: Record<Paper, string> = {
   plain: "",
 };
 
+/** Where the canvas looks: the paper's point at its top-left, and how large the paper is drawn. */
+export type View = { x: number; y: number; zoom: number };
+
+/** The smallest and largest the board zooms to, where it zooms. */
+export const BOARD_ZOOM = { min: 0.3, max: 3 } as const;
+
+/** What's on the paper gets the view, and a way to change it. */
+export type Board = View & {
+  /** Zooms to `zoom` about a point on the canvas (its centre when not given). */
+  zoomTo: (zoom: number, about?: { x: number; y: number }) => void;
+  /** Shows the paper's `rect` whole, as large as fits (no larger than 100%). */
+  fit: (rect: { x: number; y: number; w: number; h: number }) => void;
+  /** Pans so the paper's `point` is at the canvas's top-left, less `margin`. */
+  panTo: (point: { x: number; y: number }, margin?: number) => void;
+  /** The canvas's size on screen. */
+  w: number;
+  h: number;
+};
+
 /**
  * The canvas: a viewport onto paper that grows without bound. A pen or a mouse
  * draws (or erases), one finger or the wheel pans; the page never scrolls.
- * `inset` keeps the first line clear of what floats over its top.
+ * When `zoomable`, two fingers pinch and Ctrl+wheel (a trackpad's pinch) zoom
+ * the paper and everything on it. `inset` keeps the first line clear of what
+ * floats over its top.
  */
 export function InkCanvas({
   ink,
@@ -240,6 +261,9 @@ export function InkCanvas({
   label = "Handwritten answer",
   className,
   inset = 0,
+  zoomable = false,
+  onPaperDown,
+  onCtrlWheel,
   renderOnPaper,
   children,
 }: {
@@ -249,16 +273,22 @@ export function InkCanvas({
   label?: string;
   className?: string;
   inset?: number;
-  /** What sits on the paper itself, so it pans with the ink: drawn at the pan it's given. */
-  renderOnPaper?: (pan: { x: number; y: number }) => ReactNode;
+  zoomable?: boolean;
+  /** A pen, mouse or finger came down on the paper itself. */
+  onPaperDown?: () => void;
+  /** Ctrl+wheel where the board doesn't zoom, with what it was over. */
+  onCtrlWheel?: (event: WheelEvent) => void;
+  /** What sits on the paper itself, so it pans (and zooms) with the ink. */
+  renderOnPaper?: (board: Board) => ReactNode;
   children?: ReactNode;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [view, setView] = useState<View>({ x: 0, y: 0, zoom: 1 });
   const [size, setSize] = useState({ w: 0, h: 0 });
   const live = useRef<Stroke | null>(null);
-  const panning = useRef<{ id: number; x: number; y: number } | null>(null);
+  /** The fingers down on the paper, where each last was. */
+  const fingers = useRef(new Map<number, { x: number; y: number }>());
 
   useLayoutEffect(() => {
     const el = box.current;
@@ -283,7 +313,9 @@ export function InkCanvas({
     if (ctx === null) return;
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     ctx.clearRect(0, 0, size.w, size.h);
-    ctx.translate(-pan.x, -pan.y + inset);
+    ctx.translate(0, inset);
+    ctx.scale(view.zoom, view.zoom);
+    ctx.translate(-view.x, -view.y);
     ctx.strokeStyle = getComputedStyle(el).color;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
@@ -298,40 +330,126 @@ export function InkCanvas({
       for (const point of rest) ctx.lineTo(point.x, point.y);
       ctx.stroke();
     }
-  }, [ink.strokes, pan, size, inset]);
+  }, [ink.strokes, view, size, inset]);
   useEffect(draw, [draw]);
 
-  const at = (event: ReactPointerEvent): Point => {
+  const onPaper = (clientX: number, clientY: number): Point => {
     const rect = box.current!.getBoundingClientRect();
     return {
-      x: event.clientX - rect.left + pan.x,
-      y: event.clientY - rect.top + pan.y - inset,
-      p: event.pressure,
+      x: (clientX - rect.left) / view.zoom + view.x,
+      y: (clientY - rect.top - inset) / view.zoom + view.y,
+      p: 0.5,
     };
   };
+  const at = (event: { clientX: number; clientY: number; pressure: number }): Point => ({
+    ...onPaper(event.clientX, event.clientY),
+    p: event.pressure,
+  });
   const erase = (point: Point) => {
-    const near = (s: Stroke) => s.points.some((q) => Math.hypot(q.x - point.x, q.y - point.y) < 12);
+    const reach = 12 / view.zoom;
+    const near = (s: Stroke) =>
+      s.points.some((q) => Math.hypot(q.x - point.x, q.y - point.y) < reach);
     const kept = ink.strokes.filter((s) => !near(s));
     if (kept.length !== ink.strokes.length) ink.replace(kept);
   };
-  const panBy = (dx: number, dy: number) =>
-    setPan((p) => ({ x: Math.max(0, p.x - dx), y: Math.max(0, p.y - dy) }));
+  const panBy = useCallback(
+    (dx: number, dy: number) =>
+      setView((v) => ({
+        ...v,
+        x: Math.max(0, v.x - dx / v.zoom),
+        y: Math.max(0, v.y - dy / v.zoom),
+      })),
+    [],
+  );
+  /** Zooms to what `to` gives for the zoom now, keeping the paper under `about` where it is. */
+  const zoomWith = useCallback(
+    (to: (zoom: number) => number, about?: { x: number; y: number }) =>
+      setView((v) => {
+        const z = clamp(to(v.zoom), BOARD_ZOOM.min, BOARD_ZOOM.max);
+        const ax = about?.x ?? size.w / 2;
+        const ay = about?.y ?? size.h / 2;
+        return {
+          zoom: z,
+          x: Math.max(0, ax / v.zoom + v.x - ax / z),
+          y: Math.max(0, ay / v.zoom + v.y - ay / z),
+        };
+      }),
+    [size],
+  );
 
+  // Native, so a wheel can stop the page's own scroll or zoom.
+  const wheel = useRef({ zoomable, onCtrlWheel, panBy, zoomWith });
+  useLayoutEffect(() => {
+    wheel.current = { zoomable, onCtrlWheel, panBy, zoomWith };
+  });
+  useEffect(() => {
+    const el = box.current;
+    if (el === null) return () => {};
+    const onWheel = (event: WheelEvent) => {
+      const own = event.target instanceof Element && event.target.closest("[data-own-wheel]");
+      const w = wheel.current;
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault();
+        if (w.zoomable) {
+          const rect = el.getBoundingClientRect();
+          w.zoomWith((z) => z * Math.exp(-event.deltaY * 0.01), {
+            x: event.clientX - rect.left,
+            y: event.clientY - rect.top,
+          });
+          return;
+        }
+        w.onCtrlWheel?.(event);
+        return;
+      }
+      if (own) return;
+      event.preventDefault();
+      w.panBy(-event.deltaX, -event.deltaY);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+
+  const board: Board = {
+    ...view,
+    w: size.w,
+    h: size.h,
+    zoomTo: (zoom, about) => zoomWith(() => zoom, about),
+    fit: (rect) => {
+      const margin = 24;
+      const zoom = clamp(
+        Math.min(1, (size.w - margin * 2 - 56) / rect.w, (size.h - margin * 2) / rect.h),
+        BOARD_ZOOM.min,
+        BOARD_ZOOM.max,
+      );
+      setView({
+        zoom,
+        x: Math.max(0, rect.x - margin / zoom),
+        y: Math.max(0, rect.y - margin / zoom),
+      });
+    },
+    panTo: (point, margin = 12) =>
+      setView((v) => ({
+        ...v,
+        x: Math.max(0, point.x - margin / v.zoom),
+        y: Math.max(0, point.y - margin / v.zoom),
+      })),
+  };
+
+  const grid = 24 * view.zoom;
   return (
     <div
       ref={box}
       role="img"
       aria-label={label}
       className={cn("relative min-h-0 overflow-hidden", className)}
-      // Only the paper pans: a wheel over the Front or the tool bar is theirs.
-      onWheel={(event) => {
-        if (event.target === canvas.current) panBy(-event.deltaX, -event.deltaY);
-      }}
     >
       <div
         aria-hidden
         className={cn("absolute inset-0", PAPER[paper])}
-        style={{ backgroundPosition: `${-pan.x}px ${-pan.y + inset}px` }}
+        style={{
+          backgroundPosition: `${-view.x * view.zoom}px ${-view.y * view.zoom + inset}px`,
+          ...(paper === "grid" && view.zoom !== 1 && { backgroundSize: `${grid}px ${grid}px` }),
+        }}
       />
       <canvas
         ref={canvas}
@@ -339,8 +457,9 @@ export function InkCanvas({
         style={{ cursor: ink.tool === "eraser" ? "cell" : "crosshair" }}
         onPointerDown={(event) => {
           event.currentTarget.setPointerCapture(event.pointerId);
+          onPaperDown?.();
           if (event.pointerType === "touch") {
-            panning.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
+            fingers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
             return;
           }
           if (event.button !== 0) return;
@@ -352,10 +471,26 @@ export function InkCanvas({
           draw();
         }}
         onPointerMove={(event) => {
-          const p = panning.current;
-          if (p !== null && p.id === event.pointerId) {
-            panBy(event.clientX - p.x, event.clientY - p.y);
-            panning.current = { ...p, x: event.clientX, y: event.clientY };
+          const fingersDown = fingers.current;
+          const last = fingersDown.get(event.pointerId);
+          if (last !== undefined) {
+            const others = [...fingersDown].filter(([id]) => id !== event.pointerId);
+            const other = others[0]?.[1];
+            if (zoomable && other !== undefined) {
+              // Two fingers: zoom by how far apart they moved, about their midpoint, and pan with it.
+              const rect = box.current!.getBoundingClientRect();
+              const before = Math.hypot(last.x - other.x, last.y - other.y);
+              const after = Math.hypot(event.clientX - other.x, event.clientY - other.y);
+              const mid = {
+                x: (event.clientX + other.x) / 2 - rect.left,
+                y: (event.clientY + other.y) / 2 - rect.top,
+              };
+              if (before > 0) zoomWith((z) => z * (after / before), mid);
+              panBy((event.clientX - last.x) / 2, (event.clientY - last.y) / 2);
+            } else if (others.length === 0) {
+              panBy(event.clientX - last.x, event.clientY - last.y);
+            }
+            fingersDown.set(event.pointerId, { x: event.clientX, y: event.clientY });
             return;
           }
           if (event.buttons === 0) return;
@@ -365,27 +500,22 @@ export function InkCanvas({
           }
           if (live.current === null) return;
           for (const e of event.nativeEvent.getCoalescedEvents?.() ?? [event.nativeEvent]) {
-            const rect = box.current!.getBoundingClientRect();
-            live.current.points.push({
-              x: e.clientX - rect.left + pan.x,
-              y: e.clientY - rect.top + pan.y - inset,
-              p: e.pressure,
-            });
+            live.current.points.push(at(e));
           }
           draw();
         }}
-        onPointerUp={() => {
-          panning.current = null;
+        onPointerUp={(event) => {
+          fingers.current.delete(event.pointerId);
           if (live.current !== null) ink.add(live.current);
           live.current = null;
         }}
-        onPointerCancel={() => {
-          panning.current = null;
+        onPointerCancel={(event) => {
+          fingers.current.delete(event.pointerId);
           live.current = null;
           draw();
         }}
       />
-      {renderOnPaper?.(pan)}
+      {renderOnPaper?.(board)}
       {children}
     </div>
   );

@@ -1,8 +1,8 @@
-# f: Sticker
+# g: Picture
 
-The Front is a note stuck on the paper itself, like the printed question at the head of an exam sheet: it pans with the ink, so it stays beside what was written about it.
+The Front is an object on the board, like an image on Miro: whole, like a picture, and nothing but the Front until you tap it.
 
-Built on c, with the Maintainer's round-1 feedback: a wheel or a finger over the Front scrolls the Front, never the canvas. The note's header (the grip and "Front") drags it to anywhere on the paper, by pen, mouse or finger, and it then moves with the ink as the canvas pans. The round handle at its bottom-right corner scales it, from 60% to 200%: the type, the Formulas and the Image grow and shrink together (CSS zoom), while the header and the handles keep their touch size. Ctrl+wheel (a trackpad's pinch) over it scales it too, and the percentage in its header puts it back to 100%. Panned out of sight, a "Bring the Front here" chip at the canvas's top-left brings it back into view. Each Card's note starts at the head of its paper, at the size last chosen. "Fold away" folds it to a one-line tab where it sits. The tool bar, the top bar and the dock are as in c.
+Built on f (Sticker), from the Maintainer's round-2 feedback ("more like images on Miro"). The Front is stuck on the grid paper and pans with the ink, as in f, but it has no header or handle of its own. Tap it (pen, mouse or finger) and it's selected: an accent frame with a handle at each corner, and a small menu over it with its size (tap it for 100%) and Fold away. Drag anywhere on it to move it. Pull any corner to scale it, about the opposite corner, keeping its shape, from 40% to 250%: the type, the Formulas and the Image grow together (CSS zoom). Tap the paper to let go of it. It always shows whole, so a long Front starts scaled down to fit 60% of the canvas's height, and a wheel over it pans the paper like anywhere else. Ctrl+wheel (a trackpad's pinch) over it scales it; from the keyboard, Tab to it, arrows move it, + / − scale it, 0 is 100%. Its size carries from Card to Card; each Card's Front starts at the head of its paper. Panned out of sight, "Bring the Front here" fetches it back.
 
 States: ink, ink-written, ink-long-front
 
