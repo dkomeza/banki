@@ -164,6 +164,12 @@ describe("buildCardPrompt", () => {
     );
   });
 
+  test("keeps a Macro whose definition holds backticks as one code span", () => {
+    const text = prompt({}, [{ name: "\\q", definition: "\\text{``#1''}" }]);
+
+    expect(text).toContain("- `\\q` → ```\\text{``#1''}```\n");
+  });
+
   test("has no Macros section without Macros", () => {
     expect(prompt({}, [])).not.toContain("## Macros");
     expect(prompt({}, [])).not.toContain("define no new ones");

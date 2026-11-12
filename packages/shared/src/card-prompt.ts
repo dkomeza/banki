@@ -70,8 +70,16 @@ const DIFFICULTY_SENTENCES = {
     "Make the questions advanced: edge cases, derivations, conditions that are easy to forget, and how results compare.",
 } as const satisfies Record<CardPromptDifficulty, string>;
 
-/** Where the example's `$schema` goes, until the schema URL replaces it. */
-const SCHEMA_URL = "<schema-url>";
+/**
+ * `text` as a Markdown code span, fenced by more backticks than any run of
+ * them in it, so a definition holding a backtick stays one span.
+ */
+function codeSpan(text: string): string {
+  const longest = Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length));
+  const fence = "`".repeat(longest + 1);
+  const pad = text.startsWith("`") || text.endsWith("`") ? " " : "";
+  return `${fence}${pad}${text}${pad}${fence}`;
+}
 
 /**
  * The prompt's example Card file, with Formulas and Tags, one Card with
@@ -156,7 +164,7 @@ export function buildCardPrompt(
       "",
       "Formulas may use these macros, as `name` → `definition`. Use them where they fit, and define no new ones.",
       "",
-      ...macros.map(({ name, definition }) => `- \`${name}\` → \`${definition}\``),
+      ...macros.map(({ name, definition }) => `- ${codeSpan(name)} → ${codeSpan(definition)}`),
     );
   }
   lines.push(
@@ -170,7 +178,7 @@ export function buildCardPrompt(
     "## An example Card file",
     "",
     "```json",
-    JSON.stringify(cardPromptExample(SCHEMA_URL), null, 2).replace(SCHEMA_URL, schemaUrl),
+    JSON.stringify(cardPromptExample(schemaUrl), null, 2),
     "```",
     "",
     "## These Cards",
