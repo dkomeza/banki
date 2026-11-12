@@ -240,7 +240,7 @@ export function InkCanvas({
   label = "Handwritten answer",
   className,
   inset = 0,
-  overlay,
+  renderOnPaper,
   children,
 }: {
   ink: Ink;
@@ -250,7 +250,7 @@ export function InkCanvas({
   className?: string;
   inset?: number;
   /** What sits on the paper itself, so it pans with the ink: drawn at the pan it's given. */
-  overlay?: (pan: { x: number; y: number }) => ReactNode;
+  renderOnPaper?: (pan: { x: number; y: number }) => ReactNode;
   children?: ReactNode;
 }) {
   const box = useRef<HTMLDivElement>(null);
@@ -385,7 +385,7 @@ export function InkCanvas({
           draw();
         }}
       />
-      {overlay?.(pan)}
+      {renderOnPaper?.(pan)}
       {children}
     </div>
   );
