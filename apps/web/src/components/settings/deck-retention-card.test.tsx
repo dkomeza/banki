@@ -45,6 +45,7 @@ const tuning = (recommendedRetention: number | null): TuningStatus => ({
   paused: false,
   running: false,
   recommendedRetention,
+  ownDecks: 0,
 });
 
 afterEach(cleanup);

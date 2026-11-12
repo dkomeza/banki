@@ -1,4 +1,10 @@
-import { TuneResponse, type TuningOutcome, type TuningResult, TuningStatus } from "@banki/shared";
+import {
+  DeckTuningStatus,
+  TuneResponse,
+  type TuningOutcome,
+  type TuningResult,
+  TuningStatus,
+} from "@banki/shared";
 import { type QueryClient, queryOptions } from "@tanstack/react-query";
 import { type ApiClient, api } from "./api";
 import { ApiRequestError } from "./query";
@@ -19,16 +25,38 @@ export const tuningQueryOptions = (client: ApiClient = api) =>
   });
 
 /**
+ * How Tuning stands for the Deck `deckId` (ADR-0033), from
+ * `GET /api/decks/:deckId/tuning`; null for a Deck that is gone. It sits under
+ * the Deck's key, so whatever fetches the Decks again fetches it too.
+ */
+export const deckTuningQueryOptions = (deckId: string, client: ApiClient = api) =>
+  queryOptions({
+    queryKey: ["decks", deckId, "tuning"],
+    queryFn: async (): Promise<DeckTuningStatus | null> => {
+      const res = await client.api.decks[":deckId"].tuning.$get({ param: { deckId } });
+      const status: number = res.status;
+      if (status === 404) return null;
+      if (!res.ok) throw new ApiRequestError(status);
+      return DeckTuningStatus.parse(await res.json());
+    },
+  });
+
+/**
  * After new scheduling applies, every Card keeps its due date but works out
  * its memory again (ADR-0029), so what shows schedules is fetched afresh:
- * the Decks' due counts and Study overviews, and the Cards.
+ * the Decks' due counts and Study overviews, with each Deck's Tuning status,
+ * and the Cards.
  */
 const refetchSchedules = (queryClient: QueryClient) =>
   Promise.all(
     [["decks"], ["cards"]].map((queryKey) => queryClient.invalidateQueries({ queryKey })),
   );
 
-/** Tune now: runs a Tuning and answers its result, keeping the status it answers. */
+/**
+ * Tune now: runs a Tuning and answers its overall result, keeping the status
+ * it answers. Whatever that result, a Deck may have got a fit of its own, so
+ * schedules are fetched again.
+ */
 export async function tuneNow(
   queryClient: QueryClient,
   client: ApiClient = api,
@@ -37,7 +65,7 @@ export async function tuneNow(
   if (!res.ok) throw new ApiRequestError(res.status);
   const { result, status } = TuneResponse.parse(await res.json());
   queryClient.setQueryData(tuningQueryOptions().queryKey, status);
-  if (result === "applied") await refetchSchedules(queryClient);
+  await refetchSchedules(queryClient);
   return result;
 }
 

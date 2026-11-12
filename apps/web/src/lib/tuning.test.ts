@@ -14,6 +14,7 @@ const STATUS: TuningStatus = {
   paused: false,
   running: false,
   recommendedRetention: null,
+  ownDecks: 0,
 };
 
 const TUNED: TuningStatus = {
@@ -24,6 +25,7 @@ const TUNED: TuningStatus = {
   paused: false,
   running: false,
   recommendedRetention: null,
+  ownDecks: 0,
 };
 
 describe("tuningStatusLines", () => {
@@ -128,12 +130,12 @@ describe("tuneNow", () => {
     expect(invalidated).toEqual([["decks"], ["cards"]]);
   });
 
-  test("leaves schedules alone when nothing applied", async () => {
+  test("has schedules and the Decks' Tuning fetched again when the overall result kept, as a Deck may have got its own", async () => {
     const { client } = answering(200, { result: "kept", status: STATUS });
     const { queryClient, invalidated } = withSchedules();
 
     expect(await tuneNow(queryClient, client)).toBe("kept");
-    expect(invalidated).toEqual([]);
+    expect(invalidated).toEqual([["decks"], ["cards"]]);
   });
 
   test("throws when the request fails", async () => {

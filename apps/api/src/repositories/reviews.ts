@@ -67,9 +67,9 @@ export const fromStored = (stored: unknown): MemoryState => {
 };
 
 /**
- * What the User's Study days, Desired retention and Parameters come from:
- * their Settings, or the defaults. Everything that schedules takes its
- * Parameters from here.
+ * What the User's Study days, Desired retention and overall Parameters come
+ * from: their Settings, or the defaults. What schedules a Card takes its
+ * Deck's Parameters from `deckSchedulingOf`.
  */
 export function schedulingSettingsOf(
   db: Queryable,
@@ -97,19 +97,55 @@ export function schedulingSettingsOf(
 
 /** The Desired retention the User's Deck `deckId` schedules with: its own, or Settings'. */
 export function deckRetentionOf(db: Queryable, userId: string, deckId: string): number {
+  return deckSchedulingOf(db, userId, deckId).desiredRetention;
+}
+
+/**
+ * What the User's Deck `deckId` schedules its Cards with: the Study days,
+ * its Desired retention (its own, or Settings') and its Parameters (its own,
+ * or the overall ones; ADR-0033). Everything that schedules a Card takes its
+ * Parameters from here.
+ */
+export function deckSchedulingOf(
+  db: Queryable,
+  userId: string,
+  deckId: string,
+): { studyDay: StudyDaySettings; desiredRetention: number; parameters: Parameters } {
   const own = db
-    .select({ desiredRetention: deck.desiredRetention })
+    .select({ desiredRetention: deck.desiredRetention, parameters: deck.fsrsParameters })
     .from(deck)
     .where(and(eq(deck.userId, userId), eq(deck.id, deckId)))
-    .get()?.desiredRetention;
-  return own ?? schedulingSettingsOf(db, userId).desiredRetention;
+    .get();
+  const settings = schedulingSettingsOf(db, userId);
+  return {
+    studyDay: settings.studyDay,
+    desiredRetention: own?.desiredRetention ?? settings.desiredRetention,
+    parameters: own?.parameters ?? settings.parameters,
+  };
+}
+
+/** The Parameters each of the User's Decks schedules with, looked up once a Deck. */
+export function deckParametersLookup(
+  db: Queryable,
+  userId: string,
+): (deckId: string) => Parameters {
+  const known = new Map<string, Parameters>();
+  return (deckId) => {
+    let parameters = known.get(deckId);
+    if (parameters === undefined) {
+      parameters = deckSchedulingOf(db, userId, deckId).parameters;
+      known.set(deckId, parameters);
+    }
+    return parameters;
+  };
 }
 
 /**
  * Reschedules the User's Cards `cardIds` picks, deleted ones too, for a
  * Desired retention they now schedule with (`reschedule`): each one past its
  * learning steps gets a new due date; new Cards and those in learning steps
- * keep theirs. Expects to run inside the transaction that made the change.
+ * keep theirs, each under its Deck's Parameters. Expects to run inside the
+ * transaction that made the change.
  */
 export function rescheduleCards(
   db: Queryable,
@@ -118,16 +154,22 @@ export function rescheduleCards(
   desiredRetention: number,
   now: Date,
 ): void {
-  const { studyDay, parameters } = schedulingSettingsOf(db, userId);
+  const { studyDay } = schedulingSettingsOf(db, userId);
+  const parametersOf = deckParametersLookup(db, userId);
   const rows = db
-    .select({ id: card.id, ...MEMORY_COLUMNS })
+    .select({ id: card.id, deckId: card.deckId, ...MEMORY_COLUMNS })
     .from(card)
     .where(and(eq(card.userId, userId), inArray(card.id, cardIds), eq(card.state, "review")))
     .all();
-  for (const { id, ...current } of rows) {
+  for (const { id, deckId, ...current } of rows) {
     const last = lastReviewOf(db, userId, id);
     if (last === undefined) continue;
-    const next = reschedule(id, current, last, { now, desiredRetention, studyDay, parameters });
+    const next = reschedule(id, current, last, {
+      now,
+      desiredRetention,
+      studyDay,
+      parameters: parametersOf(deckId),
+    });
     db.update(card)
       .set({ dueAt: next.dueAt, scheduledDays: next.scheduledDays })
       .where(and(eq(card.userId, userId), eq(card.id, id)))
@@ -207,7 +249,7 @@ export function createReviewRepository(
      * the `suggestedRating` and `model` when given and self-rated otherwise
      * (ADR-0028), and reschedules the Card with FSRS at its Deck's Desired
      * retention, alike for both kinds, all in one transaction, under the
-     * User's Parameters. Answers the Review and the Card's new schedule, or
+     * Deck's Parameters. Answers the Review and the Card's new schedule, or
      * "not_found" when it isn't a live Card in a live Deck of the User's.
      * `id` and `now` are for tests.
      */
@@ -239,12 +281,9 @@ export function createReviewRepository(
               ? { kind: "graded" as const, suggestedRating, model }
               : { kind: "self-rated" as const, suggestedRating: null, model: null };
           const { deckId, ...before } = found;
-          const { studyDay, parameters } = schedulingSettingsOf(tx, userId);
           const after = rate(cardId, before, rating, {
             now,
-            desiredRetention: deckRetentionOf(tx, userId, deckId),
-            studyDay,
-            parameters,
+            ...deckSchedulingOf(tx, userId, deckId),
           });
           tx.insert(review)
             .values({

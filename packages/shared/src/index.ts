@@ -249,6 +249,8 @@ export {
   UploadImportQuery,
 } from "./imports";
 export {
+  DECK_TUNING_MIN_REVIEWS,
+  DeckTuningStatus,
   TUNING_OUTCOMES,
   TUNING_RESULTS,
   TUNING_REVIEW_INTERVAL,

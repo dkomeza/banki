@@ -879,10 +879,21 @@ export function writeSeedData({
     id: SEED_IDS.tuning,
     recommendedRetention: SEED_RECOMMENDED_RETENTION,
   });
+  // And then Spanish vocabulary's own, in the same Tuning, also FSRS-6's
+  // defaults, with a Recommended retention of its own.
+  writeAppliedTuning(db, userId, [...DEFAULT_PARAMETERS], {
+    ranAt: new Date(now.getTime() - TUNING_HOURS_AGO * HOUR_MS),
+    id: SEED_IDS.deckTuning,
+    recommendedRetention: SEED_DECK_RECOMMENDED_RETENTION,
+    deckId: SEED_IDS.decks.spanish,
+  });
 }
 
 /** The seeded Tuning's Recommended retention. */
 export const SEED_RECOMMENDED_RETENTION = 85;
+
+/** Spanish vocabulary's own Recommended retention, from its seeded Tuning. */
+export const SEED_DECK_RECOMMENDED_RETENTION = 82;
 
 /**
  * Whether the User owns any content (folders, decks, cards, images, reviews,

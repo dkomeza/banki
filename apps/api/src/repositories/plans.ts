@@ -15,7 +15,7 @@ import { checkPlan } from "../scheduling/plan-check";
 import { isLiveDeck } from "./cards";
 import {
   MEMORY_COLUMNS,
-  deckRetentionOf,
+  deckSchedulingOf,
   schedulingSettingsOf,
   timedReviewsSince,
 } from "./reviews";
@@ -98,7 +98,7 @@ export function createPlanRepository(db: Queryable) {
     ): Promise<PlanCheckResponse | "not_found" | "invalid_deadline"> {
       const read = db.transaction((tx) => {
         if (!isLiveDeck(tx, userId, deckId)) return "not_found";
-        const { studyDay, parameters } = schedulingSettingsOf(tx, userId);
+        const { studyDay, desiredRetention, parameters } = deckSchedulingOf(tx, userId, deckId);
         const today = studyDayOf(now, studyDay);
         if (deadlineProblem(deadline, today) !== undefined) return "invalid_deadline";
         const cards = tx
@@ -113,7 +113,7 @@ export function createPlanRepository(db: Queryable) {
           reviews: timedReviewsSince(tx, userId, since.start),
           deadline,
           now,
-          desiredRetention: deckRetentionOf(tx, userId, deckId),
+          desiredRetention,
           studyDay,
           parameters,
         };

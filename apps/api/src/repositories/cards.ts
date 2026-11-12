@@ -11,7 +11,8 @@ import type { z } from "zod";
 import type { Queryable } from "../db/database";
 import { card, card_tag, deck, review } from "../db/schema";
 import { resetProgress } from "./progress-resets";
-import { deckRetentionOf, rescheduleCards } from "./reviews";
+import { replayCards, sameParameters } from "./replay";
+import { deckSchedulingOf, rescheduleCards } from "./reviews";
 
 export type Card = CardResponse;
 
@@ -294,8 +295,10 @@ export function createCardRepository(db: Queryable) {
      * none: "not_found" when one isn't a live Card in a live Deck of the
      * User's, or `deckId` isn't a live Deck of theirs. A moved Card is the same
      * Card: it keeps its ID, Front, Back, Tags, Grading notes and `createdAt`, and takes its
-     * Reviews along (ADR-0021); one whose old Deck had another Desired
-     * retention is rescheduled for the new one's. A Move may make a Duplicate.
+     * Reviews along (ADR-0021). One whose old Deck had other Parameters is
+     * replayed under the new one's, keeping its due date (ADR-0033); then
+     * one whose old Deck had another Desired retention is rescheduled for the
+     * new one's. A Move may make a Duplicate.
      * Answers the moved Cards, newest first.
      */
     move(
@@ -309,25 +312,31 @@ export function createCardRepository(db: Queryable) {
         (tx) => {
           if (!isLiveDeck(tx, userId, deckId)) return "not_found";
           if (liveCount(tx, userId, unique) !== unique.length) return "not_found";
-          const retention = deckRetentionOf(tx, userId, deckId);
+          const { desiredRetention: retention, parameters } = deckSchedulingOf(tx, userId, deckId);
+          // Each Deck the Cards leave, with the Cards that leave it.
           const from = tx
             .selectDistinct({ deckId: card.deckId })
             .from(card)
             .where(and(eq(card.userId, userId), inArray(card.id, unique)))
             .all()
-            .map((row) => row.deckId);
+            .map(({ deckId: source }) => ({
+              ...deckSchedulingOf(tx, userId, source),
+              cardIds: tx
+                .select({ id: card.id })
+                .from(card)
+                .where(
+                  and(eq(card.userId, userId), eq(card.deckId, source), inArray(card.id, unique)),
+                )
+                .all()
+                .map((row) => row.id),
+            }));
+          // The Cards whose Deck scheduled them under other Parameters.
+          const replayed = from.flatMap((source) =>
+            sameParameters(source.parameters, parameters) ? [] : source.cardIds,
+          );
           // The Cards whose Deck scheduled them at another Desired retention.
           const rescheduled = from.flatMap((source) =>
-            deckRetentionOf(tx, userId, source) === retention
-              ? []
-              : tx
-                  .select({ id: card.id })
-                  .from(card)
-                  .where(
-                    and(eq(card.userId, userId), eq(card.deckId, source), inArray(card.id, unique)),
-                  )
-                  .all()
-                  .map((row) => row.id),
+            source.desiredRetention === retention ? [] : source.cardIds,
           );
           tx.update(card)
             .set({ deckId, updatedAt: now })
@@ -338,6 +347,7 @@ export function createCardRepository(db: Queryable) {
             .set({ deckId })
             .where(and(eq(review.userId, userId), inArray(review.cardId, unique)))
             .run();
+          if (replayed.length > 0) replayCards(tx, userId, { cardIds: replayed });
           if (rescheduled.length > 0) rescheduleCards(tx, userId, rescheduled, retention, now);
           const rows = tx
             .select(COLUMNS)

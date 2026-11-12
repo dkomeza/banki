@@ -29,6 +29,7 @@ const TUNING: TuningStatus = {
   paused: false,
   running: false,
   recommendedRetention: null,
+  ownDecks: 0,
 };
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));

@@ -183,6 +183,11 @@ export const deck = sqliteTable(
     macros: text("macros", { mode: "json" }).$type<Macro[]>().notNull().default([]),
     /** Its own Answer mode; null while it follows Settings. */
     answerMode: text("answer_mode", { enum: ANSWER_MODES }),
+    /**
+     * Its own Parameters (ADR-0033), FSRS-6's 21 weights as a JSON list; null
+     * while it follows the User's overall ones. A deleted Deck keeps them.
+     */
+    fsrsParameters: text("fsrs_parameters", { mode: "json" }).$type<number[]>(),
   },
   (table) => [
     check(
@@ -425,6 +430,10 @@ export const card_import = sqliteTable(
  * are of the current Parameters and the new ones on the same items, null
  * where not measured; `parameters` is what it produced (FSRS-6's 21 weights as
  * a JSON list, the defaults for a Reset), null when it produced none.
+ * `deckId` is the Deck a Deck's attempt tuned (ADR-0033), and `reviewCount`
+ * then the Deck's Reviews; null for the overall Parameters. Only the overall
+ * rows count towards the next automatic Tuning and its pause. A Deck's rows go
+ * with its Removal.
  */
 export const parameter_tuning = sqliteTable(
   "parameter_tuning",
@@ -449,11 +458,13 @@ export const parameter_tuning = sqliteTable(
      * rows from before it existed. The newest row's is the current one.
      */
     recommendedRetention: integer("recommended_retention"),
+    deckId: text("deck_id").references(() => deck.id, { onDelete: "cascade" }),
   },
   (table) => [
     check("parameter_tuning_trigger", sql`${table.trigger} IN (${sqlList(TUNING_TRIGGERS)})`),
     check("parameter_tuning_outcome", sql`${table.outcome} IN (${sqlList(TUNING_OUTCOMES)})`),
     index("parameter_tuning_user_id").on(table.userId),
+    index("parameter_tuning_deck_id").on(table.deckId),
   ],
 );
 

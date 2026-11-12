@@ -44,7 +44,7 @@ import { setupRoutes } from "./routes/setup";
 import { reviewRoutes } from "./routes/reviews";
 import { studyRoutes } from "./routes/study";
 import { tagRoutes } from "./routes/tags";
-import { tuningRoutes } from "./routes/tuning";
+import { deckTuningRoutes, tuningRoutes } from "./routes/tuning";
 import type { Optimizer } from "./scheduling/tuning";
 import { readVersion } from "./version";
 
@@ -155,6 +155,7 @@ export function createApp(
     .route("/api/decks", deckCardRoutes({ cards }))
     .route("/api/decks", studyRoutes({ study }))
     .route("/api/decks", planRoutes({ plans }))
+    .route("/api/decks", deckTuningRoutes({ tuning }))
     .route("/api/decks", deckImportRoutes({ imports }))
     .route("/api/decks", deckExportRoutes({ decks, cards, settings, images, config }))
     .route("/api/imports", importRoutes({ imports }))

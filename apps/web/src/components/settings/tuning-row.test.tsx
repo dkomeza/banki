@@ -15,6 +15,7 @@ const STATUS: TuningStatus = {
   paused: false,
   running: false,
   recommendedRetention: null,
+  ownDecks: 0,
 };
 
 const TUNED: TuningStatus = {
