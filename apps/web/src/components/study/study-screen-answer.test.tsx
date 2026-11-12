@@ -29,6 +29,7 @@ const DECK: Deck = {
   macros: [],
   answerMode: "write",
   plan: null,
+  cardPrompt: { language: "", count: null, difficulty: "intermediate", instructions: "" },
 };
 
 const SETTINGS: SettingsResponse = {

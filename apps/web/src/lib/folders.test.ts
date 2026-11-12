@@ -43,6 +43,7 @@ const deck = (id: string, name: string, folderId: string | null): Deck => ({
   macros: [],
   answerMode: null,
   plan: null,
+  cardPrompt: { language: "", count: null, difficulty: "intermediate", instructions: "" },
 });
 
 // Languages and Maths › Analysis › Real, Archive empty, Organic at the Root.

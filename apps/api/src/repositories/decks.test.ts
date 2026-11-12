@@ -83,6 +83,7 @@ describe("create", () => {
       macros: [],
       answerMode: null,
       plan: null,
+      cardPrompt: { language: "", count: null, difficulty: "intermediate", instructions: "" },
     });
     expect(decks.find(USER, "deck-1")).toEqual(decks.list(USER)[0]);
   });
@@ -189,6 +190,7 @@ describe("update", () => {
       macros: [],
       answerMode: null,
       plan: null,
+      cardPrompt: { language: "", count: null, difficulty: "intermediate", instructions: "" },
     });
   });
 
