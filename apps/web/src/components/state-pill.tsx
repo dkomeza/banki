@@ -1,6 +1,7 @@
 import { useLocation, useNavigate, useRouterState } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight, Layers, X } from "lucide-react";
 import { useState } from "react";
+import { STATISTICS_STATES } from "@/lib/statistics-proto";
 import { cn } from "@/lib/utils";
 
 /**
@@ -8,7 +9,10 @@ import { cn } from "@/lib/utils";
  * apps/web/src/routeTree.gen.ts names it. Empty on main: only a Variant
  * branch fills it, so the pill never shows in the real app.
  */
-export const PREVIEW_STATES: Readonly<Record<string, readonly string[]>> = {};
+export const PREVIEW_STATES: Readonly<Record<string, readonly string[]>> = {
+  "/statistics": STATISTICS_STATES,
+  "/decks/$deckId/statistics": STATISTICS_STATES,
+};
 
 /**
  * A Variant's state switcher: a pill fixed at the bottom of the page that

@@ -40,4 +40,6 @@ export const ROUTES: RouteManifest = {
   "/imports/$importId": { path: `/imports/${SEED_IDS.import}` },
   "/cards/$cardId": { path: `/cards/${SEED_IDS.card}` },
   "/deleted": {},
+  "/statistics": {},
+  "/decks/$deckId/statistics": { path: `/decks/${SEED_IDS.deck}/statistics` },
 };

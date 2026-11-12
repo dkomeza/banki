@@ -1,6 +1,14 @@
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
-import { CornerDownRight, FileDown, FileUp, Pencil, Settings2, Trash2 } from "lucide-react";
+import {
+  ChartColumn,
+  CornerDownRight,
+  FileDown,
+  FileUp,
+  Pencil,
+  Settings2,
+  Trash2,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { DeckMacros } from "@/components/cards/deck-macros";
 import { deleteAllWithUndo, showMovedToast } from "@/components/cards/card-toasts";
@@ -204,6 +212,15 @@ function DeckBody({ deck }: { deck: Deck }) {
             >
               <Settings2 aria-hidden />
               Settings
+            </Button>
+            <Button
+              variant="outline"
+              className={cn(OUTLINE_PILL, "h-11 text-foreground no-underline")}
+              render={<Link to="/decks/$deckId/statistics" params={{ deckId: deck.id }} />}
+              nativeButton={false}
+            >
+              <ChartColumn aria-hidden />
+              Statistics
             </Button>
             <Button
               variant="outline"
