@@ -1311,7 +1311,8 @@ describe("Reset to defaults, with Decks of their own", () => {
     const before = everything();
     applyTo(own, DECK_TUNED);
     applyTo(gone, TUNED);
-    expect(tuning.status(USER)).toMatchObject({ parameters: "default", ownDecks: 2 });
+    // Only live Decks count for the status; Reset clears the deleted ones' too.
+    expect(tuning.status(USER)).toMatchObject({ parameters: "default", ownDecks: 1 });
 
     expect(await tuning.reset(USER, NOW)).toMatchObject({
       parameters: "default",
@@ -1325,6 +1326,16 @@ describe("Reset to defaults, with Decks of their own", () => {
 
     expect(await tuning.reset(USER, NOW)).toBe("defaults_in_use");
   });
+});
+
+test("Reset to defaults runs while only a deleted Deck has its own Parameters, which the status doesn't count", async () => {
+  const gone = deckNamed("Gone");
+  applyTo(gone, DECK_TUNED);
+  decks.softDelete(USER, gone);
+  expect(tuning.status(USER).ownDecks).toBe(0);
+
+  expect(await tuning.reset(USER, NOW)).toMatchObject({ paused: true });
+  expect(ownParameters(gone)).toBeNull();
 });
 
 describe("a Deck's Recommended retention", () => {

@@ -39,8 +39,8 @@ export type TuningOutcome = z.infer<typeof TuningOutcome>;
  * automatic Tuning is paused, after a Reset to defaults until Tune now;
  * whether a Tuning is running; the Recommended retention, a whole percent
  * from 70 to 97, the newest Tuning log row's, null while the defaults are in
- * use or when there is none; and how many of the User's Decks, deleted ones
- * too, have Parameters of their own (ADR-0033). It all describes the overall
+ * use or when there is none; and how many of the User's live Decks have
+ * Parameters of their own (ADR-0033). It all describes the overall
  * Parameters: only the overall rows, with no Deck, count. Times are ISO 8601.
  */
 export const TuningStatus = z.object({

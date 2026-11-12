@@ -580,7 +580,10 @@ export function createTuningRepository(
       return exclusive(userId, () => {
         const done = db.transaction(
           (tx) => {
-            if (storedParametersOf(tx, userId) === null && decksWithOwnParameters(tx, userId) === 0)
+            if (
+              storedParametersOf(tx, userId) === null &&
+              decksWithOwnParameters(tx, userId, { deleted: true }) === 0
+            )
               return "defaults_in_use" as const;
             tx.insert(user_settings)
               .values({ userId, fsrsParameters: null })

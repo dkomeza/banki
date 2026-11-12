@@ -148,12 +148,25 @@ export function replayCards(db: Queryable, userId: string, scope: ReplayScope): 
   }
 }
 
-/** How many of the User's Decks, deleted ones too, have Parameters of their own. */
-export const decksWithOwnParameters = (db: Queryable, userId: string): number =>
+/**
+ * How many of the User's Decks have Parameters of their own: the live ones,
+ * or, with `deleted`, the deleted ones too, which keep theirs for a Restore.
+ */
+export const decksWithOwnParameters = (
+  db: Queryable,
+  userId: string,
+  { deleted = false }: { deleted?: boolean } = {},
+): number =>
   db
     .select({ n: count() })
     .from(deck)
-    .where(and(eq(deck.userId, userId), isNotNull(deck.fsrsParameters)))
+    .where(
+      and(
+        eq(deck.userId, userId),
+        isNotNull(deck.fsrsParameters),
+        deleted ? undefined : isNull(deck.deletedAt),
+      ),
+    )
     .get()?.n ?? 0;
 
 /** The User's Decks with their own Parameters go back to following the overall ones. */
