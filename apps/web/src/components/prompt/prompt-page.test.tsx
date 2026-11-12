@@ -90,7 +90,7 @@ const copyPrompt = () => screen.getByRole<HTMLButtonElement>("button", { name: "
 const field = (name: string) => screen.getByLabelText<HTMLInputElement>(name);
 
 describe("PromptPage", () => {
-  test("shows the prompt for the Deck's options and effective Macros, and Copy prompt copies exactly it", () => {
+  test("shows the prompt for the Deck's options and effective Macros, and Copy prompt copies exactly it", async () => {
     renderPage(DECK);
 
     const expected = buildCardPrompt(
@@ -103,7 +103,8 @@ describe("PromptPage", () => {
     expect(shown()).toContain("- `\\norm` →");
     fireEvent.click(copyPrompt());
     expect(writeText).toHaveBeenCalledWith(expected);
-    expect(screen.getByRole("button", { name: "Copied" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Copied" })).toBeTruthy();
+    expect(screen.getByText(/characters on your clipboard/)).toBeTruthy();
   });
 
   test("starts from the options the Deck keeps", () => {
@@ -192,6 +193,7 @@ describe("PromptPage", () => {
 
     fireEvent.click(screen.getByRole("radio", { name: "Advanced" }));
     await screen.findByText(/Couldn.t save these options/);
+    expect(screen.queryByText("Saved for this deck, on every device.")).toBeNull();
     fails = false;
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 
@@ -201,6 +203,28 @@ describe("PromptPage", () => {
       ...DEFAULT_CARD_PROMPT_OPTIONS,
       difficulty: "advanced",
     });
+  });
+
+  test("says so when the prompt couldn't be copied, rather than Copied", async () => {
+    writeText.mockRejectedValue(new Error("denied"));
+    renderPage(DECK);
+
+    fireEvent.click(copyPrompt());
+
+    expect(await screen.findByText(/Couldn.t copy it/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Copied" })).toBeNull();
+  });
+
+  test("a change with a problem still lets the valid one before it save", async () => {
+    const save = vi.fn<(options: CardPromptOptions) => Promise<void>>(async () => {});
+    renderPage(DECK, save);
+
+    fireEvent.change(field("Number of cards"), { target: { value: "5" } });
+    fireEvent.change(field("Number of cards"), { target: { value: "50000" } });
+
+    expect(shown()).toContain("- Number of cards: 5.");
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save).toHaveBeenCalledWith({ ...DEFAULT_CARD_PROMPT_OPTIONS, count: 5 });
   });
 
   test("sends a change still waiting when the page closes", () => {

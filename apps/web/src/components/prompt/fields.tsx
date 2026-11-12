@@ -122,7 +122,7 @@ export function DifficultyField({
             role="radio"
             aria-checked={draft.difficulty === d.value}
             onClick={() => onPick({ difficulty: d.value })}
-            className="h-10 min-w-0 truncate rounded-full px-2 text-sm font-medium text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid aria-checked:bg-foreground aria-checked:text-background motion-reduce:transition-none lg:h-9"
+            className="h-11 min-w-0 truncate rounded-full px-2 text-sm font-medium text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid aria-checked:bg-foreground aria-checked:text-background motion-reduce:transition-none lg:h-9"
           >
             {d.label}
           </button>

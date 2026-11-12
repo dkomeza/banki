@@ -53,11 +53,13 @@ export function useCardPromptOptions(deck: Deck) {
   const change = (patch: Partial<CardPromptDraft>, settleMs = SETTLE_MS) => {
     const next = { ...draft, ...patch };
     setDraft(next);
-    clearTimeout(timer.current);
     const { options } = checkDraft(next);
-    pending.current = options;
-    setWaiting(options !== undefined);
+    // Options with a problem save nothing, but an earlier change still waiting
+    // goes on: it is what the prompt shows.
     if (options === undefined) return;
+    clearTimeout(timer.current);
+    pending.current = options;
+    setWaiting(true);
     setValid(options);
     if (settleMs === 0) {
       setWaiting(false);

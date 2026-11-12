@@ -88,7 +88,9 @@ export function PromptPage({ deck }: { deck: Deck }) {
               />
               {options.status === "failed" && <SaveFailed onRetry={options.retry} />}
             </div>
-            <p className="text-sm text-muted-foreground">Saved for this deck, on every device.</p>
+            {options.status !== "failed" && (
+              <p className="text-sm text-muted-foreground">Saved for this deck, on every device.</p>
+            )}
           </Step>
 
           <Step number={2} title="Copy the prompt">
@@ -96,7 +98,7 @@ export function PromptPage({ deck }: { deck: Deck }) {
               <Button
                 className={cn(PILL, "h-12 px-7 text-base lg:h-11")}
                 disabled={invalid}
-                onClick={() => promptCopy.copy(prompt)}
+                onClick={() => void promptCopy.copy(prompt)}
               >
                 {promptCopy.copied ? <Check aria-hidden /> : <Copy aria-hidden />}
                 {promptCopy.copied ? "Copied" : "Copy prompt"}
@@ -105,14 +107,18 @@ export function PromptPage({ deck }: { deck: Deck }) {
                 role="status"
                 className={cn(
                   "text-sm",
-                  invalid ? "font-medium text-destructive" : "text-muted-foreground",
+                  invalid || promptCopy.failed
+                    ? "font-medium text-destructive"
+                    : "text-muted-foreground",
                 )}
               >
                 {invalid
                   ? "Fix the options first."
-                  : promptCopy.copied
-                    ? `${length} characters on your clipboard.`
-                    : `${length} characters, with the schema and an example.`}
+                  : promptCopy.failed
+                    ? "Couldn't copy it: select the prompt below and copy it yourself."
+                    : promptCopy.copied
+                      ? `${length} characters on your clipboard.`
+                      : `${length} characters, with the schema and an example.`}
               </p>
             </div>
             <div className="rounded-xl border bg-muted/40">
@@ -172,7 +178,7 @@ export function PromptPage({ deck }: { deck: Deck }) {
                 href={schemaUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="min-w-0 flex-1 truncate font-mono text-xs"
+                className="flex min-h-11 min-w-0 flex-1 items-center font-mono text-xs break-all lg:min-h-0"
               >
                 {schemaUrl}
               </a>
@@ -192,18 +198,28 @@ export function PromptPage({ deck }: { deck: Deck }) {
   );
 }
 
-/** Copies text, and says so for a moment. */
+/**
+ * Copies text, and says so for a moment once it is on the clipboard; `failed`
+ * when it couldn't be, as without a clipboard (a page served over plain HTTP).
+ */
 function useCopied() {
-  const [copied, setCopied] = useState(false);
+  const [state, setState] = useState<"copied" | "failed" | undefined>(undefined);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
   return {
-    copied,
-    copy: (text: string) => {
-      void navigator.clipboard?.writeText(text).catch(() => {});
-      setCopied(true);
+    copied: state === "copied",
+    failed: state === "failed",
+    copy: async (text: string) => {
       clearTimeout(timer.current);
-      timer.current = setTimeout(() => setCopied(false), 1600);
+      try {
+        if (navigator.clipboard === undefined) throw new Error("No clipboard");
+        await navigator.clipboard.writeText(text);
+      } catch {
+        setState("failed");
+        return;
+      }
+      setState("copied");
+      timer.current = setTimeout(() => setState(undefined), 1600);
     },
   };
 }
