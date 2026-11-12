@@ -599,18 +599,17 @@ export function useNoteFrame<T extends object>(key: string, initial: T) {
   return [frame, setFrame] as const;
 }
 
-/** The size of `el`, kept up to date. */
+/** The size of the element it's given, kept up to date, from whenever it mounts. */
 export function useSize<T extends HTMLElement>() {
-  const ref = useRef<T>(null);
+  const [el, ref] = useState<T | null>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   useLayoutEffect(() => {
-    const el = ref.current;
     if (el === null) return () => {};
     const measure = () => setSize({ w: el.offsetWidth, h: el.offsetHeight });
     const observer = new ResizeObserver(measure);
     observer.observe(el);
     measure();
     return () => observer.disconnect();
-  }, []);
+  }, [el]);
   return [ref, size] as const;
 }
