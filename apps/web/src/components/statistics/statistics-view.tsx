@@ -153,7 +153,8 @@ function Minutes({ stats }: { stats: Statistics }) {
           {minutesLabel(total)}
         </span>
         <span className="text-sm text-muted-foreground tabular-nums">
-          over {rangeLabel(stats)} · {Math.round(perDay / 60_000)} min a day
+          {stats.range === "all" ? "" : "over "}
+          {rangeLabel(stats)} · {Math.round(perDay / 60_000)} min a day
         </span>
       </div>
       <MinutesBars stats={stats} className="pt-4" />
@@ -174,7 +175,9 @@ function Retention({ stats, deck }: { stats: Statistics; deck: boolean }) {
               {fmtPct(r.value)}
             </span>
             <span className="text-sm text-muted-foreground tabular-nums">
-              of {reviewsLabel(r.total)} of learned cards recalled, over {rangeLabel(stats)}
+              of {reviewsLabel(r.total)} of learned cards recalled,{" "}
+              {stats.range === "all" ? "" : "over "}
+              {rangeLabel(stats)}
             </span>
           </div>
           <RetentionTrack stats={stats} />
