@@ -65,6 +65,7 @@ const COMMITTED = [
   "0021_parameter_tuning",
   "0022_import_undo",
   "0023_plan",
+  "0024_recommended_retention",
 ];
 
 /** The tables the committed migrations create. */
@@ -727,7 +728,9 @@ test("0023_plan keeps every Deck and Card, with no Plan, and a Deck's Removal ta
   );
 
   writeFileSync(journalPath, full);
-  expect(applyMigrations(opened.db, folder)).toEqual(["0023_plan"]);
+  expect(applyMigrations(opened.db, folder)).toEqual(
+    COMMITTED.slice(COMMITTED.indexOf("0023_plan")),
+  );
 
   expect(opened.db.values(sql`SELECT id, desired_retention FROM deck`)).toEqual([["d", 85]]);
   expect(opened.db.values(sql`SELECT id FROM card`)).toEqual([["c"]]);
@@ -745,6 +748,37 @@ test("0023_plan keeps every Deck and Card, with no Plan, and a Deck's Removal ta
   opened.db.run(sql`DELETE FROM card`);
   opened.db.run(sql`DELETE FROM deck`);
   expect(opened.db.values(sql`SELECT id FROM plan`)).toEqual([]);
+});
+
+test("0024_recommended_retention keeps every Tuning log row, with no Recommended retention", () => {
+  const journalPath = join(folder, "meta", "_journal.json");
+  const full = readFileSync(journalPath, "utf8");
+  const journal = z
+    .looseObject({ entries: z.array(z.looseObject({ tag: z.string() })) })
+    .parse(JSON.parse(full));
+  writeFileSync(
+    journalPath,
+    JSON.stringify({
+      ...journal,
+      entries: journal.entries.filter((entry) => entry.tag < "0024_recommended_retention"),
+    }),
+  );
+  applyMigrations(opened.db, folder);
+  opened.db.run(
+    sql`INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES ('u', 'n', 'u@x.y', 1, 0, 0)`,
+  );
+  opened.db.run(
+    sql`INSERT INTO parameter_tuning (id, user_id, ran_at, trigger, review_count, outcome, parameters) VALUES ('t', 'u', 0, 'automatic', 200, 'applied', '[1]')`,
+  );
+
+  writeFileSync(journalPath, full);
+  expect(applyMigrations(opened.db, folder)).toEqual(["0024_recommended_retention"]);
+
+  expect(
+    opened.db.values(
+      sql`SELECT id, outcome, parameters, recommended_retention FROM parameter_tuning`,
+    ),
+  ).toEqual([["t", "applied", "[1]", null]]);
 });
 
 test("a Card's newest Review, its Progress resets since and the next place in the Write order are found through an index, not the User's whole history", () => {

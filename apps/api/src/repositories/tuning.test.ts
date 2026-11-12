@@ -8,6 +8,7 @@ import { type OpenedDatabase, openDatabase } from "../db/database";
 import { applyMigrations } from "../db/migrate";
 import { card, parameter_tuning, review, user_settings } from "../db/schema";
 import { DEFAULT_PARAMETERS, type MemoryState, rate } from "../scheduling/fsrs";
+import { DEFAULT_RETENTION_INPUTS, type RetentionInputs } from "../scheduling/retention";
 import type { Optimizer, TrainingItem } from "../scheduling/tuning";
 import { type CardRepository, createCardRepository } from "./cards";
 import { type DeckRepository, createDeckRepository } from "./decks";
@@ -21,7 +22,12 @@ import {
   schedulingSettingsOf,
 } from "./reviews";
 import { type StudyRepository, createStudyRepository } from "./study";
-import { type TuningRepository, applyParameters, createTuningRepository } from "./tuning";
+import {
+  type Recommender,
+  type TuningRepository,
+  applyParameters,
+  createTuningRepository,
+} from "./tuning";
 import { createUserRepository } from "./user";
 
 let tempDir: string;
@@ -32,6 +38,7 @@ let reviews: ReviewRepository;
 let study: StudyRepository;
 let tuning: TuningRepository;
 let optimizer: StubOptimizer;
+let recommender: StubRecommender;
 /** What the last Rating's `afterRating` answered. */
 let automatic: Promise<unknown> | undefined;
 
@@ -75,6 +82,32 @@ const stubOptimizer = (): StubOptimizer => {
   return stub;
 };
 
+/** A Recommended retention worker that answers what a test sets, and records what it was asked. */
+type StubRecommender = {
+  recommend: Recommender;
+  answers: number;
+  fails: Error | undefined;
+  /** Until it settles, working it out waits. */
+  gate: Promise<void>;
+  asked: { parameters: number[]; inputs: RetentionInputs }[];
+};
+
+const stubRecommender = (): StubRecommender => {
+  const stub: StubRecommender = {
+    answers: 84,
+    fails: undefined,
+    gate: Promise.resolve(),
+    asked: [],
+    async recommend(parameters, inputs) {
+      stub.asked.push({ parameters, inputs });
+      await stub.gate;
+      if (stub.fails !== undefined) throw stub.fails;
+      return stub.answers;
+    },
+  };
+  return stub;
+};
+
 const gate = () => {
   const { promise: closed, resolve: open } = Promise.withResolvers<void>();
   return { closed, open };
@@ -94,7 +127,8 @@ beforeEach(() => {
     sql`INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES (${OTHER}, 'n', 'o@x.y', 1, 0, 0)`,
   );
   optimizer = stubOptimizer();
-  tuning = createTuningRepository(opened.db, { optimizer });
+  recommender = stubRecommender();
+  tuning = createTuningRepository(opened.db, { optimizer, recommend: recommender.recommend });
   automatic = undefined;
   cards = createCardRepository(opened.db);
   decks = createDeckRepository(opened.db);
@@ -437,6 +471,147 @@ describe("one at a time", () => {
   });
 });
 
+/** Each Tuning log row's Recommended retention, oldest first. */
+const recommended = () => logRows().map((row) => row.recommendedRetention);
+
+describe("the Recommended retention", () => {
+  test("is worked out for an applied row under its new Parameters, and Tune now answers it", async () => {
+    someHistory();
+
+    expect(await tuning.tuneNow(USER, NOW)).toMatchObject({
+      result: "applied",
+      status: { parameters: "tuned", recommendedRetention: 84 },
+    });
+    expect(recommended()).toEqual([84]);
+    expect(recommender.asked).toEqual([{ parameters: TUNED, inputs: expect.any(Object) }]);
+    expect(tuning.status(USER).recommendedRetention).toBe(84);
+  });
+
+  test("is worked out for every row that leaves tuned Parameters in use, whatever its outcome", async () => {
+    someHistory();
+    apply(TUNED);
+
+    optimizer.losses = { current: 0.5, next: 0.5 };
+    recommender.answers = 81;
+    expect((await tuning.tuneNow(USER, NOW)).status.recommendedRetention).toBe(81);
+    optimizer.fails = new Error("Evaluation failed: NotEnoughData");
+    recommender.answers = 82;
+    expect((await tuning.tuneNow(USER, NOW)).status.recommendedRetention).toBe(82);
+    optimizer.fails = new Error("boom");
+    recommender.answers = 83;
+    expect((await tuning.tuneNow(USER, NOW)).status.recommendedRetention).toBe(83);
+
+    expect(logRows().map((row) => row.outcome)).toEqual(["kept", "not_enough_data", "failed"]);
+    expect(recommended()).toEqual([81, 82, 83]);
+    expect(recommender.asked.map((one) => one.parameters)).toEqual([TUNED, TUNED, TUNED]);
+  });
+
+  test("is worked out for an automatic row, in the background", async () => {
+    rateMany(TUNING_REVIEW_INTERVAL);
+    expect(await automatic).toBe("applied");
+    expect(logRows()).toEqual([
+      expect.objectContaining({ trigger: "automatic", recommendedRetention: 84 }),
+    ]);
+  });
+
+  test("is none while the defaults are in use", async () => {
+    someHistory();
+    optimizer.losses = { current: 0.5, next: 0.5 };
+    expect((await tuning.tuneNow(USER, NOW)).status.recommendedRetention).toBeNull();
+    optimizer.fails = new Error("boom");
+    expect((await tuning.tuneNow(USER, NOW)).status.recommendedRetention).toBeNull();
+
+    expect(recommended()).toEqual([null, null]);
+    expect(recommender.asked).toEqual([]);
+  });
+
+  test("is none after a Reset to defaults, whose row has none", async () => {
+    someHistory();
+    await tuning.tuneNow(USER, NOW);
+
+    expect(await tuning.reset(USER, NOW)).toMatchObject({ recommendedRetention: null });
+    expect(recommended()).toEqual([84, null]);
+    expect(recommender.asked).toHaveLength(1);
+  });
+
+  test("is the newest row's, so none until the next Tuning on rows from before it", async () => {
+    someHistory();
+    await tuning.tuneNow(USER, NOW);
+    opened.db.update(parameter_tuning).set({ recommendedRetention: null }).run();
+
+    expect(tuning.status(USER)).toMatchObject({ parameters: "tuned", recommendedRetention: null });
+  });
+
+  test("a failure is logged and leaves the row's null, and the Tuning stands", async () => {
+    someHistory();
+    recommender.fails = new Error("boom");
+
+    expect(await tuning.tuneNow(USER, NOW)).toMatchObject({
+      result: "applied",
+      status: { parameters: "tuned", recommendedRetention: null },
+    });
+    expect(storedParameters()).toEqual(TUNED);
+    expect(logRows()).toEqual([
+      expect.objectContaining({ outcome: "applied", recommendedRetention: null }),
+    ]);
+  });
+
+  test("Tune now waits for it, and a Rating never does", async () => {
+    const cardId = write(deckNamed("Spanish"), "uno");
+    rateThrough(cardId, ["good", "good", "good"]);
+    const { closed, open } = gate();
+    recommender.gate = closed;
+    let answered: unknown;
+    const tuned = tuning.tuneNow(USER, NOW).then((answer) => {
+      answered = answer;
+    });
+    await Bun.sleep(1);
+    expect(recommender.asked).toHaveLength(1);
+    expect(answered).toBeUndefined();
+    expect(reviews.rate(USER, cardId, { rating: "good", durationMs: 1 })).not.toBe("not_found");
+
+    open();
+    await tuned;
+    expect(answered).toMatchObject({ status: { recommendedRetention: 84 } });
+  });
+
+  test("is worked out from every Review of the User's, of deleted and Removed Cards too, and only theirs", async () => {
+    const deckId = deckNamed("Spanish");
+    const rateOnce = (cardId: string, durationMs: number, userId = USER) => {
+      const rated = reviews.rate(userId, cardId, { rating: "good", durationMs }, { now: START });
+      if (rated === "not_found") throw new Error("not_found");
+    };
+    const ids = Array.from({ length: 20 }, (_, i) => write(deckId, `card ${i}`));
+    // Each one New card-day, the last two each capped at 2 minutes.
+    ids.forEach((cardId, i) => rateOnce(cardId, i < 18 ? 10_000 : 10 * 60_000));
+    cards.softDelete(USER, ids[0] ?? "");
+    const deletionId = cards.softDelete(USER, ids[1] ?? "");
+    if (deletionId === undefined) throw new Error("Not deleted");
+    createDeletionRepository(opened.db).remove(USER, deletionId);
+    const otherDeck = deckNamed("Other", OTHER);
+    for (let i = 0; i < 20; i += 1) rateOnce(write(otherDeck, `otro ${i}`, OTHER), 1, OTHER);
+    apply(TUNED);
+    optimizer.losses = { current: 0.5, next: 0.5 };
+
+    await tuning.tuneNow(USER, NOW);
+
+    expect(recommender.asked[0]?.inputs).toEqual({
+      ...DEFAULT_RETENTION_INPUTS,
+      newDayMs: (18 * 10_000 + 2 * 120_000) / 20,
+      firstRatings: [0, 0, 1, 0],
+    });
+  });
+
+  test("is worked out for real, within the 70–97 range", async () => {
+    const real = createTuningRepository(opened.db, { optimizer });
+    someHistory();
+
+    const percent = (await real.tuneNow(USER, NOW)).status.recommendedRetention;
+    expect(percent).toBeGreaterThanOrEqual(70);
+    expect(percent).toBeLessThanOrEqual(97);
+  });
+});
+
 describe("Reset to defaults", () => {
   test("is refused while the defaults are in use", async () => {
     expect(await tuning.reset(USER, NOW)).toBe("defaults_in_use");
@@ -457,6 +632,7 @@ describe("Reset to defaults", () => {
       reviewsUntilAutomatic: TUNING_REVIEW_INTERVAL,
       paused: true,
       running: false,
+      recommendedRetention: null,
     });
     expect(storedParameters()).toBeNull();
     expect(everything()).toEqual(before);

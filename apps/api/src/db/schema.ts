@@ -417,7 +417,8 @@ export const card_import = sqliteTable(
 
 /**
  * The User's Tuning log (CONTEXT.md: Tuning): one row per Tuning attempt or
- * Reset to defaults, never changed once written. `reviewCount` is how many of
+ * Reset to defaults, never changed once written but for its Recommended
+ * retention, set right after (ADR-0032). `reviewCount` is how many of
  * the User's Reviews there were when it ran: the next automatic Tuning waits
  * for `TUNING_REVIEW_INTERVAL` more than the newest row's. The newest row is
  * the last written (`rowid`), as clocks can tie or step back. The log losses
@@ -441,6 +442,13 @@ export const parameter_tuning = sqliteTable(
     /** The log loss of the Parameters it produced. */
     newLogLoss: real("new_log_loss"),
     parameters: text("parameters", { mode: "json" }).$type<number[]>(),
+    /**
+     * The Recommended retention worked out right after the row was written
+     * (CONTEXT.md, ADR-0032), a whole percent from 70 to 97: null for a Reset,
+     * while FSRS-6's defaults are in use, when working it out failed, and on
+     * rows from before it existed. The newest row's is the current one.
+     */
+    recommendedRetention: integer("recommended_retention"),
   },
   (table) => [
     check("parameter_tuning_trigger", sql`${table.trigger} IN (${sqlList(TUNING_TRIGGERS)})`),

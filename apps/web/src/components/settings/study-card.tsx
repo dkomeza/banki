@@ -2,7 +2,11 @@ import { ANSWER_MODES, type AnswerMode } from "@banki/shared";
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useId, useSyncExternalStore } from "react";
 import { Combobox } from "@/components/settings/combobox";
-import { RetentionError, GlobalRetentionPicker } from "@/components/settings/retention-picker";
+import {
+  GlobalRetentionPicker,
+  RecommendedRetention,
+  RetentionError,
+} from "@/components/settings/retention-picker";
 import { RetentionPicture } from "@/components/settings/retention-picture";
 import { SaveState, SettingsCard } from "@/components/settings/parts";
 import {
@@ -15,10 +19,11 @@ import { globalRetentionErrorText } from "@/lib/retention";
 import { settingsQueryOptions } from "@/lib/settings";
 import { type SettingsSaver, shownSettings } from "@/lib/settings-saver";
 import { settingsSaverFor } from "@/lib/settings-store";
+import { tuningQueryOptions } from "@/lib/tuning";
 
 /**
  * Study: what every Deck follows until it has its own, the Desired retention
- * (and what it means) and the Answer mode.
+ * (and what it means, and the Recommended one) and the Answer mode.
  */
 export function StudyCard() {
   const queryClient = useQueryClient();
@@ -43,8 +48,12 @@ function followersText(decks: readonly Deck[], hasOwn: (deck: Deck) => boolean):
     : `Every deck follows it but ${ownCount === 1 ? "one" : ownCount}, which ${ownCount === 1 ? "has its" : "have their"} own.`;
 }
 
-/** Desired retention: its picker and picture, autosaving, with save state and error. */
+/**
+ * Desired retention: its picker, the Recommended retention with Use, and its
+ * picture, autosaving, with save state and error.
+ */
 function RetentionField({ saver, decks }: { saver: SettingsSaver; decks: readonly Deck[] }) {
+  const recommended = useSuspenseQuery(tuningQueryOptions()).data.recommendedRetention;
   const state = useSyncExternalStore(saver.subscribe, saver.getState);
   const value = shownSettings(state).desiredRetention;
   const failed = state.failures.find((failure) => failure.field === "desiredRetention");
@@ -63,9 +72,15 @@ function RetentionField({ saver, decks }: { saver: SettingsSaver; decks: readonl
       </div>
       <GlobalRetentionPicker
         value={value}
+        recommended={recommended}
         onPick={(picked) => saver.change({ field: "desiredRetention", attempted: picked })}
         labelledBy={label}
         describedBy={hint}
+      />
+      <RecommendedRetention
+        percent={recommended}
+        current={value}
+        onUse={(picked) => saver.change({ field: "desiredRetention", attempted: picked })}
       />
       <RetentionPicture percent={value} />
       <p id={hint} className="text-sm text-muted-foreground">
