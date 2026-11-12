@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Page } from "@/components/page";
+import { type Section, SectionIndex } from "@/components/settings/section-index";
 import {
   AGREEMENT,
   ActivityCalendar,
@@ -29,11 +30,22 @@ import {
   statisticsOf,
   useStatisticsView,
 } from "@/lib/statistics-proto";
+import { useHiddenScrollbar } from "@/lib/use-hidden-scrollbar";
 import { cn } from "@/lib/utils";
 
-// PROTOTYPE (BAN-53), Variant a, "Desk": the page as docs/design.md builds a
-// page of cards. The year's activity comes first, full width, then the four
-// range charts in masonry. The range is a row of pills beside the title.
+// PROTOTYPE (BAN-53), Variant b, "Figures first": the range's three figures
+// open the page as tiles, under a range bar that stays at the top while the
+// page scrolls. The charts follow full width, one under another, with a
+// section index from 1024 px. The year's calendar comes after the range's
+// charts, since the range doesn't move it.
+
+const SECTIONS: readonly Section[] = [
+  { id: "figures", title: "At a glance" },
+  { id: "minutes", title: "Minutes" },
+  { id: "activity", title: "Activity" },
+  { id: "stages", title: "Cards by stage" },
+  { id: "agreement", title: "Grader agreement" },
+];
 
 export function StatisticsView({
   scope,
@@ -48,67 +60,88 @@ export function StatisticsView({
 }) {
   const { range, state } = useStatisticsView(search);
   const stats = statisticsOf(scope, range, state);
+  useHiddenScrollbar();
   return (
     <Page width="cards">
-      <div className="flex flex-col gap-8 lg:gap-10">
-        <div className="flex flex-col gap-4">
-          {breadcrumb}
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-            <div className="flex flex-col gap-3">
-              <h1 className="text-[2.25rem] leading-none font-semibold tracking-[-0.035em] lg:text-5xl">
-                Statistics
-              </h1>
-              <p className="max-w-prose text-[1.05rem] text-muted-foreground">
-                {deckName === undefined ? (
-                  "Every review you've made, in every deck."
-                ) : (
-                  <>
-                    The reviews in <span className="font-medium text-foreground">{deckName}</span>.
-                  </>
-                )}
+      <div className="lg:grid lg:grid-cols-[2rem_minmax(0,1fr)] lg:gap-8">
+        <SectionIndex label="Statistics sections" sections={SECTIONS} />
+        <div className="flex flex-col gap-6 lg:gap-8">
+          <div className="flex flex-col gap-4">
+            {breadcrumb}
+            <h1 className="text-[2.25rem] leading-none font-semibold tracking-[-0.035em] lg:text-5xl">
+              Statistics
+            </h1>
+            {deckName !== undefined ? (
+              <p className="text-[1.05rem] text-muted-foreground">
+                For <span className="font-medium text-foreground">{deckName}</span>.
               </p>
-            </div>
-            <RangePills value={range} className="w-full sm:w-fit" />
+            ) : null}
           </div>
-        </div>
 
-        <Card id="activity" title="Activity" aside={<CalendarLegend />}>
-          <p className="-mt-3 text-sm text-muted-foreground">
-            The last 53 weeks, whatever the range:{" "}
-            {reviewsLabel(stats.calendar.reduce((s, d) => s + d.reviews, 0))} on{" "}
-            {stats.calendar.length} days.
-          </p>
-          <div
-            ref={(el) => {
-              if (el !== null) el.scrollLeft = el.scrollWidth;
-            }}
-            className="-mx-5 overflow-x-auto px-5 py-2 [scrollbar-width:thin] sm:-mx-6 sm:px-6 lg:overflow-visible"
+          <div className="sticky top-[env(safe-area-inset-top)] z-20 -mx-5 flex items-center justify-between gap-4 border-b bg-background/95 px-5 py-2.5 backdrop-blur sm:-mx-8 sm:px-8 lg:mx-0 lg:rounded-full lg:border lg:px-2 lg:py-1.5">
+            <RangePills
+              value={range}
+              className="w-full border-0 bg-transparent p-0 sm:w-fit dark:bg-transparent"
+            />
+            <span className="hidden pr-3 text-sm text-muted-foreground tabular-nums sm:block">
+              {rangeSpan(stats)}
+            </span>
+          </div>
+
+          <Figures stats={stats} deck={scope.kind === "deck"} />
+
+          <Card
+            id="minutes"
+            title={stats.minutes.bucket === "week" ? "Minutes per week" : "Minutes per day"}
           >
-            <ActivityCalendar stats={stats} state={state} className="w-max lg:hidden" />
-            <ActivityCalendar stats={stats} state={state} fit className="hidden lg:block" />
-          </div>
-        </Card>
+            <MinutesBars stats={stats} height={200} barColor="var(--primary)" className="pt-5" />
+          </Card>
 
-        <div className="gap-x-5 md:columns-2 lg:gap-x-6 [&>section]:mb-5 [&>section]:break-inside-avoid lg:[&>section]:mb-6">
-          <Minutes stats={stats} />
-          <Retention stats={stats} deck={scope.kind === "deck"} />
-          <Stages stats={stats} />
-          <Agreement stats={stats} />
+          <Card
+            id="activity"
+            title="Activity"
+            note="The last 53 weeks, whatever the range"
+            aside={<CalendarLegend />}
+          >
+            <ActivityCalendar
+              stats={stats}
+              state={state}
+              cell={5}
+              gap={1.5}
+              fit
+              className="sm:hidden"
+            />
+            <ActivityCalendar stats={stats} state={state} fit className="hidden sm:block" />
+          </Card>
+
+          <div className="grid gap-6 md:grid-cols-2 lg:gap-8">
+            <Stages stats={stats} />
+            <Agreement stats={stats} />
+          </div>
         </div>
       </div>
     </Page>
   );
 }
 
+const SPAN = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" });
+function rangeSpan(stats: Statistics) {
+  const [y, m, d] = stats.from.split("-").map(Number);
+  const from = SPAN.format(new Date(y ?? 2000, (m ?? 1) - 1, d ?? 1, 12));
+  return stats.from === stats.to ? "Today" : `${from} – today`;
+}
+
 function Card({
   id,
   title,
+  note,
   aside,
   className,
   children,
 }: {
   id: string;
   title: string;
+  note?: string;
   aside?: ReactNode;
   className?: string;
   children: ReactNode;
@@ -118,14 +151,17 @@ function Card({
       id={id}
       aria-labelledby={`${id}-title`}
       className={cn(
-        "flex flex-col gap-5 rounded-[1.25rem] border bg-card p-5 text-card-foreground sm:p-6",
+        "flex scroll-mt-24 flex-col gap-4 rounded-[1.25rem] border bg-card p-5 text-card-foreground sm:p-6",
         className,
       )}
     >
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <h2 id={`${id}-title`} className="text-xl font-semibold tracking-tight">
-          {title}
-        </h2>
+      <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
+        <div className="flex flex-col gap-0.5">
+          <h2 id={`${id}-title`} className="text-xl font-semibold tracking-tight">
+            {title}
+          </h2>
+          {note === undefined ? null : <p className="text-sm text-muted-foreground">{note}</p>}
+        </div>
         {aside}
       </div>
       {children}
@@ -133,79 +169,102 @@ function Card({
   );
 }
 
-function Empty({ children }: { children: ReactNode }) {
-  return (
-    <p className="rounded-xl bg-muted px-4 py-6 text-center text-sm text-muted-foreground">
-      {children}
-    </p>
-  );
-}
-
-function Minutes({ stats }: { stats: Statistics }) {
-  const { total, perDay } = minutesSummary(stats);
-  return (
-    <Card
-      id="minutes"
-      title={stats.minutes.bucket === "week" ? "Minutes per week" : "Minutes per day"}
-    >
-      <div className="-mt-2 flex flex-col gap-1">
-        <span className="text-3xl font-semibold tracking-tight tabular-nums">
-          {minutesLabel(total)}
-        </span>
-        <span className="text-sm text-muted-foreground tabular-nums">
-          over {rangeLabel(stats)} · {Math.round(perDay / 60_000)} min a day
-        </span>
-      </div>
-      <MinutesBars stats={stats} className="pt-4" />
-    </Card>
-  );
-}
-
-function Retention({ stats, deck }: { stats: Statistics; deck: boolean }) {
+function Figures({ stats, deck }: { stats: Statistics; deck: boolean }) {
   const r = retentionOf(stats);
+  const { total, perDay } = minutesSummary(stats);
+  const g = stats.graderAgreement;
+  const gradedTotal = graded(g);
+  const reviews = stats.calendar
+    .filter((d) => d.day >= stats.from)
+    .reduce((s, d) => s + d.reviews, 0);
   return (
-    <Card id="retention" title="Actual retention">
-      {r.total === 0 ? (
-        <Empty>{NO_LEARNED}</Empty>
-      ) : (
-        <>
-          <div className="-mt-2 flex flex-col gap-1">
-            <span className="text-5xl font-semibold tracking-[-0.03em] text-primary tabular-nums">
-              {fmtPct(r.value)}
-            </span>
-            <span className="text-sm text-muted-foreground tabular-nums">
-              of {reviewsLabel(r.total)} of learned cards recalled, over {rangeLabel(stats)}
-            </span>
-          </div>
-          <RetentionTrack stats={stats} />
-          <p className="text-sm text-muted-foreground">
-            {r.value >= r.desired ? "Above" : "Below"}{" "}
-            {deck
-              ? "this deck's Desired retention"
-              : "the Desired retention your reviews were scheduled for"}{" "}
-            by {Math.abs(r.value - r.desired).toFixed(1)} points.
+    <section
+      id="figures"
+      aria-label="At a glance"
+      className="grid scroll-mt-24 grid-cols-2 gap-3 lg:grid-cols-3 lg:gap-4"
+    >
+      <div className="flex flex-col gap-4 col-span-2 rounded-[1.25rem] border bg-card p-5 sm:p-6 lg:col-span-1 lg:row-span-2">
+        <h2 className="text-sm font-medium text-muted-foreground">Actual retention</h2>
+        {r.total === 0 ? (
+          <p className="flex flex-1 items-center text-[1.05rem] text-muted-foreground">
+            {NO_LEARNED}
           </p>
-        </>
-      )}
-    </Card>
+        ) : (
+          <>
+            <p className="text-6xl leading-none font-semibold tracking-[-0.04em] text-primary tabular-nums">
+              {fmtPct(r.value)}
+            </p>
+            <p className="text-sm text-muted-foreground tabular-nums">
+              {r.recalled.toLocaleString("en-GB")} of {reviewsLabel(r.total)} of learned cards
+              recalled
+            </p>
+            <RetentionTrack stats={stats} className="mt-auto" />
+            <p className="text-sm text-muted-foreground">
+              {Math.abs(r.value - r.desired).toFixed(1)} points{" "}
+              {r.value >= r.desired ? "over" : "under"}{" "}
+              {deck
+                ? "this deck’s Desired retention."
+                : "the Desired retention of the decks you reviewed, weighted by review."}
+            </p>
+          </>
+        )}
+      </div>
+      <Tile
+        label="Studied"
+        value={minutesLabel(total)}
+        note={`${Math.round(perDay / 60_000)} min a day, ${rangeLabel(stats)}`}
+      />
+      <Tile label="Reviews" value={reviews.toLocaleString("en-GB")} note={rangeLabel(stats)} />
+      <Tile
+        className="col-span-2"
+        label="Grader agreement"
+        value={gradedTotal === 0 ? "—" : fmtPct((g.kept / gradedTotal) * 100, 0)}
+        note={gradedTotal === 0 ? NO_GRADED : `kept of ${reviewsLabel(gradedTotal)} graded`}
+      />
+    </section>
+  );
+}
+
+function Tile({
+  label,
+  value,
+  note,
+  className,
+}: {
+  label: string;
+  value: string;
+  note: string;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn("flex flex-col gap-2 rounded-[1.25rem] border bg-card p-5 sm:p-6", className)}
+    >
+      <h2 className="text-sm font-medium text-muted-foreground">{label}</h2>
+      <p className="text-2xl leading-none font-semibold tracking-tight tabular-nums sm:text-3xl">
+        {value}
+      </p>
+      <p className="text-sm text-muted-foreground tabular-nums first-letter:uppercase">{note}</p>
+    </div>
   );
 }
 
 function Stages({ stats }: { stats: Statistics }) {
   const total = stats.cards.new + stats.cards.learning + stats.cards.learned;
   return (
-    <Card id="stages" title="Cards by stage">
-      <p className="-mt-3 text-sm text-muted-foreground">Now, whatever the range: {total} cards.</p>
-      <StageBar stats={stats} />
-      <ul className="flex flex-col divide-y">
+    <Card id="stages" title="Cards by stage" note={`${total} cards now, whatever the range`}>
+      <div className="grid grid-cols-3 gap-2">
         {STAGES.map((s) => (
-          <li key={s.key} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
-            <Swatch fill={s.fill} />
-            <span className="flex-1">{s.label}</span>
-            <span className="font-medium tabular-nums">{stats.cards[s.key]}</span>
-          </li>
+          <div key={s.key} className="flex flex-col gap-1 rounded-xl bg-muted p-3">
+            <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+              <Swatch fill={s.fill} />
+              {s.label}
+            </span>
+            <span className="text-2xl font-semibold tabular-nums">{stats.cards[s.key]}</span>
+          </div>
         ))}
-      </ul>
+      </div>
+      <StageBar stats={stats} />
     </Card>
   );
 }
@@ -214,49 +273,49 @@ function Agreement({ stats }: { stats: Statistics }) {
   const g = stats.graderAgreement;
   const total = graded(g);
   return (
-    <Card id="agreement" title="Grader agreement">
+    <Card
+      id="agreement"
+      title="Grader agreement"
+      note="Your Rating against the Grader's suggestion"
+    >
       {total === 0 ? (
-        <Empty>{NO_GRADED}</Empty>
+        <p className="rounded-xl bg-muted px-4 py-6 text-center text-sm text-muted-foreground">
+          {NO_GRADED}
+        </p>
       ) : (
-        <>
-          <div className="-mt-2 flex flex-col gap-1">
-            <span className="text-3xl font-semibold tracking-tight tabular-nums">
-              {fmtPct((g.kept / total) * 100, 0)} kept
-            </span>
-            <span className="text-sm text-muted-foreground tabular-nums">
-              of {reviewsLabel(total)} graded · {g.higher} rated higher · {g.lower} rated lower
-            </span>
-          </div>
-          <AgreementBar split={g} />
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-            {AGREEMENT.map((a) => (
-              <span key={a.key} className="flex items-center gap-1.5">
-                <Swatch fill={a.fill} />
-                {a.label}
-              </span>
-            ))}
-          </div>
-          <ul className="flex flex-col divide-y border-t">
-            {g.models.map((m) => {
+        <table className="w-full text-sm tabular-nums">
+          <thead>
+            <tr className="text-left text-xs text-muted-foreground">
+              <th className="pb-2 font-normal">Model</th>
+              {AGREEMENT.map((a) => (
+                <th key={a.key} className="pb-2 text-right font-normal">
+                  <span className="inline-flex items-center gap-1">
+                    <Swatch fill={a.fill} />
+                    {a.key === "kept" ? "Kept" : a.key === "higher" ? "Higher" : "Lower"}
+                  </span>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y border-t">
+            {[{ model: "All", ...g }, ...g.models].map((m) => {
               const n = graded(m);
               return (
-                <li key={m.model} className="flex flex-col gap-2 py-3 last:pb-0">
-                  <div className="flex items-baseline justify-between gap-3">
-                    <span className="font-medium">{modelName(m.model)}</span>
-                    <span className="text-sm tabular-nums">
-                      <span className="font-medium">{fmtPct((m.kept / n) * 100, 0)}</span>
-                      <span className="text-muted-foreground"> of {n}</span>
-                    </span>
-                  </div>
-                  <AgreementBar split={m} className="h-1.5" />
-                  <span className="text-xs text-muted-foreground tabular-nums">
-                    {m.higher} higher · {m.lower} lower
-                  </span>
-                </li>
+                <tr key={m.model} className={cn(m.model === "All" && "font-medium")}>
+                  <td className="py-2.5 pr-2">
+                    <div className="flex flex-col gap-1.5">
+                      <span>{m.model === "All" ? "Every model" : modelName(m.model)}</span>
+                      <AgreementBar split={m} className="h-1.5 max-w-40" />
+                    </div>
+                  </td>
+                  <td className="py-2.5 text-right">{fmtPct((m.kept / n) * 100, 0)}</td>
+                  <td className="py-2.5 text-right">{m.higher}</td>
+                  <td className="py-2.5 text-right">{m.lower}</td>
+                </tr>
               );
             })}
-          </ul>
-        </>
+          </tbody>
+        </table>
       )}
     </Card>
   );
