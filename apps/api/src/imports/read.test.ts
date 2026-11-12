@@ -173,8 +173,10 @@ describe("readUpload", () => {
 });
 
 describe("planMacros", () => {
-  const settings = [{ name: "\\R", definition: "\\mathbb{R}" }];
-  const own = [{ name: "\\eps", definition: "\\varepsilon" }];
+  const own = [
+    { name: "\\eps", definition: "\\varepsilon" },
+    { name: "\\R", definition: "\\mathbb{R}" },
+  ];
 
   test("leaves out the identical, adds the new, keeps the Deck's where they differ", () => {
     expect(
@@ -184,7 +186,6 @@ describe("planMacros", () => {
           { name: "\\m", definition: "m." },
           { name: "\\eps", definition: "\\epsilon" },
         ],
-        settings,
         own,
       ),
     ).toEqual([
@@ -204,7 +205,6 @@ describe("planMacros", () => {
         { name: "\\a", definition: "a" },
         { name: "\\b", definition: "b" },
       ],
-      [],
       full,
     );
     expect(plan.map((entry) => [entry.name, entry.outcome])).toEqual([
