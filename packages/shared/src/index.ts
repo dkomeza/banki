@@ -266,3 +266,16 @@ export {
   TuningStatus,
   TuningTrigger,
 } from "./tuning";
+export {
+  CALENDAR_WEEKS,
+  calendarStartOf,
+  DAILY_MINUTES_DAYS_MAX,
+  DEFAULT_STATISTICS_RANGE,
+  mondayOf,
+  Statistics,
+  STATISTICS_RANGES,
+  StatisticsQuery,
+  StatisticsRange,
+  statisticsRangeOf,
+  studyDaysBetween,
+} from "./statistics";

@@ -21,6 +21,7 @@ import { createImportRepository } from "./repositories/imports";
 import { createReviewRepository } from "./repositories/reviews";
 import { createFolderRepository } from "./repositories/folders";
 import { createSettingsRepository } from "./repositories/settings";
+import { createStatisticsRepository } from "./repositories/statistics";
 import { createPlanRepository } from "./repositories/plans";
 import { createStudyRepository } from "./repositories/study";
 import { createTuningRepository } from "./repositories/tuning";
@@ -41,6 +42,7 @@ import { planRoutes } from "./routes/plans";
 import { schemaRoutes } from "./routes/schemas";
 import { settingsRoutes } from "./routes/settings";
 import { setupRoutes } from "./routes/setup";
+import { deckStatisticsRoutes, statisticsRoutes } from "./routes/statistics";
 import { reviewRoutes } from "./routes/reviews";
 import { studyRoutes } from "./routes/study";
 import { tagRoutes } from "./routes/tags";
@@ -115,6 +117,7 @@ export function createApp(
     onRated: (userId) => void tuning.afterRating(userId),
   });
   const study = createStudyRepository(database.db);
+  const statistics = createStatisticsRepository(database.db);
   const plans = createPlanRepository(database.db);
   const deletions = createDeletionRepository(database.db);
   const images = createImageRepository(database.db, uploadsDirOf(config.dataDir));
@@ -150,10 +153,12 @@ export function createApp(
     .route("/api/auth", authRoutes({ auth, config }))
     .route("/api/me", meRoutes({ users, limiter: signInLimiter() }))
     .route("/api/settings", settingsRoutes({ settings, openRouterFetch }))
+    .route("/api/statistics", statisticsRoutes({ statistics }))
     .route("/api/tuning", tuningRoutes({ tuning }))
     .route("/api/decks", deckRoutes({ decks }))
     .route("/api/decks", deckCardRoutes({ cards }))
     .route("/api/decks", studyRoutes({ study }))
+    .route("/api/decks", deckStatisticsRoutes({ statistics }))
     .route("/api/decks", planRoutes({ plans }))
     .route("/api/decks", deckTuningRoutes({ tuning }))
     .route("/api/decks", deckImportRoutes({ imports }))
