@@ -175,7 +175,7 @@ export type CardOutcome =
   | { ok: false; notFound: true }
   | { ok: false; message: string };
 
-/** How a create went: a Deck without room refuses it too (ADR-0032). */
+/** How a create went: a Deck without room refuses it too (ADR-0034). */
 export type NewCardOutcome = CardOutcome | { ok: false; deckFull: DeckFull };
 
 /** How a create or a change went, checking the fields before anything is sent. */
@@ -334,7 +334,7 @@ export type MoveOutcome =
  * Moves Cards to the Deck `to` with `POST /api/cards/move`, all of them or
  * none, taking them out of their Deck's list, `from`, once moved. A Card or a
  * Deck that is gone meanwhile (404) moves nothing and says so, and so does
- * one into a Deck without room for them (409 `deck_full`, ADR-0032).
+ * one into a Deck without room for them (409 `deck_full`, ADR-0034).
  */
 export async function moveCards(
   queryClient: QueryClient,

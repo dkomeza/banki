@@ -71,7 +71,7 @@ function refusalOf(
 /**
  * Restores a Deletion with `POST /api/deletions/:id/restore`, and says how it
  * went: where it came back and under which name, which Deck must be
- * restored first, or which has no room for its Cards (ADR-0032). One that's
+ * restored first, or which has no room for its Cards (ADR-0034). One that's
  * gone already says so.
  */
 export async function restoreDeletion(

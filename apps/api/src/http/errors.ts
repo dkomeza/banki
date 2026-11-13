@@ -10,7 +10,7 @@ export const apiError = (code: string, message: string): ApiError => ({
 });
 
 /**
- * The body of a 409 `deck_full` (ADR-0032): Cards would take the Deck past
+ * The body of a 409 `deck_full` (ADR-0034): Cards would take the Deck past
  * `DECK_CARDS_MAX` live Cards, so nothing was written; `room` is how many
  * more it takes now.
  */

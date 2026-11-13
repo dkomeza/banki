@@ -140,7 +140,7 @@ export const codeOf = async (res: Response) => ApiError.parse(await res.json()).
 /**
  * Puts `n` live Cards straight into the Deck `deckId` of the app booted on
  * `dataDir`, its owner's, Fronts `filled 0` on: quicker than `n` requests, to
- * bring a Deck to its limit (ADR-0032).
+ * bring a Deck to its limit (ADR-0034).
  */
 export function fillDeck(dataDir: string, deckId: string, n: number) {
   const opened = openDatabase(dataDir);

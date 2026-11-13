@@ -70,7 +70,7 @@ const liveDeck = (userId: string, id: string) =>
 export const isLiveDeck = (db: Queryable, userId: string, id: string) =>
   db.select({ id: deck.id }).from(deck).where(liveDeck(userId, id)).get() !== undefined;
 
-/** A write refused because it would take a Deck past `DECK_CARDS_MAX` (ADR-0032): the Deck and its room. */
+/** A write refused because it would take a Deck past `DECK_CARDS_MAX` (ADR-0034): the Deck and its room. */
 export type DeckFull = { deckFull: { id: string; name: string; room: number } };
 
 /** How many live Cards the User's Deck `deckId` holds: its Cards in Recently deleted don't count. */
@@ -85,7 +85,7 @@ export const liveCardCount = (db: Queryable, userId: string, deckId: string) =>
  * The refusal for `adding` more Cards into the User's Deck `deckId` when that
  * would take it past `DECK_CARDS_MAX` live Cards, or undefined when it has
  * room for them. Expects to run in the write's own immediate transaction
- * (ADR-0032), so no other write can take the room in between.
+ * (ADR-0034), so no other write can take the room in between.
  */
 export function deckFullFor(
   db: Queryable,

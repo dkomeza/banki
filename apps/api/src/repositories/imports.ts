@@ -267,7 +267,7 @@ export function createImportRepository(db: Queryable, importsDir: string, upload
      * confirmed ("confirmed"), a Deck no longer live ("deck_gone"), a
      * number the preview has no Card for ("unknown_card"), or Cards to add,
      * Duplicates skipped, that outnumber the Deck's room now (`deckFull`,
-     * ADR-0032). A Card that is a
+     * ADR-0034). A Card that is a
      * Duplicate of the Deck's live Cards now, or of an earlier ticked Card, is
      * skipped and reported. The rest are added in file order, the first the
      * oldest, each stamped with the Import; each zip image they refer to

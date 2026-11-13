@@ -212,7 +212,7 @@ async function confirmed(app: App, deckId: string, cookie: string, fronts: strin
   return id;
 }
 
-describe("the Card limit (ADR-0032)", () => {
+describe("the Card limit (ADR-0034)", () => {
   test("the preview carries the room, and a confirm over it answers 409 deck_full, adding nothing", async () => {
     const { app, cookie, deckId } = await withDeck();
     const created = await upload(app, deckId, fileText([card("a"), card("b")]), cookie);

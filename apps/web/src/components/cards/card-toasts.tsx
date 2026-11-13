@@ -64,7 +64,7 @@ export const movedTitle = (count: number) =>
  * After a Move: "Moved 3 cards to Verbs", the Deck's name linking to it, with
  * Undo for about 8 seconds, which moves the Cards back to `from` in one
  * request, or says why it couldn't: `from` or one of the Cards deleted
- * meanwhile, or `from` without room for them now (ADR-0032).
+ * meanwhile, or `from` without room for them now (ADR-0034).
  */
 export function showMovedToast(
   queryClient: QueryClient,

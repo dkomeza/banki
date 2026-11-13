@@ -48,7 +48,7 @@ export const SEED_IDS = {
     kanji: "5eed0000-0000-4000-8000-000000000005",
     /**
      * A Deck holding exactly `DECK_CARDS_MAX` (1,000) short New Cards, in
-     * Languages, so every `deck_full` refusal can be tried (ADR-0032). Its
+     * Languages, so every `deck_full` refusal can be tried (ADR-0034). Its
      * Cards' IDs are `fullDeckCardId(1)` to `fullDeckCardId(1000)`.
      */
     full: "5eed0000-0000-4000-8000-000000000006",

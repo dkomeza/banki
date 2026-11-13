@@ -25,7 +25,7 @@ const placeDeleted = ({ placeDeleted: deck }: Extract<RestoreRefusal, { placeDel
  * restored or removed already, and another User's all answer 404 `not_found`.
  * A Card's Deletion whose Deck is deleted answers 409 `place_deleted`, naming
  * the Deck, and then a Card's or an Import's whose Deck has no room for its
- * Cards 409 `deck_full` (ADR-0032), naming the first such Deck. `POST /restore` restores several Deletions together, 1 to 10,000,
+ * Cards 409 `deck_full` (ADR-0034), naming the first such Deck. `POST /restore` restores several Deletions together, 1 to 10,000,
  * all of them or none, answering as one of them would have.
  */
 export function deletionRoutes({ deletions }: { deletions: DeletionRepository }) {

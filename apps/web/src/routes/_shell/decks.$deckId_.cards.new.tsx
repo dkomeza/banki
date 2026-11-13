@@ -25,7 +25,7 @@ import { cn } from "@/lib/utils";
 // creates the Card and stays, the sides cleared and the Front focused for the
 // next one, with "Card added", and the Tags kept for it; the Cards written this visit gather under the
 // form. Done goes back to the Deck. An unknown or deleted Deck shows "Deck
-// not found". A Deck with no room (ADR-0032) says so under the title, from
+// not found". A Deck with no room (ADR-0034) says so under the title, from
 // the start or once a Save is refused, and Save is off until it has room.
 
 export const Route = createFileRoute("/_shell/decks/$deckId_/cards/new")({

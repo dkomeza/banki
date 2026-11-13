@@ -120,7 +120,7 @@ describe("POST /api/decks/:deckId/cards", () => {
   });
 });
 
-describe("the Card limit (ADR-0032)", () => {
+describe("the Card limit (ADR-0034)", () => {
   test("a create into a Deck holding 1,000 live Cards answers 409 deck_full, naming it, and adds nothing", async () => {
     const { app, cookie, deckId } = await signedIn();
     fillDeck(dataDir(), deckId, 1000);

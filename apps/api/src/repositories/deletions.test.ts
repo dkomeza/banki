@@ -699,7 +699,7 @@ describe("an Import's Undo", () => {
   });
 });
 
-describe("the Card limit (ADR-0032)", () => {
+describe("the Card limit (ADR-0034)", () => {
   test("refuses a Card's Restore into a Deck with no room, naming it", () => {
     const deckId = makeDeck("Spanish");
     const id = deleted(cards.softDelete(USER, write(deckId, "one")));

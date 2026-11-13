@@ -118,7 +118,7 @@ export const ImportPreviewResponse = ImportBase.extend({
   macros: z.array(MacroPlanEntry),
   images: z.array(ImageProblem),
   stagedImages: z.array(z.string()),
-  /** The Deck's room now: how many more Cards it takes (ADR-0032). */
+  /** The Deck's room now: how many more Cards it takes (ADR-0034). */
   room: z.number().int().nonnegative(),
 });
 export type ImportPreviewResponse = z.infer<typeof ImportPreviewResponse>;

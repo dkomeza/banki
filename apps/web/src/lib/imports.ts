@@ -142,7 +142,7 @@ export type ConfirmOutcome =
 /**
  * Confirms an Import with `POST /api/imports/:id/confirm`, sending the ticked
  * Cards, and on success puts its report in the cache and has the Deck's Cards
- * fetched again. Refused with `deck_full` (ADR-0032), it has the preview and
+ * fetched again. Refused with `deck_full` (ADR-0034), it has the preview and
  * the Deck's Cards fetched again, so the preview shows the room as it is now;
  * its ticks and edits stay on the page.
  */

@@ -326,7 +326,7 @@ describe("move", () => {
       )
       .run();
 
-    // More than a Deck holds (ADR-0032): weighed whole, and refused whole.
+    // More than a Deck holds (ADR-0034): weighed whole, and refused whole.
     expect(cards.move(USER, ids, to)).toEqual({ deckFull: { id: to, name: "Verbs", room: 1000 } });
     expect(frontsIn(to)).toEqual([]);
     // Into the Deck they are in already, none of them counts against its room.
@@ -698,7 +698,7 @@ const fill = (deckId: string, n: number, prefix = "filled") => {
     .run();
 };
 
-describe("the Card limit (ADR-0032)", () => {
+describe("the Card limit (ADR-0034)", () => {
   test("a Deck with 999 live Cards takes one more, and then refuses the next, adding nothing", () => {
     const deckId = deckNamed("Spanish");
     fill(deckId, 999);

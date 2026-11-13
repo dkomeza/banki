@@ -20,7 +20,7 @@ export type DeletionRepository = ReturnType<typeof createDeletionRepository>;
 
 /**
  * Why a Restore was refused: no such Deletion, a Card's or an Import's whose
- * Deck is deleted, or one whose Deck has no room for its Cards (ADR-0032).
+ * Deck is deleted, or one whose Deck has no room for its Cards (ADR-0034).
  */
 export type RestoreRefusal =
   | "not_found"
@@ -186,7 +186,7 @@ export function removeDeletion(db: Queryable, userId: string, id: string): boole
  * naming the Deck, and so is an Import's while any Deck its Cards are in now
  * is. Then a Card's or an Import's whose Cards would take a Deck past
  * `DECK_CARDS_MAX` live Cards is refused, naming the first such Deck by name,
- * then ID (ADR-0032); a Deck's or a Folder's isn't checked, as its Cards come
+ * then ID (ADR-0034); a Deck's or a Folder's isn't checked, as its Cards come
  * back with the Deck that held them. An Import's Restore brings its Cards back where they are now and clears
  * its Undo, so it can be undone again; like its Undo, it leaves the Cards'
  * `updatedAt` alone, so they don't count as edited.

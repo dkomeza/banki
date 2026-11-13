@@ -21,7 +21,7 @@ export const deckAnswerMode = (
 ): AnswerMode => deck.answerMode ?? followed;
 
 /**
- * The most live Cards a Deck holds (ADR-0032): its Cards in Recently deleted
+ * The most live Cards a Deck holds (ADR-0034): its Cards in Recently deleted
  * don't count. The import's own limit, so every Deck's export imports back.
  */
 export const DECK_CARDS_MAX = 1_000;

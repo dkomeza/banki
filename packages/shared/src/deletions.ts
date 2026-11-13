@@ -66,7 +66,7 @@ export type PlaceDeletedError = z.infer<typeof PlaceDeletedError>;
 
 /**
  * The body of a 409 `deck_full`: Cards would take `deck` past
- * `DECK_CARDS_MAX` live Cards (ADR-0032), so nothing was written. `room` is
+ * `DECK_CARDS_MAX` live Cards (ADR-0034), so nothing was written. `room` is
  * how many more it takes now.
  */
 export const DeckFullError = z.object({

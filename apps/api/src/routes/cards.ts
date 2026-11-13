@@ -23,7 +23,7 @@ const CARDS_NOT_FOUND = apiError("not_found", "A card or the deck is gone");
  * A Deck's Cards, under `/api/decks`: `GET /:deckId/cards` lists its live
  * Cards, newest first, and `POST /:deckId/cards` creates one. A deleted Deck,
  * an unknown one and another User's all answer 404 `not_found`, and one
- * holding `DECK_CARDS_MAX` live Cards or more 409 `deck_full` (ADR-0032).
+ * holding `DECK_CARDS_MAX` live Cards or more 409 `deck_full` (ADR-0034).
  */
 export function deckCardRoutes({ cards }: { cards: CardRepository }) {
   return new Hono<SignedInEnv>()
@@ -57,7 +57,7 @@ export function deckCardRoutes({ cards }: { cards: CardRepository }) {
  * takes 1 to 10,000 Card IDs and acts on all of them or none: one Card that
  * isn't live, or a Move's Deck that isn't, answers 404 `not_found`. A Move
  * whose Cards not already in the Deck outnumber its room answers 409
- * `deck_full` (ADR-0032).
+ * `deck_full` (ADR-0034).
  *
  * `POST /:id/reviews` rates a Card: it records a Review of its Rating and
  * time spent (at most 2 minutes, `REVIEW_CAP_MS`: more is taken as the cap),

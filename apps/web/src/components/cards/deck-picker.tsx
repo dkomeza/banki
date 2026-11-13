@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 /**
  * The picker for `cards`, out of the Deck `from`, open while there are Cards
  * to move. `from` shows "Here now" and can't be picked, and neither can a
- * Deck without room for them all (ADR-0032), which shows "Full" or "Room for
+ * Deck without room for them all (ADR-0034), which shows "Full" or "Room for
  * n". Picking a Deck and
  * pressing Move sends the Move; while it is `busy` nothing else can be done,
  * and an `error` shows under the list.

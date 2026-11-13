@@ -60,7 +60,7 @@ import { type Row, usePreview } from "./use-preview";
 // invalid Cards close the rail. Edit opens the card editor's fields in a
 // dialog. A paper dock floats at the foot with the count and the Deck's room,
 // Tick all and Import, which stays off while more are ticked than fit
-// (ADR-0032), saying how many to untick. Confirmed, it is the report, for good: the Import's own timeline
+// (ADR-0034), saying how many to untick. Confirmed, it is the report, for good: the Import's own timeline
 // of what happened, step by step.
 
 const H2 = "text-xs font-semibold tracking-[0.08em] text-muted-foreground uppercase";
@@ -308,7 +308,7 @@ export function ImportPreviewPage({
 /**
  * The preview's dock: how many of the `total` Cards are `ticked`, the Deck's
  * `room` beside it, Tick all and Import. More ticked than fit, Import is off
- * and says how many to untick (ADR-0032).
+ * and says how many to untick (ADR-0034).
  */
 export function ImportDock({
   ticked,

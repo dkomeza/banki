@@ -15,7 +15,7 @@ import { ApiRequestError } from "./query";
 
 export type Deck = DeckResponse;
 
-/** A write refused with 409 `deck_full` (ADR-0032): the Deck it would take past the limit, and its room. */
+/** A write refused with 409 `deck_full` (ADR-0034): the Deck it would take past the limit, and its room. */
 export type DeckFull = { id: string; name: string; room: number };
 
 /** The Deck and room a `deck_full` body names, or undefined for any other body. */

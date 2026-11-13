@@ -375,7 +375,7 @@ const fill = (n: number) => {
     .run();
 };
 
-describe("the Card limit (ADR-0032)", () => {
+describe("the Card limit (ADR-0034)", () => {
   test("the preview carries the Deck's room now", () => {
     const id = create(fileText([card("a")]));
     expect(preview(id).room).toBe(1000);

@@ -218,7 +218,7 @@ describe("banki seed's Decks", () => {
     expect(Math.max(...decks.map((deck) => deck.name.length))).toBeGreaterThan(90);
   });
 
-  test("fills Spanish numbers to exactly 1,000 New Cards, with their fixed IDs (ADR-0032)", async () => {
+  test("fills Spanish numbers to exactly 1,000 New Cards, with their fixed IDs (ADR-0034)", async () => {
     await setup();
     await seed();
 

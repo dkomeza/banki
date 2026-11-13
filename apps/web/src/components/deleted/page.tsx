@@ -36,7 +36,7 @@ import { showRestoredToast } from "./toasts";
 
 /**
  * The Deck a refused Restore names: one to restore first (`placeDeleted`), or
- * one to make room in first (`deckFull`, ADR-0032).
+ * one to make room in first (`deckFull`, ADR-0034).
  */
 type Refusal = { id: string; name: string } & (
   | { why: "placeDeleted" }
