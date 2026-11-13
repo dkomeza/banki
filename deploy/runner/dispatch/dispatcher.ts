@@ -384,6 +384,11 @@ async function act(
   } else if (decision.type === "stop") {
     await session.stop(issue, decision.stop);
     deps.log(`Stopped ${issue.identifier} on the Maintainer: ${decision.stop.summary}`);
+  } else if (decision.type === "redeploy") {
+    for (const variant of decision.variants) {
+      await session.github.deploySlug(variant.branch, variant.slug);
+    }
+    deps.log(`${issue.identifier}: ${decision.why}`);
   } else if (decision.type === "wait") {
     deps.log(`${issue.identifier}: ${decision.why}`);
   }
@@ -477,6 +482,8 @@ const describe = (decision: Decision): string => {
       return `the ${decision.stage} Stage is next (${decision.why})`;
     case "wait":
       return decision.why;
+    case "redeploy":
+      return `${decision.why}, which the tick does`;
     case "hand-off":
       return `the hand-off to ${decision.to} is next, which the tick makes`;
     case "stop":

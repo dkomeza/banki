@@ -17,6 +17,7 @@ import {
   decide,
   type Decision,
   type DesignFacts,
+  type DesignTries,
   type IssueFacts,
   STATUS,
   type Stop,
@@ -174,14 +175,20 @@ export async function openSession(deps: SessionDeps) {
           return decide(facts, now, { review: await github.review(facts.branch) });
         const all = await slugDeployments();
         const design: DesignFacts = {};
+        const designTries: DesignTries = {};
         for (const variant of first.variants) {
           const found = newestFor(all, variant.slug, variant.commit);
           design[variant.slug] =
             found === undefined
               ? null
               : { ...(await github.newestStatus(found.id)), createdAt: found.createdAt };
+          designTries[variant.slug] = all
+            .filter(
+              (deployment) => deployment.slug === variant.slug && deployment.sha === variant.commit,
+            )
+            .map((deployment) => deployment.createdAt);
         }
-        return decide(facts, now, { design });
+        return decide(facts, now, { design, designTries });
       },
 
       stop,

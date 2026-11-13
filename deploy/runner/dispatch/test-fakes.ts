@@ -134,6 +134,7 @@ export function fakeGitHub(review: Partial<ReviewFacts> = {}): GitHub {
     slugDeployments: async () => [],
     newestStatus: async () => ({ state: null, description: "", url: null }),
     recentDeployments: async () => [],
+    deploySlug: async () => undefined,
     takeDown: async () => undefined,
     branches: async () => [],
     pullNumber: async () => undefined,

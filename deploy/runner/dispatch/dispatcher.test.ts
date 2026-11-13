@@ -298,6 +298,60 @@ describe("a tick", () => {
     expect(issue.comments[0]?.body).toContain("+++ Stage result");
   });
 
+  test("dispatches a failed Slug Preview again rather than stopping on the Maintainer", async () => {
+    const commit = "b".repeat(40);
+    const round = {
+      stage: "design",
+      issue: "BAN-1",
+      outcome: "done",
+      nextStatus: "In Design",
+      summary: "Built round 1.",
+      variants: [
+        {
+          key: "a",
+          branch: "dkomeza/ban-1-x-proto-a",
+          commit,
+          slug: "ban-1-a",
+          name: "Ledger",
+          bet: "A list.",
+          states: [],
+        },
+      ],
+    };
+    const issue = fakeIssue("BAN-1", {
+      status: "In Design",
+      history: [{ at: "2026-10-01T00:00:00.000Z", from: "Backlog", to: "In Design" }],
+      comments: [
+        {
+          id: "round",
+          body: closingComment(parseResult(round), round),
+          createdAt: "2026-10-21T11:40:00.000Z",
+          userId: RUNNER_ID,
+          parentId: null,
+        },
+      ],
+    });
+    const dispatched: string[] = [];
+    const github = fakeGitHub();
+    github.slugDeployments = async () => [
+      { id: 9, slug: "ban-1-a", sha: commit, createdAt: "2026-10-21T11:35:00.000Z" },
+    ];
+    github.newestStatus = async () => ({
+      state: "failure",
+      description: "Pangolin: couldn't create the resource",
+      url: null,
+    });
+    github.deploySlug = async (branch, slug) => {
+      dispatched.push(`${branch} ${slug}`);
+    };
+    const { deps, linear } = dispatcher([issue], { now: WEDNESDAY, github });
+
+    await tick(deps);
+
+    expect(dispatched).toEqual(["dkomeza/ban-1-x-proto-a ban-1-a"]);
+    expect(linear.calls).toEqual([]);
+  });
+
   test("after a crash, restores the status from before In Progress, posts the log's tail and assigns the Maintainer", async () => {
     const issue = fakeIssue("BAN-1", {
       status: "In Progress",
