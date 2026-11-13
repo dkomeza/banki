@@ -139,6 +139,7 @@ describe("migrations", () => {
       "0022_import_undo",
       "0023_plan",
       "0024_recommended_retention",
+      "0025_deck_parameters",
     ]);
     first.close();
 

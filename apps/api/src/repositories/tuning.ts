@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
+  DECK_TUNING_MIN_REVIEWS,
+  type DeckTuningStatus,
   TUNING_REVIEW_INTERVAL,
   type TuneResponse,
   type TuningResult,
@@ -7,164 +9,87 @@ import {
   type TuningTrigger,
 } from "@banki/shared";
 import { getLogger } from "@logtape/logtape";
-import { and, asc, count, desc, eq, sql } from "drizzle-orm";
+import { type SQL, and, asc, count, desc, eq, gte, isNotNull, isNull, or, sql } from "drizzle-orm";
 import type { Queryable } from "../db/database";
-import { card, parameter_tuning, progress_reset, review, user_settings } from "../db/schema";
-import { DEFAULT_PARAMETERS, type MemoryState, NEW_MEMORY_STATE, rate } from "../scheduling/fsrs";
+import { deck, parameter_tuning, progress_reset, review, user_settings } from "../db/schema";
+import { DEFAULT_PARAMETERS } from "../scheduling/fsrs";
 import {
   type RetentionInputs,
   recommendedRetention as simulateRecommendedRetention,
   retentionInputs,
 } from "../scheduling/retention";
 import { type Optimizer, libraryOptimizer, trainingItems, tune } from "../scheduling/tuning";
-import {
-  MEMORY_COLUMNS,
-  deckRetentionOf,
-  fromStored,
-  schedulingSettingsOf,
-  toStored,
-} from "./reviews";
+import { clearDeckParameters, decksWithOwnParameters, replayCards } from "./replay";
+import { deckSchedulingOf, schedulingSettingsOf } from "./reviews";
 
 const logger = getLogger(["banki", "tuning"]);
 
 // Tuning (CONTEXT.md, ADR-0029): the User's Parameters fitted to their own
-// Reviews, and Reset to defaults, with the Tuning log recording each and the
-// Recommended retention worked out after each Tuning (ADR-0032).
+// Reviews, overall and then per Deck (ADR-0033), and Reset to defaults, with
+// the Tuning log recording each and the Recommended retention worked out
+// after each Tuning (ADR-0032).
 
 export type TuningRepository = ReturnType<typeof createTuningRepository>;
 
-/** The memory state a replay works out again; the due date and Interval stay as they were. */
-const replayed = ({ state, stability, difficulty, reps, lapses, learningStep }: MemoryState) => ({
-  state,
-  stability,
-  difficulty,
-  reps,
-  lapses,
-  learningStep,
-});
-
-const sameReplayed = (a: MemoryState, b: MemoryState) =>
-  a.state === b.state &&
-  a.stability === b.stability &&
-  a.difficulty === b.difficulty &&
-  a.reps === b.reps &&
-  a.lapses === b.lapses &&
-  a.learningStep === b.learningStep;
-
 /**
- * Applies `parameters` (null for FSRS-6's defaults) to the User (ADR-0029):
- * stores them, then replays every Card of theirs, live or deleted, from New
- * through its Reviews since its newest Progress reset, in the Write order,
- * under them. Each Review's `cardBefore` and the Card get the memory state
- * the replay works out (`replayed`); their due dates and Intervals stay as
- * they were, and so does each Rating's input to the next, so a replay under
- * unchanged Parameters changes nothing. Expects to run inside the immediate
+ * Applies `parameters` (null for FSRS-6's defaults, or for the overall ones on
+ * a Deck) to the User (ADR-0029, ADR-0033): stores them as the overall ones,
+ * or as Deck `deckId`'s own, then replays every Card they now apply to
+ * (`replayCards`): the Cards of every Deck that follows the overall ones, or
+ * Deck `deckId`'s, live and deleted. Expects to run inside the immediate
  * transaction that logs it.
  */
-export function applyParameters(db: Queryable, userId: string, parameters: number[] | null): void {
-  db.insert(user_settings)
-    .values({ userId, fsrsParameters: parameters })
-    .onConflictDoUpdate({ target: user_settings.userId, set: { fsrsParameters: parameters } })
-    .run();
-
-  const settings = schedulingSettingsOf(db, userId);
-  const newestReset = new Map(
-    db
-      .select({ cardId: progress_reset.cardId, seq: sql<number>`max(${progress_reset.seq})` })
-      .from(progress_reset)
-      .where(eq(progress_reset.userId, userId))
-      .groupBy(progress_reset.cardId)
-      .all()
-      .map(({ cardId, seq }) => [cardId, seq]),
-  );
-  const reviews = db
-    .select({
-      id: review.id,
-      cardId: review.cardId,
-      seq: review.seq,
-      reviewedAt: review.reviewedAt,
-      rating: review.rating,
-      before: review.cardBefore,
-    })
-    .from(review)
-    .where(eq(review.userId, userId))
-    .orderBy(asc(review.seq))
-    .all();
-  const reviewsOf = new Map<string, typeof reviews>();
-  for (const one of reviews) {
-    if (one.seq <= (newestReset.get(one.cardId) ?? Number.NEGATIVE_INFINITY)) continue;
-    const list = reviewsOf.get(one.cardId);
-    if (list === undefined) reviewsOf.set(one.cardId, [one]);
-    else list.push(one);
-  }
-
-  const retentions = new Map<string, number>();
-  const retentionOf = (deckId: string) => {
-    let retention = retentions.get(deckId);
-    if (retention === undefined) {
-      retention = deckRetentionOf(db, userId, deckId);
-      retentions.set(deckId, retention);
-    }
-    return retention;
-  };
-
-  const cards = db
-    .select({ id: card.id, deckId: card.deckId, ...MEMORY_COLUMNS })
-    .from(card)
-    .where(eq(card.userId, userId))
-    .all();
-  for (const { id: cardId, deckId, ...current } of cards) {
-    const list = reviewsOf.get(cardId);
-    if (list === undefined) continue;
-    const desiredRetention = retentionOf(deckId);
-    let memory = NEW_MEMORY_STATE;
-    for (const one of list) {
-      const stored = fromStored(one.before);
-      const before = { ...stored, ...replayed(memory) };
-      if (!sameReplayed(before, stored)) {
-        db.update(review)
-          .set({ cardBefore: toStored(before) })
-          .where(and(eq(review.userId, userId), eq(review.id, one.id)))
-          .run();
-      }
-      memory = rate(cardId, before, one.rating, {
-        ...settings,
-        now: one.reviewedAt,
-        desiredRetention,
-      });
-    }
-    if (!sameReplayed(current, memory)) {
-      db.update(card)
-        .set(replayed(memory))
-        .where(and(eq(card.userId, userId), eq(card.id, cardId)))
-        .run();
-    }
+export function applyParameters(
+  db: Queryable,
+  userId: string,
+  parameters: number[] | null,
+  deckId?: string,
+): void {
+  if (deckId === undefined) {
+    db.insert(user_settings)
+      .values({ userId, fsrsParameters: parameters })
+      .onConflictDoUpdate({ target: user_settings.userId, set: { fsrsParameters: parameters } })
+      .run();
+    replayCards(db, userId, "overall");
+  } else {
+    db.update(deck)
+      .set({ fsrsParameters: parameters })
+      .where(and(eq(deck.userId, userId), eq(deck.id, deckId)))
+      .run();
+    replayCards(db, userId, { deckId });
   }
 }
 
 /**
  * Records an automatic Tuning of the User's that applied `parameters` at
  * `ranAt`, from the Reviews they have, its log losses unmeasured, with
- * `recommendedRetention` as its Recommended retention. For the Seed data,
+ * `recommendedRetention` as its Recommended retention: of the overall
+ * Parameters, or of Deck `deckId`'s own, from its Reviews. For the Seed data,
  * which shows the tuned state. `id` is the log row's.
  */
 export function writeAppliedTuning(
   db: Queryable,
   userId: string,
   parameters: number[],
-  { ranAt, id, recommendedRetention }: { ranAt: Date; id: string; recommendedRetention: number },
+  {
+    ranAt,
+    id,
+    recommendedRetention,
+    deckId,
+  }: { ranAt: Date; id: string; recommendedRetention: number; deckId?: string },
 ): void {
-  applyParameters(db, userId, parameters);
+  applyParameters(db, userId, parameters, deckId);
   db.insert(parameter_tuning)
     .values({
       id,
       userId,
       ranAt,
       trigger: "automatic",
-      reviewCount: reviewCountOf(db, userId),
+      reviewCount: reviewCountOf(db, userId, deckId),
       outcome: "applied",
       parameters,
       recommendedRetention,
+      deckId: deckId ?? null,
     })
     .run();
 }
@@ -181,26 +106,42 @@ export function hasTunings(db: Queryable, userId: string): boolean {
   );
 }
 
-/** How many Reviews the User has, of Cards that are gone too. */
-const reviewCountOf = (db: Queryable, userId: string): number =>
-  db.select({ n: count() }).from(review).where(eq(review.userId, userId)).get()?.n ?? 0;
+/** Only the User's Reviews, or only those now in their Deck `deckId` (ADR-0021). */
+const reviewsIn = (userId: string, deckId: string | undefined) =>
+  deckId === undefined
+    ? eq(review.userId, userId)
+    : and(eq(review.userId, userId), eq(review.deckId, deckId));
 
-/** The User's newest Tuning log row: the last written, as clocks can tie or step back. */
+/**
+ * How many Reviews the User has, of Cards that are gone too; or how many
+ * their Deck `deckId` has, the Reviews that now carry it.
+ */
+const reviewCountOf = (db: Queryable, userId: string, deckId?: string): number =>
+  db.select({ n: count() }).from(review).where(reviewsIn(userId, deckId)).get()?.n ?? 0;
+
+/** The User's overall Tuning log rows, with no Deck (ADR-0033). */
+const overallRows = (userId: string) =>
+  and(eq(parameter_tuning.userId, userId), isNull(parameter_tuning.deckId));
+
+/**
+ * The User's newest overall Tuning log row: the last written, as clocks can
+ * tie or step back.
+ */
 const newestRowOf = (db: Queryable, userId: string) =>
   db
     .select()
     .from(parameter_tuning)
-    .where(eq(parameter_tuning.userId, userId))
+    .where(overallRows(userId))
     .orderBy(desc(sql`rowid`))
     .limit(1)
     .get();
 
 /**
  * What the Recommended retention is worked out from: all the User's Reviews,
- * of every kind and of Cards that are gone too (ADR-0018), each with whether
- * its Card was New.
+ * of every kind and of Cards that are gone too (ADR-0018), or those now in
+ * their Deck `deckId`, each with whether its Card was New.
  */
-const ratedReviewsOf = (db: Queryable, userId: string) =>
+const ratedReviewsOf = (db: Queryable, userId: string, deckId?: string) =>
   db
     .select({
       cardId: review.cardId,
@@ -211,14 +152,35 @@ const ratedReviewsOf = (db: Queryable, userId: string) =>
       wasNew: sql<number>`json_extract(${review.cardBefore}, '$.state') = 'new'`,
     })
     .from(review)
-    .where(eq(review.userId, userId))
+    .where(reviewsIn(userId, deckId))
     .all()
     .map((one) => ({ ...one, wasNew: Boolean(one.wasNew) }));
+
+/** What Tuning learns from: the User's Reviews, or their Deck `deckId`'s (`trainingItems`). */
+const trainingItemsOf = (db: Queryable, userId: string, deckId?: string) =>
+  trainingItems(
+    db
+      .select({
+        cardId: review.cardId,
+        seq: review.seq,
+        reviewedAt: review.reviewedAt,
+        rating: review.rating,
+      })
+      .from(review)
+      .where(reviewsIn(userId, deckId))
+      .all(),
+    db
+      .select({ cardId: progress_reset.cardId, seq: progress_reset.seq })
+      .from(progress_reset)
+      .where(eq(progress_reset.userId, userId))
+      .all(),
+    schedulingSettingsOf(db, userId).studyDay,
+  );
 
 /** Works out a Recommended retention; `recommendedRetention` unless a test stubs it. */
 export type Recommender = (parameters: number[], inputs: RetentionInputs) => Promise<number>;
 
-/** The User's stored Parameters; null while FSRS-6's defaults are in use. */
+/** The User's stored overall Parameters; null while FSRS-6's defaults are in use. */
 const storedParametersOf = (db: Queryable, userId: string): number[] | null =>
   db
     .select({ parameters: user_settings.fsrsParameters })
@@ -226,10 +188,40 @@ const storedParametersOf = (db: Queryable, userId: string): number[] | null =>
     .where(eq(user_settings.userId, userId))
     .get()?.parameters ?? null;
 
+/** The User's Deck `deckId`'s own Parameters; null while it follows the overall ones. */
+const ownParametersOf = (db: Queryable, userId: string, deckId: string): number[] | null =>
+  db
+    .select({ parameters: deck.fsrsParameters })
+    .from(deck)
+    .where(and(eq(deck.userId, userId), eq(deck.id, deckId)))
+    .get()?.parameters ?? null;
+
+/**
+ * The User's live Decks that a Tuning fits next (ADR-0033): those with
+ * `DECK_TUNING_MIN_REVIEWS` Reviews or more, oldest first, each with its count.
+ */
+const decksToTune = (db: Queryable, userId: string) =>
+  db
+    .select({ deckId: deck.id, reviewCount: count(review.id) })
+    .from(deck)
+    .innerJoin(review, and(eq(review.userId, userId), eq(review.deckId, deck.id)))
+    .where(and(eq(deck.userId, userId), isNull(deck.deletedAt)))
+    .groupBy(deck.id)
+    .having(gte(count(review.id), DECK_TUNING_MIN_REVIEWS))
+    // Then in the order they were written, as clocks can tie.
+    .orderBy(asc(deck.createdAt), asc(sql`${deck}.rowid`))
+    .all();
+
+/** A Tuning log row as a status's last attempt; null for none. */
+const attemptOf = (row: typeof parameter_tuning.$inferSelect | undefined) =>
+  row === undefined
+    ? null
+    : { at: row.ranAt.toISOString(), trigger: row.trigger, outcome: row.outcome };
+
 /**
  * Whether an automatic Tuning is due for the User: their Review count is
- * `TUNING_REVIEW_INTERVAL` or more above the newest Tuning log row's (0 with
- * none), and automatic Tuning isn't paused: the newest row isn't a Reset.
+ * `TUNING_REVIEW_INTERVAL` or more above the newest overall Tuning log row's
+ * (0 with none), and automatic Tuning isn't paused: that row isn't a Reset.
  */
 function automaticDue(db: Queryable, userId: string): boolean {
   const newest = newestRowOf(db, userId);
@@ -238,10 +230,10 @@ function automaticDue(db: Queryable, userId: string): boolean {
 }
 
 /**
- * Tuning the User's Parameters. Every query is scoped by the User (ADR-0001).
- * Tune now, automatic Tuning and Reset to defaults run one at a time per User,
- * in this process; a Rating never waits for them. `optimizer` and `recommend`
- * are for tests.
+ * Tuning the User's Parameters, overall and per Deck (ADR-0033). Every query
+ * is scoped by the User (ADR-0001). Tune now, automatic Tuning and Reset to
+ * defaults run one at a time per User, in this process; a Rating never waits
+ * for them. `optimizer` and `recommend` are for tests.
  */
 export function createTuningRepository(
   db: Queryable,
@@ -282,35 +274,91 @@ export function createTuningRepository(
 
   /**
    * Works out the Recommended retention right after the Tuning log row `rowId`
-   * is written, and stores it on the row, while tuned Parameters are in use;
-   * while the defaults are, there is none. A failure is logged and leaves the
-   * row's null.
+   * is written, and stores it on the row, while tuned Parameters are in use:
+   * the overall ones, or Deck `deckId`'s own, from its Reviews. While the
+   * defaults are, or the Deck follows the overall ones, there is none. A
+   * failure is logged and leaves the row's null.
    */
-  async function recommendAfter(userId: string, rowId: string): Promise<void> {
+  async function recommendAfter(userId: string, rowId: string, deckId?: string): Promise<void> {
     try {
-      const parameters = storedParametersOf(db, userId);
+      const parameters =
+        deckId === undefined ? storedParametersOf(db, userId) : ownParametersOf(db, userId, deckId);
       if (parameters === null) return;
       const { studyDay } = schedulingSettingsOf(db, userId);
       const percent = await recommend(
         parameters,
-        retentionInputs(ratedReviewsOf(db, userId), studyDay),
+        retentionInputs(ratedReviewsOf(db, userId, deckId), studyDay),
       );
       db.update(parameter_tuning)
         .set({ recommendedRetention: percent })
         .where(and(eq(parameter_tuning.userId, userId), eq(parameter_tuning.id, rowId)))
         .run();
-      logger.info("Recommended retention: {percent}%", { percent });
+      logger.info("Recommended retention: {percent}%", { percent, deckId });
     } catch (error) {
-      logger.error("Working out the Recommended retention failed: {error}", { error });
+      logger.error("Working out the Recommended retention failed: {error}", { error, deckId });
     }
+  }
+
+  /**
+   * Fits new Parameters to the Reviews of the User's Deck `deckId`, which has
+   * `reviewCount`, and applies them if they predict its Reviews better than
+   * the Parameters it uses now: its own, or the overall ones as this Tuning
+   * left them. Logs the attempt as a row of the Deck's, whatever its result,
+   * then, after an applied or kept one, works out the Deck's Recommended
+   * retention while it has its own Parameters. Never throws.
+   */
+  async function tuneDeck(
+    userId: string,
+    deckId: string,
+    reviewCount: number,
+    trigger: Exclude<TuningTrigger, "reset">,
+    now: () => Date,
+  ): Promise<void> {
+    let result: TuningResult;
+    let rowId: string;
+    try {
+      const items = trainingItemsOf(db, userId, deckId);
+      const tuned = await tune(items, deckSchedulingOf(db, userId, deckId).parameters, optimizer);
+      const ranAt = now();
+      const row = { ranAt, trigger, reviewCount, deckId };
+      if (tuned.result === "not_enough_data") {
+        rowId = log(userId, { ...row, outcome: "not_enough_data" });
+      } else {
+        const { result: outcome, ...measured } = tuned;
+        rowId = db.transaction(
+          (tx) => {
+            if (outcome === "applied") applyParameters(tx, userId, measured.parameters, deckId);
+            return log(userId, { ...row, outcome, ...measured }, tx);
+          },
+          { behavior: "immediate" },
+        );
+      }
+      logger.info("Tuning {trigger} of a Deck: {result} from {reviewCount} Reviews", {
+        trigger,
+        result: tuned.result,
+        reviewCount,
+        deckId,
+      });
+      result = tuned.result;
+    } catch (error) {
+      logger.error("Tuning {trigger} of a Deck failed: {error}", { trigger, error, deckId });
+      try {
+        log(userId, { ranAt: now(), trigger, reviewCount, outcome: "failed", deckId });
+      } catch (logError) {
+        logger.error("Logging a failed Tuning failed too: {error}", { error: logError, deckId });
+      }
+      return;
+    }
+    if (result === "applied" || result === "kept") await recommendAfter(userId, rowId, deckId);
   }
 
   /**
    * One Tuning: fits new Parameters to all the User's Reviews, applies them if
    * they predict better, and logs the attempt, whatever its result, then
-   * works out the Recommended retention for its row (`recommendAfter`). An
-   * automatic one that is no longer due when its turn comes runs not at all
-   * (null).
+   * works out the Recommended retention for its row (`recommendAfter`). Then
+   * each live Deck with enough Reviews of its own, one at a time
+   * (`tuneDeck`). Answers the overall step's result. An automatic one that is
+   * no longer due when its turn comes runs not at all (null).
    */
   async function runTuning(
     userId: string,
@@ -322,27 +370,9 @@ export function createTuningRepository(
     let rowId: string;
     try {
       if (trigger === "automatic" && !automaticDue(db, userId)) return null;
-      const { studyDay, parameters } = schedulingSettingsOf(db, userId);
+      const { parameters } = schedulingSettingsOf(db, userId);
       reviewCount = reviewCountOf(db, userId);
-      const items = trainingItems(
-        db
-          .select({
-            cardId: review.cardId,
-            seq: review.seq,
-            reviewedAt: review.reviewedAt,
-            rating: review.rating,
-          })
-          .from(review)
-          .where(eq(review.userId, userId))
-          .all(),
-        db
-          .select({ cardId: progress_reset.cardId, seq: progress_reset.seq })
-          .from(progress_reset)
-          .where(eq(progress_reset.userId, userId))
-          .all(),
-        studyDay,
-      );
-      const tuned = await tune(items, parameters, optimizer);
+      const tuned = await tune(trainingItemsOf(db, userId), parameters, optimizer);
       const ranAt = now();
       if (tuned.result === "not_enough_data") {
         rowId = log(userId, { ranAt, trigger, reviewCount, outcome: "not_enough_data" });
@@ -374,6 +404,15 @@ export function createTuningRepository(
       }
     }
     await recommendAfter(userId, rowId);
+    let decks: ReturnType<typeof decksToTune> = [];
+    try {
+      decks = decksToTune(db, userId);
+    } catch (error) {
+      logger.error("Finding the Decks to tune failed: {error}", { error });
+    }
+    for (const { deckId, reviewCount: deckReviews } of decks) {
+      await tuneDeck(userId, deckId, deckReviews, trigger, now);
+    }
     return result;
   }
 
@@ -391,32 +430,38 @@ export function createTuningRepository(
     return started;
   };
 
+  /** The `rowid` of the User's newest Reset to defaults, 0 before any. */
+  const newestResetOf = (userId: string): number =>
+    db
+      .select({ rowid: sql<number>`rowid` })
+      .from(parameter_tuning)
+      .where(and(overallRows(userId), eq(parameter_tuning.outcome, "reset")))
+      .orderBy(desc(sql`rowid`))
+      .limit(1)
+      .get()?.rowid ?? 0;
+
+  /** When the newest applied row of `rows` ran, and from how many Reviews. */
+  const appliedOf = (rows: SQL | undefined) => {
+    const applied = db
+      .select({ ranAt: parameter_tuning.ranAt, reviewCount: parameter_tuning.reviewCount })
+      .from(parameter_tuning)
+      .where(and(rows, eq(parameter_tuning.outcome, "applied")))
+      .orderBy(desc(sql`rowid`))
+      .limit(1)
+      .get();
+    return applied === undefined
+      ? null
+      : { at: applied.ranAt.toISOString(), reviews: applied.reviewCount };
+  };
+
   const status = (userId: string): TuningStatus => {
     const stored = storedParametersOf(db, userId);
     const newest = newestRowOf(db, userId);
-    const applied =
-      stored === null
-        ? undefined
-        : db
-            .select({ ranAt: parameter_tuning.ranAt, reviewCount: parameter_tuning.reviewCount })
-            .from(parameter_tuning)
-            .where(
-              and(eq(parameter_tuning.userId, userId), eq(parameter_tuning.outcome, "applied")),
-            )
-            .orderBy(desc(sql`rowid`))
-            .limit(1)
-            .get();
     const reviewCount = reviewCountOf(db, userId);
     return {
       parameters: stored === null ? "default" : "tuned",
-      tuned:
-        applied === undefined
-          ? null
-          : { at: applied.ranAt.toISOString(), reviews: applied.reviewCount },
-      lastAttempt:
-        newest === undefined
-          ? null
-          : { at: newest.ranAt.toISOString(), trigger: newest.trigger, outcome: newest.outcome },
+      tuned: stored === null ? null : appliedOf(overallRows(userId)),
+      lastAttempt: attemptOf(newest),
       reviewsUntilAutomatic: Math.max(
         0,
         (newest?.reviewCount ?? 0) + TUNING_REVIEW_INTERVAL - reviewCount,
@@ -424,18 +469,72 @@ export function createTuningRepository(
       paused: newest?.outcome === "reset",
       running: running.has(userId),
       recommendedRetention: stored === null ? null : (newest?.recommendedRetention ?? null),
+      ownDecks: decksWithOwnParameters(db, userId),
     };
   };
 
   return {
-    /** How Tuning stands for the User. */
+    /** How Tuning stands for the User, of the overall Parameters. */
     status,
 
     /**
-     * Tune now: a Tuning at once, answered with its result and the new
-     * status, its Recommended retention worked out. It applies only an improvement, and its log row ends a pause.
-     * During a queued or running Tuning it waits for that one and answers its
-     * result. `now` is for tests.
+     * How Tuning stands for the User's live Deck `deckId` (ADR-0033), or
+     * "not_found". Its last attempt is its newest row, or a Reset to defaults
+     * written after it. Its Recommended retention while it has its own
+     * Parameters is the newest of its rows since the newest Reset that has
+     * one; otherwise it is the overall one (`status`).
+     */
+    deckStatus(userId: string, deckId: string): DeckTuningStatus | "not_found" {
+      const found = db
+        .select({ parameters: deck.fsrsParameters })
+        .from(deck)
+        .where(and(eq(deck.userId, userId), eq(deck.id, deckId), isNull(deck.deletedAt)))
+        .get();
+      if (found === undefined) return "not_found";
+      const own = found.parameters !== null;
+      const deckRows = and(
+        eq(parameter_tuning.userId, userId),
+        eq(parameter_tuning.deckId, deckId),
+      );
+      const resetSince = newestResetOf(userId);
+      const newest = db
+        .select()
+        .from(parameter_tuning)
+        .where(or(deckRows, and(overallRows(userId), eq(parameter_tuning.outcome, "reset"))))
+        .orderBy(desc(sql`rowid`))
+        .limit(1)
+        .get();
+      const recommended = own
+        ? (db
+            .select({ percent: parameter_tuning.recommendedRetention })
+            .from(parameter_tuning)
+            .where(
+              and(
+                deckRows,
+                isNotNull(parameter_tuning.recommendedRetention),
+                sql`rowid > ${resetSince}`,
+              ),
+            )
+            .orderBy(desc(sql`rowid`))
+            .limit(1)
+            .get()?.percent ?? null)
+        : status(userId).recommendedRetention;
+      return {
+        parameters: own ? "own" : "overall",
+        tuned: own ? appliedOf(deckRows) : null,
+        reviewCount: reviewCountOf(db, userId, deckId),
+        threshold: DECK_TUNING_MIN_REVIEWS,
+        lastAttempt: attemptOf(newest),
+        recommendedRetention: recommended,
+      };
+    },
+
+    /**
+     * Tune now: a Tuning at once, answered with its overall result and the
+     * new status once every Deck has been tuned too, its Recommended
+     * retention worked out. It applies only an improvement, and its log row
+     * ends a pause. During a queued or running Tuning it waits for that one
+     * and answers its result. `now` is for tests.
      */
     async tuneNow(userId: string, now: () => Date = () => new Date()): Promise<TuneResponse> {
       const queued = running.get(userId);
@@ -467,10 +566,12 @@ export function createTuningRepository(
     },
 
     /**
-     * Reset to defaults: applies FSRS-6's defaults through the same replay,
-     * logs a `reset` row, which pauses automatic Tuning until Tune now, and
-     * answers the new status; "defaults_in_use" while they already are. It
-     * waits for any running Tuning. `now` is for tests.
+     * Reset to defaults: applies FSRS-6's defaults overall and clears every
+     * Deck's own Parameters, deleted Decks' too, through one replay of all the
+     * User's Cards, logs a `reset` row, which pauses automatic Tuning until
+     * Tune now, and answers the new status; "defaults_in_use" while the
+     * defaults already are in use and no Deck has its own. It waits for any
+     * running Tuning. `now` is for tests.
      */
     reset(
       userId: string,
@@ -479,8 +580,17 @@ export function createTuningRepository(
       return exclusive(userId, () => {
         const done = db.transaction(
           (tx) => {
-            if (storedParametersOf(tx, userId) === null) return "defaults_in_use" as const;
-            applyParameters(tx, userId, null);
+            if (
+              storedParametersOf(tx, userId) === null &&
+              decksWithOwnParameters(tx, userId, { deleted: true }) === 0
+            )
+              return "defaults_in_use" as const;
+            tx.insert(user_settings)
+              .values({ userId, fsrsParameters: null })
+              .onConflictDoUpdate({ target: user_settings.userId, set: { fsrsParameters: null } })
+              .run();
+            clearDeckParameters(tx, userId);
+            replayCards(tx, userId, "all");
             log(
               userId,
               {

@@ -21,7 +21,7 @@ import { findIn, isLiveDeck } from "./cards";
 import { hasProgressResetSince } from "./progress-resets";
 import {
   MEMORY_COLUMNS,
-  deckRetentionOf,
+  deckSchedulingOf,
   fromStored,
   lastReviewOf,
   schedulingSettingsOf,
@@ -68,7 +68,8 @@ export function createStudyRepository(db: Queryable) {
     ): StudyNextResponse | "not_found" {
       return db.transaction((tx) => {
         if (!isLiveDeck(tx, userId, deckId)) return "not_found";
-        const { studyDay, parameters } = schedulingSettingsOf(tx, userId);
+        const settings = deckSchedulingOf(tx, userId, deckId);
+        const { studyDay, parameters } = settings;
         const tomorrow = studyDayBounds(studyDayOf(now, studyDay), studyDay).end;
         // Reviews not yet due never count, so they stay in the database.
         const cards = tx
@@ -96,12 +97,7 @@ export function createStudyRepository(db: Queryable) {
         const found = findIn(tx, userId, picked.id);
         if (row === undefined || found === undefined) return { next: null, newHeld: 0 };
         const { id, createdAt: _, ...memory } = row;
-        const intervals = previewIntervals(id, memory, {
-          now,
-          desiredRetention: deckRetentionOf(tx, userId, deckId),
-          studyDay,
-          parameters,
-        });
+        const intervals = previewIntervals(id, memory, { now, ...settings });
         return {
           next: {
             card: found,
@@ -116,7 +112,8 @@ export function createStudyRepository(db: Queryable) {
 
     /**
      * Each Rating's Interval preview for the User's Card `cardId` at `now`,
-     * from its memory state as it is and its Deck's Desired retention: what
+     * from its memory state as it is and its Deck's Desired retention and
+     * Parameters: what
      * `next` would answer for it. "not_found" unless it is a live Card in a
      * live Deck of the User's. `now` is for tests.
      */
@@ -134,12 +131,9 @@ export function createStudyRepository(db: Queryable) {
           .where(and(eq(card.userId, userId), eq(card.id, cardId)))
           .get();
         if (memory === undefined) return "not_found";
-        const { studyDay, parameters } = schedulingSettingsOf(tx, userId);
         return previewIntervals(cardId, memory, {
           now,
-          desiredRetention: deckRetentionOf(tx, userId, found.deckId),
-          studyDay,
-          parameters,
+          ...deckSchedulingOf(tx, userId, found.deckId),
         });
       });
     },
@@ -203,7 +197,7 @@ export function createStudyRepository(db: Queryable) {
     /**
      * Undoes the User's Review `reviewId` (ADR-0025): deletes it and puts its
      * Card's memory state back to the one it kept from before it, rescheduled
-     * when the Deck's Desired retention or the Parameters changed since (`restore`). Answers the
+     * when the Deck's Desired retention or its Parameters changed since (`restore`). Answers the
      * Card, its restored schedule and each Rating's Interval preview at `now`.
      * "not_newest" when the Card has a newer Review;
      * "before_progress_reset" when, its newest, it was given before the Card's
@@ -237,13 +231,7 @@ export function createStudyRepository(db: Queryable) {
           tx.delete(review)
             .where(and(eq(review.userId, userId), eq(review.id, reviewId)))
             .run();
-          const { studyDay, parameters } = schedulingSettingsOf(tx, userId);
-          const settings = {
-            now,
-            desiredRetention: deckRetentionOf(tx, userId, found.deckId),
-            studyDay,
-            parameters,
-          };
+          const settings = { now, ...deckSchedulingOf(tx, userId, found.deckId) };
           const restored = restore(
             undone.cardId,
             fromStored(undone.before),

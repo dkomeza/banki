@@ -1,12 +1,12 @@
 // @vitest-environment happy-dom
-import type { SettingsResponse, TuningStatus } from "@banki/shared";
+import type { DeckTuningStatus, SettingsResponse } from "@banki/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, test } from "vitest";
 import { deckRetentionSaverFor } from "@/lib/deck-retention";
 import type { Deck } from "@/lib/decks";
 import { settingsQueryOptions } from "@/lib/settings";
-import { tuningQueryOptions } from "@/lib/tuning";
+import { deckTuningQueryOptions } from "@/lib/tuning";
 import { DeckRetentionCard } from "./deck-retention-card";
 
 const DECK: Deck = {
@@ -36,29 +36,41 @@ const SETTINGS: SettingsResponse = {
   macros: [],
 };
 
-/** How Tuning stands: tuned, with `recommendedRetention`, or on the defaults with none. */
-const tuning = (recommendedRetention: number | null): TuningStatus => ({
-  parameters: recommendedRetention === null ? "default" : "tuned",
-  tuned: recommendedRetention === null ? null : { at: "2026-05-01T09:00:00.000Z", reviews: 400 },
+/**
+ * How Tuning stands for the Deck: following the overall Parameters, or with
+ * its own, and `recommendedRetention` as its Recommended retention.
+ */
+const tuning = (
+  recommendedRetention: number | null,
+  parameters: DeckTuningStatus["parameters"] = "overall",
+): DeckTuningStatus => ({
+  parameters,
+  tuned: parameters === "own" ? { at: "2026-05-01T09:00:00.000Z", reviews: 1200 } : null,
+  reviewCount: 1200,
+  threshold: 1000,
   lastAttempt: null,
-  reviewsUntilAutomatic: 200,
-  paused: false,
-  running: false,
   recommendedRetention,
 });
 
 afterEach(cleanup);
 
-/** The section for `deck`, saving through `save`, with `recommended` as the Recommended retention. */
+/**
+ * The section for `deck`, saving through `save`, with `recommended` as the
+ * Recommended retention, from a fit of its own when `parameters` is `own`.
+ */
 function renderCard(
   deck: Deck,
   recommended: number | null | "unavailable",
   save: (retention: number | null) => Promise<void> = async () => {},
+  parameters: DeckTuningStatus["parameters"] = "overall",
 ) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   queryClient.setQueryData(settingsQueryOptions().queryKey, { settings: SETTINGS, issuedAt: 0 });
   if (recommended !== "unavailable") {
-    queryClient.setQueryData(tuningQueryOptions().queryKey, tuning(recommended));
+    queryClient.setQueryData(
+      deckTuningQueryOptions(deck.id).queryKey,
+      tuning(recommended, parameters),
+    );
   }
   deckRetentionSaverFor(queryClient, deck.id, { save });
   render(
@@ -88,7 +100,9 @@ describe("DeckRetentionCard's Recommended retention", () => {
 
     expect(picker().value).toBe("Follow Settings (90%)");
     await waitFor(() =>
-      expect(queryClient.getQueryState(tuningQueryOptions().queryKey)?.status).toBe("error"),
+      expect(queryClient.getQueryState(deckTuningQueryOptions(DECK.id).queryKey)?.status).toBe(
+        "error",
+      ),
     );
     expect(picker().value).toBe("Follow Settings (90%)");
     expect(screen.queryByText(/Recommended for you/)).toBeNull();
@@ -135,11 +149,29 @@ describe("DeckRetentionCard's Recommended retention", () => {
     expect(useButton(90)).toBeTruthy();
   });
 
+  test("shows the Deck's own, with Use, while it has a fit of its own", async () => {
+    const sent: (number | null)[] = [];
+    renderCard(
+      DECK,
+      78,
+      async (retention) => {
+        sent.push(retention);
+      },
+      "own",
+    );
+
+    expect(screen.getByText("Recommended for this deck: 78%").parentElement?.textContent).toBe(
+      "Recommended for this deck: 78% · From how well you remember this deck's cards and how long they take you, this is where you keep the most for the time you study.",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Use 78%" }));
+    expect(sent).toEqual([78]);
+  });
+
   test("follows the tuning status as it is fetched again, after Tune now or Reset", async () => {
     const queryClient = renderCard(DECK, 84);
 
     await act(async () => {
-      queryClient.setQueryData(tuningQueryOptions().queryKey, tuning(null));
+      queryClient.setQueryData(deckTuningQueryOptions(DECK.id).queryKey, tuning(null));
     });
     await waitFor(() => expect(screen.queryByText(/Recommended for you/)).toBeNull());
   });

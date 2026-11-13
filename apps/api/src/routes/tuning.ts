@@ -22,3 +22,18 @@ export function tuningRoutes({ tuning }: { tuning: TuningRepository }) {
       return c.json(reset, 200);
     });
 }
+
+const DECK_NOT_FOUND = apiError("not_found", "Deck not found");
+
+/**
+ * How Tuning stands for one of the signed-in User's Decks, under `/api/decks`:
+ * `GET /:deckId/tuning` (ADR-0033). A deleted Deck, an unknown one and
+ * another User's all answer 404 `not_found`.
+ */
+export function deckTuningRoutes({ tuning }: { tuning: TuningRepository }) {
+  return new Hono<SignedInEnv>().get("/:deckId/tuning", (c) => {
+    const status = tuning.deckStatus(c.var.user.id, c.req.param("deckId"));
+    if (status === "not_found") return c.json(DECK_NOT_FOUND, 404);
+    return c.json(status, 200);
+  });
+}

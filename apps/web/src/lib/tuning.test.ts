@@ -1,8 +1,15 @@
-import type { TuningStatus } from "@banki/shared";
+import type { DeckTuningStatus, TuningStatus } from "@banki/shared";
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, test, vi } from "vitest";
 import { createApiClient } from "./api";
-import { resetTuning, tuneNow, tuningQueryOptions, tuningStatusLines } from "./tuning";
+import {
+  deckSchedulingLine,
+  deckTuningQueryOptions,
+  resetTuning,
+  tuneNow,
+  tuningQueryOptions,
+  tuningStatusLines,
+} from "./tuning";
 
 const NOW = new Date("2026-10-26T12:00:00.000Z");
 
@@ -14,6 +21,7 @@ const STATUS: TuningStatus = {
   paused: false,
   running: false,
   recommendedRetention: null,
+  ownDecks: 0,
 };
 
 const TUNED: TuningStatus = {
@@ -24,6 +32,7 @@ const TUNED: TuningStatus = {
   paused: false,
   running: false,
   recommendedRetention: null,
+  ownDecks: 0,
 };
 
 describe("tuningStatusLines", () => {
@@ -86,6 +95,17 @@ describe("tuningStatusLines", () => {
     ]);
   });
 
+  test("how many Decks have a fit of their own", () => {
+    expect(tuningStatusLines({ ...TUNED, ownDecks: 1 }, NOW)).toEqual([
+      "Fitted to how you remember on 20 October, from 1,234 reviews.",
+      "1 deck has a fit of its own.",
+      "Next check after 57 more reviews.",
+    ]);
+    expect(tuningStatusLines({ ...STATUS, ownDecks: 3 }, NOW)[1]).toBe(
+      "3 decks have a fit of their own.",
+    );
+  });
+
   test("never says FSRS or parameters", () => {
     const lines = [STATUS, TUNED, { ...STATUS, paused: true }].flatMap((status) =>
       tuningStatusLines(status, NOW),
@@ -128,12 +148,12 @@ describe("tuneNow", () => {
     expect(invalidated).toEqual([["decks"], ["cards"]]);
   });
 
-  test("leaves schedules alone when nothing applied", async () => {
+  test("has schedules and the Decks' Tuning fetched again when the overall result kept, as a Deck may have got its own", async () => {
     const { client } = answering(200, { result: "kept", status: STATUS });
     const { queryClient, invalidated } = withSchedules();
 
     expect(await tuneNow(queryClient, client)).toBe("kept");
-    expect(invalidated).toEqual([]);
+    expect(invalidated).toEqual([["decks"], ["cards"]]);
   });
 
   test("throws when the request fails", async () => {
@@ -163,5 +183,80 @@ describe("resetTuning", () => {
 
     expect(await resetTuning(queryClient, client)).toBe(false);
     expect(invalidated).toEqual([["tuning"]]);
+  });
+});
+
+const FOLLOWING: DeckTuningStatus = {
+  parameters: "overall",
+  tuned: null,
+  reviewCount: 412,
+  threshold: 1000,
+  lastAttempt: null,
+  recommendedRetention: 85,
+};
+
+describe("deckSchedulingLine", () => {
+  test("fitted to the Deck on a date from so many Reviews", () => {
+    expect(
+      deckSchedulingLine(
+        {
+          ...FOLLOWING,
+          parameters: "own",
+          tuned: { at: "2026-10-20T09:00:00.000Z", reviews: 1204 },
+          reviewCount: 1310,
+        },
+        NOW,
+      ),
+    ).toBe("Fitted to how you remember this deck on 20 October, from 1,204 reviews.");
+  });
+
+  test("following the overall scheduling until the Deck has 1,000 Reviews", () => {
+    expect(deckSchedulingLine(FOLLOWING, NOW)).toBe(
+      "Follows your overall scheduling until this deck has 1,000 reviews (412 so far).",
+    );
+  });
+
+  test("following the overall scheduling, which the last check kept as the best fit", () => {
+    expect(
+      deckSchedulingLine(
+        {
+          ...FOLLOWING,
+          reviewCount: 1000,
+          lastAttempt: { at: "2026-10-20T09:00:00.000Z", trigger: "automatic", outcome: "kept" },
+        },
+        NOW,
+      ),
+    ).toBe("Follows your overall scheduling, which fits this deck best.");
+  });
+
+  test("following the overall scheduling until a check, with the Reviews it needs", () => {
+    expect(deckSchedulingLine({ ...FOLLOWING, reviewCount: 1001 }, NOW)).toBe(
+      "Follows your overall scheduling for now. With 1,001 reviews, the next check sees whether a fit of its own would suit it better.",
+    );
+  });
+
+  test("never says FSRS or parameters", () => {
+    const lines = [
+      FOLLOWING,
+      { ...FOLLOWING, parameters: "own" as const },
+      { ...FOLLOWING, reviewCount: 2000 },
+    ].map((status) => deckSchedulingLine(status, NOW));
+    expect(lines.join(" ")).not.toMatch(/fsrs|parameter/i);
+  });
+});
+
+describe("deckTuningQueryOptions", () => {
+  test("fetches a Deck's Tuning status, under the Deck's key", async () => {
+    const { client, sent } = answering(200, FOLLOWING);
+    const options = deckTuningQueryOptions("d1", client);
+
+    expect(options.queryKey.slice(0, 2)).toEqual(["decks", "d1"]);
+    expect(await new QueryClient().fetchQuery(options)).toEqual(FOLLOWING);
+    expect(sent).toEqual(["GET /api/decks/d1/tuning"]);
+  });
+
+  test("answers null for a Deck that is gone", async () => {
+    const { client } = answering(404, { error: { code: "not_found", message: "Deck not found" } });
+    expect(await new QueryClient().fetchQuery(deckTuningQueryOptions("d1", client))).toBeNull();
   });
 });

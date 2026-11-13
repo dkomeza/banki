@@ -1,17 +1,20 @@
 import { describe, expect, test } from "bun:test";
 import {
   CardResponse,
+  DECK_TUNING_MIN_REVIEWS,
   DeckResponse,
+  DeckTuningStatus,
   TUNING_REVIEW_INTERVAL,
   TuneResponse,
   TuningStatus,
 } from "@banki/shared";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { openDatabase } from "../db/database";
+import { deck as deckTable, review } from "../db/schema";
 import { createCardRepository } from "../repositories/cards";
 import { createDeckRepository } from "../repositories/decks";
-import { createReviewRepository } from "../repositories/reviews";
-import { DEFAULT_PARAMETERS } from "../scheduling/fsrs";
+import { createReviewRepository, toStored } from "../repositories/reviews";
+import { DEFAULT_PARAMETERS, NEW_MEMORY_STATE } from "../scheduling/fsrs";
 import type { Optimizer } from "../scheduling/tuning";
 import { bootApps, codeOf, get, send, setUp } from "../testing/app";
 
@@ -70,6 +73,7 @@ describe("GET /api/tuning", () => {
       paused: false,
       running: false,
       recommendedRetention: null,
+      ownDecks: 0,
     });
   });
 
@@ -221,5 +225,148 @@ describe("POST /api/cards/:id/reviews", () => {
       lastAttempt: { trigger: "automatic", outcome: "applied" },
       reviewsUntilAutomatic: TUNING_REVIEW_INTERVAL,
     });
+  });
+});
+
+/** The signed-in User's ID. */
+function ownerOf(): string {
+  const opened = openDatabase(dataDir());
+  try {
+    const owner = opened.db.all<{ id: string }>(
+      sql`SELECT id FROM user ORDER BY created_at LIMIT 1`,
+    )[0]?.id;
+    if (owner === undefined) throw new Error("No User");
+    return owner;
+  } finally {
+    opened.close();
+  }
+}
+
+/** Gives the signed-in User's Deck `deckId` `n` Reviews of a Removed Card, one a day. */
+function pastReviews(deckId: string, n: number) {
+  const owner = ownerOf();
+  const opened = openDatabase(dataDir());
+  try {
+    opened.db.transaction((tx) => {
+      for (let i = 0; i < n; i += 1) {
+        tx.insert(review)
+          .values({
+            id: `past-${deckId}-${i}`,
+            userId: owner,
+            cardId: `removed-${deckId}`,
+            deckId,
+            reviewedAt: new Date(Date.parse("2026-05-01T10:00:00Z") + i * DAY),
+            rating: i % 5 === 2 ? "again" : "good",
+            kind: "self-rated",
+            durationMs: 1000,
+            cardBefore: toStored(NEW_MEMORY_STATE),
+            seq: i + 1,
+          })
+          .run();
+      }
+    });
+  } finally {
+    opened.close();
+  }
+}
+
+const deckTuningOf = async (res: Response) => DeckTuningStatus.parse(await res.json());
+
+/** Gives the Deck `deckId` Parameters of its own, as a Tuning would. */
+function giveOwnParameters(deckId: string) {
+  const opened = openDatabase(dataDir());
+  try {
+    opened.db
+      .update(deckTable)
+      .set({ fsrsParameters: TUNED })
+      .where(eq(deckTable.id, deckId))
+      .run();
+  } finally {
+    opened.close();
+  }
+}
+
+describe("GET /api/decks/:deckId/tuning", () => {
+  test("answers a Deck that follows the overall Parameters, under its threshold", async () => {
+    const booted = boot();
+    const cookie = await setUp(booted);
+    const created = await send(booted.app, "POST", "/api/decks", { name: "Spanish" }, cookie);
+    const { id: deckId } = DeckResponse.parse(await created.json());
+    pastReviews(deckId, 12);
+
+    const res = await get(booted.app, `/api/decks/${deckId}/tuning`, cookie);
+
+    expect(res.status).toBe(200);
+    expect(await deckTuningOf(res)).toEqual({
+      parameters: "overall",
+      tuned: null,
+      reviewCount: 12,
+      threshold: DECK_TUNING_MIN_REVIEWS,
+      lastAttempt: null,
+      recommendedRetention: null,
+    });
+  });
+
+  test("answers a Deck that Tune now fitted, with its own Recommended retention", async () => {
+    const booted = boot({}, { tuningOptimizer: improving });
+    const cookie = await setUp(booted);
+    const created = await send(booted.app, "POST", "/api/decks", { name: "Spanish" }, cookie);
+    const { id: deckId } = DeckResponse.parse(await created.json());
+    pastReviews(deckId, DECK_TUNING_MIN_REVIEWS);
+
+    const tuned = TuneResponse.parse(
+      await (await send(booted.app, "POST", "/api/tuning", {}, cookie)).json(),
+    );
+    // Tune now answers once the Deck is tuned too.
+    expect(tuned).toMatchObject({ result: "applied", status: { ownDecks: 1 } });
+
+    const status = await deckTuningOf(await get(booted.app, `/api/decks/${deckId}/tuning`, cookie));
+    expect(status).toMatchObject({
+      parameters: "own",
+      tuned: { reviews: DECK_TUNING_MIN_REVIEWS },
+      reviewCount: DECK_TUNING_MIN_REVIEWS,
+      lastAttempt: { trigger: "manual", outcome: "applied" },
+    });
+    expect(status.recommendedRetention).toBeGreaterThanOrEqual(70);
+    expect(status.recommendedRetention).toBeLessThanOrEqual(97);
+  });
+
+  test("answers 404 for a deleted Deck, an unknown one, and signed out 401", async () => {
+    const booted = boot();
+    const cookie = await setUp(booted);
+    const created = await send(booted.app, "POST", "/api/decks", { name: "Spanish" }, cookie);
+    const { id: deckId } = DeckResponse.parse(await created.json());
+    await send(booted.app, "DELETE", `/api/decks/${deckId}`, {}, cookie);
+
+    const deleted = await get(booted.app, `/api/decks/${deckId}/tuning`, cookie);
+    expect(deleted.status).toBe(404);
+    expect(await codeOf(deleted)).toBe("not_found");
+    expect((await get(booted.app, "/api/decks/nope/tuning", cookie)).status).toBe(404);
+    expect((await get(booted.app, `/api/decks/${deckId}/tuning`)).status).toBe(401);
+  });
+});
+
+describe("POST /api/tuning/reset, with a Deck of its own", () => {
+  test("resets while only a Deck has its own Parameters, and answers 409 once none does", async () => {
+    const booted = boot();
+    const cookie = await setUp(booted);
+    const created = await send(booted.app, "POST", "/api/decks", { name: "Spanish" }, cookie);
+    const { id: deckId } = DeckResponse.parse(await created.json());
+    giveOwnParameters(deckId);
+    expect(await statusOf(await get(booted.app, "/api/tuning", cookie))).toMatchObject({
+      parameters: "default",
+      ownDecks: 1,
+    });
+
+    const res = await send(booted.app, "POST", "/api/tuning/reset", {}, cookie);
+    expect(res.status).toBe(200);
+    expect(await statusOf(res)).toMatchObject({ parameters: "default", ownDecks: 0 });
+    expect(
+      await deckTuningOf(await get(booted.app, `/api/decks/${deckId}/tuning`, cookie)),
+    ).toMatchObject({ parameters: "overall", lastAttempt: { outcome: "reset" } });
+
+    const again = await send(booted.app, "POST", "/api/tuning/reset", {}, cookie);
+    expect(again.status).toBe(409);
+    expect(await codeOf(again)).toBe("defaults_in_use");
   });
 });

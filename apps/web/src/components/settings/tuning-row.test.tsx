@@ -15,6 +15,7 @@ const STATUS: TuningStatus = {
   paused: false,
   running: false,
   recommendedRetention: null,
+  ownDecks: 0,
 };
 
 const TUNED: TuningStatus = {
@@ -79,6 +80,20 @@ describe("TuningRow", () => {
     expect(button("Reset to defaults").disabled).toBe(true);
   });
 
+  test("Reset to defaults is enabled while a Deck has a fit of its own, on the defaults overall, and the hint mentions Decks", () => {
+    stubApi();
+    renderRow({ ...STATUS, ownDecks: 1 });
+
+    expect(screen.getByText("1 deck has a fit of its own.")).toBeTruthy();
+    expect(button("Reset to defaults").disabled).toBe(false);
+    expect(
+      screen.getByRole("group", { name: "Personal scheduling" }).getAttribute("aria-describedby"),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/A deck with 1,000 reviews of its own gets a fit of its own\./),
+    ).toBeTruthy();
+  });
+
   test("Tune now is busy while it runs, then shows its result inline and the new status", async () => {
     const { answer } = stubApi();
     renderRow(STATUS);
@@ -127,6 +142,7 @@ describe("TuningRow", () => {
     fireEvent.click(button("Reset to defaults"));
     const dialog = await screen.findByRole("alertdialog");
     expect(dialog.textContent).toContain("Reset scheduling to defaults?");
+    expect(dialog.textContent).toContain("for every deck too");
     expect(dialog.textContent).toContain("Your cards keep their due dates.");
 
     fireEvent.click(button("Cancel"));

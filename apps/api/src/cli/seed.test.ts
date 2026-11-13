@@ -17,6 +17,8 @@ import {
   SettingsResponse,
   StudyNextResponse,
   TagListResponse,
+  DECK_TUNING_MIN_REVIEWS,
+  DeckTuningStatus,
   TUNING_REVIEW_INTERVAL,
   TuningStatus,
 } from "@banki/shared";
@@ -657,6 +659,51 @@ describe("banki seed's Tuning", () => {
       reviewsUntilAutomatic: TUNING_REVIEW_INTERVAL,
       paused: false,
       running: false,
+      recommendedRetention: 85,
+      ownDecks: 1,
+    });
+  });
+
+  test("gives Spanish vocabulary its own Parameters through one applied Deck Tuning row, with a Recommended retention of its own, and leaves the other Decks on the overall ones", async () => {
+    await setup();
+    await seed({ BANKI_SEED_NOW: "2026-10-26T12:00:00.000Z" });
+
+    const { app } = boot();
+    const cookie = cookiesFrom(await signIn(app));
+    const deckTuning = async (deckId: string) =>
+      DeckTuningStatus.parse(await (await get(app, `/api/decks/${deckId}/tuning`, cookie)).json());
+
+    const sqlite = new SQLite(join(dataDir(), "banki.db"), { readonly: true });
+    const count = (deckId: string) =>
+      sqlite
+        .query<{ n: number }, [string]>("SELECT count(*) AS n FROM review WHERE deck_id = ?")
+        .get(deckId)?.n ?? -1;
+    const spanishReviews = count(SEED_IDS.decks.spanish);
+    const calculusReviews = count(SEED_IDS.decks.calculus2);
+    const rows = sqlite
+      .query<{ id: string; deck_id: string | null }, []>(
+        "SELECT id, deck_id FROM parameter_tuning ORDER BY rowid",
+      )
+      .all();
+    sqlite.close();
+    expect(rows).toEqual([
+      { id: SEED_IDS.tuning, deck_id: null },
+      { id: SEED_IDS.deckTuning, deck_id: SEED_IDS.decks.spanish },
+    ]);
+    expect(await deckTuning(SEED_IDS.decks.spanish)).toEqual({
+      parameters: "own",
+      tuned: { at: "2026-10-26T11:00:00.000Z", reviews: spanishReviews },
+      reviewCount: spanishReviews,
+      threshold: DECK_TUNING_MIN_REVIEWS,
+      lastAttempt: { at: "2026-10-26T11:00:00.000Z", trigger: "automatic", outcome: "applied" },
+      recommendedRetention: 82,
+    });
+    expect(await deckTuning(SEED_IDS.decks.calculus2)).toEqual({
+      parameters: "overall",
+      tuned: null,
+      reviewCount: calculusReviews,
+      threshold: DECK_TUNING_MIN_REVIEWS,
+      lastAttempt: null,
       recommendedRetention: 85,
     });
   });

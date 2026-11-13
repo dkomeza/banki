@@ -47,12 +47,22 @@ export function withRecommended(
   );
 }
 
-/** What the line under a picker says of the Recommended retention, and why. */
-export const recommendedText = (percent: number) => ({
-  title: `Recommended for you: ${percent}%`,
-  reason:
-    "From how well you remember and how long your cards take you, this is where you keep the most for the time you study.",
-});
+/**
+ * What the line under a picker says of the Recommended retention, and why:
+ * the User's, or a Deck's own (`forDeck`) from a fit of its own.
+ */
+export const recommendedText = (percent: number, forDeck = false) =>
+  forDeck
+    ? {
+        title: `Recommended for this deck: ${percent}%`,
+        reason:
+          "From how well you remember this deck's cards and how long they take you, this is where you keep the most for the time you study.",
+      }
+    : {
+        title: `Recommended for you: ${percent}%`,
+        reason:
+          "From how well you remember and how long your cards take you, this is where you keep the most for the time you study.",
+      };
 
 /** The percents a search finds: by number ("8" finds 80–89), or by tag ("default", "recommended"). */
 export function matchPercents(

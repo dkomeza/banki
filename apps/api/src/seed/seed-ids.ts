@@ -28,6 +28,12 @@ export const SEED_IDS = {
   undoneImport: "5eed0000-0000-4000-8000-0000000001a2",
   /** The one Tuning log row: an automatic Tuning that applied FSRS-6's defaults, so Settings shows Scheduling tuned. */
   tuning: "5eed0000-0000-4000-8000-0000000007a1",
+  /**
+   * Spanish vocabulary's one Tuning log row (ADR-0033): an automatic Tuning
+   * that gave it Parameters of its own, FSRS-6's defaults, so its Deck
+   * settings show a fit of its own while the other Decks follow the overall one.
+   */
+  deckTuning: "5eed0000-0000-4000-8000-0000000007a2",
   folders: {
     languages: "5eed0000-0000-4000-8000-0000000000f1",
     maths: "5eed0000-0000-4000-8000-0000000000f2",

@@ -93,13 +93,16 @@ export function RecommendedRetention({
   percent,
   current,
   onUse,
+  forDeck = false,
 }: {
   percent: number | null;
   current: number;
   onUse: (percent: number) => void;
+  /** Whether it is a Deck's own, from its own fit (ADR-0033). */
+  forDeck?: boolean;
 }) {
   if (percent === null) return null;
-  const { title, reason } = recommendedText(percent);
+  const { title, reason } = recommendedText(percent, forDeck);
   return (
     <div className="@container rounded-xl bg-muted/60 p-4 text-sm">
       <div className="flex flex-col gap-3 @md:flex-row @md:items-center">

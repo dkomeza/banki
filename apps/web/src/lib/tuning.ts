@@ -1,4 +1,10 @@
-import { TuneResponse, type TuningOutcome, type TuningResult, TuningStatus } from "@banki/shared";
+import {
+  DeckTuningStatus,
+  TuneResponse,
+  type TuningOutcome,
+  type TuningResult,
+  TuningStatus,
+} from "@banki/shared";
 import { type QueryClient, queryOptions } from "@tanstack/react-query";
 import { type ApiClient, api } from "./api";
 import { ApiRequestError } from "./query";
@@ -19,16 +25,38 @@ export const tuningQueryOptions = (client: ApiClient = api) =>
   });
 
 /**
+ * How Tuning stands for the Deck `deckId` (ADR-0033), from
+ * `GET /api/decks/:deckId/tuning`; null for a Deck that is gone. It sits under
+ * the Deck's key, so whatever fetches the Decks again fetches it too.
+ */
+export const deckTuningQueryOptions = (deckId: string, client: ApiClient = api) =>
+  queryOptions({
+    queryKey: ["decks", deckId, "tuning"],
+    queryFn: async (): Promise<DeckTuningStatus | null> => {
+      const res = await client.api.decks[":deckId"].tuning.$get({ param: { deckId } });
+      const status: number = res.status;
+      if (status === 404) return null;
+      if (!res.ok) throw new ApiRequestError(status);
+      return DeckTuningStatus.parse(await res.json());
+    },
+  });
+
+/**
  * After new scheduling applies, every Card keeps its due date but works out
  * its memory again (ADR-0029), so what shows schedules is fetched afresh:
- * the Decks' due counts and Study overviews, and the Cards.
+ * the Decks' due counts and Study overviews, with each Deck's Tuning status,
+ * and the Cards.
  */
 const refetchSchedules = (queryClient: QueryClient) =>
   Promise.all(
     [["decks"], ["cards"]].map((queryKey) => queryClient.invalidateQueries({ queryKey })),
   );
 
-/** Tune now: runs a Tuning and answers its result, keeping the status it answers. */
+/**
+ * Tune now: runs a Tuning and answers its overall result, keeping the status
+ * it answers. Whatever that result, a Deck may have got a fit of its own, so
+ * schedules are fetched again.
+ */
 export async function tuneNow(
   queryClient: QueryClient,
   client: ApiClient = api,
@@ -37,7 +65,7 @@ export async function tuneNow(
   if (!res.ok) throw new ApiRequestError(res.status);
   const { result, status } = TuneResponse.parse(await res.json());
   queryClient.setQueryData(tuningQueryOptions().queryKey, status);
-  if (result === "applied") await refetchSchedules(queryClient);
+  await refetchSchedules(queryClient);
   return result;
 }
 
@@ -86,9 +114,10 @@ const OUTCOME_LINES: Record<TuningOutcome, string> = {
 
 /**
  * The status line: paused after a Reset; tuned on a date from so many
- * Reviews; or standard scheduling until there is enough history. Then the
- * last check and how it went, unless that was the Reset or the Tuning that
- * applied, which the first part says.
+ * Reviews; or standard scheduling until there is enough history. Then how
+ * many Decks have a fit of their own, if any; the last check and how it
+ * went, unless that was the Reset or the Tuning that applied, which the first
+ * part says.
  */
 export function tuningStatusLines(status: TuningStatus, now = new Date()): string[] {
   const { tuned, lastAttempt } = status;
@@ -103,6 +132,13 @@ export function tuningStatusLines(status: TuningStatus, now = new Date()): strin
     );
   } else {
     lines.push("Standard scheduling until there's enough of your review history to fit it to you.");
+  }
+  if (status.ownDecks > 0) {
+    lines.push(
+      status.ownDecks === 1
+        ? "1 deck has a fit of its own."
+        : `${status.ownDecks.toLocaleString("en-GB")} decks have a fit of their own.`,
+    );
   }
   const said =
     lastAttempt === null ||
@@ -121,6 +157,28 @@ export function tuningStatusLines(status: TuningStatus, now = new Date()): strin
     );
   }
   return lines;
+}
+
+/**
+ * How Deck settings says the Deck is scheduled (ADR-0033): fitted to it on a
+ * date from so many Reviews; following the overall scheduling until it has
+ * the Reviews it needs; following it because the last check found it fits
+ * the Deck best; or, with the Reviews it needs, following it until a check.
+ */
+export function deckSchedulingLine(status: DeckTuningStatus, now = new Date()): string {
+  const { tuned, reviewCount, threshold, lastAttempt } = status;
+  if (status.parameters === "own") {
+    return tuned === null
+      ? "Fitted to how you remember this deck."
+      : `Fitted to how you remember this deck on ${dateLabel(tuned.at, now)}, from ${reviews(tuned.reviews)}.`;
+  }
+  if (reviewCount < threshold) {
+    return `Follows your overall scheduling until this deck has ${reviews(threshold)} (${reviewCount.toLocaleString("en-GB")} so far).`;
+  }
+  if (lastAttempt?.outcome === "kept") {
+    return "Follows your overall scheduling, which fits this deck best.";
+  }
+  return `Follows your overall scheduling for now. With ${reviews(reviewCount)}, the next check sees whether a fit of its own would suit it better.`;
 }
 
 /** What Tune now says once it has run. */
