@@ -54,6 +54,14 @@ export const SEED_IDS = {
      * Cards' IDs are `fullDeckCardId(1)` to `fullDeckCardId(1000)`.
      */
     full: "5eed0000-0000-4000-8000-000000000006",
+    /**
+     * World capitals, at the Root: about 120 days of generated Reviews up to
+     * the seed time, some graded by two Models, so the Statistics pages show
+     * a history (BAN-53). Its Cards are `capitalCardId(1)` to
+     * `capitalCardId(CAPITAL_CARDS)`; the last but one is Removed and the
+     * last deleted, their Reviews kept.
+     */
+    capitals: "5eed0000-0000-4000-8000-000000000007",
   },
   /**
    * Each seeded Deck's Cards, oldest first; Calculus 10 has none. Calculus 2's
@@ -134,6 +142,8 @@ export const SEED_IDS = {
     german: "5eed0000-0000-4000-8000-0000000de007",
     termin: "5eed0000-0000-4000-8000-0000000de008",
     calculus1: "5eed0000-0000-4000-8000-0000000de009",
+    /** World capitals' deleted Card. */
+    capital: "5eed0000-0000-4000-8000-0000000de00b",
     /** The undone Import's Undo. */
     verbos: "5eed0000-0000-4000-8000-0000000de00a",
   },
@@ -142,6 +152,13 @@ export const SEED_IDS = {
 /** The full seed Deck's `n`th Card's ID, from 1 (the oldest) to 1,000. */
 export const fullDeckCardId = (n: number) =>
   `5eed0000-0000-4000-8000-0000000f${n.toString(16).padStart(4, "0")}`;
+
+/** How many Cards World capitals was given, its Removed and deleted ones among them. */
+export const CAPITAL_CARDS = 30;
+
+/** World capitals' `n`th Card's ID, from 1 (the oldest) to `CAPITAL_CARDS`. */
+export const capitalCardId = (n: number) =>
+  `5eed0000-0000-4000-8000-0000000c07${n.toString(16).padStart(2, "0")}`;
 
 /**
  * The seed User's Timezone. The `ui` script pins its browser to the same zone,

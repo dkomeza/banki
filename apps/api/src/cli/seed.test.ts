@@ -23,8 +23,11 @@ import {
   DeckTuningStatus,
   TUNING_REVIEW_INTERVAL,
   TuningStatus,
+  Statistics,
+  studyDaysBetween,
 } from "@banki/shared";
-import { SEED_IDS, fullDeckCardId } from "../seed/seed-ids";
+import { HISTORY_MODELS } from "../seed/history";
+import { CAPITAL_CARDS, SEED_IDS, capitalCardId, fullDeckCardId } from "../seed/seed-ids";
 import { EMAIL, ORIGIN, PASSWORD, bootApps, cookiesFrom, get, signIn } from "../testing/app";
 import { runCli } from "../testing/cli";
 
@@ -160,6 +163,7 @@ describe("banki seed's Macros", () => {
       [SEED_IDS.decks.chemistry]: null,
       [SEED_IDS.decks.calculus10]: null,
       [SEED_IDS.decks.full]: null,
+      [SEED_IDS.decks.capitals]: null,
     });
     const settings = await get(app, "/api/settings", cookie);
     expect(SettingsResponse.parse(await settings.json()).answerMode).toBe("self-rate");
@@ -198,7 +202,7 @@ describe("banki seed's Macros", () => {
 });
 
 describe("banki seed's Decks", () => {
-  test("loads the six Decks, with their fixed IDs, created at different times", async () => {
+  test("loads the seven Decks, with their fixed IDs, created at different times", async () => {
     await setup();
     await seed();
 
@@ -210,7 +214,7 @@ describe("banki seed's Decks", () => {
       Object.values(SEED_IDS.decks).toSorted(),
     );
     expect(decks.find((deck) => deck.id === SEED_IDS.deck)?.name).toBe("Spanish vocabulary");
-    expect(new Set(decks.map((deck) => deck.createdAt)).size).toBe(6);
+    expect(new Set(decks.map((deck) => deck.createdAt)).size).toBe(7);
     expect(decks.map((deck) => deck.name)).toEqual(
       expect.arrayContaining(["Calculus 2", "Calculus 10"]),
     );
@@ -288,6 +292,7 @@ describe("banki seed's Folders", () => {
       [D.calculus2]: F.analysis,
       [D.calculus10]: F.analysis,
       [D.chemistry]: null,
+      [D.capitals]: null,
     });
   });
 
@@ -571,7 +576,7 @@ describe("banki seed's Reviews", () => {
     expect(next?.schedule.lapses).toBe(1);
   });
 
-  test("hold graded Reviews that kept the suggestion and ones that changed it, all with the default Model", async () => {
+  test("hold graded Reviews that kept the suggestion and ones that changed it, all with the default Model, outside World capitals", async () => {
     await setup();
     await seed();
 
@@ -584,11 +589,11 @@ describe("banki seed's Reviews", () => {
           suggested_rating: string;
           model: string;
         },
-        []
+        [string]
       >(
-        "SELECT card_id, rating, suggested_rating, model FROM review WHERE kind = 'graded' ORDER BY seq",
+        "SELECT card_id, rating, suggested_rating, model FROM review WHERE kind = 'graded' AND deck_id <> ? ORDER BY seq",
       )
-      .all();
+      .all(SEED_IDS.decks.capitals);
     sqlite.close();
 
     expect(graded).toEqual([
@@ -679,6 +684,61 @@ describe("banki seed's Reviews", () => {
   });
 });
 
+describe("banki seed's World capitals", () => {
+  test("holds about 120 days of Reviews up to the seed time, graded by two Models, of a deleted and a Removed Card too", async () => {
+    await setup();
+    await seed();
+
+    const { app } = boot();
+    const cookie = cookiesFrom(await signIn(app));
+    const deckId = SEED_IDS.decks.capitals;
+    const deck = DeckResponse.parse(await (await get(app, `/api/decks/${deckId}`, cookie)).json());
+    expect(deck).toMatchObject({ name: "World capitals", folderId: null, desiredRetention: null });
+    const cards = CardListResponse.parse(
+      await (await get(app, `/api/decks/${deckId}/cards`, cookie)).json(),
+    );
+    expect(cards).toHaveLength(CAPITAL_CARDS - 2);
+
+    const stats = Statistics.parse(
+      await (await get(app, `/api/decks/${deckId}/statistics?range=all`, cookie)).json(),
+    );
+    expect(studyDaysBetween(stats.from, stats.to)).toBeGreaterThanOrEqual(115);
+    expect(studyDaysBetween(stats.from, stats.to)).toBeLessThanOrEqual(121);
+    expect(stats.calendar.at(-1)?.day).toBe(stats.to);
+    expect(stats.minutes.bucket).toBe("week");
+    expect(stats.actualRetention.total).toBeGreaterThan(50);
+    expect(stats.cards.learned).toBeGreaterThan(0);
+
+    const [mostlyKept, oftenChanged] = HISTORY_MODELS.map((model) => {
+      const split = stats.graderAgreement.models.find((m) => m.model === model);
+      if (split === undefined) throw new Error(`No graded Reviews by ${model}`);
+      return split.kept / (split.kept + split.higher + split.lower);
+    });
+    expect(stats.graderAgreement.models).toHaveLength(2);
+    expect(mostlyKept).toBeGreaterThan(0.8);
+    expect(oftenChanged).toBeLessThan(0.6);
+
+    // The Removed Card is gone, its Reviews kept; the deleted one is in Recently deleted.
+    const removed = capitalCardId(CAPITAL_CARDS - 1);
+    expect((await get(app, `/api/cards/${removed}`, cookie)).status).toBe(404);
+    const sqlite = new SQLite(join(dataDir(), "banki.db"), { readonly: true });
+    const count = (query: string) =>
+      sqlite.query<{ n: number }, [string]>(query).get(removed)?.n ?? -1;
+    const removedReviews = count("SELECT count(*) AS n FROM review WHERE card_id = ?");
+    const removedRows = count("SELECT count(*) AS n FROM card WHERE id = ?");
+    sqlite.close();
+    expect(removedReviews).toBeGreaterThan(0);
+    expect(removedRows).toBe(0);
+    const deletions = DeletionListResponse.parse(
+      await (await get(app, "/api/deletions", cookie)).json(),
+    );
+    expect(deletions.find((d) => d.id === SEED_IDS.deletions.capital)).toMatchObject({
+      top: { kind: "card" },
+      deck: { id: deckId },
+    });
+  });
+});
+
 describe("banki seed's Deletions", () => {
   test("loads one Deletion of each case Recently deleted shows, newest first", async () => {
     await setup();
@@ -699,6 +759,7 @@ describe("banki seed's Deletions", () => {
       D.spanish,
       D.oldSemester,
       D.linearAlgebra,
+      D.capital,
       D.german,
       D.termin,
       D.calculus1,
