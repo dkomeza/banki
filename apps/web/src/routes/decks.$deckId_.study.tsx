@@ -5,11 +5,14 @@ import { DeckNotFound } from "@/components/not-found";
 import { Page } from "@/components/page";
 import { StudyScreen } from "@/components/study/study-screen";
 import { deckQueryOptions } from "@/lib/decks";
+import { handwritingSearch } from "@/lib/handwriting";
 import { settingsQueryOptions } from "@/lib/settings";
 
 // The study screen: full-screen, outside the shell, with nothing but the Card.
+// `?handwriting=1` shows the handwriting layout, with no control leading to it.
 
 export const Route = createFileRoute("/decks/$deckId_/study")({
+  validateSearch: handwritingSearch,
   loader: ({ context: { queryClient }, params: { deckId } }) =>
     Promise.all([
       queryClient.ensureQueryData(deckQueryOptions(deckId)),
@@ -22,6 +25,7 @@ export const Route = createFileRoute("/decks/$deckId_/study")({
 
 function StudyPage() {
   const { deckId } = Route.useParams();
+  const { handwriting } = Route.useSearch();
   const { data: deck } = useSuspenseQuery(deckQueryOptions(deckId));
   if (deck === null)
     return (
@@ -31,7 +35,7 @@ function StudyPage() {
     );
   return (
     <DeckMacros own={deck.macros}>
-      <StudyScreen key={deck.id} deck={deck} />
+      <StudyScreen key={deck.id} deck={deck} handwriting={handwriting === 1} />
     </DeckMacros>
   );
 }

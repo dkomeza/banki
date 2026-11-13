@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { AnswerEditor, DontKnowDock, WriteDock, WriteToggle } from "@/components/study/answer";
 import { GRADED_WIDTH, GradedCard, GradedRatings } from "@/components/study/grade";
+import { HandwritingShell } from "@/components/study/handwriting";
 import { morph } from "@/components/study/morph";
 import {
   EditButton,
@@ -58,7 +59,9 @@ import { cn } from "@/lib/utils";
 // write-and-grade the answer editor sits under the Front, and the dock holds
 // I don't know and Check (answer.tsx); after Check, the Grader's result shows
 // with the Back, and the ratings wait for a confirm until its suggestion is in
-// (grade.tsx).
+// (grade.tsx). With `?handwriting=1`, a Card in write-and-grade before the
+// reveal shows the handwriting layout instead (handwriting.tsx), for now a
+// shell where nothing draws and Check waits.
 
 /** How often a visible screen checks the Session timeout. */
 const TIMEOUT_CHECK_MS = 15_000;
@@ -126,9 +129,18 @@ function useStudySession(deck: Deck): [StudySession, StudyState] {
   return [session, useSyncExternalStore(session.subscribe, session.getState)];
 }
 
-export function StudyScreen({ deck }: { deck: Deck }) {
+export function StudyScreen({ deck, handwriting = false }: { deck: Deck; handwriting?: boolean }) {
   const navigate = useNavigate();
   const [session, state] = useStudySession(deck);
+  // Asked for by `?handwriting=1`, and only for a Card in write-and-grade before the reveal.
+  const hand =
+    handwriting &&
+    state.phase === "card" &&
+    state.shown !== undefined &&
+    state.mode === "write" &&
+    !state.revealed;
+  // The scale the User last gave a Front in it, which the next Card's starts at.
+  const [frontScale, setFrontScale] = useState<number | null>(null);
   const queryClient = useQueryClient();
   const editor = useRef<StudyEditorHandle>(null);
   // The editor's Duplicate warning and Tag suggestions read these: fetched
@@ -259,7 +271,13 @@ export function StudyScreen({ deck }: { deck: Deck }) {
   }, [session, navigate, deck.id, openEditor]);
 
   return (
-    <div className="flex min-h-svh flex-col pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] [--toast-bottom:calc(7.5rem+env(safe-area-inset-bottom))]">
+    <div
+      className={cn(
+        "flex flex-col pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] [--toast-bottom:calc(7.5rem+env(safe-area-inset-bottom))]",
+        // Handwriting fills the window, and the page never scrolls under it.
+        hand ? "h-svh overflow-hidden" : "min-h-svh",
+      )}
+    >
       <TopBar
         deck={deck}
         session={session}
@@ -268,8 +286,15 @@ export function StudyScreen({ deck }: { deck: Deck }) {
         onEdit={openEditor}
         onLeave={() => leaveOrCancelEdit(session, editor.current)}
       />
-      <main className="flex flex-1 flex-col">
-        {state.phase === "card" ? (
+      <main className={cn("flex flex-1 flex-col", hand && "min-h-0")}>
+        {hand && state.shown !== undefined ? (
+          <HandwritingShell
+            key={state.shown.card.id}
+            front={state.shown.card.front}
+            kept={frontScale}
+            onKeep={setFrontScale}
+          />
+        ) : state.phase === "card" ? (
           <CardView session={session} state={state} />
         ) : state.phase === "loading" ? null : (state.phase === "done" ||
             state.phase === "left" ||
@@ -296,7 +321,9 @@ export function StudyScreen({ deck }: { deck: Deck }) {
           />
         )}
       </main>
-      {state.phase === "card" && session !== undefined && <Dock session={session} state={state} />}
+      {state.phase === "card" && session !== undefined && (
+        <Dock session={session} state={state} handwriting={hand} />
+      )}
       {state.editing && state.shown !== undefined && (
         <StudyEditor
           ref={editor}
@@ -463,7 +490,16 @@ function CardView({ session, state }: { session: StudySession; state: StudyState
   );
 }
 
-export function Dock({ session, state }: { session: StudySession; state: StudyState }) {
+export function Dock({
+  session,
+  state,
+  handwriting = false,
+}: {
+  session: StudySession;
+  state: StudyState;
+  /** The handwriting layout shows: Check waits, with no ink to send yet. */
+  handwriting?: boolean;
+}) {
   const intervals = state.shown?.intervals;
   return (
     <div
@@ -503,7 +539,7 @@ export function Dock({ session, state }: { session: StudySession; state: StudySt
         {state.dontKnow ? (
           <DontKnowDock session={session} state={state} />
         ) : !state.revealed && state.mode === "write" ? (
-          <WriteDock session={session} state={state} />
+          <WriteDock session={session} state={state} handwriting={handwriting} />
         ) : state.revealed && state.grade !== undefined ? (
           <GradedRatings session={session} state={state} grade={state.grade} />
         ) : state.revealed ? (
