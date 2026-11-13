@@ -231,8 +231,8 @@ export async function supervise(
 
 /**
  * Why the issue, as Linear has it now, can't take this Stage, or undefined
- * when it can: it is assigned, or it isn't in the status the Stage starts
- * from (the one its kind runs in, or In Progress for a paused one resuming).
+ * when it can: it is assigned, or it isn't in a status the Stage starts
+ * from (one its kind runs in, or In Progress for a paused one resuming).
  */
 function unfitToStart(
   kind: StageKind,
@@ -240,8 +240,9 @@ function unfitToStart(
   resume: boolean,
 ): string | undefined {
   if (found.assigneeId !== null) return "the issue is assigned now";
-  const from = resume ? STATUS.inProgress : RUNS_IN[kind];
-  if (found.status !== from) return `the issue is ${found.status} now, not ${from}`;
+  const from = resume ? [STATUS.inProgress] : RUNS_IN[kind];
+  if (!from.includes(found.status))
+    return `the issue is ${found.status} now, not ${from.join(" or ")}`;
   return undefined;
 }
 

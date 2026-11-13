@@ -178,6 +178,18 @@ describe("a supervised Stage", () => {
     expect(ended?.runs[0]?.after).toBeDefined();
   });
 
+  test("ends a Rebase Stage where it started from, whatever its result names", async () => {
+    const issue = fakeIssue("BAN-1", { status: "Acceptance" });
+    const { deps, linear, log } = setup(issue, () => ({
+      result: { ...done, stage: "rebase", nextStatus: "In Review" },
+    }));
+
+    expect(await supervise("rebase", "BAN-1", { log, resume: false }, deps)).toBe(0);
+
+    expect(linear.calls).toEqual(["BAN-1 → In Progress", "BAN-1 comment", "BAN-1 → Acceptance"]);
+    expect(resultIn(issue.comments[0]?.body ?? "")).toMatchObject({ nextStatus: "Acceptance" });
+  });
+
   // Linear assigns a linked PR's author, the Runner app, to its issue.
   test("unassigns the Runner app before it starts, and after the Stage opened its PR", async () => {
     const issue = fakeIssue("BAN-1", { assigneeId: RUNNER_ID });

@@ -19,6 +19,7 @@ import {
   type DesignFacts,
   type DesignTries,
   type IssueFacts,
+  RUNS_IN,
   STATUS,
   type Stop,
 } from "./select";
@@ -84,6 +85,16 @@ export async function openSession(deps: SessionDeps) {
           );
       }
       return crashStop({ kind: record.kind, issue: record.issue, status, why });
+    }
+
+    /**
+     * Where a done or stopped Stage leaves the issue: its result's status, or
+     * for a kind that runs in more than one, the one it went In Progress from.
+     */
+    async function nextStatusOf(issue: LinearIssue, result: StageResult): Promise<string> {
+      if (RUNS_IN[result.stage].length === 1 || issue.status !== STATUS.inProgress)
+        return result.nextStatus;
+      return statusBefore((await linear.history(issue.id)).statuses) ?? result.nextStatus;
     }
 
     /** The closing comment the record's last run posted already, if it did. */
@@ -234,17 +245,18 @@ export async function openSession(deps: SessionDeps) {
         if (posted !== undefined) {
           result = posted.result;
         } else if (unposted.type === "closing") {
-          // The branch's real tip, and whether it moved, over what the Stage wrote.
+          // The branch's real tip, whether it moved, and where the issue goes, over what the Stage wrote.
           const headAfter = await tipOf(found, say);
           const pushed =
             record.headBefore !== undefined && headAfter !== undefined
               ? record.headBefore !== headAfter
               : unposted.result.pushed;
           const headSha = headAfter ?? unposted.result.headSha;
-          result = { ...unposted.result, headSha, pushed };
+          const nextStatus = await nextStatusOf(found, unposted.result);
+          result = { ...unposted.result, headSha, pushed, nextStatus };
           await linear.comment(
             found.id,
-            closingComment(result, { ...unposted.json, headSha, pushed }),
+            closingComment(result, { ...unposted.json, headSha, pushed, nextStatus }),
           );
         } else {
           result = await crashStopOf(found, record, unposted.why);

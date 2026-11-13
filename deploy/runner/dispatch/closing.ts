@@ -44,6 +44,7 @@ export const TITLES: Record<StageKind, string> = {
   design: "Design",
   implement: "Implement",
   "acceptance-fix": "Acceptance fix",
+  rebase: "Rebase",
 };
 
 /**

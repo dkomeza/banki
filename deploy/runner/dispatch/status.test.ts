@@ -71,7 +71,7 @@ const VIEW: StatusView = {
   ],
   held: [{ issue: "BAN-17", status: "Todo", what: "it is assigned to @dkomeza" }],
   gate: { reading: READING, at: READING.at },
-  estimates: { design: 0.05, implement: 0.08, "acceptance-fix": 0.05 },
+  estimates: { design: 0.05, implement: 0.08, "acceptance-fix": 0.05, rebase: 0.02 },
   recent: [
     {
       record: {
@@ -123,7 +123,7 @@ describe("runner status's text", () => {
         "",
         "Gate:",
         "  at 2026-10-24T01:55:00.000Z: the week 40% (starts over 2026-10-27T00:00:00.000Z), the five hours 12% (starts over 2026-10-24T05:00:00.000Z)",
-        "  estimates: design 5%, implement 8%, acceptance-fix 5%",
+        "  estimates: design 5%, implement 8%, acceptance-fix 5%, rebase 2%",
         "",
         "Recent Stages:",
         "  2026-10-23T03:00:00.000Z BAN-10 implement: done, 7.1%",

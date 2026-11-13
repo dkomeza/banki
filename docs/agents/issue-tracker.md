@@ -36,8 +36,8 @@ An issue's status says which Stage comes next, and whose move it is:
 | In Design     | Agent            | The design Stage builds the Variants, each with a Slug Preview. Once they're up, the hand-off moves the issue to Design Review.                       |
 | Design Review | Maintainer       | They try the Variants. Forward to Todo with the verdict in a comment, or back to In Design with a comment for another round.                          |
 | Todo          | Agent            | The implement Stage: the Reference, then the implementation, the reviews and the PR. It ends in In Review.                                            |
-| In Review     | Agent            | Acceptance fixes. Once the PR Preview is up, the hand-off moves the issue to Acceptance.                                                              |
-| Acceptance    | Maintainer       | They try the PR Preview. Approve and merge (→ Done), or back to In Review with a comment.                                                             |
+| In Review     | Agent            | Acceptance fixes, and the Rebase Stage when the PR conflicts with `main`. Once the PR Preview is up, the hand-off moves the issue to Acceptance.      |
+| Acceptance    | Maintainer       | They try the PR Preview. Approve and merge (→ Done), or back to In Review with a comment. A PR that conflicts with `main` gets the Rebase Stage here. |
 | In Progress   | Agent            | A Stage is running on the Runner. The status before it comes back when the Stage ends.                                                                |
 | Done          | none             | Set by Linear when the PR merges.                                                                                                                     |
 
