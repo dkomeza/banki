@@ -27,6 +27,7 @@ const preview = (cards: ReturnType<typeof card>[]): ImportPreviewResponse => ({
   macros: [],
   images: [],
   stagedImages: [],
+  room: 1000,
 });
 
 const deckCard = (front: string): Card => ({

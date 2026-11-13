@@ -6,13 +6,14 @@ import {
   MoveCardsResponse,
   CardListResponse,
   CardResponse,
+  DeckFullError,
   DeckListResponse,
   DeckResponse,
   FolderResponse,
 } from "@banki/shared";
-import { type App, bootApps, codeOf, get, send, setUp } from "../testing/app";
+import { type App, bootApps, codeOf, fillDeck, get, send, setUp } from "../testing/app";
 
-const { boot } = bootApps();
+const { boot, dataDir } = bootApps();
 
 /** A fresh app that Setup is done on, the signed-in cookie, and one Deck. */
 async function signedIn() {
@@ -116,6 +117,49 @@ describe("POST /api/decks/:deckId/cards", () => {
     const res = await send(app, "POST", `/api/decks/${deckId}/cards`, { front: "f", back: "b" });
 
     expect(res.status).toBe(401);
+  });
+});
+
+describe("the Card limit (ADR-0034)", () => {
+  test("a create into a Deck holding 1,000 live Cards answers 409 deck_full, naming it, and adds nothing", async () => {
+    const { app, cookie, deckId } = await signedIn();
+    fillDeck(dataDir(), deckId, 1000);
+
+    const res = await send(
+      app,
+      "POST",
+      `/api/decks/${deckId}/cards`,
+      { front: "f", back: "b" },
+      cookie,
+    );
+
+    expect(res.status).toBe(409);
+    expect(DeckFullError.parse(await res.json())).toEqual({
+      error: {
+        code: "deck_full",
+        message: "Spanish holds 1,000 cards. Move or delete some to add more.",
+      },
+      deck: { id: deckId, name: "Spanish" },
+      room: 0,
+    });
+    expect(await frontsIn(app, cookie, deckId)).toHaveLength(1000);
+  });
+
+  test("a Move over the room answers 409 deck_full and moves nothing", async () => {
+    const { app, cookie, deckId } = await signedIn();
+    const verbs = await createDeck(app, cookie, "Verbs");
+    const one = await createCard(app, cookie, deckId, "one");
+    const two = await createCard(app, cookie, deckId, "two");
+    fillDeck(dataDir(), verbs.id, 999);
+
+    const res = await move(app, cookie, { cardIds: [one.id, two.id], deckId: verbs.id });
+
+    expect(res.status).toBe(409);
+    expect(DeckFullError.parse(await res.json())).toMatchObject({
+      deck: { id: verbs.id, name: "Verbs" },
+      room: 1,
+    });
+    expect((await frontsIn(app, cookie, deckId)).toSorted()).toEqual(["one", "two"]);
   });
 });
 

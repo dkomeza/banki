@@ -11,6 +11,7 @@ import {
   type NumberedCard,
   type SkippedDuplicate,
   type UndoImportResponse,
+  deckRoom,
   frontKey,
   imageFormatOf,
   imageReferencesIn,
@@ -29,7 +30,7 @@ import {
   planMacros,
   readUpload,
 } from "../imports/read";
-import { isLiveDeck, writeTags } from "./cards";
+import { type DeckFull, deckFullFor, isLiveDeck, writeTags } from "./cards";
 import { createImageRepository } from "./images";
 
 export type ImportRepository = ReturnType<typeof createImportRepository>;
@@ -40,8 +41,8 @@ export const UNCONFIRMED_KEPT_MS = 24 * 60 * 60 * 1000;
 /** A Card to confirm: one of the preview's, by its number, edited or not. */
 export type ConfirmedCard = NumberedCard;
 
-/** Why a confirm was refused. */
-export type ConfirmRefusal = "not_found" | "confirmed" | "deck_gone" | "unknown_card";
+/** Why a confirm was refused: `deckFull` when the Cards it would add outnumber the Deck's room. */
+export type ConfirmRefusal = "not_found" | "confirmed" | "deck_gone" | "unknown_card" | DeckFull;
 
 /** Why an Undo was refused: no such confirmed Import, or no live Card stamped with it. */
 export type UndoRefusal = "not_found" | "nothing_to_undo";
@@ -137,8 +138,8 @@ export function createImportRepository(db: Queryable, importsDir: string, upload
 
   /**
    * The User's Import `id`: its preview while unconfirmed, with each Card's
-   * Duplicate, the Macro plan and the image problems as they stand against
-   * its Deck now, or its report once confirmed, with how many of its Cards
+   * Duplicate, the Macro plan, the image problems and the room as they stand
+   * against its Deck now, or its report once confirmed, with how many of its Cards
    * are live now and whether it is undone. Undefined for no such Import.
    */
   const find = (userId: string, id: string): ImportResponse | undefined =>
@@ -167,7 +168,8 @@ export function createImportRepository(db: Queryable, importsDir: string, upload
       }
       const { preview } = row;
       if (preview === null) return undefined;
-      const duplicates = duplicatesOf(preview.cards, liveFronts(tx, userId, row.deckId));
+      const deckCards = liveFronts(tx, userId, row.deckId);
+      const duplicates = duplicatesOf(preview.cards, deckCards);
       const images = new Map(Object.entries(preview.images));
       return {
         ...base,
@@ -180,6 +182,7 @@ export function createImportRepository(db: Queryable, importsDir: string, upload
         stagedImages: Object.keys(preview.images).filter(
           (file) => preview.images[file] === "staged",
         ),
+        room: deckRoom(deckCards.length),
       };
     });
 
@@ -261,8 +264,10 @@ export function createImportRepository(db: Queryable, importsDir: string, upload
      * Confirms the User's Import `id` with the ticked Cards `ticked`, each one
      * of the preview's by its number (edited or not), in one transaction:
      * refused, adding nothing, for no such Import ("not_found"), one already
-     * confirmed ("confirmed"), a Deck no longer live ("deck_gone"), or a
-     * number the preview has no Card for ("unknown_card"). A Card that is a
+     * confirmed ("confirmed"), a Deck no longer live ("deck_gone"), a
+     * number the preview has no Card for ("unknown_card"), or Cards to add,
+     * Duplicates skipped, that outnumber the Deck's room now (`deckFull`,
+     * ADR-0034). A Card that is a
      * Duplicate of the Deck's live Cards now, or of an earlier ticked Card, is
      * skipped and reported. The rest are added in file order, the first the
      * oldest, each stamped with the Import; each zip image they refer to
@@ -317,6 +322,9 @@ export function createImportRepository(db: Queryable, importsDir: string, upload
               if (key !== "") taken.add(key);
             }
           }
+
+          const full = deckFullFor(tx, userId, row.deckId, added.length);
+          if (full !== undefined) return full;
 
           // The zip's images the added Cards refer to, each a new Image.
           const images = createImageRepository(tx, uploadsDir);

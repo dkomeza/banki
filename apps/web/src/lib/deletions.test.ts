@@ -279,6 +279,31 @@ describe("restoreDeletion", () => {
     });
   });
 
+  test("names the Deck to make room in on 409 deck_full", async () => {
+    const { client } = answering(() =>
+      Response.json(
+        {
+          error: {
+            code: "deck_full",
+            message: "Spanish holds 1,000 cards. Move or delete some to add more.",
+          },
+          deck: { id: "d2", name: "Spanish" },
+          room: 0,
+        },
+        { status: 409 },
+      ),
+    );
+
+    expect(await restoreDeletion(new QueryClient(), "x1", client)).toEqual({
+      ok: false,
+      deckFull: { id: "d2", name: "Spanish", room: 0 },
+    });
+    expect(await restoreDeletions(new QueryClient(), ["x1", "x2"], client)).toEqual({
+      ok: false,
+      deckFull: { id: "d2", name: "Spanish", room: 0 },
+    });
+  });
+
   test("says so when it's gone, or Banki can't be reached", async () => {
     const { client } = answering(() =>
       Response.json({ error: { code: "not_found", message: "…" } }, { status: 404 }),

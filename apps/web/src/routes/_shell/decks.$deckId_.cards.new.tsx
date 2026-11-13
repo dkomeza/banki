@@ -1,6 +1,7 @@
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { Check } from "lucide-react";
+import { deckRoom } from "@banki/shared";
+import { Check, Info } from "lucide-react";
 import { useRef, useState } from "react";
 import { DeckMacros } from "@/components/cards/deck-macros";
 import { FormError } from "@/components/auth-card";
@@ -15,7 +16,7 @@ import { OUTLINE_PILL, PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
 import { longDateLabel, timeLabel } from "@/lib/card-days";
 import { type Card, cardsQueryOptions, createCard } from "@/lib/cards";
-import { type Deck, deckQueryOptions } from "@/lib/decks";
+import { type Deck, deckFullNote, deckQueryOptions } from "@/lib/decks";
 import { ensureLibrary } from "@/lib/folders";
 import { rememberedDeckSearch, tagsChanged, tagsQueryOptions } from "@/lib/tags";
 import { cn } from "@/lib/utils";
@@ -24,7 +25,8 @@ import { cn } from "@/lib/utils";
 // creates the Card and stays, the sides cleared and the Front focused for the
 // next one, with "Card added", and the Tags kept for it; the Cards written this visit gather under the
 // form. Done goes back to the Deck. An unknown or deleted Deck shows "Deck
-// not found".
+// not found". A Deck with no room (ADR-0034) says so under the title, from
+// the start or once a Save is refused, and Save is off until it has room.
 
 export const Route = createFileRoute("/_shell/decks/$deckId_/cards/new")({
   loader: ({ context: { queryClient }, params: { deckId } }) => {
@@ -69,9 +71,12 @@ function NewCard({ deck }: { deck: Deck }) {
   const [formError, setFormError] = useState<string>();
   const saving = useRef(false);
   const [busy, setBusy] = useState(false);
+  // A Save refused for room, until the Deck's count has been fetched again.
+  const [refusedFull, setRefusedFull] = useState(false);
+  const full = refusedFull || deckRoom(deck.cardCount) === 0;
 
   const save = async () => {
-    if (saving.current) return;
+    if (saving.current || full) return;
     const nextTags = tags.commit();
     if (nextTags === false) return;
     saving.current = true;
@@ -91,7 +96,13 @@ function NewCard({ deck }: { deck: Deck }) {
     setAdded(false);
     if ("errors" in outcome) form.setErrors(outcome.errors);
     else if ("notFound" in outcome) setFormError("This deck was deleted meanwhile.");
-    else setFormError(outcome.message);
+    else if ("deckFull" in outcome) {
+      setRefusedFull(true);
+      // Then the count says it: the note stays only while the Deck is full.
+      void queryClient
+        .invalidateQueries({ queryKey: deckQueryOptions(deck.id).queryKey })
+        .then(() => setRefusedFull(false));
+    } else setFormError(outcome.message);
   };
 
   return (
@@ -104,12 +115,27 @@ function NewCard({ deck }: { deck: Deck }) {
         tags={tags}
         onSave={() => void save()}
         saving={busy}
-        autoFocus
+        autoFocus={!full}
+        notice={
+          <div aria-live="polite">
+            {full && (
+              <p
+                role="status"
+                className="flex gap-2.5 rounded-xl bg-muted p-3 text-[0.95rem] font-medium [overflow-wrap:anywhere]"
+              >
+                <Info aria-hidden className="mt-1 size-4 shrink-0 text-primary" />
+                <span className="min-w-0">{deckFullNote(deck.name)}</span>
+              </p>
+            )}
+          </div>
+        }
         foot={
           <>
             <div className="min-w-0 flex-1" aria-live="polite">
               {formError !== undefined ? (
                 <FormError>{formError}</FormError>
+              ) : full ? (
+                <p className="text-sm text-muted-foreground">Save is off while the deck is full.</p>
               ) : added ? (
                 <p role="status" className="flex items-center gap-2 text-[0.95rem] font-medium">
                   <Check aria-hidden className="size-4 text-primary" />
@@ -131,7 +157,11 @@ function NewCard({ deck }: { deck: Deck }) {
               >
                 Done
               </Link>
-              <Button type="submit" className={cn(PILL, "h-11 lg:h-10")} disabled={form.uploading}>
+              <Button
+                type="submit"
+                className={cn(PILL, "h-11 lg:h-10")}
+                disabled={form.uploading || full}
+              >
                 Save card
               </Button>
             </div>

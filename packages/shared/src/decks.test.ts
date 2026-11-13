@@ -1,12 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import {
   CreateDeckRequest,
+  DECK_CARDS_MAX,
   DEFAULT_ANSWER_MODE,
   UpdateDeckRequest,
   deckAnswerMode,
   deckNameKey,
+  deckRoom,
   nextFreeName,
 } from "./decks";
+import { IMPORT_CARDS_MAX } from "./imports";
 
 describe("CreateDeckRequest", () => {
   test("trims the name and the description, keeping the description's line breaks", () => {
@@ -154,5 +157,16 @@ describe("nextFreeName", () => {
   test("drops the spaces a cut leaves at the end, and never splits a character", () => {
     expect(nextFreeName(`${"a".repeat(95)} bcd`, () => false)).toBe(`${"a".repeat(95)} (2)`);
     expect(nextFreeName(`${"a".repeat(95)}😀😀`, () => false)).toBe(`${"a".repeat(95)} (2)`);
+  });
+});
+
+describe("deckRoom", () => {
+  test("is what's left of 1,000 live Cards, never below 0", () => {
+    expect(DECK_CARDS_MAX).toBe(1_000);
+    expect(IMPORT_CARDS_MAX).toBe(DECK_CARDS_MAX);
+    expect(deckRoom(0)).toBe(1_000);
+    expect(deckRoom(999)).toBe(1);
+    expect(deckRoom(1_000)).toBe(0);
+    expect(deckRoom(1_234)).toBe(0);
   });
 });

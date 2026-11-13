@@ -44,7 +44,7 @@ function rateOverDays(userId?: string) {
     });
     if (typeof deck === "string") throw new Error(deck);
     const card = createCardRepository(opened.db).create(owner, deck.id, { front: "f", back: "b" });
-    if (typeof card === "string") throw new Error(card);
+    if (typeof card === "string" || "deckFull" in card) throw new Error(JSON.stringify(card));
     const reviews = createReviewRepository(opened.db);
     for (const days of [0, 0.01, 3, 10]) {
       const now = new Date(Date.parse("2026-05-01T10:00:00Z") + days * DAY);

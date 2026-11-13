@@ -117,6 +117,30 @@ describe("confirmImport", () => {
     });
   });
 
+  test("on 409 deck_full, names the room and has the preview fetched again", async () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(importQueryOptions("i").queryKey, null);
+    const { client } = answering(() =>
+      json(
+        {
+          error: {
+            code: "deck_full",
+            message: "Spanish holds 1,000 cards. Move or delete some to add more.",
+          },
+          deck: { id: "d", name: "Spanish" },
+          room: 2,
+        },
+        409,
+      ),
+    );
+
+    expect(await confirmImport(queryClient, "i", "d", [], client)).toEqual({
+      ok: false,
+      deckFull: { id: "d", name: "Spanish", room: 2 },
+    });
+    expect(queryClient.getQueryState(importQueryOptions("i").queryKey)?.isInvalidated).toBe(true);
+  });
+
   test("answers the API's message when it is refused", async () => {
     const { client } = answering(() =>
       json({ error: { code: "deck_gone", message: "The deck was deleted" } }, 409),

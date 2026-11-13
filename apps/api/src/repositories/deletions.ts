@@ -9,6 +9,7 @@ import {
 import { and, eq, inArray, isNotNull, lte, ne, or, isNull, sql } from "drizzle-orm";
 import type { Queryable } from "../db/database";
 import { card, card_import, deck, folder } from "../db/schema";
+import { type DeckFull, deckFullFor } from "./cards";
 import { deckNamed } from "./decks";
 import { folderNamed } from "./folders";
 import { type Place, isLivePlace } from "./places";
@@ -17,8 +18,14 @@ export type Deletion = DeletionResponse;
 
 export type DeletionRepository = ReturnType<typeof createDeletionRepository>;
 
-/** Why a Restore was refused: no such Deletion, or a Card's or an Import's whose Deck is deleted. */
-export type RestoreRefusal = "not_found" | { placeDeleted: { id: string; name: string } };
+/**
+ * Why a Restore was refused: no such Deletion, a Card's or an Import's whose
+ * Deck is deleted, or one whose Deck has no room for its Cards (ADR-0034).
+ */
+export type RestoreRefusal =
+  | "not_found"
+  | { placeDeleted: { id: string; name: string } }
+  | DeckFull;
 
 /** A Deletion's top item: the row whose parent isn't in the same Deletion. */
 type Top = {
@@ -177,7 +184,10 @@ export function removeDeletion(db: Queryable, userId: string, id: string): boole
  * one whose name a live one of its kind beside it now has, as the next free
  * "Name (n)" (`renamed`). A Card's Deletion whose Deck is deleted is refused,
  * naming the Deck, and so is an Import's while any Deck its Cards are in now
- * is. An Import's Restore brings its Cards back where they are now and clears
+ * is. Then a Card's or an Import's whose Cards would take a Deck past
+ * `DECK_CARDS_MAX` live Cards is refused, naming the first such Deck by name,
+ * then ID (ADR-0034); a Deck's or a Folder's isn't checked, as its Cards come
+ * back with the Deck that held them. An Import's Restore brings its Cards back where they are now and clears
  * its Undo, so it can be undone again; like its Undo, it leaves the Cards'
  * `updatedAt` alone, so they don't count as edited.
  */
@@ -199,6 +209,8 @@ function restoreIn(
       .get();
     if (home === undefined) return "not_found";
     if (home.deletedAt !== null) return { placeDeleted: { id: home.id, name: home.name } };
+    const full = deckFullFor(tx, userId, home.id, 1);
+    if (full !== undefined) return full;
     tx.update(card)
       .set(back)
       .where(stampedWith(card, userId, id))
@@ -215,6 +227,18 @@ function restoreIn(
       .orderBy(deck.name, deck.id)
       .get();
     if (gone !== undefined) return { placeDeleted: gone };
+    const entering = tx
+      .select({ deckId: card.deckId, count: sql<number>`count(*)`.mapWith(Number) })
+      .from(card)
+      .innerJoin(deck, eq(deck.id, card.deckId))
+      .where(stampedWith(card, userId, id))
+      .groupBy(card.deckId)
+      .orderBy(deck.name, deck.id)
+      .all();
+    for (const { deckId, count } of entering) {
+      const full = deckFullFor(tx, userId, deckId, count);
+      if (full !== undefined) return full;
+    }
     tx.update(card)
       .set({ deletedAt: null, deletionId: null })
       .where(stampedWith(card, userId, id))
@@ -441,7 +465,11 @@ export function createDeletionRepository(db: Queryable) {
           (tx) =>
             [...new Set(ids)].map((id) => {
               const restored = restoreIn(tx, userId, id, now);
-              if (restored === "not_found" || "placeDeleted" in restored) {
+              if (
+                restored === "not_found" ||
+                "placeDeleted" in restored ||
+                "deckFull" in restored
+              ) {
                 throw new Refused(restored);
               }
               return restored;

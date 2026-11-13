@@ -34,7 +34,7 @@ import { Page } from "@/components/page";
 import { OUTLINE_PILL, PILL } from "@/components/settings/parts";
 import { Button } from "@/components/ui/button";
 import { cardsQueryOptions } from "@/lib/cards";
-import type { Deck } from "@/lib/decks";
+import type { Deck, DeckFull } from "@/lib/decks";
 import { ImageFilesContext, imageUrl } from "@/lib/images";
 import { deletionsQueryOptions } from "@/lib/deletions";
 import {
@@ -58,8 +58,9 @@ import { type Row, usePreview } from "./use-preview";
 // a Duplicate, which hangs dashed and faded. What the file brings besides
 // Cards (Macros, image problems) opens the page as "Before you import"; the
 // invalid Cards close the rail. Edit opens the card editor's fields in a
-// dialog. A paper dock floats at the foot with the count, Tick all and
-// Import. Confirmed, it is the report, for good: the Import's own timeline
+// dialog. A paper dock floats at the foot with the count and the Deck's room,
+// Tick all and Import, which stays off while more are ticked than fit
+// (ADR-0034), saying how many to untick. Confirmed, it is the report, for good: the Import's own timeline
 // of what happened, step by step.
 
 const H2 = "text-xs font-semibold tracking-[0.08em] text-muted-foreground uppercase";
@@ -98,6 +99,16 @@ function Head({
     </>
   );
 }
+
+/** "Room for 24 more cards", "Room for 1 more card". */
+export const roomLine = (room: number) =>
+  `Room for ${room.toLocaleString("en-GB")} more ${room === 1 ? "card" : "cards"}`;
+
+/** What a confirm refused for room says, the preview showing the room now. */
+const roomChangedNote = ({ name, room }: DeckFull) =>
+  room === 0
+    ? `${name} is full now, so nothing was imported.`
+    : `${name} has room for ${room.toLocaleString("en-GB")} more ${room === 1 ? "card" : "cards"} now. Untick some, then import.`;
 
 const cardsLabel = (count: number) =>
   `${count.toLocaleString("en-GB")} ${count === 1 ? "card" : "cards"}`;
@@ -167,7 +178,9 @@ export function ImportPreviewPage({
     const outcome = await confirmImport(queryClient, preview.id, deck.id, p.ticked);
     if (!outcome.ok) {
       setConfirming(false);
-      toast.error(outcome.message);
+      // Full meanwhile: the preview is fetched again, so the dock shows the room now.
+      if ("deckFull" in outcome) toast.error(roomChangedNote(outcome.deckFull));
+      else toast.error(outcome.message);
     }
     // Done, the cache holds the report, and the page shows it.
   };
@@ -241,36 +254,15 @@ export function ImportPreviewPage({
             )}
           </ol>
 
-          <div className="sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-20 mx-auto flex w-full max-w-xl items-center gap-2 rounded-full border bg-card/95 p-1.5 pl-4 shadow-lg backdrop-blur lg:bottom-6">
-            <p className="min-w-0 flex-1 truncate text-sm tabular-nums" aria-live="polite">
-              <span className="font-semibold">{tickedCount.toLocaleString("en-GB")}</span>{" "}
-              <span className="text-muted-foreground">
-                of {p.rows.length.toLocaleString("en-GB")} ticked
-              </span>
-            </p>
-            <Button
-              variant="ghost"
-              className={cn(PILL, "h-11 px-3 lg:h-9")}
-              disabled={confirming || p.rows.length === 0}
-              onClick={() => p.tickAll(!p.allTicked)}
-            >
-              <CheckCheck aria-hidden />
-              {/* Only the icon on a phone, so the count has room. */}
-              <span className="sr-only sm:not-sr-only">
-                {p.allTicked ? "Untick all" : "Tick all"}
-              </span>
-            </Button>
-            <Button
-              className={cn(PILL, "h-11 lg:h-9")}
-              disabled={tickedCount === 0 || confirming}
-              onClick={() => void confirm()}
-            >
-              {confirming && (
-                <LoaderCircle aria-hidden className="animate-spin motion-reduce:animate-none" />
-              )}
-              {confirming ? "Importing…" : `Import ${tickedCount.toLocaleString("en-GB")}`}
-            </Button>
-          </div>
+          <ImportDock
+            ticked={tickedCount}
+            total={p.rows.length}
+            room={preview.room}
+            allTicked={p.allTicked}
+            busy={confirming}
+            onTickAll={() => p.tickAll(!p.allTicked)}
+            onConfirm={() => void confirm()}
+          />
         </div>
 
         <Dialog.Root
@@ -310,6 +302,75 @@ export function ImportPreviewPage({
         {guard.dialog}
       </Page>
     </ImageFilesContext>
+  );
+}
+
+/**
+ * The preview's dock: how many of the `total` Cards are `ticked`, the Deck's
+ * `room` beside it, Tick all and Import. More ticked than fit, Import is off
+ * and says how many to untick (ADR-0034).
+ */
+export function ImportDock({
+  ticked,
+  total,
+  room,
+  allTicked,
+  busy,
+  onTickAll,
+  onConfirm,
+}: {
+  ticked: number;
+  total: number;
+  room: number;
+  allTicked: boolean;
+  busy: boolean;
+  onTickAll: () => void;
+  onConfirm: () => void;
+}) {
+  const over = Math.max(0, ticked - room);
+  return (
+    <div className="sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-20 mx-auto flex w-full max-w-xl items-center gap-2 rounded-full border bg-card/95 p-1.5 pl-4 shadow-lg backdrop-blur lg:bottom-6">
+      <p
+        className="flex min-w-0 flex-1 flex-col text-sm leading-tight tabular-nums"
+        aria-live="polite"
+      >
+        <span className="truncate">
+          <span className="font-semibold">{ticked.toLocaleString("en-GB")}</span>{" "}
+          <span className="text-muted-foreground">of {total.toLocaleString("en-GB")} ticked</span>
+        </span>
+        <span
+          className={cn(
+            "truncate text-xs",
+            over > 0 ? "font-medium text-destructive" : "text-muted-foreground",
+          )}
+        >
+          {roomLine(room)}
+          {over > 0 && ` · untick ${over.toLocaleString("en-GB")}`}
+        </span>
+      </p>
+      <Button
+        variant="ghost"
+        className={cn(PILL, "h-11 px-3 lg:h-9")}
+        disabled={busy || total === 0}
+        onClick={onTickAll}
+      >
+        <CheckCheck aria-hidden />
+        {/* Only the icon on a phone, so the count has room. */}
+        <span className="sr-only sm:not-sr-only">{allTicked ? "Untick all" : "Tick all"}</span>
+      </Button>
+      <Button
+        className={cn(PILL, "h-11 lg:h-9")}
+        disabled={ticked === 0 || over > 0 || busy}
+        onClick={onConfirm}
+      >
+        {busy && <LoaderCircle aria-hidden className="animate-spin motion-reduce:animate-none" />}
+        {busy
+          ? "Importing…"
+          : over > 0
+            ? `Untick ${over.toLocaleString("en-GB")}`
+            : `Import ${ticked.toLocaleString("en-GB")}`}
+      </Button>
+    </div>
   );
 }
 

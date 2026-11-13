@@ -73,7 +73,8 @@ const deckNamed = (name: string, userId = USER) => {
 
 const write = (deckId: string, front = "front", userId = USER) => {
   const created = cards.create(userId, deckId, { front, back: "back" });
-  if (typeof created === "string") throw new Error(`${front}: ${created}`);
+  if (typeof created === "string" || "deckFull" in created)
+    throw new Error(`${front}: ${JSON.stringify(created)}`);
   return created.id;
 };
 

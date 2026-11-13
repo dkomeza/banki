@@ -1,4 +1,4 @@
-import type { ApiError } from "@banki/shared";
+import { type ApiError, DECK_CARDS_MAX, type DeckFullError } from "@banki/shared";
 import { getLogger } from "@logtape/logtape";
 import type { ErrorHandler, NotFoundHandler } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -7,6 +7,24 @@ const logger = getLogger(["banki", "http"]);
 
 export const apiError = (code: string, message: string): ApiError => ({
   error: { code, message },
+});
+
+/**
+ * The body of a 409 `deck_full` (ADR-0034): Cards would take the Deck past
+ * `DECK_CARDS_MAX` live Cards, so nothing was written; `room` is how many
+ * more it takes now.
+ */
+export const deckFullError = ({
+  deckFull: { id, name, room },
+}: {
+  deckFull: { id: string; name: string; room: number };
+}): DeckFullError => ({
+  error: {
+    code: "deck_full",
+    message: `${name} holds ${DECK_CARDS_MAX.toLocaleString("en-GB")} cards. Move or delete some to add more.`,
+  },
+  deck: { id, name },
+  room,
 });
 
 /** Answers any path no route matches, under `/api` or not. */

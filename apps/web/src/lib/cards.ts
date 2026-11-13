@@ -9,7 +9,13 @@ import {
 } from "@banki/shared";
 import { type QueryClient, queryOptions } from "@tanstack/react-query";
 import { type ApiClient, api } from "./api";
-import { CANT_REACH, deckQueryOptions, decksQueryOptions } from "./decks";
+import {
+  CANT_REACH,
+  type DeckFull,
+  deckFullOf,
+  deckQueryOptions,
+  decksQueryOptions,
+} from "./decks";
 import { deletionIdOf, deletionsQueryOptions } from "./deletions";
 import { ApiRequestError } from "./query";
 import { studyOverviewKey } from "./study-overview";
@@ -169,12 +175,15 @@ export type CardOutcome =
   | { ok: false; notFound: true }
   | { ok: false; message: string };
 
+/** How a create went: a Deck without room refuses it too (ADR-0034). */
+export type NewCardOutcome = CardOutcome | { ok: false; deckFull: DeckFull };
+
 /** How a create or a change went, checking the fields before anything is sent. */
 async function outcomeOf(
   fields: CardFields,
   send: () => Promise<Response>,
   failed: string,
-): Promise<CardOutcome> {
+): Promise<NewCardOutcome> {
   const errors = fieldErrors(fields);
   if (Object.keys(errors).length > 0) return { ok: false, errors };
   let res: Response;
@@ -182,7 +191,7 @@ async function outcomeOf(
   try {
     res = await send();
     // The answer read too: the connection can drop while it comes in.
-    if (res.ok) body = await res.json();
+    if (res.ok || res.status === 409) body = await res.json();
   } catch (error) {
     // Read whole but not JSON (a proxy's page), it isn't a Card.
     if (error instanceof SyntaxError) return { ok: false, message: failed };
@@ -194,6 +203,8 @@ async function outcomeOf(
     return parsed.success ? { ok: true, card: parsed.data } : { ok: false, message: failed };
   }
   if (res.status === 404) return { ok: false, notFound: true };
+  const deckFull = res.status === 409 ? deckFullOf(body) : undefined;
+  if (deckFull !== undefined) return { ok: false, deckFull };
   return { ok: false, message: failed };
 }
 
@@ -219,7 +230,7 @@ export async function createCard(
   fields: CardFields,
   tags: readonly string[],
   client: ApiClient = api,
-): Promise<CardOutcome> {
+): Promise<NewCardOutcome> {
   const outcome = await outcomeOf(
     fields,
     () =>
@@ -250,6 +261,7 @@ export async function updateCard(
   { resetProgress = false, written }: { resetProgress?: boolean; written?: () => void } = {},
   client: ApiClient = api,
 ): Promise<CardOutcome> {
+  const failed = "Banki couldn't save the card. Try again.";
   const outcome = await outcomeOf(
     fields,
     () =>
@@ -261,8 +273,10 @@ export async function updateCard(
           ...(resetProgress ? { resetProgress: true as const } : {}),
         },
       }),
-    "Banki couldn't save the card. Try again.",
+    failed,
   );
+  // A change adds no Card, so no Deck refuses it for room.
+  if ("deckFull" in outcome) return { ok: false, message: failed };
   if (outcome.ok) {
     queryClient.setQueryData(cardQueryOptions(id).queryKey, outcome.card);
     written?.();
@@ -313,12 +327,14 @@ export async function deleteCard(
 export type MoveOutcome =
   | { ok: true; cards: Card[] }
   | { ok: false; notFound: true }
+  | { ok: false; deckFull: DeckFull }
   | { ok: false; message: string };
 
 /**
  * Moves Cards to the Deck `to` with `POST /api/cards/move`, all of them or
  * none, taking them out of their Deck's list, `from`, once moved. A Card or a
- * Deck that is gone meanwhile (404) moves nothing and says so.
+ * Deck that is gone meanwhile (404) moves nothing and says so, and so does
+ * one into a Deck without room for them (409 `deck_full`, ADR-0034).
  */
 export async function moveCards(
   queryClient: QueryClient,
@@ -337,6 +353,13 @@ export async function moveCards(
   if (status === 404) {
     await Promise.all([refreshDeck(queryClient, from), refreshDeck(queryClient, to)]);
     return { ok: false, notFound: true };
+  }
+  if (status === 409) {
+    const deckFull = deckFullOf(await res.json().catch(() => undefined));
+    if (deckFull !== undefined) {
+      await refreshDeck(queryClient, to);
+      return { ok: false, deckFull };
+    }
   }
   if (!res.ok) return { ok: false, message: "Banki couldn't move the cards. Try again." };
   const { cards } = MoveCardsResponse.parse(await res.json());

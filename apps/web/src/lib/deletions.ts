@@ -9,7 +9,7 @@ import {
 } from "@banki/shared";
 import { type QueryClient, queryOptions } from "@tanstack/react-query";
 import { type ApiClient, api } from "./api";
-import { CANT_REACH } from "./decks";
+import { CANT_REACH, type DeckFull, deckFullOf } from "./decks";
 import { ROOT_NAME } from "./folders";
 import { refreshImports } from "./imports";
 import { ApiRequestError } from "./query";
@@ -55,12 +55,24 @@ export async function refreshAfterDeletion(queryClient: QueryClient) {
 export type RestoreOutcome =
   | { ok: true; restored: Restored }
   | { ok: false; placeDeleted: { id: string; name: string } }
+  | { ok: false; deckFull: DeckFull }
   | { ok: false; message: string };
+
+/** How a refused Restore's 409 reads: the Deck to restore first, or the one without room. */
+function refusalOf(
+  body: unknown,
+): Exclude<RestoreOutcome, { ok: true } | { message: string }> | undefined {
+  const placeDeleted = PlaceDeletedError.safeParse(body);
+  if (placeDeleted.success) return { ok: false, placeDeleted: placeDeleted.data.deck };
+  const deckFull = deckFullOf(body);
+  return deckFull === undefined ? undefined : { ok: false, deckFull };
+}
 
 /**
  * Restores a Deletion with `POST /api/deletions/:id/restore`, and says how it
- * went: where it came back and under which name, or which Deck must be
- * restored first. One that's gone already says so.
+ * went: where it came back and under which name, which Deck must be
+ * restored first, or which has no room for its Cards (ADR-0034). One that's
+ * gone already says so.
  */
 export async function restoreDeletion(
   queryClient: QueryClient,
@@ -80,8 +92,8 @@ export async function restoreDeletion(
     return { ok: true, restored };
   }
   if (status === 409) {
-    const refused = PlaceDeletedError.safeParse(await res.json().catch(() => undefined));
-    if (refused.success) return { ok: false, placeDeleted: refused.data.deck };
+    const refused = refusalOf(await res.json().catch(() => undefined));
+    if (refused !== undefined) return refused;
   }
   if (status === 404) {
     await refreshAfterDeletion(queryClient);
@@ -93,7 +105,8 @@ export async function restoreDeletion(
 /**
  * Restores several Deletions together with `POST /api/deletions/restore`, all
  * of them or none, such as a delete of several Cards' Undo, and says how it
- * went: which Deck must be restored first, or that one is gone already.
+ * went: which Deck must be restored first, or has no room for them, or that
+ * one is gone already.
  */
 export async function restoreDeletions(
   queryClient: QueryClient,
@@ -113,8 +126,8 @@ export async function restoreDeletions(
     return { ok: true, restored };
   }
   if (status === 409) {
-    const refused = PlaceDeletedError.safeParse(await res.json().catch(() => undefined));
-    if (refused.success) return { ok: false, placeDeleted: refused.data.deck };
+    const refused = refusalOf(await res.json().catch(() => undefined));
+    if (refused !== undefined) return refused;
   }
   if (status === 404) {
     await refreshAfterDeletion(queryClient);

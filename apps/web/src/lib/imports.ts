@@ -15,7 +15,7 @@ import { type QueryClient, queryOptions } from "@tanstack/react-query";
 import { type ApiClient, api } from "./api";
 import { refreshDeck } from "./cards";
 import { refreshAfterDeletion } from "./deletions";
-import { CANT_REACH } from "./decks";
+import { CANT_REACH, type DeckFull, deckFullOf } from "./decks";
 import { ApiRequestError } from "./query";
 
 // An Import (CONTEXT.md, ADR-0026): the file goes to the API as it is, which
@@ -134,12 +134,17 @@ export async function uploadImport(
   return { ok: false, message: "Banki couldn't read the file. Try again." };
 }
 
-export type ConfirmOutcome = { ok: true } | { ok: false; message: string };
+export type ConfirmOutcome =
+  | { ok: true }
+  | { ok: false; deckFull: DeckFull }
+  | { ok: false; message: string };
 
 /**
  * Confirms an Import with `POST /api/imports/:id/confirm`, sending the ticked
  * Cards, and on success puts its report in the cache and has the Deck's Cards
- * fetched again.
+ * fetched again. Refused with `deck_full` (ADR-0034), it has the preview and
+ * the Deck's Cards fetched again, so the preview shows the room as it is now;
+ * its ticks and edits stay on the page.
  */
 export async function confirmImport(
   queryClient: QueryClient,
@@ -165,6 +170,14 @@ export async function confirmImport(
       await refreshDeck(queryClient, deckId);
       return { ok: true };
     }
+  }
+  const deckFull = res.status === 409 ? deckFullOf(body) : undefined;
+  if (deckFull !== undefined) {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: importQueryOptions(id).queryKey, exact: true }),
+      refreshDeck(queryClient, deckId),
+    ]);
+    return { ok: false, deckFull };
   }
   const error = ApiError.safeParse(body);
   if (res.status === 409 && error.success) {

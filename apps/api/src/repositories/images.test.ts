@@ -77,7 +77,8 @@ const upload = (hours: number, userId = USER) => {
 
 const write = (back: string) => {
   const created = cards.create(USER, deckId, { front: "f", back });
-  if (typeof created === "string") throw new Error(created);
+  if (typeof created === "string" || "deckFull" in created)
+    throw new Error(JSON.stringify(created));
   return created.id;
 };
 
@@ -221,7 +222,8 @@ describe("sweep", () => {
       back: "b",
       gradingNotes: `Like ![](${reference})`,
     });
-    if (typeof created === "string") throw new Error(created);
+    if (typeof created === "string" || "deckFull" in created)
+      throw new Error(JSON.stringify(created));
 
     images.sweep(NOW);
     expect(kept(file)).toBe(true);
@@ -243,7 +245,7 @@ describe("sweep", () => {
       description: null,
       folderId: null,
     });
-    if (typeof theirs === "string") throw new Error(theirs);
+    if (typeof theirs === "string" || "deckFull" in theirs) throw new Error(JSON.stringify(theirs));
     cards.create(OTHER, theirs.id, { front: "f", back: `![](${reference})` });
 
     images.sweep(NOW);

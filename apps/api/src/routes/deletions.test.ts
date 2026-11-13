@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   CardResponse,
+  DeckFullError,
   DeckListResponse,
   DeckResponse,
   DeleteResponse,
@@ -11,9 +12,9 @@ import {
   RestoreResponse,
   DeleteCardsResponse,
 } from "@banki/shared";
-import { type App, bootApps, codeOf, get, send, setUp } from "../testing/app";
+import { type App, bootApps, codeOf, fillDeck, get, send, setUp } from "../testing/app";
 
-const { boot } = bootApps();
+const { boot, dataDir } = bootApps();
 
 /** A fresh app that Setup is done on, and the signed-in cookie Setup set. */
 async function signedIn() {
@@ -149,6 +150,23 @@ describe("POST /api/deletions/:id/restore", () => {
     expect((await get(app, `/api/cards/${card.id}`, cookie)).status).toBe(200);
   });
 
+  test("answers 409 deck_full, naming the Deck, for a Card whose Deck has no room", async () => {
+    const { app, cookie } = await signedIn();
+    const german = await createDeck(app, cookie, "German verbs");
+    const card = await createCard(app, cookie, german.id, "der Termin");
+    const id = await remove(app, cookie, `/api/cards/${card.id}`);
+    fillDeck(dataDir(), german.id, 1000);
+
+    const res = await restore(app, cookie, id);
+
+    expect(res.status).toBe(409);
+    expect(DeckFullError.parse(await res.json())).toMatchObject({
+      error: { code: "deck_full" },
+      deck: { id: german.id, name: "German verbs" },
+      room: 0,
+    });
+  });
+
   test("answers 409 place_deleted, naming the Deck, for a Card whose Deck is deleted", async () => {
     const { app, cookie } = await signedIn();
     const german = await createDeck(app, cookie, "German verbs");
@@ -236,6 +254,24 @@ describe("POST /api/deletions/restore", () => {
       id: deck.id,
       name: "Spanish",
     });
+  });
+
+  test("answers 409 deck_full, restoring none, while the Deck has no room for them all", async () => {
+    const { app, cookie } = await signedIn();
+    const deck = await createDeck(app, cookie, "Spanish");
+    const one = await createCard(app, cookie, deck.id, "one");
+    const two = await createCard(app, cookie, deck.id, "two");
+    const ids = await deleteAll(app, cookie, [one.id, two.id]);
+    fillDeck(dataDir(), deck.id, 999);
+
+    const res = await restoreAll(app, cookie, ids);
+
+    expect(res.status).toBe(409);
+    expect(DeckFullError.parse(await res.json())).toMatchObject({
+      deck: { id: deck.id, name: "Spanish" },
+      room: 0,
+    });
+    expect((await listed(app, cookie)).filter((d) => d.top.kind === "card")).toHaveLength(2);
   });
 
   test("answers 404, restoring none, when one is gone", async () => {

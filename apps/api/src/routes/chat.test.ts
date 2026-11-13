@@ -168,7 +168,8 @@ function othersCard() {
       front: "f",
       back: "b",
     });
-    if (typeof card === "string") throw new Error(`Their card: ${card}`);
+    if (typeof card === "string" || "deckFull" in card)
+      throw new Error(`Their card: ${JSON.stringify(card)}`);
     return card.id;
   } finally {
     opened.close();

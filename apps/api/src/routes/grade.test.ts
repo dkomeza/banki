@@ -161,7 +161,8 @@ function othersCard() {
     });
     if (typeof deck === "string") throw new Error(`Their deck: ${deck}`);
     const card = createCardRepository(db).create("other", deck.id, { front: "f", back: "b" });
-    if (typeof card === "string") throw new Error(`Their card: ${card}`);
+    if (typeof card === "string" || "deckFull" in card)
+      throw new Error(`Their card: ${JSON.stringify(card)}`);
     return card.id;
   });
 }

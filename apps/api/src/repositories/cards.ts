@@ -4,9 +4,10 @@ import {
   type CardState,
   type CreateCardRequest,
   type UpdateCardRequest,
+  deckRoom,
   sortTags,
 } from "@banki/shared";
-import { type SQLWrapper, and, count, desc, eq, inArray, isNull } from "drizzle-orm";
+import { type SQLWrapper, and, count, desc, eq, inArray, isNull, ne } from "drizzle-orm";
 import type { z } from "zod";
 import type { Queryable } from "../db/database";
 import { card, card_tag, deck, review } from "../db/schema";
@@ -68,6 +69,41 @@ const liveDeck = (userId: string, id: string) =>
 
 export const isLiveDeck = (db: Queryable, userId: string, id: string) =>
   db.select({ id: deck.id }).from(deck).where(liveDeck(userId, id)).get() !== undefined;
+
+/** A write refused because it would take a Deck past `DECK_CARDS_MAX` (ADR-0034): the Deck and its room. */
+export type DeckFull = { deckFull: { id: string; name: string; room: number } };
+
+/** How many live Cards the User's Deck `deckId` holds: its Cards in Recently deleted don't count. */
+export const liveCardCount = (db: Queryable, userId: string, deckId: string) =>
+  db
+    .select({ count: count() })
+    .from(card)
+    .where(and(eq(card.userId, userId), eq(card.deckId, deckId), isNull(card.deletedAt)))
+    .get()?.count ?? 0;
+
+/**
+ * The refusal for `adding` more Cards into the User's Deck `deckId` when that
+ * would take it past `DECK_CARDS_MAX` live Cards, or undefined when it has
+ * room for them. Expects to run in the write's own immediate transaction
+ * (ADR-0034), so no other write can take the room in between.
+ */
+export function deckFullFor(
+  db: Queryable,
+  userId: string,
+  deckId: string,
+  adding: number,
+): DeckFull | undefined {
+  if (adding <= 0) return undefined;
+  const room = deckRoom(liveCardCount(db, userId, deckId));
+  if (adding <= room) return undefined;
+  const name =
+    db
+      .select({ name: deck.name })
+      .from(deck)
+      .where(and(eq(deck.userId, userId), eq(deck.id, deckId)))
+      .get()?.name ?? "";
+  return { deckFull: { id: deckId, name, room } };
+}
 
 /** The Tags of the User's Cards `cardIds` picks, each Card's A–Z. */
 function tagsOf(db: Queryable, userId: string, cardIds: SQLWrapper | string[]) {
@@ -183,18 +219,20 @@ export function createCardRepository(db: Queryable) {
 
     /**
      * Creates a Card in the User's Deck `deckId`, with its Tags, unless that
-     * isn't a live Deck of the User's. `id` and `now` are for the Seed data and
-     * tests.
+     * isn't a live Deck of the User's, or it has no room (`deckFull`). `id`
+     * and `now` are for the Seed data and tests.
      */
     create(
       userId: string,
       deckId: string,
       { front, back, tags = NO_TAGS, gradingNotes = null }: NewCard,
       { id = randomUUID(), now = new Date() }: { id?: string; now?: Date } = {},
-    ): Card | "not_found" {
+    ): Card | DeckFull | "not_found" {
       return db.transaction(
         (tx) => {
           if (!isLiveDeck(tx, userId, deckId)) return "not_found";
+          const full = deckFullFor(tx, userId, deckId, 1);
+          if (full !== undefined) return full;
           const row = { id, deckId, front, back, gradingNotes, createdAt: now, updatedAt: now };
           tx.insert(card)
             .values({ ...row, userId })
@@ -299,6 +337,8 @@ export function createCardRepository(db: Queryable) {
      * replayed under the new one's, keeping its due date (ADR-0033); then
      * one whose old Deck had another Desired retention is rescheduled for the
      * new one's. A Move may make a Duplicate.
+     * One that would take the Deck past `DECK_CARDS_MAX` live Cards is refused
+     * whole (`deckFull`); its Cards already in the Deck don't count.
      * Answers the moved Cards, newest first.
      */
     move(
@@ -306,12 +346,22 @@ export function createCardRepository(db: Queryable) {
       ids: readonly string[],
       deckId: string,
       now = new Date(),
-    ): Card[] | "not_found" {
+    ): Card[] | DeckFull | "not_found" {
       const unique = [...new Set(ids)];
       return db.transaction(
         (tx) => {
           if (!isLiveDeck(tx, userId, deckId)) return "not_found";
           if (liveCount(tx, userId, unique) !== unique.length) return "not_found";
+          const entering =
+            tx
+              .select({ count: count() })
+              .from(card)
+              .where(
+                and(eq(card.userId, userId), inArray(card.id, unique), ne(card.deckId, deckId)),
+              )
+              .get()?.count ?? 0;
+          const full = deckFullFor(tx, userId, deckId, entering);
+          if (full !== undefined) return full;
           const { desiredRetention: retention, parameters } = deckSchedulingOf(tx, userId, deckId);
           // Each Deck the Cards leave, with the Cards that leave it.
           const from = tx

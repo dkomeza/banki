@@ -26,6 +26,7 @@ import {
   deckQueryOptions,
   deleteDeck,
   forgetDeck,
+  moveRefusedNote,
   updateDeck,
 } from "@/lib/decks";
 import { ensureLibrary, placePath } from "@/lib/folders";
@@ -127,7 +128,9 @@ function DeckBody({ deck }: { deck: Deck }) {
       setMoveError(
         "notFound" in outcome
           ? "A card or that deck was deleted meanwhile, so nothing moved."
-          : outcome.message,
+          : "deckFull" in outcome
+            ? moveRefusedNote(outcome.deckFull)
+            : outcome.message,
       );
       return;
     }

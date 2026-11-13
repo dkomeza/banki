@@ -58,7 +58,8 @@ const folderNamed = (name: string, parentId: string | null = null) => {
 
 const write = (deckId: string, front: string, back = "back", now?: Date, userId = USER) => {
   const created = cards.create(userId, deckId, { front, back }, now === undefined ? {} : { now });
-  if (typeof created === "string") throw new Error(`${front}: ${created}`);
+  if (typeof created === "string" || "deckFull" in created)
+    throw new Error(`${front}: ${JSON.stringify(created)}`);
   return created;
 };
 
@@ -235,7 +236,7 @@ describe("move", () => {
       { front: "comer", back: "to eat", tags: ["verb", "food"] },
       { now: at("2026-09-01T10:00:00.000Z") },
     );
-    if (typeof one === "string") throw new Error(one);
+    if (typeof one === "string" || "deckFull" in one) throw new Error(JSON.stringify(one));
     const two = write(from, "beber", "to drink", at("2026-09-02T10:00:00.000Z"));
     const stays = write(from, "la mesa");
 
@@ -305,7 +306,7 @@ describe("move", () => {
     expect(rowOf(comer.id)?.deckId).toBe(from);
   });
 
-  test("moves 10,000 Cards in one go", () => {
+  test("takes 10,000 Cards in one go", () => {
     const from = deckNamed("Spanish");
     const to = deckNamed("Verbs");
     const ids = Array.from({ length: 10_000 }, (_, i) => `card-${i}`);
@@ -325,10 +326,11 @@ describe("move", () => {
       )
       .run();
 
-    const moved = cards.move(USER, ids, to);
-
-    expect(moved).toHaveLength(10_000);
-    expect(frontsIn(from)).toEqual([]);
+    // More than a Deck holds (ADR-0034): weighed whole, and refused whole.
+    expect(cards.move(USER, ids, to)).toEqual({ deckFull: { id: to, name: "Verbs", room: 1000 } });
+    expect(frontsIn(to)).toEqual([]);
+    // Into the Deck they are in already, none of them counts against its room.
+    expect(cards.move(USER, ids, from)).toHaveLength(10_000);
   });
 });
 
@@ -475,7 +477,8 @@ const tagged = (deckId: string, front: string, tags: string[], userId = USER, no
     { front, back: "b", tags },
     now === undefined ? {} : { now },
   );
-  if (typeof created === "string") throw new Error(`${front}: ${created}`);
+  if (typeof created === "string" || "deckFull" in created)
+    throw new Error(`${front}: ${JSON.stringify(created)}`);
   return created;
 };
 const tagsIn = (deckId: string) => {
@@ -605,7 +608,8 @@ const withNotes = (deckId: string, gradingNotes: string | null, now?: Date) => {
     { front: "f", back: "b", gradingNotes },
     now === undefined ? {} : { now },
   );
-  if (typeof created === "string") throw new Error(created);
+  if (typeof created === "string" || "deckFull" in created)
+    throw new Error(JSON.stringify(created));
   return created;
 };
 
@@ -660,12 +664,132 @@ describe("Grading notes", () => {
     const created = withNotes(from, "Accept either tense.");
 
     const moved = cards.move(USER, [created.id], to);
-    if (typeof moved === "string") throw new Error(moved);
+    if (typeof moved === "string" || "deckFull" in moved) throw new Error(JSON.stringify(moved));
     expect(moved[0]?.gradingNotes).toBe("Accept either tense.");
 
     const deletionId = cards.softDelete(USER, created.id);
     if (deletionId === undefined) throw new Error("not deleted");
     createDeletionRepository(opened.db).restore(USER, deletionId);
     expect(cards.find(USER, created.id)?.gradingNotes).toBe("Accept either tense.");
+  });
+});
+
+const liveIn = (deckId: string) => {
+  const listed = cards.list(USER, deckId);
+  return typeof listed === "string" ? 0 : listed.length;
+};
+
+/** Puts `n` live Cards straight into the Deck `deckId`, as if they were written one by one. */
+const fill = (deckId: string, n: number, prefix = "filled") => {
+  const now = at("2026-09-01T00:00:00.000Z");
+  opened.db
+    .insert(card)
+    .values(
+      Array.from({ length: n }, (_, i) => ({
+        id: `${prefix}-${deckId}-${i}`,
+        userId: USER,
+        deckId,
+        front: `${prefix} ${i}`,
+        back: "b",
+        createdAt: now,
+        updatedAt: now,
+      })),
+    )
+    .run();
+};
+
+describe("the Card limit (ADR-0034)", () => {
+  test("a Deck with 999 live Cards takes one more, and then refuses the next, adding nothing", () => {
+    const deckId = deckNamed("Spanish");
+    fill(deckId, 999);
+
+    expect(cards.create(USER, deckId, { front: "the last", back: "b" })).toMatchObject({
+      front: "the last",
+    });
+    expect(cards.create(USER, deckId, { front: "one too many", back: "b" })).toEqual({
+      deckFull: { id: deckId, name: "Spanish", room: 0 },
+    });
+    expect(liveIn(deckId)).toBe(1000);
+  });
+
+  test("doesn't count deleted Cards: deleting one makes room at once", () => {
+    const deckId = deckNamed("Spanish");
+    fill(deckId, 1000);
+    cards.softDelete(USER, `filled-${deckId}-0`);
+
+    expect(cards.create(USER, deckId, { front: "in its place", back: "b" })).toMatchObject({
+      front: "in its place",
+    });
+  });
+
+  test("two writes for the last place, from two connections: the second finds the Deck full", () => {
+    const deckId = deckNamed("Spanish");
+    fill(deckId, 999);
+    // A second connection to the same database, as a second request would have.
+    const second = openDatabase(tempDir);
+    try {
+      const racing = createCardRepository(second.db);
+      const first = cards.create(USER, deckId, { front: "first", back: "b" });
+      const late = racing.create(USER, deckId, { front: "second", back: "b" });
+
+      expect(first).toMatchObject({ front: "first" });
+      expect(late).toEqual({ deckFull: { id: deckId, name: "Spanish", room: 0 } });
+    } finally {
+      second.close();
+    }
+    expect(liveIn(deckId)).toBe(1000);
+  });
+
+  test("refuses a Move whose Cards not already in the Deck outnumber its room, moving nothing", () => {
+    const from = deckNamed("Spanish");
+    const to = deckNamed("Verbs");
+    fill(to, 998);
+    const ones = [write(from, "one"), write(from, "two"), write(from, "three")];
+
+    expect(
+      cards.move(
+        USER,
+        ones.map((c) => c.id),
+        to,
+      ),
+    ).toEqual({
+      deckFull: { id: to, name: "Verbs", room: 2 },
+    });
+    expect(ones.map((c) => rowOf(c.id)?.deckId)).toEqual([from, from, from]);
+    expect(liveIn(to)).toBe(998);
+  });
+
+  test("doesn't count the moved Cards already in the Deck", () => {
+    const from = deckNamed("Spanish");
+    const to = deckNamed("Verbs");
+    fill(to, 998);
+    const already = write(to, "already there");
+    const coming = write(from, "coming");
+
+    const moved = cards.move(USER, [already.id, coming.id, coming.id], to);
+
+    expect(Array.isArray(moved) && moved.map((c) => c.front).toSorted()).toEqual([
+      "already there",
+      "coming",
+    ]);
+    expect(liveIn(to)).toBe(1000);
+  });
+
+  test("a Deck over the limit keeps its Cards, lets them Move out, and refuses new ones until under", () => {
+    const over = deckNamed("Spanish");
+    const elsewhere = deckNamed("Verbs");
+    fill(over, 1003);
+    const outsider = write(elsewhere, "outsider");
+
+    expect(cards.create(USER, over, { front: "more", back: "b" })).toEqual({
+      deckFull: { id: over, name: "Spanish", room: 0 },
+    });
+    expect(cards.move(USER, [outsider.id], over)).toEqual({
+      deckFull: { id: over, name: "Spanish", room: 0 },
+    });
+    const leaving = Array.from({ length: 4 }, (_, i) => `filled-${over}-${i}`);
+    expect(cards.move(USER, leaving, elsewhere)).toHaveLength(4);
+    expect(liveIn(over)).toBe(999);
+    expect(cards.move(USER, [outsider.id], over)).toHaveLength(1);
   });
 });

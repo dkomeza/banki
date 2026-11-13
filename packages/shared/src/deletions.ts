@@ -64,6 +64,18 @@ export const PlaceDeletedError = z.object({
 });
 export type PlaceDeletedError = z.infer<typeof PlaceDeletedError>;
 
+/**
+ * The body of a 409 `deck_full`: Cards would take `deck` past
+ * `DECK_CARDS_MAX` live Cards (ADR-0034), so nothing was written. `room` is
+ * how many more it takes now.
+ */
+export const DeckFullError = z.object({
+  error: z.object({ code: z.literal("deck_full"), message: z.string() }),
+  deck: z.object({ id: z.string(), name: z.string() }),
+  room: z.number().int().nonnegative(),
+});
+export type DeckFullError = z.infer<typeof DeckFullError>;
+
 /** The body of `DELETE /api/cards/:id`, `/api/decks/:id` and `/api/folders/:id`: the new Deletion. */
 export const DeleteResponse = z.object({ deletionId: z.string() });
 export type DeleteResponse = z.infer<typeof DeleteResponse>;

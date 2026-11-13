@@ -46,6 +46,12 @@ export const SEED_IDS = {
     calculus10: "5eed0000-0000-4000-8000-000000000003",
     chemistry: "5eed0000-0000-4000-8000-000000000004",
     kanji: "5eed0000-0000-4000-8000-000000000005",
+    /**
+     * A Deck holding exactly `DECK_CARDS_MAX` (1,000) short New Cards, in
+     * Languages, so every `deck_full` refusal can be tried (ADR-0034). Its
+     * Cards' IDs are `fullDeckCardId(1)` to `fullDeckCardId(1000)`.
+     */
+    full: "5eed0000-0000-4000-8000-000000000006",
   },
   /**
    * Each seeded Deck's Cards, oldest first; Calculus 10 has none. Calculus 2's
@@ -130,6 +136,10 @@ export const SEED_IDS = {
     verbos: "5eed0000-0000-4000-8000-0000000de00a",
   },
 } as const;
+
+/** The full seed Deck's `n`th Card's ID, from 1 (the oldest) to 1,000. */
+export const fullDeckCardId = (n: number) =>
+  `5eed0000-0000-4000-8000-0000000f${n.toString(16).padStart(4, "0")}`;
 
 /**
  * The seed User's Timezone. The `ui` script pins its browser to the same zone,
