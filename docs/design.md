@@ -31,6 +31,19 @@ Geist is the UI font. Headings are semibold with slightly tight tracking; a page
 - **Buttons are pills.** A primary action is filled with the accent; others are outlined in ink.
 - A confirmation after a form ("Password changed…") is a short line on the accent background with a check, in place of the form.
 
+## Handwriting
+
+Writing an answer by hand on the study screen, in write-and-grade before Check, is a board: settled by the BAN-45 prototype (branch `dkomeza/ban-45-decide-the-tablet-layout-for-handwriting-proto-j`, variant `j`, "Bare board"). Later handwriting screens, such as the transcription after Check, follow it.
+
+- **The canvas takes the rest of the screen**, between the study screen's top bar and its dock, edge to edge, on grid paper (a 24 px grid in the hairline colour, on the card colour). The page itself never scrolls while it shows: the canvas is a viewport of its own, which pans and zooms.
+- **The Front sits on the paper**, like an image on a board, at the same place at every width: the canvas's top-left, with a small "Front" label above it. It is a rounded card with a hairline ring and a soft shadow, and no chrome of its own: no header, menu or fold. Tapped, it is selected: an accent frame with a round handle at each corner. A drag anywhere on it moves it, a corner scales it about the opposite one (40% to 250%, its type, Formulas and Image together), and a tap on the paper lets go of it. From the keyboard, it takes the focus; arrows move it, + and − scale it, and 0 sets it back to 100%. The next Card's Front starts at the scale the User last chose.
+- **Its width**: 416 px at 100% on a canvas from 1000 px wide (a desktop, a landscape tablet), so it reads as a column beside the room to write; narrower, the canvas's width less the tool bar's, so on a phone and a tablet in portrait it spans the top of the canvas and the writing goes below it.
+- **A long Front** starts scaled down so it shows whole within 60% of the canvas's height (never below 40%). It never scrolls inside itself or folds; its corners scale it up to read it, and the board's zoom does the same for it and the ink together.
+- **The tool bar** is a vertical pill at the right edge, centred: pen, its three thicknesses (fine, medium, bold dots), eraser, then undo, redo and clear below a hairline.
+- **The zoom control** is a pill at the bottom-left: −, the zoom (100%), +, and Fit, which shows the Front and all the ink at once.
+- **The dock** stays as in write-and-grade: I don't know, then Check, the wider. The top bar stays as it is.
+- Below 1024 px the Front's corner handles, the tools and the zoom's buttons keep 44 px touch targets.
+
 ## Touch, contrast and motion
 
 - Below 1024 px every interactive control is at least 44 px tall, and icon-only buttons are 44×44. Desktop keeps compact sizes.
