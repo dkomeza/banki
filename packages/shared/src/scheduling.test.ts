@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
+  CardHistoryEntry,
+  CardHistoryResponse,
   DesiredRetention,
   REVIEW_CAP_MS,
   REVIEW_MODEL_MAX_LENGTH,
@@ -100,5 +102,38 @@ describe("ReviewResponse", () => {
     };
     expect(ReviewResponse.parse(graded)).toEqual(graded);
     expect(ReviewResponse.parse(selfRated)).toEqual(selfRated);
+  });
+});
+
+describe("CardHistoryResponse", () => {
+  const review = {
+    type: "review" as const,
+    id: "r",
+    cardId: "c",
+    deckId: "d",
+    reviewedAt: "2026-11-09T12:00:00.000Z",
+    rating: "again" as const,
+    kind: "graded" as const,
+    suggestedRating: "good" as const,
+    model: "anthropic/claude-haiku-5.5",
+    durationMs: 4000,
+  };
+  const reset = { type: "progress-reset" as const, id: "p", resetAt: "2026-11-08T12:00:00.000Z" };
+
+  test("takes Reviews and Progress resets in the order given, or none", () => {
+    const body = { entries: [review, reset] };
+    expect(CardHistoryResponse.parse(body)).toEqual(body);
+    expect(CardHistoryResponse.parse({ entries: [] })).toEqual({ entries: [] });
+  });
+
+  test.each([
+    { ...review, type: "rating" },
+    { ...review, type: undefined },
+    { ...review, rating: "Good" },
+    { ...review, reviewedAt: "yesterday" },
+    { ...reset, resetAt: null },
+    { type: "progress-reset", resetAt: reset.resetAt },
+  ])("refuses an entry that isn't one: %j", (entry) => {
+    expect(CardHistoryEntry.safeParse(entry).success).toBe(false);
   });
 });

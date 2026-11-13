@@ -178,6 +178,8 @@ export {
 } from "./plans";
 export {
   CARD_STATES,
+  CardHistoryEntry,
+  CardHistoryResponse,
   CardSchedule,
   CardState,
   DEFAULT_DESIRED_RETENTION,

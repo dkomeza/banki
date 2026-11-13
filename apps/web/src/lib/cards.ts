@@ -1,5 +1,7 @@
 import {
   CARD_SIDE_MAX_LENGTH,
+  type CardHistoryEntry,
+  CardHistoryResponse,
   CardListResponse,
   CardResponse,
   DeleteCardsResponse,
@@ -47,6 +49,21 @@ export const cardQueryOptions = (id: string, client: ApiClient = api) =>
       if (status === 404) return null;
       if (!res.ok) throw new ApiRequestError(status);
       return CardResponse.parse(await res.json());
+    },
+  });
+
+/**
+ * A Card's history, from `GET /api/cards/:id/history`: its Reviews and
+ * Progress resets, newest first in the Write order. The edit page fetches it
+ * fresh each time it opens (`refetchOnMount: "always"`).
+ */
+export const cardHistoryQueryOptions = (id: string, client: ApiClient = api) =>
+  queryOptions({
+    queryKey: ["cards", id, "history"],
+    queryFn: async (): Promise<CardHistoryEntry[]> => {
+      const res = await client.api.cards[":id"].history.$get({ param: { id } });
+      if (!res.ok) throw new ApiRequestError(res.status);
+      return CardHistoryResponse.parse(await res.json()).entries;
     },
   });
 

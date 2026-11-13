@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import {
+  CardHistoryResponse,
   CardListResponse,
   DECK_CARDS_MAX,
   ImportReportResponse,
@@ -532,6 +533,14 @@ describe("banki seed's Import", () => {
   });
 });
 
+/** One of el desayuno's graded Reviews, as stored. */
+const gradedDesayuno = (rating: string, suggested: string) => ({
+  card_id: SEED_IDS.cards.spanish[0],
+  rating,
+  suggested_rating: suggested,
+  model: DEFAULT_MODEL_ID,
+});
+
 describe("banki seed's Reviews", () => {
   test("studies el desayuno, la cuenta and the edit-card page's Card, el desayuno shown first", async () => {
     await setup();
@@ -562,7 +571,7 @@ describe("banki seed's Reviews", () => {
     expect(next?.schedule.lapses).toBe(1);
   });
 
-  test("hold one graded Review that kept the suggestion and one that changed it, both with the default Model", async () => {
+  test("hold graded Reviews that kept the suggestion and ones that changed it, all with the default Model", async () => {
     await setup();
     await seed();
 
@@ -583,29 +592,90 @@ describe("banki seed's Reviews", () => {
     sqlite.close();
 
     expect(graded).toEqual([
+      gradedDesayuno("easy", "easy"),
+      gradedDesayuno("hard", "hard"),
+      gradedDesayuno("again", "good"),
       { card_id: SEED_IDS.card, rating: "good", suggested_rating: "good", model: DEFAULT_MODEL_ID },
-      {
-        card_id: SEED_IDS.cards.spanish[0],
-        rating: "again",
-        suggested_rating: "hard",
-        model: DEFAULT_MODEL_ID,
-      },
+      gradedDesayuno("again", "hard"),
     ]);
   });
 
-  test("take their places in the Write order oldest first", async () => {
+  test("take their places in the Write order oldest first, with the Progress resets", async () => {
     await setup();
     await seed();
 
     const sqlite = new SQLite(join(dataDir(), "banki.db"), { readonly: true });
     const moments = sqlite
-      .query<{ reviewed_at: number }, []>("SELECT reviewed_at FROM review ORDER BY seq")
+      .query<{ at: number }, []>(
+        "SELECT reviewed_at AS at, seq FROM review UNION ALL SELECT reset_at AS at, seq FROM progress_reset ORDER BY seq",
+      )
       .all()
-      .map((r) => r.reviewed_at);
+      .map((r) => r.at);
     sqlite.close();
 
     expect(moments.length).toBeGreaterThan(1);
     expect(moments).toEqual(moments.toSorted((a, b) => a - b));
+  });
+
+  test("give el desayuno a history over several days, of both kinds, with a Progress reset, and leave its memory state as its three newest Ratings give it", async () => {
+    await setup();
+    await seed({ BANKI_SEED_NOW: "2026-10-26T12:00:00.000Z" });
+
+    const { app } = boot();
+    const cookie = cookiesFrom(await signIn(app));
+    const desayuno = SEED_IDS.cards.spanish[0];
+    const { entries } = CardHistoryResponse.parse(
+      await (await get(app, `/api/cards/${desayuno}/history`, cookie)).json(),
+    );
+
+    expect(
+      entries.map((e) =>
+        e.type === "review"
+          ? [e.reviewedAt, e.rating, e.kind, e.suggestedRating]
+          : [e.resetAt, e.type, e.id],
+      ),
+    ).toEqual([
+      ["2026-10-26T10:00:00.000Z", "again", "graded", "hard"],
+      ["2026-10-23T10:12:00.000Z", "good", "self-rated", null],
+      ["2026-10-23T10:00:00.000Z", "good", "self-rated", null],
+      ["2026-10-22T12:00:00.000Z", "progress-reset", SEED_IDS.progressReset],
+      ["2026-10-20T05:06:00.000Z", "again", "graded", "good"],
+      ["2026-10-20T05:00:00.000Z", "hard", "graded", "hard"],
+      ["2026-10-17T10:00:00.000Z", "easy", "graded", "easy"],
+      ["2026-10-13T07:12:00.000Z", "good", "self-rated", null],
+      ["2026-10-13T07:00:00.000Z", "good", "self-rated", null],
+    ]);
+    // Its first six Reviews' IDs are as they were before its older ones.
+    expect(
+      entries
+        .filter((e) => e.type === "review")
+        .slice(0, 3)
+        .map((e) => e.id),
+    ).toEqual([
+      "5eed0000-0000-4000-8000-0e0000000006",
+      "5eed0000-0000-4000-8000-0e0000000004",
+      "5eed0000-0000-4000-8000-0e0000000003",
+    ]);
+
+    // As it was before its older Reviews and the reset were seeded.
+    const sqlite = new SQLite(join(dataDir(), "banki.db"), { readonly: true });
+    const memory = sqlite
+      .query<Record<string, number | string>, [string]>(
+        "SELECT state, due_at, stability, difficulty, reps, lapses, scheduled_days, learning_step, last_review_at FROM card WHERE id = ?",
+      )
+      .get(desayuno);
+    sqlite.close();
+    expect(memory).toEqual({
+      state: "relearning",
+      due_at: Date.parse("2026-10-26T10:10:00.000Z"),
+      stability: 0.63697811,
+      difficulty: 7.39223814,
+      reps: 3,
+      lapses: 1,
+      scheduled_days: 0,
+      learning_step: 0,
+      last_review_at: Date.parse("2026-10-26T10:00:00.000Z"),
+    });
   });
 });
 

@@ -4,6 +4,7 @@ import { Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { FormError } from "@/components/auth-card";
 import { CardEditor, useCardForm } from "@/components/cards/card-editor";
+import { CardHistory } from "@/components/cards/card-history";
 import { deleteWithUndo } from "@/components/cards/card-toasts";
 import { useDiscardGuard } from "@/components/cards/discard-guard";
 import { ResetProgress } from "@/components/cards/reset-progress";
@@ -33,7 +34,7 @@ const writtenLabel = (createdAt: string) => {
  * The edit page's form for the Card `card` in its Deck `deck` (`/cards/$cardId`):
  * Save, with a Progress reset when Reset progress is ticked on a studied Card,
  * Cancel and Delete, each going back to the Deck, through the discard guard
- * when something is unsaved.
+ * when something is unsaved. The Card's History runs under it.
  */
 export function EditCard({ deck, card }: { deck: Deck; card: Card }) {
   const queryClient = useQueryClient();
@@ -156,6 +157,7 @@ export function EditCard({ deck, card }: { deck: Deck; card: Card }) {
         tags={tags}
         saving={busy}
         onSave={() => void save()}
+        after={<CardHistory cardId={card.id} />}
         beforeFoot={
           <ResetProgress
             card={savingFrom ?? card}

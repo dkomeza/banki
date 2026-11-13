@@ -5,7 +5,7 @@ import { createDeckRepository } from "../repositories/decks";
 import { createFolderRepository } from "../repositories/folders";
 import { createImageRepository, hasImages } from "../repositories/images";
 import { createImportRepository, hasImports } from "../repositories/imports";
-import { hasProgressResets } from "../repositories/progress-resets";
+import { hasProgressResets, resetProgress } from "../repositories/progress-resets";
 import { createReviewRepository, hasReviews } from "../repositories/reviews";
 import { setInitialMacros, setInitialTimezone } from "../repositories/settings";
 import { hasTunings, writeAppliedTuning } from "../repositories/tuning";
@@ -488,40 +488,87 @@ const TAGS: Readonly<Record<string, readonly string[]>> = {
  * The Seed data's Reviews, oldest first, each given this many hours before the
  * seed time, so a fresh Preview has studied Cards (the Reset progress row, and
  * Back to New after a Progress reset) without rating anything first. el
- * desayuno graduated three days ago and lapsed two hours ago, so it is in its
- * learning steps again and Spanish vocabulary's Session shows it first; la cuenta
- * graduated four days ago and is due again; and the edit-card page's Card
- * (`SEED_IDS.card`) took its first Rating nine hours ago. Two are graded with
- * the default Model, for Grader agreement: the edit-card page's Card kept the
- * Grader's suggestion, and el desayuno's lapse was stricter than it. Written
- * through the repository in this order, so they take their places in the
- * Write order.
+ * desayuno was studied over a week from thirteen days ago, then had its
+ * Progress reset four days ago (`PROGRESS_RESETS`), so its history shows
+ * Reviews of both kinds over several days with the reset among them; since
+ * the reset it graduated three days ago and lapsed two hours ago, so it is in
+ * its learning steps again and Spanish vocabulary's Session shows it first. la
+ * cuenta graduated four days ago and is due again; and the edit-card page's
+ * Card (`SEED_IDS.card`) took its first Rating nine hours ago. The graded ones
+ * have the default Model, for Grader agreement and the history: the edit-card
+ * page's Card and two of el desayuno's kept the Grader's suggestion, and two
+ * of el desayuno's were stricter than it. Each has a fixed ID of its own
+ * (`reviewSeedId`), the first six's from before el desayuno's older ones.
  */
 const REVIEWS: readonly {
+  n: number;
   cardId: string;
   hoursAgo: number;
   rating: Rating;
   durationMs: number;
   suggestedRating?: Rating;
 }[] = [
-  { cardId: spanish[1], hoursAgo: 100, rating: "good", durationMs: 6_400 },
-  { cardId: spanish[1], hoursAgo: 99.8, rating: "good", durationMs: 3_100 },
-  { cardId: spanish[0], hoursAgo: 74, rating: "good", durationMs: 5_200 },
-  { cardId: spanish[0], hoursAgo: 73.8, rating: "good", durationMs: 2_700 },
+  { n: 7, cardId: spanish[0], hoursAgo: 13 * 24 + 5, rating: "good", durationMs: 7_400 },
+  { n: 8, cardId: spanish[0], hoursAgo: 13 * 24 + 4.8, rating: "good", durationMs: 3_900 },
   {
+    n: 9,
+    cardId: spanish[0],
+    hoursAgo: 9 * 24 + 2,
+    rating: "easy",
+    durationMs: 4_100,
+    suggestedRating: "easy",
+  },
+  {
+    n: 10,
+    cardId: spanish[0],
+    hoursAgo: 6 * 24 + 7,
+    rating: "hard",
+    durationMs: 120_000,
+    suggestedRating: "hard",
+  },
+  {
+    n: 11,
+    cardId: spanish[0],
+    hoursAgo: 6 * 24 + 6.9,
+    rating: "again",
+    durationMs: 18_600,
+    suggestedRating: "good",
+  },
+  { n: 1, cardId: spanish[1], hoursAgo: 100, rating: "good", durationMs: 6_400 },
+  { n: 2, cardId: spanish[1], hoursAgo: 99.8, rating: "good", durationMs: 3_100 },
+  { n: 3, cardId: spanish[0], hoursAgo: 74, rating: "good", durationMs: 5_200 },
+  { n: 4, cardId: spanish[0], hoursAgo: 73.8, rating: "good", durationMs: 2_700 },
+  {
+    n: 5,
     cardId: calculus2[9],
     hoursAgo: 9,
     rating: "good",
     durationMs: 41_000,
     suggestedRating: "good",
   },
-  { cardId: spanish[0], hoursAgo: 2, rating: "again", durationMs: 9_800, suggestedRating: "hard" },
+  {
+    n: 6,
+    cardId: spanish[0],
+    hoursAgo: 2,
+    rating: "again",
+    durationMs: 9_800,
+    suggestedRating: "hard",
+  },
+];
+
+/**
+ * The Seed data's Progress resets, each this many hours before the seed time:
+ * el desayuno's, after its older Reviews and before the three it has had
+ * since, which the same Ratings from New give its memory state as before.
+ */
+const PROGRESS_RESETS: readonly { id: string; cardId: string; hoursAgo: number }[] = [
+  { id: SEED_IDS.progressReset, cardId: spanish[0], hoursAgo: 96 },
 ];
 
 /** When the Seed data's one Tuning ran: after its Reviews, as a Rating starts one. */
 const TUNING_HOURS_AGO = 1;
 
-/** The fixed ID of the Seed data's `n`th Review. */
+/** The fixed ID of the Seed data's Review `n`. */
 const reviewSeedId = (n: number) =>
   `5eed0000-0000-4000-8000-${(0xe0000000000 + n).toString(16).padStart(12, "0")}`;
 
@@ -884,15 +931,29 @@ export function writeSeedData({
     if ("deckFull" in created) throw new Error(`The seed Card ${id} finds its Deck full`);
   }
 
+  // Reviews and Progress resets are written oldest first, so they take their
+  // places in the Write order as their moments go.
   const reviews = createReviewRepository(db);
-  for (const [n, { cardId, hoursAgo, rating, durationMs, suggestedRating }] of REVIEWS.entries()) {
+  const writes = [
+    ...REVIEWS.map((r) => ({ ...r, reset: false as const })),
+    ...PROGRESS_RESETS.map((r) => ({ ...r, reset: true as const })),
+  ].toSorted((a, b) => b.hoursAgo - a.hoursAgo);
+  for (const write of writes) {
+    const at = new Date(now.getTime() - write.hoursAgo * HOUR_MS);
+    if (write.reset) {
+      if (!resetProgress(db, userId, write.cardId, at, write.id)) {
+        throw new Error(`The seed Progress reset of ${write.cardId} found it New`);
+      }
+      continue;
+    }
+    const { n, cardId, rating, durationMs, suggestedRating } = write;
     const graded =
       suggestedRating === undefined ? {} : { suggestedRating, model: DEFAULT_MODEL_ID };
     const rated = reviews.rate(
       userId,
       cardId,
       { rating, durationMs, ...graded },
-      { id: reviewSeedId(n + 1), now: new Date(now.getTime() - hoursAgo * HOUR_MS) },
+      { id: reviewSeedId(n), now: at },
     );
     if (rated === "not_found") throw new Error(`The seed Review of ${cardId} found no Card`);
   }

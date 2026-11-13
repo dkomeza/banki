@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   CARD_STATES,
+  type CardHistoryEntry,
   DEFAULT_DAY_START_HOUR,
   DEFAULT_DESIRED_RETENTION,
   type RateCardResponse,
@@ -10,7 +11,7 @@ import {
 import { type SQLWrapper, and, desc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Queryable } from "../db/database";
-import { card, deck, review, user_settings } from "../db/schema";
+import { card, deck, progress_reset, review, user_settings } from "../db/schema";
 import type { TimedReview } from "../scheduling/estimate";
 import {
   DEFAULT_PARAMETERS,
@@ -320,6 +321,69 @@ export function createReviewRepository(
       );
       if (rated !== "not_found") onRated?.(userId);
       return rated;
+    },
+
+    /**
+     * The history of the User's Card `cardId` (CONTEXT.md: Review): every
+     * Review of it, from any Deck it was in (ADR-0021), and every Progress
+     * reset of it, newest first in the Write order, never by moments
+     * (ADR-0026). An undone Review is gone (ADR-0025). "not_found" when it
+     * isn't a live Card in a live Deck of the User's.
+     */
+    history(userId: string, cardId: string): CardHistoryEntry[] | "not_found" {
+      return db.transaction((tx) => {
+        const live = tx
+          .select({ id: card.id })
+          .from(card)
+          .innerJoin(deck, eq(deck.id, card.deckId))
+          .where(
+            and(
+              eq(card.userId, userId),
+              eq(card.id, cardId),
+              isNull(card.deletedAt),
+              eq(deck.userId, userId),
+              isNull(deck.deletedAt),
+            ),
+          )
+          .get();
+        if (live === undefined) return "not_found";
+        const reviews = tx
+          .select({
+            seq: review.seq,
+            id: review.id,
+            cardId: review.cardId,
+            deckId: review.deckId,
+            reviewedAt: review.reviewedAt,
+            rating: review.rating,
+            kind: review.kind,
+            suggestedRating: review.suggestedRating,
+            model: review.model,
+            durationMs: review.durationMs,
+          })
+          .from(review)
+          .where(and(eq(review.userId, userId), eq(review.cardId, cardId)))
+          .all();
+        const resets = tx
+          .select({
+            seq: progress_reset.seq,
+            id: progress_reset.id,
+            resetAt: progress_reset.resetAt,
+          })
+          .from(progress_reset)
+          .where(and(eq(progress_reset.userId, userId), eq(progress_reset.cardId, cardId)))
+          .all();
+        const placed: { seq: number; entry: CardHistoryEntry }[] = [
+          ...reviews.map(({ seq, reviewedAt, ...r }) => ({
+            seq,
+            entry: { type: "review" as const, ...r, reviewedAt: reviewedAt.toISOString() },
+          })),
+          ...resets.map(({ seq, id, resetAt }) => ({
+            seq,
+            entry: { type: "progress-reset" as const, id, resetAt: resetAt.toISOString() },
+          })),
+        ];
+        return placed.toSorted((a, b) => b.seq - a.seq).map(({ entry }) => entry);
+      });
     },
   };
 }

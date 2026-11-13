@@ -1,4 +1,5 @@
 import {
+  type CardHistoryResponse,
   CreateCardRequest,
   type DeleteCardsResponse,
   DeleteCardsRequest,
@@ -68,6 +69,9 @@ export function deckCardRoutes({ cards }: { cards: CardRepository }) {
  * `GET /:id/intervals` answers each Rating's Interval preview for a Card as
  * it is now, as `study/next` would show them: the study screen asks for them
  * after a Progress reset.
+ *
+ * `GET /:id/history` answers the Card's history, `CardHistoryResponse`: every
+ * Review and Progress reset of it, newest first in the Write order (ADR-0026).
  */
 export function cardRoutes({
   cards,
@@ -102,6 +106,12 @@ export function cardRoutes({
       const intervals = study.intervals(c.var.user.id, c.req.param("id"));
       if (intervals === "not_found") return c.json(NOT_FOUND, 404);
       return c.json(intervals, 200);
+    })
+    .get("/:id/history", (c) => {
+      const entries = reviews.history(c.var.user.id, c.req.param("id"));
+      if (entries === "not_found") return c.json(NOT_FOUND, 404);
+      const body: CardHistoryResponse = { entries };
+      return c.json(body, 200);
     })
     .get("/:id", (c) => {
       const found = cards.find(c.var.user.id, c.req.param("id"));

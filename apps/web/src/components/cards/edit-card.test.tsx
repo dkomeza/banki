@@ -8,13 +8,19 @@ import {
   createRouter,
 } from "@tanstack/react-router";
 import { EditorView } from "@codemirror/view";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import type { SettingsResponse } from "@banki/shared";
-import { type Card, cardQueryOptions, cardsQueryOptions } from "@/lib/cards";
+import type { CardHistoryEntry, Rating, SettingsResponse } from "@banki/shared";
+import {
+  type Card,
+  cardHistoryQueryOptions,
+  cardQueryOptions,
+  cardsQueryOptions,
+} from "@/lib/cards";
 import { type Deck, decksQueryOptions } from "@/lib/decks";
 import { foldersQueryOptions } from "@/lib/folders";
 import { settingsQueryOptions } from "@/lib/settings";
+import { CardHistory } from "./card-history";
 import { EditCard } from "./edit-card";
 
 const toasts = vi.hoisted(() => ({ shown: [] as string[] }));
@@ -604,5 +610,165 @@ describe("The edit page's discard guard", () => {
     expect(router.state.location.pathname).toBe("/cards/c1");
     expect(resetBox().checked).toBe(true);
     expect(resetBox().disabled).toBe(false);
+  });
+});
+
+// The History's: local times, so the days don't depend on the machine's zone.
+const localOct = (d: number, h: number, min = 0) => new Date(2026, 9, d, h, min).toISOString();
+const review = (
+  id: string,
+  at: string,
+  rating: Rating,
+  graded?: { suggested: Rating },
+  durationMs = 4_000,
+): CardHistoryEntry => ({
+  type: "review",
+  id,
+  cardId: "c1",
+  deckId: "d1",
+  reviewedAt: at,
+  rating,
+  kind: graded === undefined ? "self-rated" : "graded",
+  suggestedRating: graded?.suggested ?? null,
+  model: graded === undefined ? null : "anthropic/claude-haiku-5.5",
+  durationMs,
+});
+const HISTORY: CardHistoryEntry[] = [
+  review("r4", localOct(26, 11), "again", { suggested: "hard" }, 9_800),
+  review("r3", localOct(23, 12), "good"),
+  { type: "progress-reset", id: "p1", resetAt: localOct(22, 14) },
+  review("r2", localOct(20, 7), "hard", { suggested: "hard" }, 120_000),
+  review("r1", localOct(13, 9), "easy"),
+];
+
+/** Answers the Card's history with `history`, or as `respond` says; records each fetch of it. */
+function stubHistory(respond: () => Response | Promise<Response>) {
+  const fetched: string[] = [];
+  const sent = stubApi((method, path) => {
+    if (method === "GET" && path === "/api/cards/c1/history") {
+      fetched.push(path);
+      return respond();
+    }
+    return method === "PATCH" ? json(card(true)) : json([]);
+  });
+  return { fetched, sent };
+}
+
+const historySection = () => screen.getByRole("region", { name: "History" });
+
+describe("The edit page's History", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 9, 26, 13, 0));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  test("runs under the form, newest first, each Review with its time, Rating, kind, a changed suggestion and its time spent, and a Progress reset in its place", async () => {
+    stubHistory(() => json({ entries: HISTORY }));
+    await renderPage(card(true));
+
+    const section = await screen.findByRole("region", { name: "History" });
+    await within(section).findByText("Progress reset");
+
+    const form = document.querySelector("form");
+    expect(form?.compareDocumentPosition(section)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    const days = within(section)
+      .getAllByRole("heading", { level: 3 })
+      .map((h) => h.textContent);
+    expect(days).toEqual(["Today", "Fri 23 Oct", "Thu 22 Oct", "Tue 20 Oct", "Tue 13 Oct"]);
+    const rows = within(section)
+      .getAllByRole("listitem")
+      .map((li) => li.textContent);
+    expect(rows).toEqual([
+      "11:00AgainGraded, suggested Hard10 s",
+      "12:00GoodSelf-rated4 s",
+      "14:00Progress resetStarted over as New. The reviews below came before.",
+      "07:00HardGraded2 min",
+      "09:00EasySelf-rated4 s",
+    ]);
+    // The strip runs from the oldest day to today.
+    expect(within(section).getByText("Tue 13 Oct", { selector: "figcaption span" })).toBeTruthy();
+  });
+
+  test("shows a Card with one Review without the strip", async () => {
+    stubHistory(() => json({ entries: [HISTORY[0]] }));
+    await renderPage(card(true));
+
+    await within(historySection()).findByText("Again");
+    expect(historySection().querySelector("figure")).toBeNull();
+  });
+
+  test("says No reviews yet for a Card with no entries", async () => {
+    stubHistory(() => json({ entries: [] }));
+    await renderPage(card(false));
+
+    expect(await within(historySection()).findByText("No reviews yet")).toBeTruthy();
+  });
+
+  test("says it is loading until the history comes, and the form doesn't wait for it", async () => {
+    let answer: ((res: Response) => void) | undefined;
+    stubHistory(
+      () =>
+        new Promise<Response>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    await renderPage(card(true));
+
+    expect(within(historySection()).getByText("Loading history…")).toBeTruthy();
+    expect(button("Save").hasAttribute("disabled")).toBe(false);
+    await waitFor(() => expect(answer).toBeDefined());
+    answer?.(json({ entries: HISTORY }));
+    expect(await within(historySection()).findByText("Progress reset")).toBeTruthy();
+    expect(within(historySection()).queryByText("Loading history…")).toBeNull();
+  });
+
+  test("fetches it fresh each time the page opens, even with one cached", async () => {
+    const { fetched } = stubHistory(() => json({ entries: [HISTORY[0]] }));
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(cardHistoryQueryOptions("c1").queryKey, HISTORY);
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <CardHistory cardId="c1" />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(fetched).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByText("Progress reset")).toBeNull());
+    expect(screen.getByText("Again")).toBeTruthy();
+  });
+
+  test("that fails to load shows an inline error with Try again, which loads it", async () => {
+    let fails = true;
+    const { fetched } = stubHistory(() =>
+      fails ? json({ code: "internal" }, 500) : json({ entries: HISTORY }),
+    );
+    await renderPage(card(true));
+
+    const section = historySection();
+    expect(await within(section).findByText("Couldn’t load this card’s history.")).toBeTruthy();
+    fails = false;
+    fireEvent.click(within(section).getByText("Try again", { selector: "button" }));
+
+    expect(await within(section).findByText("Progress reset")).toBeTruthy();
+    expect(within(section).queryByText("Try again")).toBeNull();
+    expect(fetched).toHaveLength(2);
+  });
+
+  test("that fails to load leaves the form saving", async () => {
+    const { sent } = stubHistory(() => json({ code: "internal" }, 500));
+    const { router } = await renderPage(card(true));
+    await within(historySection()).findByText("Try again", { selector: "button" });
+
+    fireEvent.click(resetBox());
+    fireEvent.click(button("Save"));
+
+    await onDeck();
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ method: "PATCH", path: "/api/cards/c1" });
+    expect(router.state.location.pathname).toBe("/decks/d1");
   });
 });

@@ -109,3 +109,21 @@ export type ReviewResponse = z.infer<typeof ReviewResponse>;
 /** The body `POST /api/cards/:id/reviews` answers: the Review it recorded, and the Card's new schedule. */
 export const RateCardResponse = z.object({ review: ReviewResponse, schedule: CardSchedule });
 export type RateCardResponse = z.infer<typeof RateCardResponse>;
+
+/**
+ * One entry of a Card's history (CONTEXT.md: Review): a Review, with
+ * `ReviewResponse`'s fields, or a Progress reset, with its moment. Times are
+ * ISO 8601.
+ */
+export const CardHistoryEntry = z.discriminatedUnion("type", [
+  ReviewResponse.extend({ type: z.literal("review") }),
+  z.object({ type: z.literal("progress-reset"), id: z.string(), resetAt: z.iso.datetime() }),
+]);
+export type CardHistoryEntry = z.infer<typeof CardHistoryEntry>;
+
+/**
+ * The body `GET /api/cards/:id/history` answers: every Review and Progress
+ * reset of the Card, newest first in the Write order (ADR-0026).
+ */
+export const CardHistoryResponse = z.object({ entries: z.array(CardHistoryEntry) });
+export type CardHistoryResponse = z.infer<typeof CardHistoryResponse>;

@@ -34,6 +34,8 @@ export const SEED_IDS = {
    * settings show a fit of its own while the other Decks follow the overall one.
    */
   deckTuning: "5eed0000-0000-4000-8000-0000000007a2",
+  /** el desayuno's one Progress reset, among its Reviews, so its history shows one. */
+  progressReset: "5eed0000-0000-4000-8000-0000000005e1",
   folders: {
     languages: "5eed0000-0000-4000-8000-0000000000f1",
     maths: "5eed0000-0000-4000-8000-0000000000f2",
