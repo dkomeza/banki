@@ -100,11 +100,15 @@ function FrontOnPaper({
     setOwn(s);
     onKeep(s);
   };
-  const moveTo = (to: { x: number; y: number }) => setAt(keepOnCanvas(to, canvas));
+  // Kept on the canvas as it moves and as it scales (before it is measured, where it was put).
+  const keep = (to: { x: number; y: number }, w: number, h: number) =>
+    canvas.w > 0 ? keepOnCanvas(to, { w, h }, canvas) : to;
+  const shownAt = keep(at, width, height);
+  const moveTo = (to: { x: number; y: number }) => setAt(keep(to, width, height));
 
   const from = useRef({ at, scale, width, height });
   const begin = () => {
-    from.current = { at, scale, width, height };
+    from.current = { at: shownAt, scale, width, height };
     setLifted(true);
   };
   const end = () => setLifted(false);
@@ -119,7 +123,7 @@ function FrontOnPaper({
     (dx, dy) => {
       const f = from.current;
       const to = scaleFromCorner({ ...f.at, ...f }, corner.current, dx, dy);
-      moveTo(to);
+      setAt({ x: to.x, y: to.y });
       scaleTo(to.scale);
     },
     begin,
@@ -127,6 +131,8 @@ function FrontOnPaper({
   );
 
   const onKey = (event: KeyboardEvent) => {
+    // The browser's own: its zoom (Ctrl/⌘ with + − 0), Back and Forward (Alt with an arrow).
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
     const step = event.shiftKey ? 40 : 8;
     const by: Record<string, [number, number]> = {
       ArrowLeft: [-step, 0],
@@ -143,7 +149,7 @@ function FrontOnPaper({
           : event.key === "0"
             ? 1
             : undefined;
-    if (d !== undefined) moveTo({ x: at.x + d[0], y: at.y + d[1] });
+    if (d !== undefined) moveTo({ x: shownAt.x + d[0], y: shownAt.y + d[1] });
     else if (scaled !== undefined) scaleTo(scaled);
     else return;
     event.preventDefault();
@@ -156,7 +162,7 @@ function FrontOnPaper({
       aria-describedby="front-moves"
       // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- it moves and scales from the keyboard too
       tabIndex={0}
-      style={{ left: at.x, top: at.y, width }}
+      style={{ left: shownAt.x, top: shownAt.y, width }}
       onFocus={() => onSelect(true)}
       onKeyDown={onKey}
       className={cn(
@@ -234,11 +240,13 @@ const FRONT_TEXT =
 
 const CORNERS: readonly Corner[] = ["tl", "tr", "bl", "br"];
 
+// Below 1024 px the left ones reach in, not out, with the dot still on the corner,
+// so the canvas's edge doesn't clip them where the Front starts.
 const CORNER_AT: Record<Corner, string> = {
-  tl: "-top-[22px] -left-[22px] cursor-nwse-resize lg:-top-3 lg:-left-3",
-  tr: "-top-[22px] -right-[22px] cursor-nesw-resize lg:-top-3 lg:-right-3",
-  bl: "-bottom-[22px] -left-[22px] cursor-nesw-resize lg:-bottom-3 lg:-left-3",
-  br: "-right-[22px] -bottom-[22px] cursor-nwse-resize lg:-right-3 lg:-bottom-3",
+  tl: "-top-[22px] -left-3 cursor-nwse-resize justify-start pl-[5px] lg:-top-3 lg:justify-center lg:pl-0",
+  tr: "-top-[22px] -right-[22px] cursor-nesw-resize justify-center lg:-top-3 lg:-right-3",
+  bl: "-bottom-[22px] -left-3 cursor-nesw-resize justify-start pl-[5px] lg:-bottom-3 lg:justify-center lg:pl-0",
+  br: "-right-[22px] -bottom-[22px] cursor-nwse-resize justify-center lg:-right-3 lg:-bottom-3",
 };
 
 /** A corner's handle: small to see, 44 px to touch below 1024 px. */
@@ -249,10 +257,7 @@ function Handle({ drag, className }: { drag: Drag; className: string }) {
       aria-hidden
       data-corner
       title="Drag to scale"
-      className={cn(
-        "absolute z-10 flex size-11 touch-none items-center justify-center lg:size-6",
-        className,
-      )}
+      className={cn("absolute z-10 flex size-11 touch-none items-center lg:size-6", className)}
     >
       <span className="size-3.5 rounded-full border-2 border-primary bg-background shadow-sm lg:size-3" />
     </span>

@@ -87,25 +87,38 @@ describe("scaleFromCorner", () => {
     expect(scaleFromCorner(from, "br", 5000, 0).scale).toBe(FRONT_SCALE.max);
   });
 
-  test("never moves the Front past the canvas's top or left", () => {
+  test("grows a top-left corner past the paper's edge, for keepOnCanvas to bring back", () => {
     const to = scaleFromCorner({ ...from, x: 10, y: 10 }, "tl", -400, 0);
-    expect(to.x).toBe(0);
-    expect(to.y).toBe(0);
+    expect(to.x).toBeCloseTo(-390);
+    expect(to.y).toBeCloseTo(-190);
   });
 });
 
 describe("keepOnCanvas", () => {
   const canvas = { w: 800, h: 600 };
+  const size = { w: 400, h: 200 };
 
   test("leaves a Front on the canvas where it is", () => {
-    expect(keepOnCanvas({ x: 12, y: FRONT_AT.y }, canvas)).toEqual({ x: 12, y: FRONT_AT.y });
+    expect(keepOnCanvas({ x: 12, y: FRONT_AT.y }, size, canvas)).toEqual({ x: 12, y: FRONT_AT.y });
   });
 
-  test("never past the top or the left", () => {
-    expect(keepOnCanvas({ x: -50, y: -10 }, canvas)).toEqual({ x: 0, y: 0 });
+  test("lets it past the top or the left, keeping 48 px of it on the canvas", () => {
+    expect(keepOnCanvas({ x: -50, y: -10 }, size, canvas)).toEqual({ x: -50, y: -10 });
+    expect(keepOnCanvas({ x: -1000, y: -1000 }, size, canvas)).toEqual({ x: -352, y: -152 });
   });
 
-  test("keeps enough of it on the canvas to grab it again", () => {
-    expect(keepOnCanvas({ x: 2000, y: 2000 }, canvas)).toEqual({ x: 752, y: 552 });
+  test("a Front taller than the canvas moves up until its end shows", () => {
+    expect(keepOnCanvas({ x: 0, y: -1400 }, { w: 400, h: 2000 }, canvas)).toEqual({
+      x: 0,
+      y: -1400,
+    });
+  });
+
+  test("a Front smaller than 48 px never goes past the top or the left", () => {
+    expect(keepOnCanvas({ x: -10, y: -10 }, { w: 30, h: 30 }, canvas)).toEqual({ x: 0, y: 0 });
+  });
+
+  test("keeps 48 px of it on the canvas past the right and the bottom", () => {
+    expect(keepOnCanvas({ x: 2000, y: 2000 }, size, canvas)).toEqual({ x: 752, y: 552 });
   });
 });

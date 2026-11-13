@@ -274,6 +274,24 @@ describe("the handwriting layout", () => {
     expect(tools()).not.toBeNull();
   });
 
+  test("with a typed draft standing, Check stays disabled and Ctrl+Enter checks nothing", async () => {
+    const { setHandwriting } = renderScreen({ handwriting: false });
+    const view = await answerEditor();
+    act(() => view.dispatch({ changes: { from: 0, insert: "half" } }));
+    await waitFor(() => expect(check().disabled).toBe(false));
+
+    setHandwriting(true);
+    await shown();
+    expect(check().disabled).toBe(true);
+    fireEvent.keyDown(document.body, { key: "Enter", ctrlKey: true });
+    fireEvent.keyDown(front(), { key: "Enter", ctrlKey: true });
+    fireEvent.keyDown(document.body, { key: "Enter", metaKey: true });
+    await act(async () => {});
+
+    expect(graded).toEqual([]);
+    expect(tools()).not.toBeNull();
+  });
+
   test("without the param the screen is as it is: the answer editor, and no tool bar", async () => {
     renderScreen({ handwriting: false });
     await answerEditor();
@@ -404,6 +422,43 @@ describe("the Front in the handwriting layout", () => {
     await waitFor(() => expect(front().textContent).toContain("c2 front"));
 
     expect(frontScale()).toBeCloseTo(1.1);
+  });
+
+  test("leaves the browser its own keys: Ctrl/⌘ with + − 0, and Alt with an arrow", async () => {
+    layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
+    renderScreen();
+    await shown();
+    act(() => front().focus());
+
+    for (const init of [
+      { key: "+", ctrlKey: true },
+      { key: "-", metaKey: true },
+      { key: "0", ctrlKey: true },
+      { key: "ArrowLeft", altKey: true },
+    ]) {
+      expect(fireEvent.keyDown(front(), init)).toBe(true);
+    }
+    expect(frontScale()).toBe(1);
+    expect(front().style.left).toBe("12px");
+  });
+
+  test("a Front taller than the canvas, even at 40%, drags up until its end shows", async () => {
+    layOut({ canvas: { w: 1440, h: 600 }, natural: 4000 });
+    renderScreen();
+    await shown();
+    // At 40%, 1600 px tall on a 600 px canvas.
+    expect(frontScale()).toBe(0.4);
+
+    fireEvent.pointerDown(front(), { pointerId: 1, button: 0, clientX: 100, clientY: 500 });
+    fireEvent.pointerMove(front(), { pointerId: 1, clientX: 100, clientY: -700 });
+    fireEvent.pointerUp(front(), { pointerId: 1 });
+    expect(front().style.top).toBe("-1172px");
+
+    // No further than leaves 48 px of it on the canvas.
+    fireEvent.pointerDown(front(), { pointerId: 2, button: 0, clientX: 100, clientY: 500 });
+    fireEvent.pointerMove(front(), { pointerId: 2, clientX: 100, clientY: -5000 });
+    fireEvent.pointerUp(front(), { pointerId: 2 });
+    expect(front().style.top).toBe("-1552px");
   });
 
   test("drags and arrow keys move it, but never off the canvas", async () => {
