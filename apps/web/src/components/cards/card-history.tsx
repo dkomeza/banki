@@ -30,7 +30,7 @@ const CHIP: Record<Rating, string> = {
   again: "bg-destructive/12 text-destructive",
   hard: "bg-muted text-foreground ring-1 ring-border",
   good: "bg-foreground/8 text-foreground",
-  easy: "bg-primary/14 text-primary",
+  easy: "bg-primary/10 text-primary",
 };
 
 /** A Review's dot on the rail and its bar in the strip. */
