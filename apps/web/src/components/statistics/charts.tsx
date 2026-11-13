@@ -203,13 +203,6 @@ export function ActivityCalendar({
           }),
         )}
       </svg>
-      {stats.calendar.length === 0 ? (
-        <p className="absolute inset-0 flex items-center justify-center">
-          <span className="rounded-full bg-card px-4 py-1.5 text-sm text-muted-foreground shadow-sm">
-            No reviews in the last 53 weeks
-          </span>
-        </p>
-      ) : null}
       {shown !== undefined && at !== undefined ? (
         <CalendarTooltip
           day={shown}

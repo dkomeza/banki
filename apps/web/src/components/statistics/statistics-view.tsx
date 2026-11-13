@@ -144,15 +144,25 @@ function Activity({ stats }: { stats: Statistics }) {
         The last 53 weeks, whatever the range: {reviewsLabel(total)} on {stats.calendar.length}{" "}
         {stats.calendar.length === 1 ? "day" : "days"}.
       </p>
-      {/* Below desktop the calendar scrolls sideways, opened at this week. */}
-      <div
-        ref={(el) => {
-          if (el !== null) el.scrollLeft = el.scrollWidth;
-        }}
-        className="-mx-5 overflow-x-auto px-5 py-2 [scrollbar-width:thin] sm:-mx-6 sm:px-6 lg:overflow-visible"
-      >
-        <ActivityCalendar stats={stats} className="w-max lg:hidden" />
-        <ActivityCalendar stats={stats} fit className="hidden lg:block" />
+      <div className="relative">
+        {/* Below desktop the calendar scrolls sideways, opened at this week. */}
+        <div
+          ref={(el) => {
+            if (el !== null) el.scrollLeft = el.scrollWidth;
+          }}
+          className="-mx-5 overflow-x-auto px-5 py-2 [scrollbar-width:thin] sm:-mx-6 sm:px-6 lg:overflow-visible"
+        >
+          <ActivityCalendar stats={stats} className="w-max lg:hidden" />
+          <ActivityCalendar stats={stats} fit className="hidden lg:block" />
+        </div>
+        {/* Over the box, not the calendar, so it stays in view however far that scrolls. */}
+        {total === 0 ? (
+          <p className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <span className="rounded-full bg-card px-4 py-1.5 text-sm text-muted-foreground shadow-sm">
+              No reviews in the last 53 weeks
+            </span>
+          </p>
+        ) : null}
       </div>
     </Card>
   );
