@@ -91,14 +91,18 @@ const LABEL_H = 16;
  * Hovering, tapping or focusing a day opens its tooltip, with the date, the
  * Reviews and the minutes; arrow keys move it while the calendar has focus.
  * `fit` scales it to its box's width instead of drawing it at its size.
+ * `labelsFrom` is where its box scrolled to, in its own pixels: a month's
+ * label that would be cut there is left out.
  */
 export function ActivityCalendar({
   stats,
   fit = false,
+  labelsFrom = 0,
   className,
 }: {
   stats: Statistics;
   fit?: boolean;
+  labelsFrom?: number;
   className?: string;
 }) {
   const weeks = useMemo(() => calendarWeeks(stats.to), [stats.to]);
@@ -153,17 +157,19 @@ export function ActivityCalendar({
         onBlur={() => setActive(undefined)}
         className="block rounded-md outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring focus-visible:outline-solid"
       >
-        {months.map(({ label, week }) => (
-          <text
-            key={week}
-            aria-hidden
-            x={LABEL_W + week * STEP}
-            y={10}
-            className="fill-muted-foreground text-[9px]"
-          >
-            {label}
-          </text>
-        ))}
+        {months.map(({ label, week }) =>
+          LABEL_W + week * STEP < labelsFrom ? null : (
+            <text
+              key={week}
+              aria-hidden
+              x={LABEL_W + week * STEP}
+              y={10}
+              className="fill-muted-foreground text-[9px]"
+            >
+              {label}
+            </text>
+          ),
+        )}
         {WEEKDAYS.map((label, d) =>
           label === "" ? null : (
             <text
@@ -301,7 +307,8 @@ export function MinutesBars({
           className="absolute inset-0 size-full overflow-visible"
         >
           {points.map((p, i) => {
-            const h = (p.ms / 60_000 / top) * 100;
+            // A day with any study shows, however little; one with none, as a hairline.
+            const h = Math.max((p.ms / 60_000 / top) * 100, p.ms > 0 ? 1.5 : 0.6);
             return (
               <rect
                 key={p.start}
@@ -310,7 +317,7 @@ export function MinutesBars({
                 x={i * (w + g)}
                 y={100 - h}
                 width={w}
-                height={Math.max(h, p.ms > 0 ? 1.5 : 0.6)}
+                height={h}
                 rx={n > 40 ? 0.8 : 1.5}
                 fill={p.ms > 0 ? "var(--chart-4)" : "var(--border)"}
               >

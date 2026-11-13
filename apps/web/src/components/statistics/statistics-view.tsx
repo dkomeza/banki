@@ -1,5 +1,5 @@
 import type { StatisticsRange } from "@banki/shared";
-import type { ReactNode } from "react";
+import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
 import { Page } from "@/components/page";
 import {
   AGREEMENT,
@@ -136,8 +136,21 @@ function Figure({ value, detail, big = false }: { value: string; detail: string;
   );
 }
 
+/** Where the calendar's box is scrolled to, from the calendar's left edge. */
+const scrolledFrom = (el: HTMLDivElement) =>
+  el.scrollLeft - Number.parseFloat(getComputedStyle(el).paddingLeft);
+
 function Activity({ stats }: { stats: Statistics }) {
   const total = stats.calendar.reduce((sum, d) => sum + d.reviews, 0);
+  const scroller = useRef<HTMLDivElement>(null);
+  const [labelsFrom, setLabelsFrom] = useState(0);
+  // Opened at this week, once: picking a range leaves the calendar where it is.
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (el === null) return;
+    el.scrollLeft = el.scrollWidth;
+    setLabelsFrom(scrolledFrom(el));
+  }, []);
   return (
     <Card id="activity" title="Activity" aside={<CalendarLegend />}>
       <p className="-mt-3 text-sm text-muted-foreground">
@@ -147,12 +160,11 @@ function Activity({ stats }: { stats: Statistics }) {
       <div className="relative">
         {/* Below desktop the calendar scrolls sideways, opened at this week. */}
         <div
-          ref={(el) => {
-            if (el !== null) el.scrollLeft = el.scrollWidth;
-          }}
+          ref={scroller}
+          onScroll={(event) => setLabelsFrom(scrolledFrom(event.currentTarget))}
           className="-mx-5 overflow-x-auto px-5 py-2 [scrollbar-width:thin] sm:-mx-6 sm:px-6 lg:overflow-visible"
         >
-          <ActivityCalendar stats={stats} className="w-max lg:hidden" />
+          <ActivityCalendar stats={stats} labelsFrom={labelsFrom} className="w-max lg:hidden" />
           <ActivityCalendar stats={stats} fit className="hidden lg:block" />
         </div>
         {/* Over the box, not the calendar, so it stays in view however far that scrolls. */}
@@ -187,7 +199,11 @@ function Minutes({ stats }: { stats: Statistics }) {
 function Retention({ stats, deck }: { stats: Statistics; deck: boolean }) {
   const { recalled, total, desiredRetention } = stats.actualRetention;
   const actual = total === 0 ? 0 : (recalled / total) * 100;
-  const by = Math.abs(actual - desiredRetention).toFixed(1);
+  // Compared as shown, to a tenth of a point, so the sentence agrees with the figures.
+  const gap = Math.round(actual * 10) / 10 - Math.round(desiredRetention * 10) / 10;
+  const towards = deck
+    ? "this deck's Desired retention"
+    : "the Desired retention your reviews were scheduled for";
   return (
     <Card id="retention" title="Actual retention">
       {total === 0 ? (
@@ -201,11 +217,9 @@ function Retention({ stats, deck }: { stats: Statistics; deck: boolean }) {
           />
           <RetentionTrack actual={actual} desired={desiredRetention} />
           <p className="text-sm text-muted-foreground">
-            {actual >= desiredRetention ? "Above" : "Below"}{" "}
-            {deck
-              ? "this deck's Desired retention"
-              : "the Desired retention your reviews were scheduled for"}{" "}
-            by {by} points.
+            {Math.abs(gap) < 0.05
+              ? `Right at ${towards}.`
+              : `${gap > 0 ? "Above" : "Below"} ${towards} by ${Math.abs(gap).toFixed(1)} points.`}
           </p>
         </>
       )}
