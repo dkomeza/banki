@@ -1,15 +1,16 @@
 import type { StageKind } from "../cli/args";
 import { type Closing, MAINTAINER } from "./closing";
 import type { StageResult, Variant, Wait } from "./result";
-import { RUNS_IN, STATUS } from "./statuses";
+import { RUNS_IN, STATUS, WATCHED } from "./statuses";
 
 // What comes next on one issue (ADR-0013), from its status, its assignee, its
-// status history, its closing comments and, for the waits, what GitHub says:
+// status history, its closing comments and, for the waits and the pull
+// request's conflicts with `main` (ADR-0035), what GitHub says:
 // a Stage to start, a wait that goes on, a hand-off to the Maintainer, a
 // stop on them, or nothing. No LLM, and no tokens. Pure, so it is
 // unit-tested; tick.ts gathers the facts and acts.
 
-export { RUNS_IN, STATUS } from "./statuses";
+export { RUNS_IN, STATUS, WATCHED } from "./statuses";
 
 /** How long each wait may take (`references/stages.md` § Waits). */
 export const DEADLINES_MS: Record<Wait, number> = {
@@ -54,7 +55,16 @@ export type WaitOn = {
 };
 
 export type ReviewFacts = {
-  pr: { number: number; headSha: string; open: boolean; createdAt: string } | null;
+  pr: {
+    number: number;
+    headSha: string;
+    open: boolean;
+    createdAt: string;
+    /** GitHub says it can't merge into `main`; unset while GitHub works it out. */
+    conflicting?: boolean;
+  } | null;
+  /** When `main`'s tip was committed, read only when the pull request conflicts. */
+  mainAt?: string;
   /** When the head SHA was pushed: its check suite's creation. */
   pushedAt: string | null;
   /** The newest `preview` deployment on the head SHA. */
@@ -95,7 +105,6 @@ export type Decision =
   | { type: "need"; what: "design"; variants: Variant[] };
 
 const MINUTE = 60_000;
-const AGENT_STATUSES: readonly string[] = [STATUS.todo, STATUS.inDesign, STATUS.inReview];
 const short = (sha: string) => sha.slice(0, 7);
 const later = (a: string, b: string | undefined) => (b !== undefined && b > a ? b : a);
 const SIGN_IN =
@@ -103,8 +112,8 @@ const SIGN_IN =
 
 export function decide(issue: IssueFacts, now: Date, facts: Facts = {}): Decision {
   const { status } = issue;
-  if (!AGENT_STATUSES.includes(status)) {
-    return { type: "skip", why: `${status} isn't an agent's status` };
+  if (!WATCHED.includes(status)) {
+    return { type: "skip", why: `the Runner doesn't watch ${status}` };
   }
   const stops = issue.closings.filter((closing) => closing.result.outcome === "stopped");
   const newestStop = stops.at(-1);
@@ -132,7 +141,7 @@ export function decide(issue: IssueFacts, now: Date, facts: Facts = {}): Decisio
   if (
     newest?.result.outcome === "stopped" &&
     newest.result.wait === null &&
-    RUNS_IN[newest.result.stage] === status
+    RUNS_IN[newest.result.stage].includes(status)
   ) {
     return { type: "stage", stage: newest.result.stage, why: "handed back after its stop" };
   }
@@ -141,6 +150,7 @@ export function decide(issue: IssueFacts, now: Date, facts: Facts = {}): Decisio
   if (status === STATUS.todo) return { type: "stage", stage: "implement", why: "Todo" };
   if (status === STATUS.inDesign)
     return inDesign(issue, now, facts.design, facts.designTries, replyAt);
+  if (status === STATUS.acceptance) return inAcceptance(issue, facts.review);
   return inReview(issue, now, facts.review, replyAt);
 }
 
@@ -292,9 +302,7 @@ function inReview(
   }
   if (review === undefined) return { type: "need", what: "review" };
 
-  const pushes = issue.closings.filter(
-    (closing) => closing.result.stage === "implement" || closing.result.stage === "acceptance-fix",
-  );
+  const pushes = issue.closings.filter((closing) => closing.result.stage !== "design");
   // A stop here is on the PR Preview wait, so a reply waits again rather than
   // running a Stage; it names the Stage that last pushed to the PR.
   const pusher = pushes.at(-1)?.result.stage ?? "implement";
@@ -315,6 +323,9 @@ function inReview(
       "Reopen the pull request, then reply here to wait for its PR Preview",
       moveYourself,
     ]);
+  // GitHub builds no PR Preview of a pull request that conflicts.
+  const conflict = onConflict(issue, review);
+  if (conflict !== undefined) return conflict;
   const head = pr.headSha;
   // Without GitHub's check suite, the push is no earlier than the PR, nor than
   // the newest Stage that pushes to it, so the deadline still holds.
@@ -322,7 +333,15 @@ function inReview(
     review.pushedAt ?? pushes.reduce((latest, closing) => later(latest, closing.at), pr.createdAt);
   const pushed = later(pushedAt, replyAt);
 
-  if (issue.history.some((change) => change.to === STATUS.acceptance && change.at > pushedAt)) {
+  // A Rebase Stage that ran in Acceptance ends there again, which is no hand-off.
+  if (
+    issue.history.some(
+      (change) =>
+        change.to === STATUS.acceptance &&
+        change.from !== STATUS.inProgress &&
+        change.at > pushedAt,
+    )
+  ) {
     return stop(
       `\`${short(head)}\` was handed off to Acceptance already, and the issue is back In Review with no new push and no Acceptance fix to make.`,
       [
@@ -366,6 +385,55 @@ function inReview(
       deployments: [{ name: `PR #${pr.number}`, deployment: preview }],
     },
   };
+}
+
+/**
+ * In Acceptance, the issue is the Maintainer's, but for its pull request
+ * conflicting with `main`, which can't be merged until it is rebased.
+ */
+function inAcceptance(issue: IssueFacts, review: ReviewFacts | undefined): Decision {
+  if (review === undefined) return { type: "need", what: "review" };
+  const { pr } = review;
+  if (pr === null || !pr.open)
+    return { type: "skip", why: "it is in Acceptance, with no open pull request" };
+  return (
+    onConflict(issue, review) ?? {
+      type: "skip",
+      why: `it is in Acceptance, and PR #${pr.number} doesn't conflict with main`,
+    }
+  );
+}
+
+/**
+ * The Rebase Stage, when the open pull request conflicts with `main`; or a
+ * stop, when the newest Rebase Stage ended on this head SHA and `main` hasn't
+ * moved since, as it would run again to the same end. Undefined when it
+ * doesn't conflict, or GitHub hasn't said yet.
+ */
+function onConflict(issue: IssueFacts, review: ReviewFacts): Decision | undefined {
+  const { pr, mainAt } = review;
+  if (pr?.conflicting !== true) return undefined;
+  const rebased = issue.closings.findLast((closing) => ran(closing, "rebase"));
+  if (
+    rebased !== undefined &&
+    rebased.result.headSha === pr.headSha &&
+    (mainAt === undefined || mainAt <= rebased.at)
+  ) {
+    return {
+      type: "stop",
+      stop: dispatcherStop(
+        issue,
+        "rebase",
+        null,
+        `The Rebase Stage of ${rebased.at} ended on \`${short(pr.headSha)}\`, and PR #${pr.number} still conflicts with \`main\`, which hasn't moved since.`,
+        [
+          "Reply here: the Runner runs the Rebase Stage again",
+          "Rebase the branch yourself, then reply here",
+        ],
+      ),
+    };
+  }
+  return { type: "stage", stage: "rebase", why: `PR #${pr.number} conflicts with main` };
 }
 
 function dispatcherStop(

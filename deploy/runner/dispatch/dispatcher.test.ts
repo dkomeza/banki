@@ -259,6 +259,46 @@ describe("a tick", () => {
     expect(issue.comments[0]?.body).toContain("https://pr-12.banki.dkomeza.com");
   });
 
+  test("starts the Rebase Stage on a PR that conflicts with main, in Acceptance as In Review", async () => {
+    const conflicting = fakeGitHub({
+      pr: {
+        number: 12,
+        headSha: HEAD,
+        open: true,
+        createdAt: "2026-10-20T00:00:00.000Z",
+        conflicting: true,
+      },
+      mainAt: "2026-10-21T11:00:00.000Z",
+    });
+    const issues = [
+      fakeIssue("BAN-1", { status: "Acceptance" }),
+      fakeIssue("BAN-2", { status: "In Review" }),
+    ];
+    const { deps, started, linear } = dispatcher(issues, { github: conflicting });
+
+    await tick(deps);
+
+    expect(started.map((start) => [start.issue, start.kind])).toEqual([
+      ["BAN-1", "rebase"],
+      ["BAN-2", "rebase"],
+    ]);
+    expect(linear.calls).toEqual([]);
+  });
+
+  test("leaves an Acceptance issue alone while its PR merges cleanly", async () => {
+    const github = fakeGitHub({
+      pr: { number: 12, headSha: HEAD, open: true, createdAt: "2026-10-20T00:00:00.000Z" },
+    });
+    const { deps, started, linear } = dispatcher([fakeIssue("BAN-1", { status: "Acceptance" })], {
+      github,
+    });
+
+    await tick(deps);
+
+    expect(started).toEqual([]);
+    expect(linear.calls).toEqual([]);
+  });
+
   test("reads the PR of the issue's branch on origin, under whoever's prefix started it", async () => {
     // Linear names the branch after whoever asks: the Runner's app, here.
     const issue = fakeIssue("BAN-1", {

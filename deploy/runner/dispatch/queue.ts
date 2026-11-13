@@ -20,7 +20,12 @@ export type Ready = {
   resume?: boolean;
 };
 
-const CLOSEST_TO_DONE = [STATUS.inReview, STATUS.todo, STATUS.inDesign] as string[];
+const CLOSEST_TO_DONE = [
+  STATUS.acceptance,
+  STATUS.inReview,
+  STATUS.todo,
+  STATUS.inDesign,
+] as string[];
 const rank = (ready: Ready) => {
   const status = CLOSEST_TO_DONE.indexOf(ready.status);
   return status === -1 ? CLOSEST_TO_DONE.length : status;

@@ -107,7 +107,7 @@ export function github(token: () => Promise<string>, options: { fetch?: Fetch } 
   }
 
   return {
-    /** What the In Review waits read, on the branch's pull request. */
+    /** What the In Review waits and the conflict watch read, on the branch's pull request. */
     async review(branch: string): Promise<ReviewFacts> {
       const pulls = asArray(
         await get(
@@ -128,6 +128,23 @@ export function github(token: () => Promise<string>, options: { fetch?: Fetch } 
       };
       if (!pr.open) return { ...empty, pr };
 
+      // Only a single pull request says whether it merges: false is a
+      // conflict, and null that GitHub is still working it out.
+      const single = asObject(await get(`/repos/${REPO}/pulls/${number}`), "pull");
+      const conflicting = single.mergeable === false;
+      const mainAt = conflicting
+        ? asString(
+            asObject(
+              asObject(
+                asObject(await get(`/repos/${REPO}/commits/main`), "commit").commit,
+                "commit",
+              ).committer,
+              "commit.committer",
+            ).date,
+            "commit.committer.date",
+          )
+        : undefined;
+
       const suites = (
         await pages(
           `/repos/${REPO}/commits/${headSha}/check-suites?per_page=100`,
@@ -146,7 +163,8 @@ export function github(token: () => Promise<string>, options: { fetch?: Fetch } 
       const newest = deployments[0];
 
       return {
-        pr,
+        pr: { ...pr, conflicting },
+        ...(mainAt === undefined ? {} : { mainAt }),
         pushedAt: suites[0] ?? null,
         preview:
           newest === undefined

@@ -16,7 +16,7 @@ import { type Closing, MAINTAINER } from "./closing";
 import { type ActiveRecord, reconcile, type StageRecord } from "./lifecycle";
 import { type LinearIssue, moveTo } from "./linear";
 import { isUrgent, plan, type Ready, type Verdict } from "./queue";
-import { type Decision, STATUS } from "./select";
+import { type Decision, STATUS, WATCHED } from "./select";
 import { openSession, type Session, type SessionDeps } from "./session";
 import type { Start } from "./spawn";
 import { renderStatus, type StatusView } from "./status";
@@ -31,8 +31,6 @@ import { inWindow, localTime } from "./window";
 // urgent issue skips), the cap and the gate allow, and tidies up. `runner
 // run-now` and `runner status` share it, and the Dashboard shares `runner
 // status`'s view.
-
-const AGENT_STATUSES: readonly string[] = [STATUS.todo, STATUS.inDesign, STATUS.inReview];
 
 export type Housekeeper = {
   logFiles: () => { path: string; modified: Date }[];
@@ -134,7 +132,7 @@ async function dispatch(session: Session, deps: DispatcherDeps): Promise<void> {
  * whether an issue was missing or in another status.
  */
 function openIssuesLine(issues: readonly LinearIssue[]): string {
-  const named: readonly string[] = [...AGENT_STATUSES, STATUS.inProgress];
+  const named: readonly string[] = [...WATCHED, STATUS.inProgress];
   const byStatus = new Map<string, LinearIssue[]>();
   for (const issue of issues)
     byStatus.set(issue.status, [...(byStatus.get(issue.status) ?? []), issue]);
@@ -314,7 +312,7 @@ function ended(record: ActiveRecord, outcome: StageRecord["outcome"], now: Date)
 type Surveyed = { issue: LinearIssue; decision: Decision };
 
 /**
- * Each agent-status issue's decision. With `act`, the moves that cost no
+ * Each watched issue's decision. With `act`, the moves that cost no
  * tokens are made: a hand-back, the hand-offs and the stops.
  */
 async function survey(
@@ -328,7 +326,7 @@ async function survey(
   const ready: Ready[] = [];
   const surveyed: Surveyed[] = [];
   for (const issue of issues) {
-    if (active.has(issue.identifier) || !AGENT_STATUSES.includes(issue.status)) continue;
+    if (active.has(issue.identifier) || !WATCHED.includes(issue.status)) continue;
     try {
       const decision = await decideIssue(session, deps, issue, now, options.act);
       surveyed.push({ issue, decision });
@@ -554,8 +552,8 @@ export async function runNow(
       } else {
         if (issue.status === STATUS.inProgress)
           return { why: "it is In Progress, and no supervisor of the Runner started it" };
-        if (!AGENT_STATUSES.includes(issue.status))
-          return { why: `${issue.status} isn't an agent's status` };
+        if (!WATCHED.includes(issue.status))
+          return { why: `the Runner doesn't watch ${issue.status}` };
         const decision = await decideIssue(session, deps, issue, now, true);
         if (decision.type !== "stage") return { why: describe(decision) };
         ready.push({

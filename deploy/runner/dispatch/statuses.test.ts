@@ -11,6 +11,9 @@ describe("a result's next status", () => {
     ["design", "stopped", "In Design"],
     ["implement", "stopped", "Todo"],
     ["acceptance-fix", "stopped", "In Review"],
+    ["rebase", "done", "In Review"],
+    ["rebase", "done", "Acceptance"],
+    ["rebase", "stopped", "Acceptance"],
   ] as const)("is %s %s: %s", (stage, outcome, nextStatus) => {
     expect(badNextStatus({ stage, outcome, nextStatus })).toBeUndefined();
   });
@@ -47,5 +50,8 @@ describe("a result's next status", () => {
     expect(
       badNextStatus({ stage: "design", outcome: "done", nextStatus: "Design Review" }),
     ).toBeDefined();
+    expect(badNextStatus({ stage: "rebase", outcome: "done", nextStatus: "Todo" })).toContain(
+      "leaves the issue in In Review or Acceptance",
+    );
   });
 });

@@ -119,7 +119,7 @@ const stopOf = (decision: Decision) => {
 };
 
 describe("whose move it is", () => {
-  test.each([STATUS.backlog, STATUS.designReview, STATUS.acceptance, "Done", "Canceled"])(
+  test.each([STATUS.backlog, STATUS.designReview, "Done", "Canceled"])(
     "nothing starts in %s",
     (status) => {
       expect(decide(issue({ status }), NOW).type).toBe("skip");
@@ -592,6 +592,128 @@ describe("In Review", () => {
     });
 
     expect(decision).toMatchObject({ type: "wait", on: { wait: "pr-preview", since: ago(5) } });
+  });
+});
+
+const conflicting = (fields: Partial<ReviewFacts> = {}) =>
+  review({
+    pr: { number: 12, headSha: HEAD, open: true, createdAt: ago(600), conflicting: true },
+    preview: null,
+    mainAt: ago(40),
+    ...fields,
+  });
+const inAcceptance = (fields: Partial<IssueFacts> = {}) =>
+  issue({
+    status: STATUS.acceptance,
+    history: [
+      moved(ago(300), STATUS.inProgress, STATUS.inReview),
+      moved(ago(200), STATUS.inReview, STATUS.acceptance),
+    ],
+    ...fields,
+  });
+const rebased = (at: string, fields: Record<string, unknown> = {}) =>
+  closing(at, { stage: "rebase", nextStatus: STATUS.inReview, headSha: HEAD, ...fields });
+
+describe("a pull request that conflicts with main", () => {
+  test("is rebased In Review, before the PR Preview wait, which GitHub never builds for it", () => {
+    expect(decide(inReview(), NOW, { review: conflicting() })).toEqual({
+      type: "stage",
+      stage: "rebase",
+      why: "PR #12 conflicts with main",
+    });
+  });
+
+  test("is rebased in Acceptance too, and an Acceptance issue that merges cleanly is left alone", () => {
+    expect(decide(inAcceptance(), NOW).type).toBe("need");
+    expect(stageOf(decide(inAcceptance(), NOW, { review: conflicting() }))).toBe("rebase");
+    expect(decide(inAcceptance(), NOW, { review: review() })).toMatchObject({ type: "skip" });
+    expect(decide(inAcceptance(), NOW, { review: review({ pr: null }) })).toMatchObject({
+      type: "skip",
+    });
+  });
+
+  test("isn't rebased while GitHub hasn't said, nor while the Maintainer holds the issue", () => {
+    expect(decide(inReview(), NOW, { review: review() }).type).toBe("hand-off");
+    expect(
+      decide(inAcceptance({ assigneeId: MAINTAINER.linearId }), NOW, { review: conflicting() }),
+    ).toMatchObject({ type: "skip", held: true });
+  });
+
+  test("leaves a move back from Acceptance to the Acceptance fix, which rebases first", () => {
+    const history = [moved(ago(300), STATUS.acceptance, STATUS.inReview)];
+
+    expect(stageOf(decide(inReview({ history }), NOW, { review: conflicting() }))).toBe(
+      "acceptance-fix",
+    );
+  });
+
+  test("is rebased again once main has moved since the newest Rebase Stage on this head", () => {
+    expect(
+      stageOf(decide(inReview({ closings: [rebased(ago(60))] }), NOW, { review: conflicting() })),
+    ).toBe("rebase");
+    const other = rebased(ago(20), { headSha: "b".repeat(40) });
+    expect(stageOf(decide(inReview({ closings: [other] }), NOW, { review: conflicting() }))).toBe(
+      "rebase",
+    );
+  });
+
+  test("stops when the newest Rebase Stage ended on this head and main hasn't moved since", () => {
+    const stop = stopOf(
+      decide(inAcceptance({ closings: [rebased(ago(20))] }), NOW, { review: conflicting() }),
+    );
+
+    expect(stop).toMatchObject({ stage: "rebase", wait: null, nextStatus: STATUS.acceptance });
+    expect(stop.summary).toContain("still conflicts");
+  });
+
+  test("runs the Rebase Stage again on a reply to its stop, in Acceptance as In Review", () => {
+    const stopped = closing(
+      ago(20),
+      { stage: "rebase", outcome: "stopped", nextStatus: STATUS.acceptance },
+      [{ createdAt: ago(5) }],
+    );
+
+    expect(decide(inAcceptance({ closings: [stopped] }), NOW)).toEqual({
+      type: "stage",
+      stage: "rebase",
+      why: "handed back after its stop",
+    });
+  });
+
+  test("restarts a PR Preview wait on a reply, and rebases when the PR conflicts", () => {
+    const waitStop = closing(
+      ago(50),
+      { stage: "implement", outcome: "stopped", nextStatus: STATUS.inReview, wait: "pr-preview" },
+      [{ createdAt: ago(5) }],
+    );
+
+    expect(
+      stageOf(decide(inReview({ closings: [waitStop] }), NOW, { review: conflicting() })),
+    ).toBe("rebase");
+  });
+
+  test("a Rebase Stage in Acceptance is no hand-off, and its push is the one the PR Preview waits on", () => {
+    const history = [
+      moved(ago(300), STATUS.inProgress, STATUS.inReview),
+      moved(ago(200), STATUS.inReview, STATUS.acceptance),
+      moved(ago(40), STATUS.acceptance, STATUS.inProgress),
+      moved(ago(20), STATUS.inProgress, STATUS.acceptance),
+      moved(ago(10), STATUS.acceptance, STATUS.inReview),
+    ];
+    const fix = closing(ago(5), { stage: "acceptance-fix", nextStatus: STATUS.inReview });
+    const failed = { state: "failure", description: "", url: null };
+
+    expect(
+      decide(inReview({ history, closings: [fix] }), NOW, { review: review({ pushedAt: ago(30) }) })
+        .type,
+    ).toBe("hand-off");
+    expect(
+      stopOf(
+        decide(inReview({ closings: [rebased(ago(20))] }), NOW, {
+          review: review({ preview: failed }),
+        }),
+      ),
+    ).toMatchObject({ stage: "rebase", wait: "pr-preview" });
   });
 });
 

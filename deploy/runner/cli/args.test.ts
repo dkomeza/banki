@@ -25,7 +25,7 @@ describe("runner's arguments", () => {
   test("refuse a kind with no prompt, naming the kinds", () => {
     expect(parseArgs(["stage", "deploy", "BAN-1"])).toEqual({
       command: "error",
-      message: "No Stage deploy: it is one of design, implement, acceptance-fix.",
+      message: "No Stage deploy: it is one of design, implement, acceptance-fix, rebase.",
     });
   });
 

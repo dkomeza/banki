@@ -24,6 +24,7 @@ const ESTIMATES: Record<StageKind, number> = {
   design: 0.05,
   implement: 0.1,
   "acceptance-fix": 0.04,
+  rebase: 0.02,
 };
 const base = {
   resumes: [],

@@ -40,6 +40,7 @@ export function ledger(stages: readonly StageRecord[], active: readonly ActiveRe
     design: of("design"),
     implement: of("implement"),
     "acceptance-fix": of("acceptance-fix"),
+    rebase: of("rebase"),
   };
   return { costs, estimates };
 }

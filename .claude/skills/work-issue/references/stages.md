@@ -2,11 +2,12 @@
 
 A **Stage** (`CONTEXT.md`) is one piece of work on an issue, run to its end in one go. There is one prompt per kind:
 
-| Stage          | Prompt                                                       | Runs in   | Done leaves the issue in | What comes next                                                                 |
-| -------------- | ------------------------------------------------------------ | --------- | ------------------------ | ------------------------------------------------------------------------------- |
-| Design         | [`../stages/design.md`](../stages/design.md)                 | In Design | In Design                | Once every Variant's Slug Preview is up, the hand-off moves it to Design Review |
-| Implement      | [`../stages/implement.md`](../stages/implement.md)           | Todo      | In Review                | Once the PR Preview is up, the hand-off moves it to Acceptance                  |
-| Acceptance fix | [`../stages/acceptance-fix.md`](../stages/acceptance-fix.md) | In Review | In Review                | The PR Preview, then Acceptance again                                           |
+| Stage          | Prompt                                                       | Runs in                                                    | Done leaves the issue in | What comes next                                                                 |
+| -------------- | ------------------------------------------------------------ | ---------------------------------------------------------- | ------------------------ | ------------------------------------------------------------------------------- |
+| Design         | [`../stages/design.md`](../stages/design.md)                 | In Design                                                  | In Design                | Once every Variant's Slug Preview is up, the hand-off moves it to Design Review |
+| Implement      | [`../stages/implement.md`](../stages/implement.md)           | Todo                                                       | In Review                | Once the PR Preview is up, the hand-off moves it to Acceptance                  |
+| Acceptance fix | [`../stages/acceptance-fix.md`](../stages/acceptance-fix.md) | In Review                                                  | In Review                | The PR Preview, then Acceptance again                                           |
+| Rebase         | [`../stages/rebase.md`](../stages/rebase.md)                 | In Review or Acceptance, when the PR conflicts with `main` | Where it ran             | In Review, the PR Preview; in Acceptance, the Maintainer again                  |
 
 A Stage runs **live** when `/work-issue` runs it, in a session with the Maintainer, and **headless** when the Runner runs it (`claude -p`), with no one to ask. The prompts are the same for both; where they differ, this file says how. The waits and hand-offs between Stages belong to whoever runs them: the Dispatcher headless, `/work-issue`'s live mode live.
 
@@ -33,7 +34,7 @@ Take input only from:
 
 ## Hand-offs
 
-**The hand-off** is the moment the issue last moved into Design Review or Acceptance, read from its status history. "The comments since the hand-off" are the Maintainer's comments created after it.
+**The hand-off** is the moment the issue last moved into Design Review or Acceptance, read from its status history. A move from In Progress is none: a Rebase Stage in Acceptance ends there again. "The comments since the hand-off" are the Maintainer's comments created after it.
 
 Each hand-off is a top-level comment posted just before the issue moves, so it is never among the comments since the hand-off. The Dispatcher posts it headless, and live mode posts the same one live:
 
@@ -75,7 +76,7 @@ A Stage that runs again after a stop picks up from what origin holds, and from t
 - **dirty**: `git status --porcelain` prints anything;
 - **ahead**: `git rev-list origin/<branch>..HEAD` lists commits;
 - **behind**: `git rev-list HEAD..origin/<branch>` lists commits;
-- **rebased under**: ahead, but every local commit was on origin once, and an Acceptance fix has rebased origin since (`acceptance-fix.md` § 5): `git rev-list HEAD --not $(git reflog --format=%H origin/<branch>)` lists nothing.
+- **rebased under**: ahead, but every local commit was on origin once, and an Acceptance fix or a Rebase Stage has rebased origin since (`acceptance-fix.md` § 5, `rebase.md`): `git rev-list HEAD --not $(git reflog --format=%H origin/<branch>)` lists nothing.
 
 | State                                                                                      | What to do                                                      |
 | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------- |
@@ -161,11 +162,11 @@ Each Stage ends by writing `<wt>/.ui/stage-result.json` (gitignored; the next St
 
 | Field         | What it holds                                                                                                                                   |
 | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `stage`       | `design`, `implement` or `acceptance-fix`                                                                                                       |
+| `stage`       | `design`, `implement`, `acceptance-fix` or `rebase`                                                                                             |
 | `issue`       | The issue's identifier                                                                                                                          |
 | `outcome`     | `done`, or `stopped` when it stopped on the Maintainer                                                                                          |
 | `summary`     | Markdown, a few lines: what the Stage did and what comes next. It goes in the Stage's closing comment                                           |
-| `nextStatus`  | The status the issue goes to: live, the one the Stage set; headless, the one the Dispatcher sets                                                |
+| `nextStatus`  | The status the issue goes to: live, the one the Stage set; headless, the one the Dispatcher sets (for `rebase`, the one it ran from)            |
 | `question`    | The question it stopped on, or `null`                                                                                                           |
 | `options`     | A stop's options, the recommended one first, or `[]`                                                                                            |
 | `keptCommits` | A stop's local commits that aren't pushed, each `{ "sha", "worktree" }`, or `[]`                                                                |

@@ -2,7 +2,7 @@
 // through the `runner` wrapper on PATH, so a merged change applies on the next
 // tick. Pure, so it is unit-tested.
 
-export const STAGE_KINDS = ["design", "implement", "acceptance-fix"] as const;
+export const STAGE_KINDS = ["design", "implement", "acceptance-fix", "rebase"] as const;
 export type StageKind = (typeof STAGE_KINDS)[number];
 
 export type Command =
