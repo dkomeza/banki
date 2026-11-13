@@ -1,6 +1,8 @@
-# b: Diary
+# e: Diary, indexed by the strip
 
-Bet: the history reads like the deck page's timeline, on the page itself rather than in a card: a run per day under its day heading, each entry's time in the margin and hanging on a rail by a dot in its Rating's colour; a Rating is a tinted chip (Again in the danger colour, Easy in the accent), with Graded or Self-rated (and "suggested Hard" when changed) beside it and the time spent at the right. A Progress reset is a box in the accent on the rail, and the rail runs dashed under it, through the Reviews from before it. No count.
+Bet: b's timeline, headed by c's strip split into the timeline's own days: each day a cluster of bars (a Review as tall as its Rating, a Progress reset a dashed break) over its short date, oldest to newest. Each day's cluster is a link to its run in the timeline, whose heading lights up in the accent when it lands, so the strip is a map of the list as well as a picture of the Card's life. Many days scroll sideways, opening at the newest. No count.
+
+Builds on: b (Diary), with the strip from c (Strip).
 
 States: history, single, empty, history-error
 
