@@ -8,11 +8,13 @@ import { type CardHistoryEntry, durationLabel, useCardHistory } from "@/lib/hist
 import { RATING_LABELS } from "@/lib/study";
 import { cn } from "@/lib/utils";
 
-// PROTOTYPE (BAN-52), Variant b: Diary. The history reads like the deck
-// page's timeline, on the page itself rather than in a card: a run per day,
-// its time in the margin, each entry hanging on a rail by a dot. A Rating
-// is a tinted chip. A Progress reset is a node on the rail in the accent,
-// and the rail runs dashed under it, through the Reviews it started over.
+// PROTOTYPE (BAN-52), Variant d: Diary with the strip. Variant b's timeline
+// (a run per day, its time in the margin, each entry hanging on a rail by a
+// dot, a Rating as a tinted chip, a Progress reset an accent node with the
+// rail dashed under it), headed by Variant c's strip: every entry oldest to
+// newest, a Review a bar as tall as its Rating, a Progress reset a break.
+// The strip sits on the rail, so the two read as one; the bars and the dots
+// share their colours.
 
 const at = (entry: CardHistoryEntry) =>
   entry.type === "review" ? entry.reviewedAt : entry.resetAt;
@@ -24,12 +26,15 @@ const CHIP: Record<Rating, string> = {
   easy: "bg-primary/14 text-primary",
 };
 
+/** A Review's dot on the rail and its bar in the strip. */
 const DOT: Record<Rating, string> = {
   again: "bg-destructive",
-  hard: "bg-muted-foreground",
-  good: "bg-foreground",
+  hard: "bg-foreground/40",
+  good: "bg-foreground/75",
   easy: "bg-primary",
 };
+
+const LEVEL: Record<Rating, number> = { again: 1, hard: 2, good: 3, easy: 4 };
 
 /** Entries already newest first, in runs of one day each. */
 function byDay(entries: readonly CardHistoryEntry[]) {
@@ -87,28 +92,71 @@ export function CardHistory({ cardId }: { cardId: string }) {
           <span className="text-muted-foreground">No reviews yet</span>
         </Note>
       ) : (
-        byDay(entries).map(({ day, items }) => (
-          <section key={day} aria-label={day}>
-            <div className="flex gap-3 sm:gap-4">
-              <span aria-hidden className={TIME_COL} />
-              <h3
-                className={cn(
-                  "relative border-l pt-3 pb-2 pl-6 text-xs font-semibold tracking-[0.08em] text-muted-foreground uppercase sm:pl-8",
-                  items[0]?.before && "border-dashed",
-                )}
-              >
-                {day}
-              </h3>
-            </div>
-            <ol>
-              {items.map(({ entry, before }) => (
-                <Entry key={entry.id} entry={entry} before={before} />
-              ))}
-            </ol>
-          </section>
-        ))
+        <>
+          <Strip entries={entries} />
+          {byDay(entries).map(({ day, items }) => (
+            <section key={day} aria-label={day}>
+              <div className="flex gap-3 sm:gap-4">
+                <span aria-hidden className={TIME_COL} />
+                <h3
+                  className={cn(
+                    "relative border-l pt-3 pb-2 pl-6 text-xs font-semibold tracking-[0.08em] text-muted-foreground uppercase sm:pl-8",
+                    items[0]?.before && "border-dashed",
+                  )}
+                >
+                  {day}
+                </h3>
+              </div>
+              <ol>
+                {items.map(({ entry, before }) => (
+                  <Entry key={entry.id} entry={entry} before={before} />
+                ))}
+              </ol>
+            </section>
+          ))}
+        </>
       )}
     </section>
+  );
+}
+
+/** Every entry oldest to newest, as bars: a Review as tall as its Rating, a Progress reset a break. */
+function Strip({ entries }: { entries: readonly CardHistoryEntry[] }) {
+  const oldest = entries.at(-1);
+  const newest = entries[0];
+  // One entry is no picture: the timeline says it all.
+  if (oldest === undefined || newest === undefined || entries.length < 2) return null;
+  const from = dayLabel(at(oldest));
+  const to = dayLabel(at(newest));
+  return (
+    <div className="flex gap-3 sm:gap-4">
+      <span aria-hidden className={TIME_COL} />
+      <figure className="flex min-w-0 flex-1 flex-col gap-1.5 border-l pt-1 pb-3 pl-6 sm:pl-8">
+        <div aria-hidden className="flex h-12 items-end gap-1 border-b pb-px">
+          {entries.toReversed().map((entry) =>
+            entry.type === "review" ? (
+              <span
+                key={entry.id}
+                className={cn("w-3 max-w-6 flex-1 rounded-t-[3px]", DOT[entry.rating])}
+                style={{ height: `${LEVEL[entry.rating] * 25}%` }}
+              />
+            ) : (
+              <span
+                key={entry.id}
+                className="mx-1.5 flex h-full flex-col items-center justify-between text-primary"
+              >
+                <RotateCcw className="size-3" />
+                <span className="w-px flex-1 border-l border-dashed border-primary" />
+              </span>
+            ),
+          )}
+        </div>
+        <figcaption className="flex justify-between gap-3 text-xs text-muted-foreground">
+          <span>{from}</span>
+          {to !== from && <span>{to}</span>}
+        </figcaption>
+      </figure>
+    </div>
   );
 }
 
