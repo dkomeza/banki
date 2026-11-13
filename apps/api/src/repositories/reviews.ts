@@ -372,19 +372,17 @@ export function createReviewRepository(
           .from(progress_reset)
           .where(and(eq(progress_reset.userId, userId), eq(progress_reset.cardId, cardId)))
           .all();
-        const entries: (CardHistoryEntry & { seq: number })[] = [
-          ...reviews.map((r) => ({
-            ...r,
-            type: "review" as const,
-            reviewedAt: r.reviewedAt.toISOString(),
+        const placed: { seq: number; entry: CardHistoryEntry }[] = [
+          ...reviews.map(({ seq, reviewedAt, ...r }) => ({
+            seq,
+            entry: { type: "review" as const, ...r, reviewedAt: reviewedAt.toISOString() },
           })),
-          ...resets.map((r) => ({
-            ...r,
-            type: "progress-reset" as const,
-            resetAt: r.resetAt.toISOString(),
+          ...resets.map(({ seq, id, resetAt }) => ({
+            seq,
+            entry: { type: "progress-reset" as const, id, resetAt: resetAt.toISOString() },
           })),
         ];
-        return entries.toSorted((a, b) => b.seq - a.seq).map(({ seq: _, ...entry }) => entry);
+        return placed.toSorted((a, b) => b.seq - a.seq).map(({ entry }) => entry);
       });
     },
   };

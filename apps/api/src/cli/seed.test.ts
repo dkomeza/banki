@@ -533,6 +533,14 @@ describe("banki seed's Import", () => {
   });
 });
 
+/** One of el desayuno's graded Reviews, as stored. */
+const gradedDesayuno = (rating: string, suggested: string) => ({
+  card_id: SEED_IDS.cards.spanish[0],
+  rating,
+  suggested_rating: suggested,
+  model: DEFAULT_MODEL_ID,
+});
+
 describe("banki seed's Reviews", () => {
   test("studies el desayuno, la cuenta and the edit-card page's Card, el desayuno shown first", async () => {
     await setup();
@@ -583,18 +591,12 @@ describe("banki seed's Reviews", () => {
       .all();
     sqlite.close();
 
-    const desayuno = (rating: string, suggested: string) => ({
-      card_id: SEED_IDS.cards.spanish[0],
-      rating,
-      suggested_rating: suggested,
-      model: DEFAULT_MODEL_ID,
-    });
     expect(graded).toEqual([
-      desayuno("easy", "easy"),
-      desayuno("hard", "hard"),
-      desayuno("again", "good"),
+      gradedDesayuno("easy", "easy"),
+      gradedDesayuno("hard", "hard"),
+      gradedDesayuno("again", "good"),
       { card_id: SEED_IDS.card, rating: "good", suggested_rating: "good", model: DEFAULT_MODEL_ID },
-      desayuno("again", "hard"),
+      gradedDesayuno("again", "hard"),
     ]);
   });
 
