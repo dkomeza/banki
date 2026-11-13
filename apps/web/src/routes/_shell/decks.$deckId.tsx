@@ -1,6 +1,14 @@
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
-import { CornerDownRight, FileDown, FileUp, Pencil, Settings2, Trash2 } from "lucide-react";
+import {
+  ChartColumn,
+  CornerDownRight,
+  FileDown,
+  FileUp,
+  Pencil,
+  Settings2,
+  Trash2,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { DeckMacros } from "@/components/cards/deck-macros";
 import { deleteAllWithUndo, showMovedToast } from "@/components/cards/card-toasts";
@@ -42,7 +50,7 @@ import { cn } from "@/lib/utils";
 // the Deck's stack, its cover on top, beside the name and the whole
 // description, a line saying when it was created, how many Cards it has and
 // the Desired retention it schedules with (a link to its settings page), the
-// Study card (what Study will bring, StudyCard), and Edit, Settings, Import, Export
+// Study card (what Study will bring, StudyCard), and Edit, Settings, Statistics, Import, Export
 // (a download of the Deck as a zip), Move… and
 // Delete under them. Edit opens the same dialog as
 // create; Delete asks in a dialog, naming how many Cards go with it. The Cards follow below, on a timeline (CardTimeline), searched and
@@ -207,6 +215,15 @@ function DeckBody({ deck }: { deck: Deck }) {
             >
               <Settings2 aria-hidden />
               Settings
+            </Button>
+            <Button
+              variant="outline"
+              className={cn(OUTLINE_PILL, "h-11 text-foreground no-underline")}
+              render={<Link to="/decks/$deckId/statistics" params={{ deckId: deck.id }} />}
+              nativeButton={false}
+            >
+              <ChartColumn aria-hidden />
+              Statistics
             </Button>
             <Button
               variant="outline"
