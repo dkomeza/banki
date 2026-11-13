@@ -1,6 +1,8 @@
-# b: Diary
+# f: Summary over the Diary
 
-Bet: the history reads like the deck page's timeline, on the page itself rather than in a card: a run per day under its day heading, each entry's time in the margin and hanging on a rail by a dot in its Rating's colour; a Rating is a tinted chip (Again in the danger colour, Easy in the accent), with Graded or Self-rated (and "suggested Hard" when changed) beside it and the time spent at the right. A Progress reset is a box in the accent on the rail, and the rail runs dashed under it, through the Reviews from before it. No count.
+Bet: the section opens on a card laid out like the form above it, "History" in its label margin, holding the Card's life at a glance: its counts (Reviews, Since the reset, Graded of all, First day) over c's strip. Under the card, b's timeline on the page as it was. Loading, a failure with Try again, and "No reviews yet" stay inside the card, with no timeline under it.
+
+Builds on: b (Diary), with the strip from c (Strip).
 
 States: history, single, empty, history-error
 
