@@ -1,6 +1,6 @@
 # Rebase Stage
 
-Rebases the issue's pull request onto `main` once it conflicts with it (ADR-0030). The Dispatcher runs it In Review, where GitHub builds no PR Preview of a conflicting pull request, and in Acceptance, where the Maintainer can't merge one. It leaves the issue where it ran. Only the Runner runs it: live, the Acceptance-fix Stage's § 5 rebases the same way.
+Rebases the issue's pull request onto `main` once it conflicts with it (ADR-0035). The Dispatcher runs it In Review, where GitHub builds no PR Preview of a conflicting pull request, and in Acceptance, where the Maintainer can't merge one. It leaves the issue where it ran. Only the Runner runs it: live, the Acceptance-fix Stage's § 5 rebases the same way.
 
 Follow [`../references/stages.md`](../references/stages.md) (paths, input, questions and stops, the result) throughout. It changes nothing the spec asks for: only what keeping both `main`'s change and the issue's takes.
 

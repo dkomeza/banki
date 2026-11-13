@@ -5,7 +5,7 @@ import { RUNS_IN, STATUS, WATCHED } from "./statuses";
 
 // What comes next on one issue (ADR-0013), from its status, its assignee, its
 // status history, its closing comments and, for the waits and the pull
-// request's conflicts with `main` (ADR-0030), what GitHub says:
+// request's conflicts with `main` (ADR-0035), what GitHub says:
 // a Stage to start, a wait that goes on, a hand-off to the Maintainer, a
 // stop on them, or nothing. No LLM, and no tokens. Pure, so it is
 // unit-tested; tick.ts gathers the facts and acts.
