@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { PR_PREVIEW_RESOURCES, slugPreviewLimits } from "./config";
-import { HEALTH_ATTEMPTS, type DeployAction, confirm, deploy } from "./deploy";
+import {
+  HEALTH_ATTEMPTS,
+  PANGOLIN_RETRY_DELAYS_MS,
+  type DeployAction,
+  confirm,
+  deploy,
+} from "./deploy";
 import { type ComposeTarget, setupInvocation } from "./docker";
 import type { PreviewKey } from "./naming";
 import { PangolinError } from "./pangolin";
@@ -52,7 +58,7 @@ function fakes(results: Partial<Record<Step, RunResult | RunResult[]>> = {}) {
     const queue = queues.get(step) ?? [];
     return Promise.resolve(queue.length > 1 ? (queue.shift() ?? ok()) : (queue[0] ?? ok()));
   };
-  let pangolinError: unknown;
+  let pangolinErrors: unknown[] = [undefined];
   const services = {
     github: {
       setStatus: (id: number, state: string, description: string, url?: string) => {
@@ -68,7 +74,8 @@ function fakes(results: Partial<Record<Step, RunResult | RunResult[]>> = {}) {
     pangolin: {
       createOrKeep: (key: PreviewKey) => {
         log.push(`pangolin createOrKeep ${key}`);
-        return pangolinError === undefined ? Promise.resolve() : Promise.reject(pangolinError);
+        const error = pangolinErrors.length > 1 ? pangolinErrors.shift() : pangolinErrors[0];
+        return error === undefined ? Promise.resolve() : Promise.reject(error);
       },
     },
     docker: {
@@ -110,8 +117,9 @@ function fakes(results: Partial<Record<Step, RunResult | RunResult[]>> = {}) {
       latest = states;
     },
     sleeps: () => sleeps,
-    failPangolin: (error: unknown) => {
-      pangolinError = error;
+    /** What createOrKeep throws, one call after another (undefined: it passes); the last repeats. */
+    failPangolin: (...errors: unknown[]) => {
+      pangolinErrors = errors;
     },
   };
 }
@@ -302,6 +310,47 @@ describe("deploy", () => {
     expect(withStatus.log).toContain("status 7 failure Pangolin: host taken");
     expect(network.log).toContain("status 7 failure Pangolin: couldn't create the resource");
     expect([...withStatus.log, ...network.log].join("\n")).not.toMatch(/secret body|ECONNREFUSED/);
+  });
+
+  test("a Pangolin call lost in an uplink stall is tried again, and the deploy succeeds", async () => {
+    const fake = fakes();
+    fake.failPangolin(
+      new Error("The operation timed out."),
+      new PangolinError("PUT /org/x/public-resource: HTTP 502 Bad Gateway", 502),
+      undefined,
+    );
+
+    await deploy(deployAction(), fake.services);
+
+    expect(fake.log.filter((line) => line === "pangolin createOrKeep 5")).toHaveLength(3);
+    expect(fake.sleeps()).toBe(2);
+    expect(fake.log).not.toContain("docker stop aaaaaaa");
+    expect(fake.log).toContain(`status 7 success deployed aaaaaaa ${URL}`);
+  });
+
+  test("a Pangolin call that never comes back fails it once every retry is spent", async () => {
+    const fake = fakes();
+    fake.failPangolin(new Error("connect ETIMEDOUT 10.0.0.1:443"));
+
+    await deploy(deployAction(), fake.services);
+
+    expect(fake.log.filter((line) => line === "pangolin createOrKeep 5")).toHaveLength(
+      PANGOLIN_RETRY_DELAYS_MS.length + 1,
+    );
+    expect(fake.sleeps()).toBe(PANGOLIN_RETRY_DELAYS_MS.length);
+    expect(fake.log).toContain("status 7 failure Pangolin: couldn't create the resource");
+  });
+
+  test("a Pangolin refusal won't pass by itself, so it fails at once", async () => {
+    for (const status of [409, 401, 400]) {
+      const fake = fakes();
+      fake.failPangolin(new PangolinError(`PUT /org/x/public-resource: HTTP ${status}`, status));
+
+      await deploy(deployAction(), fake.services);
+
+      expect(fake.log.filter((line) => line === "pangolin createOrKeep 5")).toHaveLength(1);
+      expect(fake.sleeps()).toBe(0);
+    }
   });
 
   test("an unexpected error gives a fixed reason, and its text stays in the agent's log", async () => {

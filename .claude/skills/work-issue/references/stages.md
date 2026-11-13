@@ -46,10 +46,12 @@ An issue is handed off to Acceptance at most once per head SHA. Back In Review w
 
 Every wait has a deadline. Live, it is a background `until` loop; headless, the Dispatcher checks it on each tick, without spending tokens. A wait that reaches a failure state, or its deadline, has failed: headless, that is a stop on the Maintainer saying what happened, and their reply in its thread restarts the wait; live, ask the Maintainer what to do, with the options the wait names. The push time is GitHub's check suite on the head SHA. A deadline counts from the Maintainer's reply to a stop instead, when that is later.
 
+A Variant's Slug Preview that reaches `failure` is dispatched again before the wait fails, up to twice since the design closing comment or the Maintainer's newest reply, within the deadline: most failures are the home server's uplink stalling, and pass. Live, do the same with `gh workflow run slug-preview.yml -f branch=<branch>-proto-<key> -f slug=<slug> -f ttl_hours=336`. Headless, the Maintainer's reply to the stop that follows dispatches the failed ones again.
+
 | Wait                                                                   | Done when                                 | Fails on                                                    | Deadline                                |
 | ---------------------------------------------------------------------- | ----------------------------------------- | ----------------------------------------------------------- | --------------------------------------- |
 | Each Variant's Slug Preview is claimed (`design.md` § 3)               | Its deployment exists                     | No deployment, and the dispatch's `slug-preview` run failed | 15 min after the dispatch               |
-| Each Variant's Slug Preview is up (`ui.md` § Live mode: Design Review) | Its newest deployment status is `success` | `failure` or `inactive`                                     | 60 min after the design closing comment |
+| Each Variant's Slug Preview is up (`ui.md` § Live mode: Design Review) | Its newest deployment status is `success` | `failure` after two more dispatches, or `inactive`          | 60 min after the design closing comment |
 | The head SHA's PR Preview is up (`SKILL.md` § Live mode)               | Its newest deployment status is `success` | `failure` or `inactive`                                     | 60 min after the push                   |
 
 ## Builders

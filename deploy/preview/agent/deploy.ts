@@ -246,22 +246,42 @@ export async function checkHealthOf(
   }
 }
 
+// The home server's uplink stalls now and then, for seconds or minutes, and a
+// Pangolin call in a stall times out or loses its connection. The Preview is
+// up by then, so the call is tried again over about five minutes rather than
+// failing the whole deploy. createOrKeep is safe to repeat: it keeps the
+// resource it owns, and replaces an orphan a cut-short try left behind.
+export const PANGOLIN_RETRY_DELAYS_MS = [5_000, 15_000, 30_000, 60_000, 60_000, 60_000];
+
+/** Whether a Pangolin failure may pass by itself: no answer at all, or a 5xx. */
+const transient = (error: unknown) => !(error instanceof PangolinError) || error.status >= 500;
+
 /**
- * Creates or keeps the Preview's Pangolin resource. A 409 is its host taken by
- * a resource the agent doesn't own, which it never touches.
+ * Creates or keeps the Preview's Pangolin resource, trying a transient failure
+ * again after each of {@link PANGOLIN_RETRY_DELAYS_MS}. A 409 is its host taken
+ * by a resource the agent doesn't own, which it never touches.
  */
 async function route(services: Services, key: PreviewKey): Promise<void> {
-  try {
-    await services.pangolin.createOrKeep(key);
-  } catch (error) {
-    console.error(`${projectName(key)}: Pangolin: ${errorText(error)}`);
-    throw new DeployFailure(
-      !(error instanceof PangolinError)
-        ? "Pangolin: couldn't create the resource"
-        : error.status === 409
-          ? "Pangolin: host taken"
-          : `Pangolin: couldn't create the resource (HTTP ${error.status})`,
-    );
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await services.pangolin.createOrKeep(key);
+      return;
+    } catch (error) {
+      console.error(`${projectName(key)}: Pangolin: ${errorText(error)}`);
+      const delay = PANGOLIN_RETRY_DELAYS_MS[attempt];
+      if (delay !== undefined && transient(error)) {
+        console.log(`${projectName(key)}: trying Pangolin again in ${delay / 1000} s`);
+        await services.sleep(delay);
+        continue;
+      }
+      throw new DeployFailure(
+        !(error instanceof PangolinError)
+          ? "Pangolin: couldn't create the resource"
+          : error.status === 409
+            ? "Pangolin: host taken"
+            : `Pangolin: couldn't create the resource (HTTP ${error.status})`,
+      );
+    }
   }
 }
 

@@ -64,7 +64,17 @@ export type ReviewFacts = {
 /** Each Variant's newest `slug-preview` deployment at its commit, by Slug. */
 export type DesignFacts = Record<string, Deployment | null>;
 
-export type Facts = { review?: ReviewFacts; design?: DesignFacts };
+/** When each of a Variant's `slug-preview` deployments at its commit was made, by Slug. */
+export type DesignTries = Record<string, string[]>;
+
+export type Facts = { review?: ReviewFacts; design?: DesignFacts; designTries?: DesignTries };
+
+/**
+ * How many times the Dispatcher dispatches a failed Slug Preview again, since
+ * the round or the Maintainer's newest reply to a stop, before it stops on
+ * them. Most failures are the home server's uplink stalling, and pass.
+ */
+export const SLUG_REDEPLOYS = 2;
 
 /** A Dispatcher-made stop: the result its closing comment holds. */
 export type Stop = Omit<StageResult, "outcome"> & { outcome: "stopped" };
@@ -78,6 +88,8 @@ export type Decision =
   | { type: "wait"; why: string; on?: WaitOn }
   | { type: "hand-off"; to: string; comment: string }
   | { type: "stop"; stop: Stop }
+  /** Dispatch these Variants' Slug Previews again, then go on waiting. */
+  | { type: "redeploy"; why: string; variants: Variant[] }
   /** The facts from GitHub this issue's decision needs. */
   | { type: "need"; what: "review" }
   | { type: "need"; what: "design"; variants: Variant[] };
@@ -127,7 +139,8 @@ export function decide(issue: IssueFacts, now: Date, facts: Facts = {}): Decisio
   const replyAt = newestStop?.replies.at(-1)?.createdAt;
 
   if (status === STATUS.todo) return { type: "stage", stage: "implement", why: "Todo" };
-  if (status === STATUS.inDesign) return inDesign(issue, now, facts.design, replyAt);
+  if (status === STATUS.inDesign)
+    return inDesign(issue, now, facts.design, facts.designTries, replyAt);
   return inReview(issue, now, facts.review, replyAt);
 }
 
@@ -160,6 +173,7 @@ function inDesign(
   issue: IssueFacts,
   now: Date,
   design: DesignFacts | undefined,
+  tries: DesignTries | undefined,
   replyAt: string | undefined,
 ): Decision {
   const entered =
@@ -176,27 +190,61 @@ function inDesign(
   const { variants } = round.result;
   if (design === undefined) return { type: "need", what: "design", variants };
 
-  const stop = (summary: string): Decision => ({
+  const stop = (summary: string, options: string[]): Decision => ({
     type: "stop",
     stop: dispatcherStop(issue, "design", "slug-previews", summary, [
-      "Dispatch the Slug Preview again (`gh workflow run slug-preview.yml -f branch=<branch> -f slug=<slug> -f ttl_hours=336`), then reply here to wait again",
-      "Reply here to wait another 60 minutes",
+      ...options,
       "Move the issue to Design Review yourself, without the Runner's hand-off",
     ]),
   });
   if (variants.length === 0)
-    return stop("The design Stage's result lists no Variants, so there is nothing to wait for.");
+    return stop(
+      "The design Stage's result lists no Variants, so there is nothing to wait for.",
+      [],
+    );
 
-  const pending: string[] = [];
+  // The deadline and the retries both count from the round, or from the
+  // Maintainer's newest reply to a stop: a reply starts them over.
+  const since = later(round.at, replyAt);
+  const late = now.getTime() > Date.parse(since) + DEADLINES_MS["slug-previews"];
+  const redeploysOf = (variant: Variant) =>
+    (tries?.[variant.slug] ?? []).filter((at) => at > since).length;
+  const pending: Variant[] = [];
+  const failed: Variant[] = [];
   for (const variant of variants) {
     const deployment = design[variant.slug] ?? null;
     if (deployment?.state === "success") continue;
-    if (deployment?.state === "failure" || deployment?.state === "inactive") {
+    if (deployment?.state === "inactive") {
+      // Taken down, or past its time to live: dispatching it again is the
+      // Maintainer's call.
       return stop(
-        `The Slug Preview \`${variant.slug}\` at \`${short(variant.commit)}\` is ${deployment.state}${deployment.description === "" ? "" : `: ${deployment.description}`}.`,
+        `The Slug Preview \`${variant.slug}\` at \`${short(variant.commit)}\` is inactive${deployment.description === "" ? "" : `: ${deployment.description}`}.`,
+        [`${dispatchAgain([variant])}, then reply here to wait for it`],
       );
     }
-    pending.push(`\`${variant.slug}\` (${deployment?.state ?? "no deployment yet"})`);
+    (deployment?.state === "failure" ? failed : pending).push(variant);
+  }
+
+  if (failed.length > 0) {
+    if (!late && failed.every((variant) => redeploysOf(variant) < SLUG_REDEPLOYS)) {
+      return {
+        type: "redeploy",
+        why: `dispatching again the failed Slug Previews: ${failed.map((variant) => `\`${variant.slug}\` (${design[variant.slug]?.description || "failure"})`).join(", ")}`,
+        variants: failed,
+      };
+    }
+    const summaries = failed.map((variant) => {
+      const description = design[variant.slug]?.description ?? "";
+      const redeploys = redeploysOf(variant);
+      const after =
+        redeploys === 0
+          ? ""
+          : `, after the Runner dispatched it again ${redeploys === 1 ? "once" : `${redeploys} times`}`;
+      return `The Slug Preview \`${variant.slug}\` at \`${short(variant.commit)}\` is failure${description === "" ? "" : `: ${description}`}${after}.`;
+    });
+    return stop(summaries.join(" "), [
+      "Reply here: the Runner dispatches the failed Slug Previews again and waits for them",
+    ]);
   }
   if (pending.length === 0) {
     return {
@@ -205,16 +253,18 @@ function inDesign(
       comment: designHandOff(issue, round.result, design),
     };
   }
-  const since = later(round.at, replyAt);
-  const deadline = Date.parse(since) + DEADLINES_MS["slug-previews"];
-  if (now.getTime() > deadline) {
+  const states = pending.map(
+    (variant) => `\`${variant.slug}\` (${design[variant.slug]?.state ?? "no deployment yet"})`,
+  );
+  if (late) {
     return stop(
-      `The Slug Previews weren't up ${DEADLINES_MS["slug-previews"] / MINUTE} minutes after the design Stage ended: ${pending.join(", ")}.`,
+      `The Slug Previews weren't up ${DEADLINES_MS["slug-previews"] / MINUTE} minutes after the design Stage ended: ${states.join(", ")}.`,
+      ["Reply here to wait another 60 minutes", `${dispatchAgain(pending)}, then reply here`],
     );
   }
   return {
     type: "wait",
-    why: `waiting for the Slug Previews: ${pending.join(", ")}`,
+    why: `waiting for the Slug Previews: ${states.join(", ")}`,
     on: {
       wait: "slug-previews",
       since,
@@ -351,6 +401,15 @@ export function prototypeQuestion(description: string): string | undefined {
 }
 
 const previewUrl = (slug: string) => `https://${slug}.banki.dkomeza.com`;
+
+/** "Dispatch it again (`gh workflow run …`)", with each Variant's own command. */
+const dispatchAgain = (variants: readonly Variant[]) => {
+  const commands = variants.map(
+    (variant) =>
+      `\`gh workflow run slug-preview.yml -f branch=${variant.branch} -f slug=${variant.slug} -f ttl_hours=336\``,
+  );
+  return `Dispatch ${variants.length === 1 ? "it" : "them"} again (${commands.join(", ")})`;
+};
 
 function designHandOff(issue: IssueFacts, result: StageResult, design: DesignFacts): string {
   const question = prototypeQuestion(issue.description);

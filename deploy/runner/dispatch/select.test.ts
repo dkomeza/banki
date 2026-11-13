@@ -7,6 +7,7 @@ import {
   type IssueFacts,
   prototypeQuestion,
   type ReviewFacts,
+  SLUG_REDEPLOYS,
   STATUS,
   type Transition,
 } from "./select";
@@ -304,13 +305,28 @@ describe("In Design", () => {
     expect(decision.comment).toEndWith("@dkomeza");
   });
 
-  test("stops when a Slug Preview failed", () => {
+  const failed = {
+    state: "failure",
+    description: "Pangolin: couldn't create the resource",
+    url: null,
+  };
+
+  test("dispatches a failed Slug Preview again, rather than stopping on the Maintainer", () => {
+    const decision = decide(inDesign({ closings: [round(ago(10))] }), NOW, {
+      design: { "ban-7-a": up, "ban-7-b": failed },
+      designTries: { "ban-7-a": [ago(15)], "ban-7-b": [ago(15)] },
+    });
+
+    if (decision.type !== "redeploy") throw new Error(`expected a redeploy, got ${decision.type}`);
+    expect(decision.variants.map((redeployed) => redeployed.slug)).toEqual(["ban-7-b"]);
+    expect(decision.why).toContain("Pangolin: couldn't create the resource");
+  });
+
+  test(`stops once the Runner dispatched it again ${SLUG_REDEPLOYS} times since the round`, () => {
     const stop = stopOf(
-      decide(inDesign({ closings: [round(ago(10))] }), NOW, {
-        design: {
-          "ban-7-a": up,
-          "ban-7-b": { state: "failure", description: "build failed", url: null },
-        },
+      decide(inDesign({ closings: [round(ago(30))] }), NOW, {
+        design: { "ban-7-a": up, "ban-7-b": failed },
+        designTries: { "ban-7-b": [ago(35), ago(20), ago(10)] },
       }),
     );
 
@@ -319,17 +335,55 @@ describe("In Design", () => {
       wait: "slug-previews",
       nextStatus: STATUS.inDesign,
     });
-    expect(stop.summary).toContain("`ban-7-b`");
-    expect(stop.summary).toContain("build failed");
+    expect(stop.summary).toBe(
+      "The Slug Preview `ban-7-b` at `bbbbbbb` is failure: Pangolin: couldn't create the resource, after the Runner dispatched it again 2 times.",
+    );
+    expect(stop.options[0]).toContain("the Runner dispatches the failed Slug Previews again");
+  });
+
+  test("a reply to the stop starts the retries over", () => {
+    const stopped = closing(
+      ago(25),
+      { stage: "design", outcome: "stopped", nextStatus: STATUS.inDesign, wait: "slug-previews" },
+      [{ createdAt: ago(5) }],
+    );
+    const decision = decide(inDesign({ closings: [round(ago(30)), stopped] }), NOW, {
+      design: { "ban-7-a": up, "ban-7-b": failed },
+      designTries: { "ban-7-b": [ago(35), ago(20), ago(10)] },
+    });
+
+    expect(decision.type).toBe("redeploy");
+  });
+
+  test("stops on a failure past the deadline, however few the retries", () => {
+    const decision = decide(inDesign({ closings: [round(ago(61))] }), NOW, {
+      design: { "ban-7-a": up, "ban-7-b": failed },
+      designTries: { "ban-7-b": [ago(65)] },
+    });
+
+    expect(stopOf(decision).summary).toContain("`ban-7-b`");
+  });
+
+  test("stops on a Slug Preview gone inactive, with the command that brings it back", () => {
+    const stop = stopOf(
+      decide(inDesign({ closings: [round(ago(10))] }), NOW, {
+        design: { "ban-7-a": up, "ban-7-b": { state: "inactive", description: "", url: null } },
+      }),
+    );
+
+    expect(stop.summary).toContain("is inactive");
+    expect(stop.options[0]).toContain(
+      "`gh workflow run slug-preview.yml -f branch=dkomeza/ban-7-x-proto-b -f slug=ban-7-b -f ttl_hours=336`",
+    );
   });
 
   test("stops when they aren't up 60 minutes after the design closing comment", () => {
     const facts = { design: { "ban-7-a": up, "ban-7-b": null } };
 
     expect(decide(inDesign({ closings: [round(ago(59))] }), NOW, facts).type).toBe("wait");
-    expect(stopOf(decide(inDesign({ closings: [round(ago(61))] }), NOW, facts)).summary).toContain(
-      "60 minutes",
-    );
+    const stop = stopOf(decide(inDesign({ closings: [round(ago(61))] }), NOW, facts));
+    expect(stop.summary).toContain("60 minutes");
+    expect(stop.options.join("\n")).toContain("-f branch=dkomeza/ban-7-x-proto-b -f slug=ban-7-b");
   });
 
   test("counts the deadline from the hand-back reply when that is later", () => {

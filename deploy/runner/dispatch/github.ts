@@ -205,6 +205,14 @@ export function github(token: () => Promise<string>, options: { fetch?: Fetch } 
       });
     },
 
+    /** Asks slug-preview.yml, from `main`, to deploy `branch`'s head as a Slug Preview again, for the design Stage's 336 hours. */
+    async deploySlug(branch: string, slug: string): Promise<void> {
+      await call("POST", `/repos/${REPO}/actions/workflows/slug-preview.yml/dispatches`, {
+        ref: "main",
+        inputs: { branch, slug, ttl_hours: "336" },
+      });
+    },
+
     /** Asks slug-preview.yml, from `main`, to take a Slug Preview down. */
     async takeDown(slug: string): Promise<void> {
       await call("POST", `/repos/${REPO}/actions/workflows/slug-preview.yml/dispatches`, {
