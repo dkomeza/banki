@@ -44,6 +44,7 @@ describe("leafRoutes", () => {
       "/decks/$deckId/cards/new",
       "/decks/$deckId/import",
       "/decks/$deckId/settings",
+      "/decks/$deckId/statistics",
       "/decks/$deckId/study",
       "/deleted",
       "/folders/$folderId",
@@ -51,6 +52,7 @@ describe("leafRoutes", () => {
       "/login",
       "/settings",
       "/setup",
+      "/statistics",
     ]);
   });
 

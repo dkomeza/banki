@@ -12,6 +12,7 @@ import { hasTunings, writeAppliedTuning } from "../repositories/tuning";
 import { DEFAULT_PARAMETERS } from "../scheduling/fsrs";
 import { DECK_CARDS_MAX, DEFAULT_MODEL_ID, type Rating } from "@banki/shared";
 
+import { HISTORY_DAYS, historySeed } from "./history";
 import { SEED_IDS, SEED_TIMEZONE, fullDeckCardId } from "./seed-ids";
 
 export { SEED_IDS, SEED_TIMEZONE } from "./seed-ids";
@@ -51,7 +52,7 @@ const FOLDERS = [
 ] as const;
 
 /**
- * The six Decks, in their Folders (Organic chemistry at the Root), each created this many days before the seed time, so the
+ * The seven Decks, in their Folders (Organic chemistry and World capitals at the Root), each created this many days before the seed time, so the
  * Alphabetical and Newest sorts differ: some with a description and some
  * without, one description with line breaks, one name close to the 100
  * characters a name may have, and "Calculus 2" before "Calculus 10" only in
@@ -93,6 +94,13 @@ const DECKS = [
     daysAgo: 9,
     name: "Spanish numbers",
     description: "One to a thousand, written out: a Deck as full as a Deck gets.",
+  },
+  {
+    id: SEED_IDS.decks.capitals,
+    folderId: null,
+    daysAgo: HISTORY_DAYS + 5,
+    name: "World capitals",
+    description: "A country on the front, its capital on the back: four months of study.",
   },
   {
     id: SEED_IDS.decks.calculus10,
@@ -931,32 +939,41 @@ export function writeSeedData({
     if ("deckFull" in created) throw new Error(`The seed Card ${id} finds its Deck full`);
   }
 
-  // Reviews and Progress resets are written oldest first, so they take their
-  // places in the Write order as their moments go.
+  // Reviews and Progress resets are written oldest first, and World capitals'
+  // history around them, so each takes its place in the Write order as its
+  // moment goes.
   const reviews = createReviewRepository(db);
   const writes = [
     ...REVIEWS.map((r) => ({ ...r, reset: false as const })),
     ...PROGRESS_RESETS.map((r) => ({ ...r, reset: true as const })),
   ].toSorted((a, b) => b.hoursAgo - a.hoursAgo);
-  for (const write of writes) {
-    const at = new Date(now.getTime() - write.hoursAgo * HOUR_MS);
-    if (write.reset) {
-      if (!resetProgress(db, userId, write.cardId, at, write.id)) {
-        throw new Error(`The seed Progress reset of ${write.cardId} found it New`);
+  let written = 0;
+  const writeUntil = (until: Date) => {
+    for (; written < writes.length; written++) {
+      const write = writes[written];
+      if (write === undefined) break;
+      const at = new Date(now.getTime() - write.hoursAgo * HOUR_MS);
+      if (at >= until) return;
+      if (write.reset) {
+        if (!resetProgress(db, userId, write.cardId, at, write.id)) {
+          throw new Error(`The seed Progress reset of ${write.cardId} found it New`);
+        }
+        continue;
       }
-      continue;
+      const { n, cardId, rating, durationMs, suggestedRating } = write;
+      const graded =
+        suggestedRating === undefined ? {} : { suggestedRating, model: DEFAULT_MODEL_ID };
+      const rated = reviews.rate(
+        userId,
+        cardId,
+        { rating, durationMs, ...graded },
+        { id: reviewSeedId(n), now: at },
+      );
+      if (rated === "not_found") throw new Error(`The seed Review of ${cardId} found no Card`);
     }
-    const { n, cardId, rating, durationMs, suggestedRating } = write;
-    const graded =
-      suggestedRating === undefined ? {} : { suggestedRating, model: DEFAULT_MODEL_ID };
-    const rated = reviews.rate(
-      userId,
-      cardId,
-      { rating, durationMs, ...graded },
-      { id: reviewSeedId(n), now: at },
-    );
-    if (rated === "not_found") throw new Error(`The seed Review of ${cardId} found no Card`);
-  }
+  };
+  historySeed(db, userId, now, reviews, writeUntil);
+  writeUntil(now);
 
   fullDeckSeed(db, userId, now);
 

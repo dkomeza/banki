@@ -1,16 +1,24 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "@tanstack/react-router";
-import { ChevronRight, House, type LucideIcon, Settings, UserRound } from "lucide-react";
+import {
+  ChartColumn,
+  ChevronRight,
+  House,
+  type LucideIcon,
+  Settings,
+  UserRound,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { Logo } from "@/components/logo";
 import { Toaster } from "@/components/ui/sonner";
 import { meQueryOptions } from "@/lib/me";
 
-type NavItem = { to: "/" | "/settings"; label: string; icon: LucideIcon };
+type NavItem = { to: "/" | "/statistics" | "/settings"; label: string; icon: LucideIcon };
 
 // Only real destinations. Later screens add theirs here.
 const NAV: readonly NavItem[] = [
   { to: "/", label: "Home", icon: House },
+  { to: "/statistics", label: "Statistics", icon: ChartColumn },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
 
@@ -47,7 +55,7 @@ function Sidebar() {
             <li key={to}>
               <Link
                 to={to}
-                activeOptions={{ exact: true }}
+                activeOptions={{ exact: true, includeSearch: false }}
                 {...activeProps(to, pathname)}
                 className="flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-sm text-sidebar-foreground no-underline transition-colors motion-reduce:transition-none outline-none hover:bg-sidebar-accent focus-visible:outline-2 focus-visible:outline-sidebar-ring focus-visible:outline-solid aria-[current=page]:bg-sidebar-accent aria-[current=page]:font-medium aria-[current=page]:text-sidebar-primary"
               >
@@ -97,7 +105,7 @@ function TabBar() {
           <Link
             key={to}
             to={to}
-            activeOptions={{ exact: true }}
+            activeOptions={{ exact: true, includeSearch: false }}
             {...activeProps(to, pathname)}
             className="flex flex-1 flex-col items-center justify-center gap-0.5 rounded-lg text-xs font-medium text-muted-foreground no-underline transition-colors motion-reduce:transition-none outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid aria-[current=page]:text-primary"
           >
