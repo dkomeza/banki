@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { CardFileCard } from "./card-file";
 import { type CardFileProblem, formatProblems } from "./card-file-parser";
-import { DECK_CARDS_MAX } from "./decks";
+import { DECK_CARDS_MAX } from "./deck-limit";
 
 // An Import (CONTEXT.md, ADR-0026): the API reads a Card file into an
 // unconfirmed Import, the preview shows it, and confirming it adds the ticked

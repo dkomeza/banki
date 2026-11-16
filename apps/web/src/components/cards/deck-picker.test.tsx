@@ -16,6 +16,7 @@ const deck = (id: string, name: string, cardCount: number): Deck => ({
   macros: [],
   answerMode: null,
   plan: null,
+  cardPrompt: { language: "", count: null, difficulty: "intermediate", instructions: "" },
 });
 
 const card = (id: string): Card => ({

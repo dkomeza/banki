@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CardPromptOptions } from "./card-prompt";
+import { DECK_CARDS_MAX } from "./deck-limit";
 import { Macro, MacroList } from "./macros";
 import { PlanResponse } from "./plans";
 import { DesiredRetention } from "./scheduling";
@@ -21,11 +22,7 @@ export const deckAnswerMode = (
   followed: AnswerMode,
 ): AnswerMode => deck.answerMode ?? followed;
 
-/**
- * The most live Cards a Deck holds (ADR-0034): its Cards in Recently deleted
- * don't count. The import's own limit, so every Deck's export imports back.
- */
-export const DECK_CARDS_MAX = 1_000;
+export { DECK_CARDS_MAX };
 
 /** A Deck's room: how many more Cards it takes while it holds `cardCount` live ones, never below 0. */
 export const deckRoom = (cardCount: number) => Math.max(0, DECK_CARDS_MAX - cardCount);
