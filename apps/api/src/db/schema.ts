@@ -7,9 +7,11 @@
 import {
   ANSWER_MODES,
   CARD_STATES,
+  type CardPromptOptions,
   DAILY_MINUTES_MAX,
   DAILY_MINUTES_MIN,
   DEFAULT_ANSWER_MODE,
+  DEFAULT_CARD_PROMPT_OPTIONS,
   DEFAULT_DAY_START_HOUR,
   DEFAULT_DESIRED_RETENTION,
   DEFAULT_LEARNING_LIMIT,
@@ -188,6 +190,11 @@ export const deck = sqliteTable(
      * while it follows the User's overall ones. A deleted Deck keeps them.
      */
     fsrsParameters: text("fsrs_parameters", { mode: "json" }).$type<number[]>(),
+    /** Its options for the Card prompt, as `CardPromptOptions` checks them. A deleted Deck keeps them. */
+    cardPrompt: text("card_prompt", { mode: "json" })
+      .$type<CardPromptOptions>()
+      .notNull()
+      .default(DEFAULT_CARD_PROMPT_OPTIONS),
   },
   (table) => [
     check(

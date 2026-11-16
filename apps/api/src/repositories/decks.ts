@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 import {
   type AnswerMode,
+  type CardPromptOptions,
   type CreateDeckRequest,
   type DeckResponse,
   type Macro,
   type UpdateDeckRequest,
+  DEFAULT_CARD_PROMPT_OPTIONS,
   deckNameKey,
   nextFreeName,
 } from "@banki/shared";
@@ -35,6 +37,7 @@ const COLUMNS = {
   desiredRetention: deck.desiredRetention,
   macros: deck.macros,
   answerMode: deck.answerMode,
+  cardPrompt: deck.cardPrompt,
   /** Its live Cards. Spelt out: Drizzle leaves a column's table off inside `sql`. */
   cardCount:
     sql<number>`(SELECT count(*) FROM "card" WHERE "card"."deck_id" = "deck"."id" AND "card"."user_id" = "deck"."user_id" AND "card"."deleted_at" IS NULL)`.mapWith(
@@ -58,6 +61,7 @@ type Row = {
   desiredRetention: number | null;
   macros: Macro[];
   answerMode: AnswerMode | null;
+  cardPrompt: CardPromptOptions;
   cardCount: number;
   planDeadline: string | null;
   planDailyMinutes: number | null;
@@ -180,6 +184,7 @@ export function createDeckRepository(db: Queryable) {
             desiredRetention: null,
             macros: [],
             answerMode: null,
+            cardPrompt: DEFAULT_CARD_PROMPT_OPTIONS,
             cardCount: 0,
             planDeadline: null,
             planDailyMinutes: null,
@@ -209,6 +214,7 @@ export function createDeckRepository(db: Queryable) {
         desiredRetention,
         macros,
         answerMode,
+        cardPrompt,
       }: DeckChanges,
       now = new Date(),
     ): Deck | Refusal | { clash: Clash } {
@@ -243,6 +249,7 @@ export function createDeckRepository(db: Queryable) {
               ...(desiredRetention === undefined ? {} : { desiredRetention }),
               ...(macros === undefined ? {} : { macros }),
               ...(answerMode === undefined ? {} : { answerMode }),
+              ...(cardPrompt === undefined ? {} : { cardPrompt }),
               updatedAt: now,
             })
             .where(live(userId, id))

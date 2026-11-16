@@ -140,6 +140,7 @@ describe("migrations", () => {
       "0023_plan",
       "0024_recommended_retention",
       "0025_deck_parameters",
+      "0026_card_prompt",
     ]);
     first.close();
 

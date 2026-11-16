@@ -33,6 +33,7 @@ const DECK: Deck = {
   macros: [{ name: "\\dd", definition: "\\mathrm{d}" }],
   answerMode: "write",
   plan: null,
+  cardPrompt: { language: "", count: null, difficulty: "intermediate", instructions: "" },
 };
 
 const SETTINGS: SettingsResponse = {
