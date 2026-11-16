@@ -77,6 +77,8 @@ describe("levelsOf", () => {
 describe("labels", () => {
   test("minutes round to whole ones, past an hour with hours", () => {
     expect(minutesLabel(0)).toBe("0 min");
+    expect(minutesLabel(11_000)).toBe("< 1 min");
+    expect(minutesLabel(40_000)).toBe("1 min");
     expect(minutesLabel(7 * 60_000 + 20_000)).toBe("7 min");
     expect(minutesLabel(209 * 60_000)).toBe("3 h 29 min");
   });

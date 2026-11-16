@@ -234,6 +234,34 @@ describe("the global page", () => {
     expect(tooltip.textContent).toBe("Mon, 2 Nov 202612 reviews · 4 min");
   });
 
+  test("the arrow keys move the calendar's day and say it, and Escape closes its tooltip", async () => {
+    await open("/statistics");
+    const [calendar] = screen.getAllByRole("group", { name: /^Activity over the last 53 weeks/ });
+    if (calendar === undefined) throw new Error("No calendar");
+    fireEvent.focus(calendar);
+    fireEvent.keyDown(calendar, { key: "ArrowUp" });
+    expect((await screen.findByRole("tooltip")).textContent).toBe(
+      "Thu, 12 Nov 202630 reviews · 9 min",
+    );
+    expect(screen.getAllByText("Thu, 12 Nov 2026: 30 reviews, 9 min").length).toBeGreaterThan(0);
+    fireEvent.keyDown(calendar, { key: "Escape" });
+    expect(screen.queryByRole("tooltip")).toBeNull();
+  });
+
+  test("an Actual retention under 70% still shows on its track", async () => {
+    await open("/statistics", () => ({
+      ...STATS,
+      actualRetention: { recalled: 11, total: 20, desiredRetention: 90 },
+    }));
+    const track = screen.getByRole("img", {
+      name: "Actual retention 55.0%, Desired retention 90%",
+    });
+    const fill = track.firstElementChild;
+    if (!(fill instanceof HTMLElement)) throw new Error("No fill");
+    expect(Number.parseFloat(fill.style.width)).toBeCloseTo(10);
+    expect(screen.getByText("50%")).toBeTruthy();
+  });
+
   test("the calendar covers 53 weeks from a Monday, in 5 levels", async () => {
     const calendar8 = [1, 2, 3, 4, 5, 6, 7, 8].map((reviews) => ({
       day: `2026-11-0${reviews}`,

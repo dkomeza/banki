@@ -112,9 +112,10 @@ export const dateOf = (day: StudyDay) => asDate(day).getUTCDate();
 export const reviewsLabel = (n: number) =>
   `${n.toLocaleString("en-GB")} ${n === 1 ? "review" : "reviews"}`;
 
-/** Milliseconds as whole minutes: "7 min", "3 h 29 min". */
+/** Milliseconds as whole minutes: "7 min", "3 h 29 min"; any study under that, "< 1 min". */
 export function minutesLabel(ms: number): string {
   const minutes = Math.round(ms / 60_000);
+  if (minutes === 0 && ms > 0) return "< 1 min";
   return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
 }
 

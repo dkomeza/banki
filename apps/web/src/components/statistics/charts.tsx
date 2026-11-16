@@ -131,6 +131,10 @@ export function ActivityCalendar({
   const at = active === undefined ? undefined : position(active);
 
   const onKey = (event: KeyboardEvent) => {
+    if (event.key === "Escape") {
+      setActive(undefined);
+      return;
+    }
     const by = { ArrowLeft: -7, ArrowRight: 7, ArrowUp: -1, ArrowDown: 1 }[event.key];
     if (by === undefined) return;
     event.preventDefault();
@@ -209,6 +213,12 @@ export function ActivityCalendar({
           }),
         )}
       </svg>
+      {/* Says the day the arrow keys moved to, which focus on the calendar doesn't. */}
+      <p aria-live="polite" className="sr-only">
+        {shown === undefined
+          ? ""
+          : `${longDay(shown.day)}: ${reviewsLabel(shown.reviews)}, ${minutesLabel(shown.ms)}`}
+      </p>
       {shown !== undefined && at !== undefined ? (
         <CalendarTooltip
           day={shown}
@@ -335,10 +345,14 @@ export function MinutesBars({
   );
 }
 
-/** Where a percentage sits on the 70 to 100% track. */
-const along = (value: number) => `${Math.min(100, Math.max(0, ((value - 70) / 30) * 100))}%`;
+/** Where a percentage sits on a track from `floor` to 100%. */
+const along = (value: number, floor: number) =>
+  `${Math.min(100, Math.max(0, ((value - floor) / (100 - floor)) * 100))}%`;
 
-/** Actual retention beside Desired retention, on a 70 to 100% track. */
+/**
+ * Actual retention beside Desired retention, on a track from 70 to 100%, or
+ * from the ten below the lower of them when it is under 70%.
+ */
 export function RetentionTrack({
   actual,
   desired,
@@ -349,6 +363,7 @@ export function RetentionTrack({
   className?: string;
 }) {
   const desiredLabel = percentLabel(desired, Number.isInteger(desired) ? 0 : 1);
+  const floor = Math.min(70, Math.floor(Math.min(actual, desired) / 10) * 10);
   return (
     <div className={cn("flex flex-col gap-1.5", className)}>
       <div
@@ -358,18 +373,18 @@ export function RetentionTrack({
       >
         <div
           className="absolute inset-y-0 left-0 rounded-full bg-primary"
-          style={{ width: along(actual) }}
+          style={{ width: along(actual, floor) }}
         />
         <div
           className="absolute -inset-y-1.5 w-0.5 rounded-full bg-foreground"
-          style={{ left: along(desired) }}
+          style={{ left: along(desired, floor) }}
         />
       </div>
       <div aria-hidden className="relative h-4 text-xs text-muted-foreground tabular-nums">
-        <span className="absolute left-0">70%</span>
+        <span className="absolute left-0">{floor}%</span>
         <span
           className="absolute -translate-x-1/2 font-medium text-foreground"
-          style={{ left: along(desired) }}
+          style={{ left: along(desired, floor) }}
         >
           Desired {desiredLabel}
         </span>
