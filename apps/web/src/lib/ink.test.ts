@@ -139,7 +139,7 @@ describe("the wheel", () => {
 });
 
 describe("bounds and Fit", () => {
-  test("a Stroke's bounds take in its thickness", () => {
+  test("a Stroke's bounds take in its thickness at full pressure", () => {
     expect(
       strokeBounds(
         stroke(
@@ -150,7 +150,7 @@ describe("bounds and Fit", () => {
           4,
         ),
       ),
-    ).toEqual({ x: 8, y: 3, w: 24, h: 19 });
+    ).toEqual({ x: 6.9, y: 1.9, w: 26.2, h: 21.2 });
     expect(strokeBounds(stroke([]))).toBeNull();
   });
 
@@ -158,7 +158,7 @@ describe("bounds and Fit", () => {
     expect(inkBounds([])).toBeNull();
     expect(
       inkBounds([stroke([[0, 0, 0.5]], 2), stroke([[100, 50, 0.5]], 2), stroke([], 2)]),
-    ).toEqual({ x: -1, y: -1, w: 102, h: 52 });
+    ).toEqual({ x: -1.55, y: -1.55, w: 103.1, h: 53.1 });
   });
 
   test("union skips nulls", () => {
@@ -182,6 +182,26 @@ describe("bounds and Fit", () => {
     expect(br.x).toBe(848 - FIT_MARGIN);
     // Centred down.
     expect((tl.y + br.y) / 2).toBe(324);
+  });
+
+  test("a hard-pressed Stroke's outline stays within its bounds", () => {
+    const s = stroke(Array.from({ length: 20 }, (_, i): InkPoint => [i * 5, 0, 1]));
+    const b = strokeBounds(s)!;
+    for (const [x = 0, y = 0] of strokeOutline(s, { done: true })) {
+      expect(x).toBeGreaterThanOrEqual(b.x);
+      expect(x).toBeLessThanOrEqual(b.x + b.w);
+      expect(y).toBeGreaterThanOrEqual(b.y);
+      expect(y).toBeLessThanOrEqual(b.y + b.h);
+    }
+  });
+
+  test("Fit keeps the content clear of the controls at the right and the bottom", () => {
+    const view = fit({ x: 0, y: 0, w: 400, h: 100 }, { w: 900, h: 600 }, { right: 52, bottom: 0 });
+    // 900 less 52 for the tool bar, less the margins: 800 px across.
+    expect(view.zoom).toBe(2);
+    expect(toScreen(view, { x: 400, y: 0 }).x).toBe(900 - 52 - FIT_MARGIN);
+    const low = fit({ x: 0, y: 0, w: 100, h: 100 }, { w: 1000, h: 300 }, { right: 0, bottom: 60 });
+    expect(toScreen(low, { x: 0, y: 100 }).y).toBe(300 - 60 - FIT_MARGIN);
   });
 
   test("Fit stays within the zoom's range", () => {

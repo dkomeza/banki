@@ -1,6 +1,7 @@
 import { Eraser, Minus, PenLine, Plus, Redo2, ScanSearch, Trash2, Undo2 } from "lucide-react";
 import {
   type KeyboardEvent,
+  type MouseEvent,
   type PointerEvent,
   type RefObject,
   memo,
@@ -132,9 +133,18 @@ export function HandwritingShell({
 
   useLayoutEffect(() => nav.resize(canvas), [nav, canvas]);
 
+  // Fit keeps what it frames clear of the tool bar at the right and the zoom control at the bottom.
   const fitAll = () => {
     const content = union([frontBox.current, inkBounds(latest.current.strokes)]);
-    if (content !== null && canvas.w > 0) nav.show(fit(content, canvas));
+    if (content === null || canvas.w <= 0 || viewport === null) return;
+    const box = viewport.getBoundingClientRect();
+    const tools = viewport.querySelector("[data-tools]")?.getBoundingClientRect();
+    const zoom = viewport.querySelector("[data-zoom]")?.getBoundingClientRect();
+    const clear = {
+      right: tools !== undefined && tools.width > 0 ? Math.max(0, box.right - tools.left) : 0,
+      bottom: zoom !== undefined && zoom.height > 0 ? Math.max(0, box.bottom - zoom.top) : 0,
+    };
+    nav.show(fit(content, canvas, clear));
   };
 
   return (
@@ -148,6 +158,8 @@ export function HandwritingShell({
       onPointerMove={nav.move}
       onPointerUpCapture={nav.up}
       onPointerCancelCapture={nav.cancel}
+      onLostPointerCapture={nav.lost}
+      onClickCapture={nav.click}
       onContextMenu={(event) => event.preventDefault()}
     >
       <div
@@ -156,11 +168,7 @@ export function HandwritingShell({
         aria-label="Handwritten answer"
         className={cn("absolute inset-0", GRID)}
       />
-      <div
-        ref={world}
-        data-canvas-layer
-        className="absolute top-0 left-0 origin-top-left will-change-transform"
-      >
+      <div ref={world} data-canvas-layer className="absolute top-0 left-0 origin-top-left">
         <FrontOnPaper
           front={front}
           canvas={canvas}
@@ -181,6 +189,7 @@ export function HandwritingShell({
       />
       <div
         data-chrome
+        data-tools
         className="pointer-events-none absolute inset-y-0 right-2 flex items-center lg:right-4"
       >
         <ToolBar />
@@ -257,10 +266,12 @@ class Navigator {
   view: View = START_VIEW;
   private el: Elements | null = null;
   private size = { w: 0, h: 0 };
-  /** Every touch and mouse pointer that is down, where it is on screen. */
-  private pointers = new Map<number, { type: string; at: Point }>();
+  /** Every touch and mouse pointer that is down, where it is on screen, and whether on the controls. */
+  private pointers = new Map<number, { type: string; at: Point; chrome: boolean }>();
   /** Touches that were down while the pen was: palms, until they lift. */
   private palms = new Set<number>();
+  /** Palms just lifted, whose clicks on the controls never count. */
+  private liftedPalms = new Set<number>();
   private gesture: Gesture | null = null;
   private pen: { id: number; stroke: Stroke; ahead: InkPoint[]; color: string } | null = null;
   private frame: number | null = null;
@@ -287,7 +298,11 @@ class Navigator {
     for (const type of ["gesturestart", "gesturechange", "gestureend"]) {
       viewport.addEventListener(type, gesture, { passive: false });
     }
+    // A pen whose lift the window never hears, as it loses the focus, ends its Stroke there.
+    const blur = () => this.finish();
+    window.addEventListener("blur", blur);
     this.detachListeners = () => {
+      window.removeEventListener("blur", blur);
       viewport.removeEventListener("wheel", wheel);
       for (const type of ["gesturestart", "gesturechange", "gestureend"]) {
         viewport.removeEventListener(type, gesture);
@@ -322,20 +337,29 @@ class Navigator {
   };
   zoom = () => this.view.zoom;
 
-  /** Whether a pointer is a palm: the Front's drags stop at it. */
-  ignores = (id: number) => this.palms.has(id) || (this.pen !== null && this.pen.id !== id);
+  /**
+   * Whether a pointer is a palm, or a finger a pinch has taken: the Front's
+   * drags stop at it.
+   */
+  ignores = (id: number) =>
+    this.palms.has(id) ||
+    (this.pen !== null && this.pen.id !== id) ||
+    (this.gesture?.kind === "pinch" && this.gesture.ids.includes(id));
+
+  // The zoom control's. The view never moves under a Stroke being written,
+  // whose samples are in the view they came in.
 
   /** Moves the view to `view`: only the layer's transform and the grid change. */
   show(view: View) {
-    this.apply(view);
+    if (this.pen === null) this.apply(view);
   }
 
   step(by: -1 | 1) {
-    this.apply(zoomStep(this.view, by, this.size));
+    this.show(zoomStep(this.view, by, this.size));
   }
 
   zoomTo(zoom: number) {
-    this.apply(zoomAbout(this.view, zoom, { x: this.size.w / 2, y: this.size.h / 2 }));
+    this.show(zoomAbout(this.view, zoom, { x: this.size.w / 2, y: this.size.h / 2 }));
   }
 
   private apply(view: View) {
@@ -376,11 +400,17 @@ class Navigator {
 
   // The pen first, before the Front sees it: it writes, over the Front too.
   downCapture = (event: PointerEvent) => {
-    if (onChrome(event)) return;
-    event.preventDefault();
+    this.liftedPalms.clear();
+    const chrome = onChrome(event);
     if (event.pointerType === "pen") {
+      // The pen taps the controls as a finger does.
+      if (chrome) return;
+      event.preventDefault();
       event.stopPropagation();
-      if (this.pen !== null || !writes(event)) return;
+      if (this.pen?.id === event.pointerId) return;
+      // A Stroke whose lift never came ends where it was.
+      this.finish();
+      if (!writes(event)) return;
       // A palm already resting, and a pan or pinch under way, stop here.
       for (const [id, p] of this.pointers) if (p.type === "touch") this.palms.add(id);
       this.gesture = null;
@@ -397,11 +427,23 @@ class Navigator {
       this.schedule();
       return;
     }
-    this.pointers.set(event.pointerId, { type: event.pointerType, at: this.local(event) });
+    // On the controls too, so a palm there is one.
+    this.pointers.set(event.pointerId, { type: event.pointerType, at: this.local(event), chrome });
     if (event.pointerType === "touch" && this.pen !== null) {
       this.palms.add(event.pointerId);
+      event.preventDefault();
       event.stopPropagation();
+      return;
     }
+    if (!chrome) event.preventDefault();
+  };
+
+  // A click from a palm on the controls, or any while the pen writes, does nothing.
+  click = (event: MouseEvent) => {
+    const id = (event.nativeEvent as Partial<globalThis.PointerEvent>).pointerId;
+    if (this.pen === null && (id === undefined || !this.liftedPalms.has(id))) return;
+    event.preventDefault();
+    event.stopPropagation();
   };
 
   // A touch or the mouse the Front didn't take: it pans, or with a second finger, pinches.
@@ -411,7 +453,18 @@ class Navigator {
     if (event.pointerType === "mouse" && event.button !== 0) return;
     const at = this.local(event);
     const g = this.gesture;
-    if (g === null) {
+    // A finger already down that no gesture has, such as one moving the Front: with this one, a pinch.
+    const other = [...this.pointers].find(
+      ([id, p]) => id !== event.pointerId && p.type === "touch" && !p.chrome && !this.palms.has(id),
+    );
+    if (g === null && event.pointerType === "touch" && other !== undefined) {
+      this.gesture = {
+        kind: "pinch",
+        ids: [other[0], event.pointerId],
+        from: [other[1].at, at],
+        view: this.view,
+      };
+    } else if (g === null) {
       const onFront =
         event.target instanceof Element && event.target.closest("[data-front]") !== null;
       this.gesture = {
@@ -468,22 +521,43 @@ class Navigator {
   up = (event: PointerEvent) => this.lift(event, true);
   cancel = (event: PointerEvent) => this.lift(event, false);
 
-  private lift(event: PointerEvent, tapped: boolean) {
+  // The pen's capture lost without a lift (the browser dropped it): its Stroke ends there.
+  lost = (event: PointerEvent) => {
+    if (this.pen?.id === event.pointerId) this.finish();
+  };
+
+  /** Ends the Stroke being written, if there is one: it becomes Ink, and the live canvas clears. */
+  private finish() {
+    const pen = this.pen;
+    if (pen === null) return;
+    this.pen = null;
+    if (this.frame !== null) cancelAnimationFrame(this.frame);
+    this.frame = null;
+    this.el?.onStroke(pen.stroke);
+    this.clear();
+  }
+
+  private lift(event: PointerEvent, lifted: boolean) {
     const pen = this.pen;
     if (pen !== null && pen.id === event.pointerId) {
-      this.pen = null;
-      if (this.frame !== null) cancelAnimationFrame(this.frame);
-      this.frame = null;
-      this.el?.onStroke(pen.stroke);
-      this.clear();
+      // The lift's own samples, past the last move's.
+      if (lifted) {
+        const last = pen.stroke.points.at(-1);
+        for (const point of penSamples(event.nativeEvent, this.view, this.origin()).kept) {
+          if (last === undefined || point[0] !== last[0] || point[1] !== last[1]) {
+            pen.stroke.points.push([point[0], point[1], last?.[2] ?? point[2]]);
+          }
+        }
+      }
+      this.finish();
       return;
     }
     if (!this.pointers.delete(event.pointerId)) return;
-    this.palms.delete(event.pointerId);
+    if (this.palms.delete(event.pointerId)) this.liftedPalms.add(event.pointerId);
     const g = this.gesture;
     if (g?.kind === "pan" && g.id === event.pointerId) {
       this.gesture = null;
-      if (tapped && !g.moved) this.el?.onTap(g.onFront);
+      if (lifted && !g.moved) this.el?.onTap(g.onFront);
     } else if (g?.kind === "pinch" && g.ids.includes(event.pointerId)) {
       // The finger left behind pans on, from where it is.
       const id = g.ids[0] === event.pointerId ? g.ids[1] : g.ids[0];
@@ -838,6 +912,7 @@ function ZoomControl({ nav, onFit }: { nav: Navigator; onFit: () => void }) {
       role="group"
       aria-label="Zoom"
       data-chrome
+      data-zoom
       className="absolute bottom-3 left-3 flex items-center gap-0.5 rounded-full border bg-background/95 p-1 shadow-sm backdrop-blur"
     >
       <button

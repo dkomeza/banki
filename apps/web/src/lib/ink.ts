@@ -17,6 +17,9 @@ export const INK_SIZE = { medium: 4 } as const;
 /** How far the Canvas zooms, and how far − and + step it. */
 export const ZOOM = { min: 0.25, max: 4, step: 1.25 } as const;
 
+/** How much the pen's pressure thins or thickens its Stroke (perfect-freehand's `thinning`). */
+const THINNING = 0.55;
+
 /** Fit leaves this much room, in screen px, around the Front and the Ink. */
 export const FIT_MARGIN = 24;
 
@@ -140,7 +143,8 @@ export function strokeBounds(stroke: Stroke): Rect | null {
     maxX = Math.max(maxX, x);
     maxY = Math.max(maxY, y);
   }
-  const r = stroke.size / 2;
+  // The outline's widest, at full pressure.
+  const r = (stroke.size * (1 + THINNING)) / 2;
   return { x: minX - r, y: minY - r, w: maxX - minX + 2 * r, h: maxY - minY + 2 * r };
 }
 
@@ -152,10 +156,16 @@ export function inkBounds(strokes: readonly Stroke[]): Rect | null {
 /**
  * The view that shows all of `content` (Canvas units) in a viewport of
  * `size`, with `FIT_MARGIN` px around it, centred, as close as the zoom's
- * range lets it.
+ * range lets it. `clear` is how much of the viewport's right and bottom the
+ * controls over it cover, which the content is kept out of.
  */
-export function fit(content: Rect, size: { w: number; h: number }): View {
-  const room = { w: size.w - 2 * FIT_MARGIN, h: size.h - 2 * FIT_MARGIN };
+export function fit(
+  content: Rect,
+  size: { w: number; h: number },
+  clear: { right: number; bottom: number } = { right: 0, bottom: 0 },
+): View {
+  const free = { w: size.w - clear.right, h: size.h - clear.bottom };
+  const room = { w: free.w - 2 * FIT_MARGIN, h: free.h - 2 * FIT_MARGIN };
   const zoom = clampZoom(
     Math.min(
       content.w > 0 ? room.w / content.w : ZOOM.max,
@@ -164,8 +174,8 @@ export function fit(content: Rect, size: { w: number; h: number }): View {
   );
   return {
     zoom,
-    x: size.w / 2 - (content.x + content.w / 2) * zoom,
-    y: size.h / 2 - (content.y + content.h / 2) * zoom,
+    x: free.w / 2 - (content.x + content.w / 2) * zoom,
+    y: free.h / 2 - (content.y + content.h / 2) * zoom,
   };
 }
 
@@ -196,7 +206,7 @@ export function strokeOutline(
   const points = ahead.length > 0 ? [...stroke.points, ...ahead] : stroke.points;
   return getStroke(points, {
     size: stroke.size,
-    thinning: 0.55,
+    thinning: THINNING,
     smoothing: 0.5,
     streamline: 0.35,
     simulatePressure: pressureless(stroke.points),

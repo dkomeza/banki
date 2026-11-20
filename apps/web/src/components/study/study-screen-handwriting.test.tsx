@@ -934,8 +934,9 @@ describe("navigating the Canvas", () => {
     fireEvent.click(screen.getByRole("button", { name: "Fit" }));
     const v = parse(layer().style.transform);
     expect(12 * v.zoom + v.x).toBeCloseTo(24);
-    expect(792 * v.zoom + v.x).toBeCloseTo(776);
-    expect((28 * v.zoom + v.y + 592 * v.zoom + v.y) / 2).toBeCloseTo(300);
+    // The dot reaches 3.1 past its centre, its widest at full pressure.
+    expect(793.1 * v.zoom + v.x).toBeCloseTo(776);
+    expect((28 * v.zoom + v.y + 593.1 * v.zoom + v.y) / 2).toBeCloseTo(300);
 
     for (let i = 0; i < 10; i++) fireEvent.click(zoomIn());
     expect(zoomReadout().textContent).toBe("400%");
@@ -1037,5 +1038,108 @@ describe("palm rejection", () => {
     pointer("pointerMove", front(), "touch", 500, 500, { pointerId: 1 });
     expect(front().style.left).toBe("32px");
     expect(front().style.top).toBe("28px");
+  });
+});
+
+describe("while the pen writes", () => {
+  test("a palm on the zoom control zooms nothing, then or when it lifts", async () => {
+    layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
+    renderScreen();
+    await shown();
+
+    pointer("pointerDown", paper(), "pen", 100, 300);
+    pointer("pointerDown", zoomIn(), "touch", 10, 10, { pointerId: 1 });
+    fireEvent.click(zoomIn());
+    pointer("pointerMove", paper(), "pen", 150, 300);
+    pointer("pointerUp", paper(), "pen", 150, 300);
+    // It lifts after the pen, and its click comes then.
+    pointer("pointerUp", zoomIn(), "touch", 10, 10, { pointerId: 1 });
+    act(
+      () => void zoomIn().dispatchEvent(new PointerEvent("click", { bubbles: true, pointerId: 1 })),
+    );
+
+    expect(zoomReadout().textContent).toBe("100%");
+    expect(strokes()).toHaveLength(1);
+    // A tap that is no palm still zooms.
+    fireEvent.click(zoomIn());
+    expect(zoomReadout().textContent).toBe("125%");
+  });
+
+  test("the view never moves under a Stroke: Fit and the mouse on the zoom control wait", async () => {
+    layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
+    renderScreen();
+    await shown();
+
+    pointer("pointerDown", paper(), "pen", 100, 300);
+    fireEvent.click(zoomIn());
+    fireEvent.click(screen.getByRole("button", { name: "Fit" }));
+    wheel({ deltaY: 100 });
+    expect(layer().style.transform).toBe("translate(0px, 0px) scale(1)");
+    pointer("pointerUp", paper(), "pen", 100, 300);
+  });
+
+  test("a Stroke whose lift never came ends when the pen lands again, and the Canvas works on", async () => {
+    layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
+    renderScreen();
+    await shown();
+
+    pointer("pointerDown", paper(), "pen", 100, 300, { pointerId: 9 });
+    pointer("pointerMove", paper(), "pen", 150, 300, { pointerId: 9 });
+    write(paper(), [
+      [100, 400, 0.5],
+      [150, 400, 0.5],
+    ]);
+    // write() uses the same id; a new pen id ends the stale one too.
+    pointer("pointerDown", paper(), "pen", 100, 300, { pointerId: 11 });
+    pointer("pointerDown", paper(), "pen", 100, 500, { pointerId: 12 });
+    pointer("pointerUp", paper(), "pen", 100, 500, { pointerId: 12 });
+    expect(strokes()).toHaveLength(3);
+
+    drag(paper(), "touch", [100, 100], [150, 100]);
+    expect(layer().style.transform).toBe("translate(50px, 0px) scale(1)");
+  });
+
+  test("a Stroke whose pen loses its capture, or the window its focus, ends there", async () => {
+    layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
+    renderScreen();
+    await shown();
+
+    pointer("pointerDown", paper(), "pen", 100, 300);
+    fireEvent.lostPointerCapture(viewport(), { pointerId: 9, pointerType: "pen" });
+    expect(strokes()).toHaveLength(1);
+    pointer("pointerDown", paper(), "pen", 100, 300);
+    act(() => void window.dispatchEvent(new Event("blur")));
+    expect(strokes()).toHaveLength(2);
+
+    expect(wheel({ deltaY: 100 })).toBe(false);
+    expect(layer().style.transform).toBe("translate(0px, -100px) scale(1)");
+  });
+
+  test("the lift's own sample is kept", async () => {
+    layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
+    renderScreen();
+    await shown();
+
+    pointer("pointerDown", paper(), "pen", 100, 300, { pressure: 0.5 });
+    pointer("pointerMove", paper(), "pen", 120, 300, { pressure: 0.5 });
+    pointer("pointerUp", paper(), "pen", 300, 300, { pressure: 0 });
+    expect(Math.max(...xs(strokes()[0]!.getAttribute("d")!))).toBeGreaterThan(290);
+  });
+});
+
+describe("a pinch from the Front", () => {
+  test("a finger moving the selected Front and one on the paper pinch, and the Front stops", async () => {
+    layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
+    renderScreen();
+    await shown();
+    tap(front(), "touch");
+
+    pointer("pointerDown", front(), "touch", 100, 100, { pointerId: 1 });
+    pointer("pointerDown", paper(), "touch", 200, 100, { pointerId: 2 });
+    pointer("pointerMove", front(), "touch", 50, 100, { pointerId: 1 });
+    pointer("pointerMove", paper(), "touch", 250, 100, { pointerId: 2 });
+
+    expect(zoomReadout().textContent).toBe("200%");
+    expect(front().style.left).toBe("12px");
   });
 });
