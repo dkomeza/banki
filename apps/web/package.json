@@ -28,6 +28,7 @@
     "hono": "4.13.13",
     "katex": "0.19.1",
     "lucide-react": "1.52.0",
+    "perfect-freehand": "1.2.3",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "shadcn": "4.22.0",
