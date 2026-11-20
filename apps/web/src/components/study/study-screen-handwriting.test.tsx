@@ -9,6 +9,7 @@ import {
   createRouter,
 } from "@tanstack/react-router";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { Profiler } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { Card } from "@/lib/cards";
 import type { Deck } from "@/lib/decks";
@@ -159,17 +160,158 @@ function renderScreen({ deck = DECK, handwriting = true } = {}) {
   const ui = (hand: boolean) => (
     <QueryClientProvider client={queryClient}>
       <RouterContextProvider router={router}>
-        <StudyScreen deck={deck} handwriting={hand} />
+        <Profiler id="study" onRender={() => void (renders.count += 1)}>
+          <StudyScreen deck={deck} handwriting={hand} />
+        </Profiler>
       </RouterContextProvider>
     </QueryClientProvider>
   );
   const { rerender } = render(ui(handwriting));
-  return { router, setHandwriting: (hand: boolean) => rerender(ui(hand)) };
+  return {
+    router,
+    setHandwriting: (hand: boolean) => rerender(ui(hand)),
+    rerenderScreen: () => rerender(ui(handwriting)),
+  };
 }
 
 const tools = () => screen.queryByRole("toolbar", { name: "Handwriting tools" });
 const check = () => screen.getByRole<HTMLButtonElement>("button", { name: /Check/ });
 const dontKnow = () => screen.getByRole<HTMLButtonElement>("button", { name: "I don't know" });
+/** How many times the study screen has rendered, for counting renders during a Stroke. */
+const renders = { count: 0 };
+
+const viewport = () => document.querySelector<HTMLElement>("[data-handwriting]")!;
+/** The grid paper, where a pointer lands on the Canvas off the Front. */
+const paper = () => screen.getByRole("img", { name: "Handwritten answer" });
+/** The layer that holds the Front and the Ink, under the view's transform. */
+const layer = () => document.querySelector<HTMLElement>("[data-canvas-layer]")!;
+const ink = () => document.querySelector<SVGSVGElement>("svg[data-ink]")!;
+const strokes = () => Array.from(ink().querySelectorAll("path"));
+const selected = () => front().querySelectorAll("[data-corner]").length === 4;
+const zoomIn = () => screen.getByRole<HTMLButtonElement>("button", { name: "Zoom in" });
+const zoomOut = () => screen.getByRole<HTMLButtonElement>("button", { name: "Zoom out" });
+const zoomReadout = () => screen.getByRole<HTMLButtonElement>("button", { name: /back to 100%/ });
+
+/** A layer's transform, read back. */
+function parse(transform: string): { x: number; y: number; zoom: number } {
+  const m = /translate\((-?[\d.e-]+)px, (-?[\d.e-]+)px\) scale\(([\d.e-]+)\)/.exec(transform);
+  if (m === null) throw new Error(`Not a view: ${transform}`);
+  return { x: Number(m[1]), y: Number(m[2]), zoom: Number(m[3]) };
+}
+
+/** The x of each point in SVG path data. */
+const xs = (d: string) =>
+  (d.match(/-?\d+(\.\d+)?/g) ?? []).map(Number).filter((_, i) => i % 2 === 0);
+
+const DEFAULT_ID: Record<string, number> = { pen: 9, touch: 1, mouse: 2 };
+
+/** A synthetic pointer event of `pointerType` at a point on screen. */
+function pointer(
+  type: "pointerDown" | "pointerMove" | "pointerUp",
+  el: Element,
+  pointerType: "pen" | "touch" | "mouse",
+  clientX: number,
+  clientY: number,
+  init: Record<string, unknown> = {},
+) {
+  fireEvent[type](el, {
+    pointerType,
+    pointerId: DEFAULT_ID[pointerType],
+    clientX,
+    clientY,
+    button: type === "pointerMove" ? -1 : 0,
+    buttons: type === "pointerUp" ? 0 : 1,
+    pressure: pointerType === "pen" ? 0.5 : 0,
+    ...init,
+  });
+}
+
+function tap(el: Element, type: "touch" | "mouse") {
+  pointer("pointerDown", el, type, 10, 10);
+  pointer("pointerUp", el, type, 10, 10);
+}
+
+/** A finger or mouse drag from one point to another, by way of halfway. */
+function drag(
+  el: Element,
+  type: "touch" | "mouse",
+  [x0, y0]: [number, number],
+  [x1, y1]: [number, number],
+) {
+  pointer("pointerDown", el, type, x0, y0);
+  pointer("pointerMove", el, type, (x0 + x1) / 2, (y0 + y1) / 2);
+  pointer("pointerMove", el, type, x1, y1);
+  pointer("pointerUp", el, type, x1, y1);
+}
+
+/** A pen Stroke through `points` (x, y and pressure, on screen), from its tip unless `buttons` say otherwise. */
+function write(
+  el: Element,
+  points: [number, number, number][],
+  { button = 0, buttons = 1 }: { button?: number; buttons?: number } = {},
+) {
+  const [first, ...rest] = points;
+  if (first === undefined) return;
+  pointer("pointerDown", el, "pen", first[0], first[1], { pressure: first[2], button, buttons });
+  for (const [x, y, pressure] of rest) {
+    pointer("pointerMove", el, "pen", x, y, { pressure, buttons });
+  }
+  const last = points.at(-1) ?? first;
+  pointer("pointerUp", el, "pen", last[0], last[1], { pressure: 0, button });
+}
+
+/** A wheel event on the Canvas; false when it was stopped. */
+function wheel(init: {
+  deltaX?: number;
+  deltaY?: number;
+  shiftKey?: boolean;
+  ctrlKey?: boolean;
+  metaKey?: boolean;
+  clientX?: number;
+  clientY?: number;
+}): boolean {
+  const event = new WheelEvent("wheel", { bubbles: true, cancelable: true });
+  // happy-dom drops most of a WheelEvent's init.
+  for (const [key, value] of Object.entries({ deltaX: 0, deltaY: 0, deltaMode: 0, ...init })) {
+    Object.defineProperty(event, key, { value });
+  }
+  let result = true;
+  act(() => {
+    result = viewport().dispatchEvent(event);
+  });
+  return result;
+}
+
+/** Waits a frame. */
+const frame = () =>
+  act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+
+/** A pen sample at `x`, as getCoalescedEvents gives them. */
+const sample = (x: number) => ({ clientX: x, clientY: 300, pressure: 0.5 });
+
+/** A stand-in for the live canvas's context, which happy-dom has none of, recording what it draws. */
+function liveContext() {
+  const live = { options: undefined as unknown, fills: [] as string[], cleared: 0 };
+  class FakePath {
+    constructor(readonly d: string) {}
+  }
+  vi.stubGlobal("Path2D", FakePath);
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- getContext's overloads, stood in for by one
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(((
+    _type: string,
+    options: unknown,
+  ) => {
+    live.options = options;
+    return {
+      fillStyle: "",
+      setTransform: () => {},
+      clearRect: () => void (live.cleared += 1),
+      fill: (path: FakePath) => void live.fills.push(path.d),
+    };
+  }) as never);
+  return live;
+}
+
 /** Waits for the Front in the handwriting layout. */
 const shown = () => screen.findByRole("region", { name: "Front" });
 const front = () => screen.getByRole("region", { name: "Front" });
@@ -239,7 +381,7 @@ describe("the handwriting layout", () => {
     );
   });
 
-  test("the tool bar's controls are named and disabled, and so is the zoom", async () => {
+  test("the tool bar's controls are named and disabled, with Pen pressed; the zoom control works", async () => {
     renderScreen();
     await shown();
 
@@ -252,9 +394,11 @@ describe("the handwriting layout", () => {
       expect(thickness.contains(radio)).toBe(true);
       expect(radio.disabled).toBe(true);
     }
-    for (const name of ["Zoom out", "Zoom 100%", "Zoom in", "Fit"]) {
-      expect(screen.getByRole<HTMLButtonElement>("button", { name }).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Pen" }).getAttribute("aria-pressed")).toBe("true");
+    for (const name of ["Zoom out", "Zoom in", "Fit"]) {
+      expect(screen.getByRole<HTMLButtonElement>("button", { name }).disabled).toBe(false);
     }
+    expect(zoomReadout().textContent).toBe("100%");
   });
 
   test("Check is disabled and I don't know enabled; Ctrl+Enter, Space and Enter do nothing", async () => {
@@ -390,8 +534,7 @@ describe("the Front in the handwriting layout", () => {
     expect(frontScale()).toBeCloseTo(0.45);
 
     // Tapped, it's selected: a handle at each corner, and no label.
-    fireEvent.pointerDown(front(), { pointerId: 1, button: 0, clientX: 100, clientY: 100 });
-    fireEvent.pointerUp(front(), { pointerId: 1 });
+    tap(front(), "touch");
     const corners = front().querySelectorAll("[data-corner]");
     expect(corners).toHaveLength(4);
 
@@ -403,7 +546,7 @@ describe("the Front in the handwriting layout", () => {
     expect(frontScale()).toBeCloseTo(0.9);
 
     // Tapping the paper lets go of it.
-    fireEvent.pointerDown(screen.getByRole("img", { name: "Handwritten answer" }));
+    tap(paper(), "touch");
     expect(front().querySelectorAll("[data-corner]")).toHaveLength(0);
   });
 
@@ -443,35 +586,17 @@ describe("the Front in the handwriting layout", () => {
     expect(front().style.left).toBe("12px");
   });
 
-  test("a Front taller than the canvas, even at 40%, drags up until its end shows", async () => {
-    layOut({ canvas: { w: 1440, h: 600 }, natural: 4000 });
-    renderScreen();
-    await shown();
-    // At 40%, 1600 px tall on a 600 px canvas.
-    expect(frontScale()).toBe(0.4);
-
-    fireEvent.pointerDown(front(), { pointerId: 1, button: 0, clientX: 100, clientY: 500 });
-    fireEvent.pointerMove(front(), { pointerId: 1, clientX: 100, clientY: -700 });
-    fireEvent.pointerUp(front(), { pointerId: 1 });
-    expect(front().style.top).toBe("-1172px");
-
-    // No further than leaves 48 px of it on the canvas.
-    fireEvent.pointerDown(front(), { pointerId: 2, button: 0, clientX: 100, clientY: 500 });
-    fireEvent.pointerMove(front(), { pointerId: 2, clientX: 100, clientY: -5000 });
-    fireEvent.pointerUp(front(), { pointerId: 2 });
-    expect(front().style.top).toBe("-1552px");
-  });
-
-  test("drags and arrow keys move it, but never off the canvas", async () => {
+  test("drags and arrow keys move it once it is selected, as far as the User likes", async () => {
     layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
     renderScreen();
     await shown();
     expect(front().style.left).toBe("12px");
     expect(front().style.top).toBe("28px");
 
-    fireEvent.pointerDown(front(), { pointerId: 1, button: 0, clientX: 100, clientY: 100 });
-    fireEvent.pointerMove(front(), { pointerId: 1, clientX: 150, clientY: 120 });
-    fireEvent.pointerUp(front(), { pointerId: 1 });
+    tap(front(), "touch");
+    expect(selected()).toBe(true);
+
+    drag(front(), "touch", [100, 100], [150, 120]);
     expect(front().style.left).toBe("62px");
     expect(front().style.top).toBe("48px");
 
@@ -481,10 +606,540 @@ describe("the Front in the handwriting layout", () => {
     expect(front().style.left).toBe("54px");
     expect(front().style.top).toBe("8px");
 
-    fireEvent.pointerDown(front(), { pointerId: 3, button: 0, clientX: 0, clientY: 0 });
-    fireEvent.pointerMove(front(), { pointerId: 3, clientX: 5000, clientY: 5000 });
-    fireEvent.pointerUp(front(), { pointerId: 3 });
-    expect(front().style.left).toBe("752px");
-    expect(front().style.top).toBe("552px");
+    // No edges: the 48 px rule is gone.
+    drag(front(), "mouse", [0, 0], [5000, -5000]);
+    expect(front().style.left).toBe("5054px");
+    expect(front().style.top).toBe("-4992px");
+    // The Canvas didn't pan under it.
+    expect(layer().style.transform).toBe("translate(0px, 0px) scale(1)");
+  });
+
+  test("unselected, a drag on it pans the Canvas, so a resting palm never moves it", async () => {
+    layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
+    renderScreen();
+    await shown();
+
+    drag(front(), "touch", [100, 100], [160, 140]);
+    expect(front().style.left).toBe("12px");
+    expect(selected()).toBe(false);
+    expect(layer().style.transform).toBe("translate(60px, 40px) scale(1)");
+
+    drag(front(), "mouse", [100, 100], [90, 100]);
+    expect(layer().style.transform).toBe("translate(50px, 40px) scale(1)");
+    expect(selected()).toBe(false);
+
+    // A tap on the paper, and on the Front, by mouse.
+    tap(paper(), "mouse");
+    expect(selected()).toBe(false);
+    tap(front(), "mouse");
+    expect(selected()).toBe(true);
+  });
+
+  test("moves by the distance on screen in Canvas units when zoomed", async () => {
+    layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
+    renderScreen();
+    await shown();
+
+    fireEvent.click(zoomIn());
+    tap(front(), "touch");
+    drag(front(), "touch", [100, 100], [225, 100]);
+    // 125 px on screen at 125% is 100 on the Canvas.
+    expect(front().style.left).toBe("112px");
+  });
+});
+
+describe("Ink", () => {
+  test("the pen writes a Stroke, which becomes a path in the theme's foreground over the Front's layer", async () => {
+    layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
+    renderScreen();
+    await shown();
+
+    write(paper(), [
+      [100, 300, 0.3],
+      [140, 320, 0.6],
+      [180, 310, 0.8],
+    ]);
+
+    expect(strokes()).toHaveLength(1);
+    const svg = ink();
+    expect(svg.getAttribute("class")).toContain("text-foreground");
+    expect(strokes()[0]?.getAttribute("fill")).toBe("currentColor");
+    expect(strokes()[0]?.getAttribute("d")).toMatch(/^M.+Z$/);
+    // In the layer that holds the Front, after it, so the Ink is drawn over it.
+    expect(svg.parentElement).toBe(layer());
+    expect(layer().lastElementChild).toBe(svg);
+    expect(svg.compareDocumentPosition(front()) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+  });
+
+  test("a finger and the mouse never draw, nor do the pen's eraser end and barrel button", async () => {
+    layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
+    renderScreen();
+    await shown();
+
+    drag(paper(), "touch", [100, 300], [200, 400]);
+    drag(paper(), "mouse", [100, 300], [200, 400]);
+    // The eraser end, and the tip with the barrel button held.
+    write(
+      paper(),
+      [
+        [100, 300, 0.5],
+        [150, 300, 0.5],
+      ],
+      { button: 5, buttons: 32 },
+    );
+    write(
+      paper(),
+      [
+        [100, 300, 0.5],
+        [150, 300, 0.5],
+      ],
+      { button: 0, buttons: 3 },
+    );
+    write(
+      paper(),
+      [
+        [100, 300, 0.5],
+        [150, 300, 0.5],
+      ],
+      { button: 2, buttons: 2 },
+    );
+
+    expect(strokes()).toHaveLength(0);
+  });
+
+  test("the pen writes over the Front, and never selects, moves or scales it", async () => {
+    layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
+    renderScreen();
+    await shown();
+
+    write(front(), [[50, 60, 0.5]]);
+    write(front(), [
+      [50, 60, 0.5],
+      [300, 90, 0.5],
+    ]);
+    expect(strokes()).toHaveLength(2);
+    expect(selected()).toBe(false);
+    expect(front().style.left).toBe("12px");
+
+    // Selected, too: the pen still only writes, on it and on a corner.
+    tap(front(), "touch");
+    write(front(), [
+      [50, 60, 0.5],
+      [300, 90, 0.5],
+    ]);
+    write(front().querySelectorAll("[data-corner]")[3]!, [
+      [0, 0, 0.5],
+      [400, 400, 0.5],
+    ]);
+    expect(strokes()).toHaveLength(4);
+    expect(front().style.left).toBe("12px");
+    expect(frontScale()).toBe(1);
+    expect(layer().style.transform).toBe("translate(0px, 0px) scale(1)");
+  });
+
+  test("no React render runs for each pen sample, and one does when the pen lifts", async () => {
+    layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
+    renderScreen();
+    await shown();
+    await act(async () => {});
+
+    renders.count = 0;
+    pointer("pointerDown", paper(), "pen", 100, 300, { pressure: 0.5 });
+    for (let i = 1; i <= 30; i++)
+      pointer("pointerMove", paper(), "pen", 100 + i * 4, 300, { pressure: 0.5 });
+    await frame();
+    expect(renders.count).toBe(0);
+
+    pointer("pointerUp", paper(), "pen", 220, 300, { pressure: 0 });
+    expect(renders.count).toBeGreaterThan(0);
+    expect(strokes()).toHaveLength(1);
+  });
+
+  test("the Stroke being written is drawn on its own viewport-sized canvas in the next frame, from coalesced and predicted samples", async () => {
+    layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
+    const live = liveContext();
+    renderScreen();
+    await shown();
+    const canvas = document.querySelector<HTMLCanvasElement>("canvas[data-live-ink]")!;
+    expect(canvas.width).toBe(800);
+    expect(canvas.height).toBe(600);
+    expect(live.options).toEqual({ desynchronized: true });
+
+    pointer("pointerDown", paper(), "pen", 100, 300, { pressure: 0.5 });
+    const move = new PointerEvent("pointermove", {
+      bubbles: true,
+      pointerType: "pen",
+      pointerId: 9,
+      clientX: 160,
+      clientY: 300,
+      pressure: 0.5,
+      buttons: 1,
+    });
+    Object.defineProperty(move, "getCoalescedEvents", {
+      value: () => [sample(120), sample(140), sample(160)],
+    });
+    Object.defineProperty(move, "getPredictedEvents", { value: () => [sample(400)] });
+    act(() => void paper().dispatchEvent(move));
+    expect(live.fills).toHaveLength(0);
+
+    await frame();
+    // Drawn once in the frame, reaching on towards the predicted sample.
+    expect(live.fills).toHaveLength(1);
+    const reach = Math.max(...xs(live.fills[0]!));
+    expect(reach).toBeGreaterThan(200);
+
+    const cleared = live.cleared;
+    pointer("pointerUp", paper(), "pen", 160, 300, { pressure: 0.5 });
+    // The predicted sample is never kept: the path stops where the pen did,
+    // and the live canvas is cleared as it shows.
+    expect(Math.max(...xs(strokes()[0]!.getAttribute("d")!))).toBeLessThan(170);
+    expect(live.cleared).toBeGreaterThan(cleared);
+    expect(live.fills).toHaveLength(1);
+  });
+
+  test("Ink is kept through re-renders and resizing, and gone on the next Card, which starts afresh", async () => {
+    layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
+    const { rerenderScreen } = renderScreen();
+    await shown();
+
+    write(paper(), [
+      [100, 300, 0.5],
+      [150, 300, 0.5],
+    ]);
+    fireEvent.click(zoomIn());
+    rerenderScreen();
+    act(() => void window.dispatchEvent(new Event("resize")));
+    expect(strokes()).toHaveLength(1);
+
+    fireEvent.click(dontKnow());
+    const next = await screen.findByRole<HTMLButtonElement>("button", { name: /Next/ });
+    await waitFor(() => expect(next.disabled).toBe(false));
+    fireEvent.click(next);
+    await waitFor(() => expect(front().textContent).toContain("c2 front"));
+
+    expect(strokes()).toHaveLength(0);
+    expect(layer().style.transform).toBe("translate(0px, 0px) scale(1)");
+    expect(zoomReadout().textContent).toBe("100%");
+    expect(front().style.left).toBe("12px");
+    expect(front().style.top).toBe("28px");
+  });
+
+  test("Ink is gone on Undo, and when the same Card comes back", async () => {
+    layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
+    queue = ["c1", "c1", "c2"];
+    renderScreen();
+    await shown();
+
+    write(paper(), [[100, 300, 0.5]]);
+    expect(strokes()).toHaveLength(1);
+    fireEvent.click(dontKnow());
+    const next = await screen.findByRole<HTMLButtonElement>("button", { name: /Next/ });
+    await waitFor(() => expect(next.disabled).toBe(false));
+    fireEvent.click(next);
+    await waitFor(() => expect(tools()).not.toBeNull());
+    expect(front().textContent).toContain("c1 front");
+    expect(strokes()).toHaveLength(0);
+
+    write(paper(), [[100, 300, 0.5]]);
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    await screen.findByText("c1 back");
+    expect(document.querySelector("svg[data-ink]")).toBeNull();
+  });
+});
+
+describe("navigating the Canvas", () => {
+  test("one finger or a mouse drag on the paper pans, freely, with no Stroke drawn again", async () => {
+    layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
+    renderScreen();
+    await shown();
+    write(paper(), [
+      [100, 300, 0.5],
+      [150, 300, 0.5],
+    ]);
+    const path = strokes()[0]!;
+    const d = path.getAttribute("d");
+    await act(async () => {});
+
+    renders.count = 0;
+    drag(paper(), "touch", [400, 300], [100, -200]);
+    expect(layer().style.transform).toBe("translate(-300px, -500px) scale(1)");
+    drag(paper(), "mouse", [100, 100], [900, 1300]);
+    expect(layer().style.transform).toBe("translate(500px, 700px) scale(1)");
+    // Only the layer's transform changed: no render, and the same path.
+    expect(renders.count).toBe(0);
+    expect(strokes()[0]).toBe(path);
+    expect(path.getAttribute("d")).toBe(d);
+  });
+
+  test("two fingers pinch to zoom and pan together, within 25% to 400%", async () => {
+    layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
+    renderScreen();
+    await shown();
+
+    pointer("pointerDown", paper(), "touch", 100, 100, { pointerId: 1 });
+    pointer("pointerDown", paper(), "touch", 200, 100, { pointerId: 2 });
+    pointer("pointerMove", paper(), "touch", 50, 150, { pointerId: 1 });
+    pointer("pointerMove", paper(), "touch", 250, 150, { pointerId: 2 });
+    expect(layer().style.transform).toBe("translate(-150px, -50px) scale(2)");
+    expect(zoomReadout().textContent).toBe("200%");
+
+    pointer("pointerMove", paper(), "touch", 2000, 150, { pointerId: 2 });
+    expect(zoomReadout().textContent).toBe("400%");
+    pointer("pointerMove", paper(), "touch", 51, 150, { pointerId: 2 });
+    expect(zoomReadout().textContent).toBe("25%");
+    pointer("pointerUp", paper(), "touch", 51, 150, { pointerId: 2 });
+    pointer("pointerUp", paper(), "touch", 50, 150, { pointerId: 1 });
+  });
+
+  test("the wheel and a trackpad pan, Shift across; Ctrl/⌘ with the wheel zooms about the pointer", async () => {
+    layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
+    renderScreen();
+    await shown();
+
+    // Stopped, so the page neither scrolls nor zooms.
+    expect(wheel({ deltaY: 100 })).toBe(false);
+    expect(layer().style.transform).toBe("translate(0px, -100px) scale(1)");
+    wheel({ deltaX: 30, deltaY: -20 });
+    expect(layer().style.transform).toBe("translate(-30px, -80px) scale(1)");
+    wheel({ deltaY: 50, shiftKey: true });
+    expect(layer().style.transform).toBe("translate(-80px, -80px) scale(1)");
+
+    wheel({ deltaY: -310, ctrlKey: true, clientX: 200, clientY: 100 });
+    expect(zoomReadout().textContent).toBe("200%");
+    // The paper under the pointer stayed there: (280, 180) on the Canvas.
+    expect(layer().style.transform).toBe("translate(-360px, -260px) scale(2)");
+    wheel({ deltaY: 3100, metaKey: true, clientX: 200, clientY: 100 });
+    expect(zoomReadout().textContent).toBe("25%");
+  });
+
+  test("the zoom control steps by 1.25×, goes back to 100% from its readout, and Fit frames the Front and the Ink", async () => {
+    layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
+    renderScreen();
+    await shown();
+
+    fireEvent.click(zoomIn());
+    expect(zoomReadout().textContent).toBe("125%");
+    // About the centre: (400, 300) stays where it is.
+    expect(layer().style.transform).toBe("translate(-100px, -75px) scale(1.25)");
+    fireEvent.click(zoomOut());
+    fireEvent.click(zoomOut());
+    expect(zoomReadout().textContent).toBe("80%");
+    fireEvent.click(zoomReadout());
+    expect(zoomReadout().textContent).toBe("100%");
+    expect(layer().style.transform).toBe("translate(0px, 0px) scale(1)");
+
+    // A dot far down and right: Fit shows it and the Front (at 12, 28, 720 by
+    // 120), with 24 px around them where they fill the view, centred the other way.
+    write(paper(), [[790, 590, 0.5]]);
+    fireEvent.click(screen.getByRole("button", { name: "Fit" }));
+    const v = parse(layer().style.transform);
+    expect(12 * v.zoom + v.x).toBeCloseTo(24);
+    // The dot reaches 3.1 past its centre, its widest at full pressure.
+    expect(793.1 * v.zoom + v.x).toBeCloseTo(776);
+    expect((28 * v.zoom + v.y + 593.1 * v.zoom + v.y) / 2).toBeCloseTo(300);
+
+    for (let i = 0; i < 10; i++) fireEvent.click(zoomIn());
+    expect(zoomReadout().textContent).toBe("400%");
+    expect(zoomIn().disabled).toBe(true);
+  });
+
+  test("the grid pans and scales with the Canvas, and fades below 50%", async () => {
+    layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
+    renderScreen();
+    await shown();
+    expect(paper().style.backgroundSize).toBe("24px 24px");
+    expect(paper().style.opacity).toBe("1");
+
+    drag(paper(), "touch", [100, 100], [130, 110]);
+    expect(paper().style.backgroundPosition).toBe("30px 10px");
+    fireEvent.click(zoomOut());
+    fireEvent.click(zoomOut());
+    expect(Number(paper().style.opacity)).toBe(1);
+    fireEvent.click(zoomOut());
+    fireEvent.click(zoomOut());
+    expect(zoomReadout().textContent).toBe("41%");
+    expect(Number(paper().style.opacity)).toBeLessThan(1);
+    expect(paper().style.backgroundSize).toMatch(/^9\.8\d*px/);
+  });
+
+  test("a long press shows no callout: the context menu is stopped", async () => {
+    layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
+    renderScreen();
+    await shown();
+    expect(fireEvent.contextMenu(paper())).toBe(false);
+    expect(fireEvent.contextMenu(front())).toBe(false);
+    expect(viewport().className).toMatch(/touch-none/);
+    expect(viewport().className).toMatch(/select-none/);
+    expect(viewport().className).toMatch(/touch-callout:none/);
+  });
+});
+
+describe("palm rejection", () => {
+  test("touches are ignored while the pen is down, and one down with it stays ignored until it lifts", async () => {
+    layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
+    renderScreen();
+    await shown();
+
+    // A palm resting before the pen lands, and one landing while it writes.
+    pointer("pointerDown", paper(), "touch", 500, 500, { pointerId: 1 });
+    pointer("pointerDown", paper(), "pen", 100, 300, { pointerId: 9, pressure: 0.5 });
+    pointer("pointerDown", paper(), "touch", 600, 500, { pointerId: 2 });
+    pointer("pointerMove", paper(), "touch", 300, 200, { pointerId: 1 });
+    pointer("pointerMove", paper(), "touch", 100, 100, { pointerId: 2 });
+    pointer("pointerMove", paper(), "pen", 150, 300, { pointerId: 9, pressure: 0.5 });
+    pointer("pointerUp", paper(), "pen", 150, 300, { pointerId: 9 });
+    expect(layer().style.transform).toBe("translate(0px, 0px) scale(1)");
+    expect(strokes()).toHaveLength(1);
+
+    // The pen is up, but those palms stay ignored until they lift.
+    pointer("pointerMove", paper(), "touch", 0, 0, { pointerId: 1 });
+    pointer("pointerDown", paper(), "touch", 400, 400, { pointerId: 3 });
+    pointer("pointerMove", paper(), "touch", 0, 0, { pointerId: 2 });
+    expect(layer().style.transform).toBe("translate(0px, 0px) scale(1)");
+    pointer("pointerUp", paper(), "touch", 0, 0, { pointerId: 1 });
+    pointer("pointerUp", paper(), "touch", 0, 0, { pointerId: 2 });
+
+    // A new touch, down after the pen lifted, pans.
+    pointer("pointerMove", paper(), "touch", 450, 400, { pointerId: 3 });
+    expect(layer().style.transform).toBe("translate(50px, 0px) scale(1)");
+  });
+
+  test("a pan or a pinch under way is cancelled when the pen lands", async () => {
+    layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
+    renderScreen();
+    await shown();
+
+    pointer("pointerDown", paper(), "touch", 100, 100, { pointerId: 1 });
+    pointer("pointerDown", paper(), "touch", 200, 100, { pointerId: 2 });
+    pointer("pointerMove", paper(), "touch", 50, 100, { pointerId: 1 });
+    const pinched = layer().style.transform;
+    expect(pinched).not.toBe("translate(0px, 0px) scale(1)");
+
+    pointer("pointerDown", paper(), "pen", 300, 300, { pointerId: 9, pressure: 0.5 });
+    pointer("pointerMove", paper(), "touch", 0, 100, { pointerId: 1 });
+    pointer("pointerMove", paper(), "touch", 400, 100, { pointerId: 2 });
+    pointer("pointerUp", paper(), "pen", 300, 300, { pointerId: 9 });
+    pointer("pointerMove", paper(), "touch", 500, 100, { pointerId: 2 });
+    expect(layer().style.transform).toBe(pinched);
+  });
+
+  test("a finger moving the selected Front stops when the pen lands", async () => {
+    layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
+    renderScreen();
+    await shown();
+    tap(front(), "touch");
+
+    pointer("pointerDown", front(), "touch", 100, 100, { pointerId: 1 });
+    pointer("pointerMove", front(), "touch", 120, 100, { pointerId: 1 });
+    expect(front().style.left).toBe("32px");
+    pointer("pointerDown", paper(), "pen", 300, 300, { pointerId: 9, pressure: 0.5 });
+    pointer("pointerMove", front(), "touch", 400, 400, { pointerId: 1 });
+    pointer("pointerUp", paper(), "pen", 300, 300, { pointerId: 9 });
+    pointer("pointerMove", front(), "touch", 500, 500, { pointerId: 1 });
+    expect(front().style.left).toBe("32px");
+    expect(front().style.top).toBe("28px");
+  });
+});
+
+describe("while the pen writes", () => {
+  test("a palm on the zoom control zooms nothing, then or when it lifts", async () => {
+    layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
+    renderScreen();
+    await shown();
+
+    pointer("pointerDown", paper(), "pen", 100, 300);
+    pointer("pointerDown", zoomIn(), "touch", 10, 10, { pointerId: 1 });
+    fireEvent.click(zoomIn());
+    pointer("pointerMove", paper(), "pen", 150, 300);
+    pointer("pointerUp", paper(), "pen", 150, 300);
+    // It lifts after the pen, and its click comes then.
+    pointer("pointerUp", zoomIn(), "touch", 10, 10, { pointerId: 1 });
+    act(
+      () => void zoomIn().dispatchEvent(new PointerEvent("click", { bubbles: true, pointerId: 1 })),
+    );
+
+    expect(zoomReadout().textContent).toBe("100%");
+    expect(strokes()).toHaveLength(1);
+    // A tap that is no palm still zooms.
+    fireEvent.click(zoomIn());
+    expect(zoomReadout().textContent).toBe("125%");
+  });
+
+  test("the view never moves under a Stroke: Fit and the mouse on the zoom control wait", async () => {
+    layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
+    renderScreen();
+    await shown();
+
+    pointer("pointerDown", paper(), "pen", 100, 300);
+    fireEvent.click(zoomIn());
+    fireEvent.click(screen.getByRole("button", { name: "Fit" }));
+    wheel({ deltaY: 100 });
+    expect(layer().style.transform).toBe("translate(0px, 0px) scale(1)");
+    pointer("pointerUp", paper(), "pen", 100, 300);
+  });
+
+  test("a Stroke whose lift never came ends when the pen lands again, and the Canvas works on", async () => {
+    layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
+    renderScreen();
+    await shown();
+
+    pointer("pointerDown", paper(), "pen", 100, 300, { pointerId: 9 });
+    pointer("pointerMove", paper(), "pen", 150, 300, { pointerId: 9 });
+    write(paper(), [
+      [100, 400, 0.5],
+      [150, 400, 0.5],
+    ]);
+    // write() uses the same id; a new pen id ends the stale one too.
+    pointer("pointerDown", paper(), "pen", 100, 300, { pointerId: 11 });
+    pointer("pointerDown", paper(), "pen", 100, 500, { pointerId: 12 });
+    pointer("pointerUp", paper(), "pen", 100, 500, { pointerId: 12 });
+    expect(strokes()).toHaveLength(3);
+
+    drag(paper(), "touch", [100, 100], [150, 100]);
+    expect(layer().style.transform).toBe("translate(50px, 0px) scale(1)");
+  });
+
+  test("a Stroke whose pen loses its capture, or the window its focus, ends there", async () => {
+    layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
+    renderScreen();
+    await shown();
+
+    pointer("pointerDown", paper(), "pen", 100, 300);
+    fireEvent.lostPointerCapture(viewport(), { pointerId: 9, pointerType: "pen" });
+    expect(strokes()).toHaveLength(1);
+    pointer("pointerDown", paper(), "pen", 100, 300);
+    act(() => void window.dispatchEvent(new Event("blur")));
+    expect(strokes()).toHaveLength(2);
+
+    expect(wheel({ deltaY: 100 })).toBe(false);
+    expect(layer().style.transform).toBe("translate(0px, -100px) scale(1)");
+  });
+
+  test("the lift's own sample is kept", async () => {
+    layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
+    renderScreen();
+    await shown();
+
+    pointer("pointerDown", paper(), "pen", 100, 300, { pressure: 0.5 });
+    pointer("pointerMove", paper(), "pen", 120, 300, { pressure: 0.5 });
+    pointer("pointerUp", paper(), "pen", 300, 300, { pressure: 0 });
+    expect(Math.max(...xs(strokes()[0]!.getAttribute("d")!))).toBeGreaterThan(290);
+  });
+});
+
+describe("a pinch from the Front", () => {
+  test("a finger moving the selected Front and one on the paper pinch, and the Front stops", async () => {
+    layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
+    renderScreen();
+    await shown();
+    tap(front(), "touch");
+
+    pointer("pointerDown", front(), "touch", 100, 100, { pointerId: 1 });
+    pointer("pointerDown", paper(), "touch", 200, 100, { pointerId: 2 });
+    pointer("pointerMove", front(), "touch", 50, 100, { pointerId: 1 });
+    pointer("pointerMove", paper(), "touch", 250, 100, { pointerId: 2 });
+
+    expect(zoomReadout().textContent).toBe("200%");
+    expect(front().style.left).toBe("12px");
   });
 });

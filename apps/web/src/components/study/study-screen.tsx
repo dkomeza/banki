@@ -26,6 +26,7 @@ import { type Deck, deckQueryOptions } from "@/lib/decks";
 import { moreOffer } from "@/lib/new-cards";
 import { sessionStore, timeoutMsOf } from "@/lib/session-store";
 import { settingsQueryOptions } from "@/lib/settings";
+import type { Stroke } from "@/lib/ink";
 import { tagsQueryOptions } from "@/lib/tags";
 import {
   RATE_FAILED,
@@ -60,8 +61,10 @@ import { cn } from "@/lib/utils";
 // I don't know and Check (answer.tsx); after Check, the Grader's result shows
 // with the Back, and the ratings wait for a confirm until its suggestion is in
 // (grade.tsx). With `?handwriting=1`, a Card in write-and-grade before the
-// reveal shows the handwriting layout instead (handwriting.tsx), for now a
-// shell where nothing draws and Check waits.
+// reveal shows the handwriting layout instead (handwriting.tsx): the stylus
+// writes Ink on a Canvas, and Check waits for BAN-106.
+
+const NO_INK: Stroke[] = [];
 
 /** How often a visible screen checks the Session timeout. */
 const TIMEOUT_CHECK_MS = 15_000;
@@ -141,6 +144,16 @@ export function StudyScreen({ deck, handwriting = false }: { deck: Deck; handwri
     !state.revealed;
   // The scale the User last gave a Front in it, which the next Card's starts at.
   const [frontScale, setFrontScale] = useState<number | null>(null);
+  // The shown Card's Ink, kept here so re-renders, resizing and rotating keep
+  // it, and gone with its Card: on a reveal (I don't know, Check), a Rating,
+  // Undo or the next Card.
+  const [ink, setInk] = useState<{ cardId: string; strokes: Stroke[] } | null>(null);
+  const shownId = state.shown?.card.id;
+  const [inkOf, setInkOf] = useState({ shownId, revealed: state.revealed });
+  if (inkOf.shownId !== shownId || inkOf.revealed !== state.revealed) {
+    setInkOf({ shownId, revealed: state.revealed });
+    setInk(null);
+  }
   const queryClient = useQueryClient();
   const editor = useRef<StudyEditorHandle>(null);
   // The editor's Duplicate warning and Tag suggestions read these: fetched
@@ -293,6 +306,8 @@ export function StudyScreen({ deck, handwriting = false }: { deck: Deck; handwri
             front={state.shown.card.front}
             kept={frontScale}
             onKeep={setFrontScale}
+            strokes={ink?.cardId === state.shown.card.id ? ink.strokes : NO_INK}
+            onStrokes={(strokes) => setInk({ cardId: shownId ?? "", strokes })}
           />
         ) : state.phase === "card" ? (
           <CardView session={session} state={state} />

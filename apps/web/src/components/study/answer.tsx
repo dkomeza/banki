@@ -75,8 +75,8 @@ export function AnswerEditor({ session, state }: { session: StudySession; state:
 
 /**
  * Before the reveal in write-and-grade: I don't know, then Check, the wider;
- * Check waits for an answer. In handwriting it waits, for now: there is no ink
- * to send yet.
+ * Check waits for an answer. In handwriting it waits, for now: the Grader takes
+ * Ink with BAN-106.
  */
 export function WriteDock({
   session,
