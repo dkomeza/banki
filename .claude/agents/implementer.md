@@ -26,7 +26,7 @@ Before writing code, read `CLAUDE.md`, `CONTEXT.md` and the ADRs in `docs/adr/` 
 
 ## Checking the UI
 
-On a UI issue (the diff touches `apps/web/`, or the spec has UI criteria), look at the screens you built before you report. The README's "Seeing the UI" section describes the `ui` script.
+On a UI issue (the diff touches `apps/web/`, or the spec has UI criteria), look at the screens you built before you report. `docs/ui-script.md` describes the `ui` script.
 
 - Build within `docs/design.md` when it exists. When the spec names a Reference on `<branch>-proto-<key>`, `.ui/reference/` holds its shots and that Variant's branch holds its code (`git show origin/<branch>-proto-<key>:<path>`; only origin keeps that branch). Build to the shots, and write the code properly rather than copying the prototype's.
 - Run `bun run ui shoot --agent implementer <routes…>` on every route you touched. Each route is shot in its mode from the route manifest (`/login` signed out, `/setup` before Setup), and a route with params, such as `/decks/$deckId`, at its manifest path. The shots land in `.ui/shots/implementer/`.

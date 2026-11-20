@@ -9,7 +9,7 @@
 #
 # Its settings come from `deploy/long-lived/bootstrap`, which writes them to
 # $BANKI_PREVIEW_SECRETS (default ~/.config/banki-preview), outside the clone.
-# See "Long-lived installations" in the README. No service publishes a host
+# See docs/infra/long-lived.md. No service publishes a host
 # port.
 
 name: banki-long-lived

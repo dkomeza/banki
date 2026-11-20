@@ -9,7 +9,7 @@
 #
 # Its settings and secrets come from `deploy/preview/bootstrap`, which writes
 # them to $BANKI_PREVIEW_SECRETS (default ~/.config/banki-preview), outside
-# the clone. See "Previews" in the README. No service publishes a host port.
+# the clone. See docs/infra/previews.md. No service publishes a host port.
 
 name: banki-preview
 

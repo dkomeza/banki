@@ -1,7 +1,7 @@
 name: Grader eval
 
 # Runs every curated Model over the Grader's eval samples on the real
-# OpenRouter (README § The Grader's eval). It fails only when the default Model
+# OpenRouter (docs/development.md § The Grader's eval). It fails only when the default Model
 # is two or more Ratings off on a sample; the other Models' results go in the
 # job summary. Without the OPENROUTER_API_KEY secret (Dependabot, a fork, or
 # before the Maintainer adds it) the script skips with a note.
