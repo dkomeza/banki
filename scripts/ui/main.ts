@@ -26,7 +26,7 @@ import {
 // seeded and signed in, and screenshots routes at phone, tablet and desktop
 // sizes (`shoot`), compares every route with the branch's merge-base for a PR
 // body (`compare`), or leaves the copy running to drive with playwright-cli
-// (`up` / `down`). Run with `bun run ui …`; see the README.
+// (`up` / `down`). Run with `bun run ui …`; see docs/ui-script.md.
 //
 // Node runs it (Playwright doesn't support Bun), straight from TypeScript, so
 // it imports no workspace packages at runtime.

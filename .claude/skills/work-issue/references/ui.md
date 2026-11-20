@@ -1,6 +1,6 @@
 # UI issues
 
-The parts of `work-issue` that only a UI issue takes: in the grill, in each Stage, and in live mode. They use the `ui` script (the README's "Seeing the UI" section), whose stacks and shots live under `.ui/` in each worktree, and Slug Previews (the README's "Slug Previews" section). Paths and Variant keys are as in [`stages.md`](stages.md) § Paths.
+The parts of `work-issue` that only a UI issue takes: in the grill, in each Stage, and in live mode. They use the `ui` script (`docs/ui-script.md`), whose stacks and shots live under `.ui/` in each worktree, and Slug Previews (`docs/infra/previews.md` § Slug Previews). Paths and Variant keys are as in [`stages.md`](stages.md) § Paths.
 
 ## The design baseline
 
@@ -38,7 +38,7 @@ gh api --paginate 'repos/dkomeza/banki/deployments?environment=slug-preview&per_
     | sort_by([.created_at, .id]) | .[] | "\(payload.slug)\t\(.sha)\t\(.id)\t\(.created_at)"'
 ```
 
-A Slug's newest deployment is its last line. Read that deployment's state with `gh api repos/dkomeza/banki/deployments/<id>/statuses --jq '.[0] | {state, description, environment_url}'` (the README's "Slug Previews" section lists the states).
+A Slug's newest deployment is its last line. Read that deployment's state with `gh api repos/dkomeza/banki/deployments/<id>/statuses --jq '.[0] | {state, description, environment_url}'` (`docs/infra/previews.md` § Slug Previews lists the states).
 
 Take a Slug down with `gh workflow run slug-preview.yml -f slug=<slug> -f down=true`. A Slug that is down already stays down.
 
@@ -79,7 +79,7 @@ For a UI finding, open the PNG it cites first, and judge it from what is on scre
 
 ## Step 7: shots in the PR body
 
-After writing the body to `<wt>/.ui/pr-body.md`, run `bun run ui compare --body .ui/pr-body.md` in `<wt>`. It puts before/after shots of every route the branch changed into the body's Evidence section, between the `<!-- ui-shots -->` markers, with the PNGs in `<wt>/.ui/pr/` (see the README's `ui compare`). Look at the after-shots before going on. A non-zero exit means the branch's own side failed: the branch is broken, so get it fixed first. A base that couldn't start still exits 0, with after-only shots and a note.
+After writing the body to `<wt>/.ui/pr-body.md`, run `bun run ui compare --body .ui/pr-body.md` in `<wt>`. It puts before/after shots of every route the branch changed into the body's Evidence section, between the `<!-- ui-shots -->` markers, with the PNGs in `<wt>/.ui/pr/` (see `docs/ui-script.md` § `ui compare`). Look at the after-shots before going on. A non-zero exit means the branch's own side failed: the branch is broken, so get it fixed first. A base that couldn't start still exits 0, with after-only shots and a note.
 
 When opening the PR, add one `--attach ./.ui/pr/<file>.png` per PNG in `.ui/pr/`. Run from `<wt>`, the body's `./.ui/pr/…` references name the attached files, and `gh` rewrites them to the uploaded images.
 

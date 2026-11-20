@@ -2,19 +2,20 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-// The README's merge-guard command (§ Runner, "GitHub: the merge guard")
+// The merge-guard command (docs/infra/runner.md, "GitHub: the merge guard")
 // reads the live `main` ruleset and writes it back with three review settings
-// changed. Its jq program is taken from the README as it is and run on the
+// changed. Its jq program is taken from the doc as it is and run on the
 // ruleset as GitHub returned it: nothing else may change, or a rule added
 // later would be dropped without a word. Skipped without jq.
 
 const hasJq = Bun.which("jq") !== null;
-const README = readFileSync(join(import.meta.dir, "..", "..", "README.md"), "utf8");
+const DOC = readFileSync(join(import.meta.dir, "..", "..", "docs", "infra", "runner.md"), "utf8");
 
 function program(): string {
-  const section = README.slice(README.indexOf("### GitHub: the merge guard"));
+  const section = DOC.slice(DOC.indexOf("## GitHub: the merge guard"));
   const found = /\| jq '([\s\S]*?)'\)"/.exec(section)?.[1];
-  if (found === undefined) throw new Error("README: no jq program in the merge guard's command");
+  if (found === undefined)
+    throw new Error("docs/infra/runner.md: no jq program in the merge guard's command");
   return found;
 }
 
@@ -77,7 +78,7 @@ async function jq(input: unknown) {
   return { stdout, stderr, exitCode };
 }
 
-describe.skipIf(!hasJq)("the README's merge-guard command", () => {
+describe.skipIf(!hasJq)("the merge-guard command", () => {
   test("changes the three review settings, and keeps everything else that can be written", async () => {
     const result = await jq(LIVE);
 

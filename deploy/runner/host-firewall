@@ -16,8 +16,9 @@
 # DNS (port 53) is let through both, for an upstream resolver on the LAN or on
 # the host: Docker's embedded DNS (127.0.0.11) sits in the container's own
 # namespace, but it sends the queries it forwards from there too. Run it as
-# root after Docker has started, and again after every boot (README § Runner).
-# Running it again changes nothing.
+# root after Docker has started, and again after every boot
+# (docs/infra/runner.md § Keeping it off the host and the LAN). Running it again
+# changes nothing.
 #
 # Usage: sudo deploy/runner/host-firewall
 set -euo pipefail
