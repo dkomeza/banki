@@ -10,7 +10,7 @@ import { SAMPLES } from "./samples";
 // when there is one, and fails when the default Model is two or more steps
 // off on any sample, or fails one with a permanent error (an API key
 // OpenRouter refuses, no credits, a Model it can't run). With no key, it
-// skips. README § The Grader's eval.
+// skips. docs/development.md § The Grader's eval.
 
 const summary = (text: string) => {
   const file = process.env.GITHUB_STEP_SUMMARY;

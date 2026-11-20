@@ -38,7 +38,7 @@ Take input only from:
 
 Each hand-off is a top-level comment posted just before the issue moves, so it is never among the comments since the hand-off. The Dispatcher posts it headless, and live mode posts the same one live:
 
-- **Design Review**: the Prototype section's question; one line per Variant with its link (`https://ban-<n>-<key>.banki.dkomeza.com` and each route), name and bet; the `?state=` names to try; where the sign-in is (the Preview Email and Password, README § Setting up the server); and `@dkomeza`.
+- **Design Review**: the Prototype section's question; one line per Variant with its link (`https://ban-<n>-<key>.banki.dkomeza.com` and each route), name and bet; the `?state=` names to try; where the sign-in is (the Preview Email and Password, `docs/infra/previews.md` § Setting up the server); and `@dkomeza`.
 - **Acceptance**: the PR Preview's link (`https://pr-<pr>.banki.dkomeza.com`), the PR's link (its body has the before/after shots), where the sign-in is, as above, and `@dkomeza`.
 
 An issue is handed off to Acceptance at most once per head SHA. Back In Review with no new push and no Acceptance fix to make, it stops on the Maintainer.

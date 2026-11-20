@@ -1,6 +1,6 @@
 # Self-hosted Banki behind one origin (ADR-0002): `web` serves the SPA and
 # proxies /api to `api`. Only `web` is reachable from the host.
-# See "Running with Docker" in the README.
+# See docs/self-hosting.md.
 
 # A fixed project name keeps the volume `banki_banki-data` whatever the clone's
 # directory is called.
@@ -15,7 +15,7 @@ services:
     restart: unless-stopped
     environment:
       # The address the User opens Banki at. Signing in is refused from any
-      # other origin, and cookies are Secure when it is https. See the README.
+      # other origin, and cookies are Secure when it is https. See docs/self-hosting.md.
       ORIGIN: ${BANKI_ORIGIN:-http://localhost:8080}
     # No ports: only `web` can reach the API, which is why the API can trust
     # the X-Forwarded-For that Caddy sends. Never publish the API's port.

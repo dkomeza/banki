@@ -108,7 +108,7 @@ const MINUTE = 60_000;
 const short = (sha: string) => sha.slice(0, 7);
 const later = (a: string, b: string | undefined) => (b !== undefined && b > a ? b : a);
 const SIGN_IN =
-  "Sign in with the Preview's Email and Password (README § Setting up the server, in `deploy/preview/bootstrap`).";
+  "Sign in with the Preview's Email and Password (docs/infra/previews.md § Setting up the server, in `deploy/preview/bootstrap`).";
 
 export function decide(issue: IssueFacts, now: Date, facts: Facts = {}): Decision {
   const { status } = issue;

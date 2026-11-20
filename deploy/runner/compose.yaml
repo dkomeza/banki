@@ -7,8 +7,8 @@
 # Its secrets come from `deploy/runner/bootstrap`, which writes them to
 # $BANKI_RUNNER_SECRETS (default ~/.config/banki-runner), outside the clone,
 # and the host user's uid and gid and the host's timezone to
-# deploy/runner/.env, which Compose reads from here. See "Runner" in the
-# README. Only the Dashboard publishes a port, on the host's 127.0.0.1 alone.
+# deploy/runner/.env, which Compose reads from here. See
+# docs/infra/runner.md. Only the Dashboard publishes a port, on the host's 127.0.0.1 alone.
 
 name: banki-runner
 
@@ -30,9 +30,9 @@ x-hardening: &hardening
   init: true
   restart: unless-stopped
 
-# The Dispatcher's settings (README § Runner), each with its default; set one
-# in deploy/runner/.env to change it. The runner dispatches by them, and the
-# Dashboard shows its queue and window by them. Stages start every night and
+# The Dispatcher's settings (docs/infra/runner.md § The window), each with its
+# default; set one in deploy/runner/.env to change it. The runner dispatches
+# by them, and the Dashboard shows its queue and window by them. Stages start every night and
 # all day on the open days, at most BANKI_RUNNER_MAX_STAGES at once, running
 # or paused, and only while the week's usage, with what they are estimated
 # to take, stays within the Ceiling. The open days take `-`, not `:-`: set
@@ -115,7 +115,7 @@ services:
       - banki-runner-work:/work:ro
       - banki-runner-broker:/run/banki-broker
     # The host's loopback alone: a Pangolin resource on the homelab site, behind
-    # its SSO, is the only way in (README § The Dashboard).
+    # its SSO, is the only way in (docs/infra/runner.md § The Dashboard).
     ports:
       - "127.0.0.1:8790:8790"
     mem_limit: 256m
