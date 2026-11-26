@@ -34,6 +34,7 @@ import {
   type View,
   ZOOM,
   fit,
+  gridLines,
   gridOpacity,
   inkBounds,
   outlinePath,
@@ -72,9 +73,11 @@ import { cn } from "@/lib/utils";
 //
 // The tools and Check wait for BAN-47 and BAN-106.
 
-/** The paper: a grid in the hairline colour, scaled and moved with the view. */
-const GRID =
-  "bg-[linear-gradient(to_right,color-mix(in_oklch,var(--border)_70%,transparent)_1px,transparent_1px),linear-gradient(to_bottom,color-mix(in_oklch,var(--border)_70%,transparent)_1px,transparent_1px)]";
+/** How strong the grid's lines are, over the hairline colour. */
+const GRID_ALPHA = 0.7;
+
+/** How long after the view last moved the Front's layer is drawn afresh, crisp at its zoom. */
+const SETTLE_MS = 200;
 
 /** How far a finger or the mouse may move and still be a tap. */
 const TAP_SLOP = 8;
@@ -103,7 +106,7 @@ export function HandwritingShell({
   const [selected, setSelected] = useState(false);
   const [nav] = useState(() => new Navigator());
   const world = useRef<HTMLDivElement>(null);
-  const grid = useRef<HTMLDivElement>(null);
+  const grid = useRef<HTMLCanvasElement>(null);
   const live = useRef<HTMLCanvasElement>(null);
   const ink = useRef<SVGSVGElement>(null);
   const frontBox = useRef<Rect | null>(null);
@@ -162,12 +165,15 @@ export function HandwritingShell({
       onClickCapture={nav.click}
       onContextMenu={(event) => event.preventDefault()}
     >
-      <div
-        ref={grid}
-        role="img"
-        aria-label="Handwritten answer"
-        className={cn("absolute inset-0", GRID)}
-      />
+      <div role="img" aria-label="Handwritten answer" className="absolute inset-0">
+        {/* The paper's grid, drawn by the view in the frame it moves, on whole device pixels. */}
+        <canvas
+          ref={grid}
+          data-grid
+          aria-hidden
+          className="absolute inset-0 size-full text-border"
+        />
+      </div>
       <div ref={world} data-canvas-layer className="absolute top-0 left-0 origin-top-left">
         <FrontOnPaper
           front={front}
@@ -207,15 +213,19 @@ function Ink({
   ref: RefObject<SVGSVGElement | null>;
   strokes: readonly Stroke[];
 }) {
+  // As large as the Ink, so no browser clips or skips what it draws past its box.
+  const box = useMemo(() => inkBounds(strokes) ?? { x: 0, y: 0, w: 1, h: 1 }, [strokes]);
   return (
     <svg
       ref={ref}
       aria-hidden
       data-ink
       data-strokes={strokes.length}
-      width="1"
-      height="1"
-      className="pointer-events-none absolute top-0 left-0 overflow-visible text-foreground"
+      width={box.w}
+      height={box.h}
+      viewBox={`${box.x} ${box.y} ${box.w} ${box.h}`}
+      style={{ left: box.x, top: box.y }}
+      className="pointer-events-none absolute overflow-visible text-foreground"
     >
       {strokes.map((stroke, i) => (
         // Strokes are only ever added, so the index is each one's for good.
@@ -235,7 +245,7 @@ const InkPath = memo(function InkPath({ stroke }: { stroke: Stroke }) {
 type Elements = {
   viewport: HTMLDivElement | null;
   world: HTMLDivElement | null;
-  grid: HTMLDivElement | null;
+  grid: HTMLCanvasElement | null;
   live: HTMLCanvasElement | null;
   ink: SVGSVGElement | null;
   onStroke: (stroke: Stroke) => void;
@@ -276,6 +286,8 @@ class Navigator {
   private pen: { id: number; stroke: Stroke; ahead: InkPoint[]; color: string } | null = null;
   private frame: number | null = null;
   private context: CanvasRenderingContext2D | null = null;
+  private gridContext: CanvasRenderingContext2D | null = null;
+  private settle: ReturnType<typeof setTimeout> | null = null;
   private listeners = new Set<() => void>();
   private safariZoom: View | null = null;
 
@@ -287,6 +299,12 @@ class Navigator {
       this.context = el.live?.getContext("2d", { desynchronized: true }) ?? null;
     } catch {
       this.context = null;
+    }
+    this.gridContext = null;
+    try {
+      this.gridContext = el.grid?.getContext("2d") ?? null;
+    } catch {
+      this.gridContext = null;
     }
     this.apply(this.view);
     const viewport = el.viewport;
@@ -301,7 +319,18 @@ class Navigator {
     // A pen whose lift the window never hears, as it loses the focus, ends its Stroke there.
     const blur = () => this.finish();
     window.addEventListener("blur", blur);
+    // The grid's colour is the theme's: drawn again when the theme changes.
+    const theme = () => this.drawGrid();
+    const themes = typeof MutationObserver === "undefined" ? null : new MutationObserver(theme);
+    themes?.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class", "style"],
+    });
+    const scheme = window.matchMedia?.("(prefers-color-scheme: dark)");
+    scheme?.addEventListener?.("change", theme);
     this.detachListeners = () => {
+      themes?.disconnect();
+      scheme?.removeEventListener?.("change", theme);
       window.removeEventListener("blur", blur);
       viewport.removeEventListener("wheel", wheel);
       for (const type of ["gesturestart", "gesturechange", "gestureend"]) {
@@ -316,17 +345,21 @@ class Navigator {
     this.detachListeners();
     if (this.frame !== null) cancelAnimationFrame(this.frame);
     this.frame = null;
+    if (this.settle !== null) clearTimeout(this.settle);
+    this.settle = null;
     this.el = null;
   }
 
   /** The viewport's size changed: the live canvas matches it, and the view stays where it is. */
   resize(size: { w: number; h: number }) {
     this.size = size;
-    const live = this.el?.live;
-    if (live == null) return;
     const dpr = window.devicePixelRatio || 1;
-    live.width = Math.round(size.w * dpr);
-    live.height = Math.round(size.h * dpr);
+    for (const canvas of [this.el?.live, this.el?.grid]) {
+      if (canvas == null) continue;
+      canvas.width = Math.round(size.w * dpr);
+      canvas.height = Math.round(size.h * dpr);
+    }
+    this.drawGrid();
     this.draw();
   }
 
@@ -363,20 +396,52 @@ class Navigator {
   }
 
   private apply(view: View) {
+    const moved = view.x !== this.view.x || view.y !== this.view.y || view.zoom !== this.view.zoom;
     const zoomed = view.zoom !== this.view.zoom;
     this.view = view;
-    const el = this.el;
-    if (el?.world != null) {
-      el.world.style.transform = viewTransform(view);
-      el.world.style.setProperty("--zoom", String(view.zoom));
+    const world = this.el?.world;
+    if (world != null) {
+      world.style.transform = viewTransform(view);
+      // The corners stay the same size on screen at every zoom.
+      for (const corner of world.querySelectorAll<HTMLElement>("[data-corner]")) {
+        corner.style.scale = String(1 / view.zoom);
+      }
+      if (moved) this.navigating(world);
     }
-    if (el?.grid != null) {
-      const cell = GRID_SIZE * view.zoom;
-      el.grid.style.backgroundSize = `${cell}px ${cell}px`;
-      el.grid.style.backgroundPosition = `${view.x}px ${view.y}px`;
-      el.grid.style.opacity = String(gridOpacity(view.zoom));
-    }
+    this.drawGrid();
     if (zoomed) for (const listener of this.listeners) listener();
+  }
+
+  /**
+   * While the view moves, the compositor moves the Front's layer as it is;
+   * once it has rested a moment, the layer is drawn afresh, crisp at its zoom.
+   */
+  private navigating(world: HTMLDivElement) {
+    world.style.willChange = "transform";
+    if (this.settle !== null) clearTimeout(this.settle);
+    this.settle = setTimeout(() => {
+      this.settle = null;
+      world.style.willChange = "";
+    }, SETTLE_MS);
+  }
+
+  /** The grid, drawn again where the view puts it: whole device pixels, so its lines never shimmer or jump. */
+  private drawGrid() {
+    const canvas = this.el?.grid;
+    const ctx = this.gridContext;
+    if (canvas == null) return;
+    canvas.style.opacity = String(gridOpacity(this.view.zoom));
+    canvas.dataset.cell = String(GRID_SIZE * this.view.zoom);
+    if (ctx === null || typeof ctx.fillRect !== "function") return;
+    const dpr = window.devicePixelRatio || 1;
+    const line = Math.max(1, Math.round(dpr));
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.globalAlpha = GRID_ALPHA;
+    ctx.fillStyle = getComputedStyle(canvas).color;
+    const lines = gridLines(this.view, this.size);
+    for (const x of lines.x) ctx.fillRect(Math.round(x * dpr), 0, line, canvas.height);
+    for (const y of lines.y) ctx.fillRect(0, Math.round(y * dpr), canvas.width, line);
   }
 
   /** Where the viewport's top-left is on screen. */
@@ -625,7 +690,7 @@ class Navigator {
     ctx.setTransform(dpr * zoom, 0, 0, dpr * zoom, dpr * x, dpr * y);
     ctx.fillStyle = pen.color;
     // oxlint-disable-next-line unicorn/no-array-fill-with-reference-type -- a canvas's fill, not an array's
-    ctx.fill(new Path2D(outlinePath(strokeOutline(pen.stroke, { done: false, ahead: pen.ahead }))));
+    ctx.fill(new Path2D(outlinePath(strokeOutline(pen.stroke, { ahead: pen.ahead }))));
   }
 }
 
@@ -782,6 +847,7 @@ function FrontOnPaper({
             <Handle
               key={c}
               className={CORNER_AT[c]}
+              zoom={nav.zoom()}
               drag={{
                 ...cornerDrag,
                 onPointerDown: (event) => {
@@ -820,18 +886,19 @@ const CORNER_AT: Record<Corner, string> = {
   br: "-right-[22px] -bottom-[22px] cursor-nwse-resize justify-center lg:-right-3 lg:-bottom-3",
 };
 
-/** A corner's handle: small to see, 44 px to touch below 1024 px, at every zoom. */
-function Handle({ drag, className }: { drag: Drag; className: string }) {
+/**
+ * A corner's handle: small to see, 44 px to touch below 1024 px, at every
+ * zoom. The view keeps its scale up to date as it zooms.
+ */
+function Handle({ drag, className, zoom }: { drag: Drag; className: string; zoom: number }) {
   return (
     <span
       {...drag}
       aria-hidden
       data-corner
       title="Drag to scale"
-      className={cn(
-        "absolute z-10 flex size-11 touch-none items-center [scale:calc(1/var(--zoom,1))] lg:size-6",
-        className,
-      )}
+      style={{ scale: String(1 / zoom) }}
+      className={cn("absolute z-10 flex size-11 touch-none items-center lg:size-6", className)}
     >
       <span className="size-3.5 rounded-full border-2 border-primary bg-background shadow-sm lg:size-3" />
     </span>

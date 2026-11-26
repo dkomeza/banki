@@ -8,6 +8,7 @@ import {
   START_VIEW,
   ZOOM,
   fit,
+  gridLines,
   gridOpacity,
   inkBounds,
   outlinePath,
@@ -15,9 +16,11 @@ import {
   penSamples,
   pinch,
   pressureless,
+  smoothPressure,
   strokeBounds,
   strokeOutline,
   strokePath,
+  throughSamples,
   toCanvas,
   toScreen,
   union,
@@ -37,7 +40,7 @@ const line = (p: number): Stroke =>
 
 /** How tall an outline is. */
 const height = (s: Stroke) => {
-  const ys = strokeOutline(s, { done: true }).map(([, y = 0]) => y);
+  const ys = strokeOutline(s).map(([, y = 0]) => y);
   return Math.max(...ys) - Math.min(...ys);
 };
 
@@ -121,6 +124,16 @@ describe("the wheel", () => {
     expect(wheelZoom(100)).toBeCloseTo(0.8, 1);
     expect(wheelZoom(-100) * wheelZoom(100)).toBeCloseTo(1);
     expect(wheelZoom(0)).toBe(1);
+    // A notch of 120, or a page, still steps by 1.25× at most.
+    expect(wheelZoom(-120)).toBeCloseTo(1.25);
+    expect(wheelZoom(-1000)).toBeCloseTo(1.25);
+  });
+
+  test("a trackpad's pinch follows the fingers: its small deltas add up, whatever their pace", () => {
+    // Twenty small steps zoom as much as two larger ones of the same total.
+    expect(wheelZoom(-1) ** 20).toBeCloseTo(wheelZoom(-10) ** 2);
+    expect(wheelZoom(-10)).toBeCloseTo(Math.exp(0.1));
+    expect(wheelZoom(10) * wheelZoom(-10)).toBeCloseTo(1);
   });
 
   test("pans against the scroll, and across with Shift", () => {
@@ -187,7 +200,7 @@ describe("bounds and Fit", () => {
   test("a hard-pressed Stroke's outline stays within its bounds", () => {
     const s = stroke(Array.from({ length: 20 }, (_, i): InkPoint => [i * 5, 0, 1]));
     const b = strokeBounds(s)!;
-    for (const [x = 0, y = 0] of strokeOutline(s, { done: true })) {
+    for (const [x = 0, y = 0] of strokeOutline(s)) {
       expect(x).toBeGreaterThanOrEqual(b.x);
       expect(x).toBeLessThanOrEqual(b.x + b.w);
       expect(y).toBeGreaterThanOrEqual(b.y);
@@ -248,10 +261,75 @@ describe("Strokes", () => {
       [60, 0, 0.6],
       [70, 0, 0.6],
     ];
-    expect(reach(strokeOutline(s, { done: false, ahead }))).toBeGreaterThan(
-      reach(strokeOutline(s, { done: false })),
-    );
+    expect(reach(strokeOutline(s, { ahead }))).toBeGreaterThan(reach(strokeOutline(s)));
     expect(s.points).toHaveLength(10);
+  });
+
+  test("the pen's pressure is eased from sample to sample, so a jitter barely shows", () => {
+    const eased = smoothPressure([
+      [0, 0, 0.3],
+      [1, 0, 0.9],
+      [2, 0, 0.3],
+    ]);
+    expect(eased[0]).toEqual([0, 0, 0.3]);
+    expect(eased[1]?.[2]).toBeCloseTo(0.48);
+    expect(eased[1]?.[2]).toBeLessThan(0.9);
+    expect(eased.map(([x, y]) => [x, y])).toEqual([
+      [0, 0],
+      [1, 0],
+      [2, 0],
+    ]);
+  });
+
+  test("a curve is drawn through samples far apart, in pieces of about 1 unit", () => {
+    // Four samples of a circle of radius 20, as a browser sampling once a frame gives them.
+    const circle: InkPoint[] = Array.from({ length: 5 }, (_, i): InkPoint => {
+      const a = (i * Math.PI) / 2;
+      return [20 * Math.cos(a), 20 * Math.sin(a), i / 4];
+    });
+    const through = throughSamples(circle);
+    expect(through[0]).toEqual(circle[0]);
+    expect(through.at(-1)?.[0]).toBeCloseTo(20);
+    expect(through.at(-1)?.[1]).toBeCloseTo(0);
+    for (let i = 1; i < through.length; i++) {
+      const [ax = 0, ay = 0] = through[i - 1] ?? [];
+      const [bx = 0, by = 0] = through[i] ?? [];
+      expect(Math.hypot(bx - ax, by - ay)).toBeLessThan(1.5);
+    }
+    // It bends round, near the circle, not across its chords (14.1 from the centre at their middles).
+    const r = through.map(([x, y]) => Math.hypot(x, y));
+    expect(Math.min(...r)).toBeGreaterThan(15.5);
+    // The pressure goes straight from sample to sample, here rising all the way.
+    const pressures = through.map(([, , p]) => p);
+    expect(pressures).toEqual(pressures.toSorted((a, b) => a - b));
+  });
+
+  test("samples close together, and one or two, are drawn as they are", () => {
+    expect(throughSamples([[1, 2, 0.5]])).toEqual([[1, 2, 0.5]]);
+    const close: InkPoint[] = [
+      [0, 0, 0.5],
+      [0.5, 0, 0.5],
+      [1, 0, 0.5],
+    ];
+    expect(throughSamples(close)).toHaveLength(3);
+  });
+
+  test("a Stroke is drawn the same while it is written and once the pen lifts", () => {
+    const s = line(0.4);
+    expect(outlinePath(strokeOutline(s, { ahead: [] }))).toBe(strokePath(s));
+  });
+
+  test("fast writing, sampled once a frame, keeps its width at the corners: no thin breaks", () => {
+    // A zigzag with samples 12 units apart, at a steady pressure.
+    const zigzag = stroke(
+      Array.from({ length: 12 }, (_, i): InkPoint => [i * 8, i % 2 === 0 ? 0 : 9, 0.4]),
+    );
+    const outline = strokeOutline(zigzag);
+    // Every sample's place on the line is covered: some outline point lies within the Stroke's half-width of it.
+    for (const [x, y] of zigzag.points.slice(1, -1)) {
+      const near = Math.min(...outline.map(([ox = 0, oy = 0]) => Math.hypot(ox - x, oy - y)));
+      expect(near).toBeLessThan(2.5);
+    }
   });
 
   test("a tap makes a dot", () => {
@@ -320,5 +398,19 @@ describe("the grid", () => {
     expect(gridOpacity(0.375)).toBeLessThan(1);
     expect(gridOpacity(0.25)).toBeLessThan(gridOpacity(0.375));
     expect(gridOpacity(0.25)).toBeGreaterThan(0);
+  });
+
+  test("its lines fall every 24 Canvas units through the Canvas's origin, moved and scaled with the view", () => {
+    expect(gridLines(START_VIEW, { w: 60, h: 30 })).toEqual({ x: [0, 24, 48], y: [0, 24] });
+    expect(gridLines({ x: 30, y: -10, zoom: 1 }, { w: 60, h: 30 })).toEqual({
+      x: [6, 30, 54],
+      y: [14],
+    });
+    expect(gridLines({ x: 0, y: 0, zoom: 2 }, { w: 100, h: 48 })).toEqual({
+      x: [0, 48, 96],
+      y: [0],
+    });
+    // At 25%, a line every 6 px.
+    expect(gridLines({ x: 0, y: 0, zoom: 0.25 }, { w: 24, h: 1 }).x).toEqual([0, 6, 12, 18]);
   });
 });

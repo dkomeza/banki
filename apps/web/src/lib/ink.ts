@@ -89,12 +89,16 @@ export function pinch(start: View, from: [Point, Point], to: [Point, Point]): Vi
   return { zoom, x: m1.x - at.x * zoom, y: m1.y - at.y * zoom };
 }
 
+/** A wheel's delta that zooms by one step of − or +: a mouse wheel's notch (100 px) and more. */
+const WHEEL_STEP = 100 * Math.log(ZOOM.step);
+
 /**
- * How much one wheel event with Ctrl/⌘ (or a trackpad's pinch) zooms: a
- * mouse wheel's notch (100 px) by about 1.25×, a trackpad's small steps by a little.
+ * How much one wheel event with Ctrl/⌘ (or a trackpad's pinch) zooms. A
+ * trackpad's pinch comes as small deltas, by which it follows the fingers
+ * (100 px of delta is e×); a mouse wheel's notch is capped at one step, 1.25×.
  */
 export function wheelZoom(deltaY: number): number {
-  return 2 ** (-deltaY / 310);
+  return Math.exp(-clamp(deltaY, -WHEEL_STEP, WHEEL_STEP) / 100);
 }
 
 /** A wheel event's distance in px, whatever unit it came in (`deltaMode`: px, lines, pages). */
@@ -193,24 +197,74 @@ export function pressureless(points: readonly InkPoint[]): boolean {
   return points.every(([, , p]) => p === 0 || p === 0.5);
 }
 
+/** How quickly the drawn pressure follows the pen's: a pen's samples jitter, which would make the Ink's edges ragged. */
+const PRESSURE_EASE = 0.3;
+
+/** The pen's pressure eased from sample to sample, so the Ink's width changes smoothly. */
+export function smoothPressure(points: readonly InkPoint[]): InkPoint[] {
+  let p = points[0]?.[2] ?? 0;
+  return points.map(([x, y, pressure]) => [x, y, (p += (pressure - p) * PRESSURE_EASE)]);
+}
+
+/** The longest straight piece drawn between two samples, in Canvas units. */
+const PIECE = 1;
+
+/**
+ * The samples with a curve drawn through them (a centripetal Catmull-Rom
+ * spline), in pieces of about `PIECE` each, the pressure between two samples
+ * going straight from one to the other. A browser that samples the pen only
+ * once a frame leaves the samples of fast writing far apart, which
+ * perfect-freehand would join with straight lines and thin, broken corners.
+ */
+export function throughSamples(points: readonly InkPoint[]): InkPoint[] {
+  if (points.length < 3) return [...points];
+  const at = (i: number) => points[clamp(i, 0, points.length - 1)] ?? [0, 0, 0];
+  // The spline's knots are spaced by the square root of each sample's distance.
+  const knot = (a: InkPoint, b: InkPoint) =>
+    Math.max(Math.hypot(b[0] - a[0], b[1] - a[1]) ** 0.5, 1e-4);
+  const out: InkPoint[] = [at(0)];
+  for (let i = 0; i < points.length - 1; i++) {
+    const [p0, p1, p2, p3] = [at(i - 1), at(i), at(i + 1), at(i + 2)];
+    const t1 = knot(p0, p1);
+    const t2 = t1 + knot(p1, p2);
+    const t3 = t2 + knot(p2, p3);
+    const pieces = Math.max(1, Math.ceil(Math.hypot(p2[0] - p1[0], p2[1] - p1[1]) / PIECE));
+    for (let k = 1; k <= pieces; k++) {
+      const t = t1 + ((t2 - t1) * k) / pieces;
+      const axis = (j: 0 | 1) => {
+        const a1 = ((t1 - t) / t1) * p0[j] + (t / t1) * p1[j];
+        const a2 = ((t2 - t) / (t2 - t1)) * p1[j] + ((t - t1) / (t2 - t1)) * p2[j];
+        const a3 = ((t3 - t) / (t3 - t2)) * p2[j] + ((t - t2) / (t3 - t2)) * p3[j];
+        const b1 = ((t2 - t) / t2) * a1 + (t / t2) * a2;
+        const b2 = ((t3 - t) / (t3 - t1)) * a2 + ((t - t1) / (t3 - t1)) * a3;
+        return ((t2 - t) / (t2 - t1)) * b1 + ((t - t1) / (t2 - t1)) * b2;
+      };
+      out.push([axis(0), axis(1), p1[2] + ((p2[2] - p1[2]) * k) / pieces]);
+    }
+  }
+  return out;
+}
+
 /**
  * The outline of a Stroke, as perfect-freehand draws it: a polygon around
- * where the pen went, thinner where it pressed lightly. `done` when the
- * pen has lifted, which caps its end. `ahead` are the predicted samples past
- * the last real one, drawn but never kept.
+ * where the pen went, thinner where it pressed lightly, through its samples'
+ * curve with their pressure eased. It is the same while the Stroke is written
+ * and once the pen lifts, so the handover shows no change. `ahead` are the
+ * predicted samples past the last real one, drawn but never kept.
  */
 export function strokeOutline(
   stroke: Stroke,
-  { done, ahead = [] }: { done: boolean; ahead?: readonly InkPoint[] },
+  { ahead = [] }: { ahead?: readonly InkPoint[] } = {},
 ): number[][] {
   const points = ahead.length > 0 ? [...stroke.points, ...ahead] : stroke.points;
-  return getStroke(points, {
+  return getStroke(throughSamples(smoothPressure(points)), {
     size: stroke.size,
     thinning: THINNING,
     smoothing: 0.5,
     streamline: 0.35,
     simulatePressure: pressureless(stroke.points),
-    last: done,
+    // Its end is where the pen is, never short of it.
+    last: true,
   });
 }
 
@@ -235,7 +289,7 @@ export function outlinePath(outline: readonly number[][]): string {
 
 /** A finished Stroke's SVG path data. */
 export function strokePath(stroke: Stroke): string {
-  return outlinePath(strokeOutline(stroke, { done: true }));
+  return outlinePath(strokeOutline(stroke));
 }
 
 /** The parts of a pointer event a pen sample is read from. */
@@ -270,6 +324,23 @@ export function penSamples(
     kept: (coalesced.length > 0 ? coalesced : [event]).map(point),
     ahead: predicted.map(point),
   };
+}
+
+/**
+ * Where the grid's lines fall in a viewport of `size`, in screen px from
+ * its top-left: every `GRID_SIZE` Canvas units, through the Canvas's origin.
+ */
+export function gridLines(
+  view: View,
+  size: { w: number; h: number },
+): { x: number[]; y: number[] } {
+  const cell = GRID_SIZE * view.zoom;
+  const along = (offset: number, length: number) => {
+    const out: number[] = [];
+    for (let at = offset - Math.floor(offset / cell) * cell; at < length; at += cell) out.push(at);
+    return out;
+  };
+  return { x: along(view.x, size.w), y: along(view.y, size.h) };
 }
 
 /** How faint the grid is at `zoom`: whole from 50%, fading out towards 25%. */

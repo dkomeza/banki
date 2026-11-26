@@ -186,6 +186,8 @@ const paper = () => screen.getByRole("img", { name: "Handwritten answer" });
 /** The layer that holds the Front and the Ink, under the view's transform. */
 const layer = () => document.querySelector<HTMLElement>("[data-canvas-layer]")!;
 const ink = () => document.querySelector<SVGSVGElement>("svg[data-ink]")!;
+/** The canvas the paper's grid is drawn on. */
+const grid = () => document.querySelector<HTMLCanvasElement>("canvas[data-grid]")!;
 const strokes = () => Array.from(ink().querySelectorAll("path"));
 const selected = () => front().querySelectorAll("[data-corner]").length === 4;
 const zoomIn = () => screen.getByRole<HTMLButtonElement>("button", { name: "Zoom in" });
@@ -289,18 +291,36 @@ const frame = () =>
 /** A pen sample at `x`, as getCoalescedEvents gives them. */
 const sample = (x: number) => ({ clientX: x, clientY: 300, pressure: 0.5 });
 
-/** A stand-in for the live canvas's context, which happy-dom has none of, recording what it draws. */
+/**
+ * A stand-in for the canvases' contexts, which happy-dom has none of,
+ * recording what the live canvas draws and the grid's lines.
+ */
 function liveContext() {
-  const live = { options: undefined as unknown, fills: [] as string[], cleared: 0 };
+  const live = {
+    options: undefined as unknown,
+    fills: [] as string[],
+    cleared: 0,
+    grid: [] as [number, number, number, number][],
+  };
   class FakePath {
     constructor(readonly d: string) {}
   }
   vi.stubGlobal("Path2D", FakePath);
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- getContext's overloads, stood in for by one
-  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(((
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(function (
+    this: HTMLCanvasElement,
     _type: string,
     options: unknown,
-  ) => {
+  ) {
+    if (this.hasAttribute("data-grid")) {
+      return {
+        fillStyle: "",
+        globalAlpha: 1,
+        setTransform: () => {},
+        clearRect: () => void (live.grid = []),
+        fillRect: (...rect: [number, number, number, number]) => void live.grid.push(rect),
+      };
+    }
     live.options = options;
     return {
       fillStyle: "",
@@ -308,7 +328,7 @@ function liveContext() {
       clearRect: () => void (live.cleared += 1),
       fill: (path: FakePath) => void live.fills.push(path.d),
     };
-  }) as never);
+  } as never);
   return live;
 }
 
@@ -904,11 +924,20 @@ describe("navigating the Canvas", () => {
     wheel({ deltaY: 50, shiftKey: true });
     expect(layer().style.transform).toBe("translate(-80px, -80px) scale(1)");
 
-    wheel({ deltaY: -310, ctrlKey: true, clientX: 200, clientY: 100 });
+    // A trackpad's pinch, in small steps, follows the fingers: 100 px of delta in all is e×.
+    for (let i = 0; i < 10; i++) {
+      wheel({ deltaY: (-100 * Math.LN2) / 10, ctrlKey: true, clientX: 200, clientY: 100 });
+    }
     expect(zoomReadout().textContent).toBe("200%");
     // The paper under the pointer stayed there: (280, 180) on the Canvas.
-    expect(layer().style.transform).toBe("translate(-360px, -260px) scale(2)");
-    wheel({ deltaY: 3100, metaKey: true, clientX: 200, clientY: 100 });
+    const v = parse(layer().style.transform);
+    expect(v.zoom).toBeCloseTo(2);
+    expect(v.x).toBeCloseTo(-360);
+    expect(v.y).toBeCloseTo(-260);
+    // A mouse wheel's notch steps by 1.25×.
+    wheel({ deltaY: 100, ctrlKey: true, clientX: 200, clientY: 100 });
+    expect(zoomReadout().textContent).toBe("160%");
+    for (let i = 0; i < 10; i++) wheel({ deltaY: 100, metaKey: true, clientX: 200, clientY: 100 });
     expect(zoomReadout().textContent).toBe("25%");
   });
 
@@ -944,22 +973,70 @@ describe("navigating the Canvas", () => {
   });
 
   test("the grid pans and scales with the Canvas, and fades below 50%", async () => {
+    const live = liveContext();
     layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
     renderScreen();
     await shown();
-    expect(paper().style.backgroundSize).toBe("24px 24px");
-    expect(paper().style.opacity).toBe("1");
+    /** Where the grid's upright lines were drawn, in device px (1 px to 1 here). */
+    const uprights = () => live.grid.filter(([, , w, h]) => h > w).map(([x]) => x);
+    expect(grid().dataset.cell).toBe("24");
+    expect(grid().style.opacity).toBe("1");
+    expect(uprights().slice(0, 3)).toEqual([0, 24, 48]);
 
+    // Panned by 30 px, the lines are drawn again 30 px on, in the same move as the layer.
     drag(paper(), "touch", [100, 100], [130, 110]);
-    expect(paper().style.backgroundPosition).toBe("30px 10px");
+    expect(layer().style.transform).toBe("translate(30px, 10px) scale(1)");
+    expect(uprights().slice(0, 3)).toEqual([6, 30, 54]);
     fireEvent.click(zoomOut());
     fireEvent.click(zoomOut());
-    expect(Number(paper().style.opacity)).toBe(1);
+    expect(Number(grid().style.opacity)).toBe(1);
     fireEvent.click(zoomOut());
     fireEvent.click(zoomOut());
     expect(zoomReadout().textContent).toBe("41%");
-    expect(Number(paper().style.opacity)).toBeLessThan(1);
-    expect(paper().style.backgroundSize).toMatch(/^9\.8\d*px/);
+    expect(Number(grid().style.opacity)).toBeLessThan(1);
+    expect(grid().dataset.cell).toMatch(/^9\.8\d*/);
+    // On whole device pixels, so no line shimmers between two.
+    expect(live.grid.every(([x, y]) => Number.isInteger(x) && Number.isInteger(y))).toBe(true);
+  });
+
+  test("while the view moves the compositor moves the layer, which is drawn afresh once it rests", async () => {
+    layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
+    renderScreen();
+    await shown();
+    expect(layer().style.willChange).toBe("");
+    drag(paper(), "touch", [100, 100], [160, 100]);
+    expect(layer().style.willChange).toBe("transform");
+    await act(() => new Promise((resolve) => setTimeout(resolve, 250)));
+    expect(layer().style.willChange).toBe("");
+  });
+
+  test("the corners stay the same size on screen as the view zooms, with no style worked out again below the layer", async () => {
+    layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
+    renderScreen();
+    await shown();
+    tap(front(), "touch");
+    const corners = () => Array.from(front().querySelectorAll<HTMLElement>("[data-corner]"));
+    expect(corners().map((c) => c.style.scale)).toEqual(["1", "1", "1", "1"]);
+    fireEvent.click(zoomIn());
+    expect(corners().map((c) => c.style.scale)).toEqual(["0.8", "0.8", "0.8", "0.8"]);
+    expect(layer().style.getPropertyValue("--zoom")).toBe("");
+  });
+
+  test("the Ink's SVG is as large as the Ink, so no browser clips what it draws", async () => {
+    layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
+    renderScreen();
+    await shown();
+    write(paper(), [
+      [300, 400, 0.5],
+      [500, 450, 0.5],
+    ]);
+    const [x, y, w, h] = (ink().getAttribute("viewBox") ?? "").split(" ").map(Number);
+    expect(x).toBeLessThanOrEqual(300);
+    expect(y).toBeLessThanOrEqual(400);
+    expect((x ?? 0) + (w ?? 0)).toBeGreaterThanOrEqual(500);
+    expect((y ?? 0) + (h ?? 0)).toBeGreaterThanOrEqual(450);
+    expect(ink().getAttribute("width")).toBe(String(w));
+    expect(ink().style.left).toBe(`${x}px`);
   });
 
   test("a long press shows no callout: the context menu is stopped", async () => {
