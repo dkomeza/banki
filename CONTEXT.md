@@ -105,8 +105,20 @@ How the User answers a Card in a Session: **self-rate** (reveal the Back, then g
 _Avoid_: study mode, review mode
 
 **Written answer**:
-What the User writes for a Card's Front in write-and-grade, typed or, later, handwritten: what the Grader compares with the Back. It is never stored with the Review. A half-written one is kept with the Session until its Card is rated.
+What the User writes for a Card's Front in write-and-grade, typed or handwritten as Ink: what the Grader compares with the Back. It is never stored with the Review. A half-written one is kept with the Session until its Card is rated.
 _Avoid_: answer (alone), response, attempt
+
+**Ink**:
+A handwritten Written answer as the User wrote it with a stylus: its Strokes, kept as lines, never as a picture, until it is sent to the Grader. Only a stylus writes Ink; a finger or a mouse never does. It belongs to one Card, and is gone once that Card is rated.
+_Avoid_: drawing, scribble, sketch
+
+**Stroke**:
+One line of Ink, from where the stylus touches the Canvas to where it lifts: the points it passed through, with the pen's pressure at each, and its thickness.
+_Avoid_: path, line (alone)
+
+**Canvas**:
+The paper a handwritten answer is written on, with the Card's Front placed on it: it has no edges, and the User pans and zooms it with a finger, two fingers or a mouse, never with the stylus, which only writes.
+_Avoid_: board, page, scratchpad
 
 **Review**:
 One Rating of one Card at one moment, with the time the User spent studying it, at most 2 minutes (time spent editing it, waiting for the Grader, or in its Follow-up chat, is left out), and whether it was self-rated or graded. It is **graded** when the User rated it with the Grader's suggested Rating on screen, whichever Rating they gave, and then keeps that suggested Rating and the Model that suggested it; otherwise it is **self-rated**, I don't know, a Rating given before the suggestion came and one after grading failed included. Reviews, with the Card's Progress resets among them, are the Card's history: they are what FSRS learns from (since the Card's newest Progress reset), and they outlive the Card. Undoing a Rating takes its Review back as if it had never been given.

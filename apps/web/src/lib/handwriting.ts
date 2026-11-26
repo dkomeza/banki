@@ -21,9 +21,6 @@ const FIT_SHARE = 0.6;
 /** Where a Card's Front starts on the canvas, its label above it. */
 export const FRONT_AT = { x: 12, y: 28 } as const;
 
-/** How much of the Front stays on the canvas, across and down, so it can be grabbed again. */
-const KEEP = 48;
-
 /** How wide the Front's text is at 100%: a column on a wide canvas, else the canvas less the tool bar. */
 export function frontWidth(canvasWidth: number): number {
   return canvasWidth >= 1000 ? 416 : Math.max(240, canvasWidth - 80);
@@ -76,21 +73,5 @@ export function scaleFromCorner(
     scale,
     x: sx < 0 ? from.x + from.width * (1 - by) : from.x,
     y: sy < 0 ? from.y + from.height * (1 - by) : from.y,
-  };
-}
-
-/**
- * Where the Front of `size` shows at `at`: past the canvas's edges only so
- * far that 48 px of it stays on the canvas to grab it again. The canvas
- * doesn't pan yet, so a Front taller than it is moved up to read the rest.
- */
-export function keepOnCanvas(
-  at: { x: number; y: number },
-  size: { w: number; h: number },
-  canvas: { w: number; h: number },
-): { x: number; y: number } {
-  return {
-    x: clamp(at.x, Math.min(0, KEEP - size.w), canvas.w - KEEP),
-    y: clamp(at.y, Math.min(0, KEEP - size.h), canvas.h - KEEP),
   };
 }
