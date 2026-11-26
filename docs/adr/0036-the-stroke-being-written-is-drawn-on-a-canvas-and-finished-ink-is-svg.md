@@ -14,3 +14,4 @@ Writing has to feel immediate, and the Canvas has to pan and zoom smoothly under
 - A Stroke's points are in the Canvas's own coordinates, not the screen's, and its thickness is in them too: zooming in shows Ink thicker.
 - Finishing a Stroke hands it from the canvas to the SVG layer within one frame, so the handover never shows as a flicker or a jump.
 - What the Grader gets (BAN-48) is drawn from the Strokes, not read back from either layer.
+- "Crisp at every zoom" needs one step past the transform. On the iPad, Ink scaled up by the transform alone showed pixelated: a browser that composites the layer draws it at its laid-out size and enlarges that picture. Once the view rests zoomed in, the layer is laid out at its zoom with CSS `zoom`, and the transform scales by what is left. The browser draws it once more then, never while the view moves.

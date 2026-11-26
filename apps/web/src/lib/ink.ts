@@ -47,9 +47,22 @@ export function clampZoom(zoom: number): number {
   return clamp(zoom, ZOOM.min, ZOOM.max);
 }
 
-/** The CSS transform of the layer that holds the Front and the Ink. */
-export function viewTransform(view: View): string {
-  return `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`;
+/**
+ * The CSS transform of the layer that holds the Front and the Ink, when the
+ * layer is laid out at `drawnAt` (its CSS `zoom`): the transform scales by
+ * the rest.
+ */
+export function viewTransform(view: View, drawnAt = 1): string {
+  return `translate(${view.x}px, ${view.y}px) scale(${view.zoom / drawnAt})`;
+}
+
+/**
+ * What the layer is laid out at once the view rests at `zoom`. Zoomed in, the
+ * browser draws it at its size on screen, never enlarging a picture drawn at
+ * 100%; at 100% and below, the transform alone scales it.
+ */
+export function restZoom(zoom: number): number {
+  return Math.max(1, zoom);
 }
 
 /** Where a point on screen (px from the viewport's top-left) is on the Canvas. */

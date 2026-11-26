@@ -186,6 +186,10 @@ const paper = () => screen.getByRole("img", { name: "Handwritten answer" });
 /** The layer that holds the Front and the Ink, under the view's transform. */
 const layer = () => document.querySelector<HTMLElement>("[data-canvas-layer]")!;
 const ink = () => document.querySelector<SVGSVGElement>("svg[data-ink]")!;
+/** Inside the layer: laid out at the zoom the view last rested at. */
+const drawn = () => document.querySelector<HTMLElement>("[data-canvas-zoom]")!;
+/** The Front's unseen copy at 100%, which measures it. */
+const measure = () => document.querySelector<HTMLElement>("[data-front-measure]")!;
 /** The canvas the paper's grid is drawn on. */
 const grid = () => document.querySelector<HTMLCanvasElement>("canvas[data-grid]")!;
 const strokes = () => Array.from(ink().querySelectorAll("path"));
@@ -193,6 +197,9 @@ const selected = () => front().querySelectorAll("[data-corner]").length === 4;
 const zoomIn = () => screen.getByRole<HTMLButtonElement>("button", { name: "Zoom in" });
 const zoomOut = () => screen.getByRole<HTMLButtonElement>("button", { name: "Zoom out" });
 const zoomReadout = () => screen.getByRole<HTMLButtonElement>("button", { name: /back to 100%/ });
+
+/** Lets the view rest, past the moment the layer is drawn afresh. */
+const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 250)));
 
 /** A layer's transform, read back. */
 function parse(transform: string): { x: number; y: number; zoom: number } {
@@ -686,8 +693,8 @@ describe("Ink", () => {
     expect(strokes()[0]?.getAttribute("fill")).toBe("currentColor");
     expect(strokes()[0]?.getAttribute("d")).toMatch(/^M.+Z$/);
     // In the layer that holds the Front, after it, so the Ink is drawn over it.
-    expect(svg.parentElement).toBe(layer());
-    expect(layer().lastElementChild).toBe(svg);
+    expect(svg.closest("[data-canvas-layer]")).toBe(layer());
+    expect(svg.parentElement?.lastElementChild).toBe(svg);
     expect(svg.compareDocumentPosition(front()) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
   });
 
@@ -1008,6 +1015,36 @@ describe("navigating the Canvas", () => {
     expect(layer().style.willChange).toBe("transform");
     await act(() => new Promise((resolve) => setTimeout(resolve, 250)));
     expect(layer().style.willChange).toBe("");
+  });
+
+  test("zoomed in, the resting layer is laid out at its zoom, so the Ink is drawn crisp, not enlarged", async () => {
+    vi.stubGlobal("CSS", { supports: (property: string) => property === "zoom" });
+    layOut({ canvas: { w: 800, h: 600 }, natural: 120 });
+    renderScreen();
+    await shown();
+    fireEvent.click(zoomIn());
+    fireEvent.click(zoomIn());
+    // While it moves, the transform scales the layer as it was drawn.
+    expect(drawn().style.zoom).toBe("");
+    expect(layer().style.transform).toBe("translate(-225px, -168.75px) scale(1.5625)");
+    await settle();
+    expect(drawn().style.zoom).toBe("1.5625");
+    expect(layer().style.transform).toBe("translate(-225px, -168.75px) scale(1)");
+    expect(layer().style.willChange).toBe("");
+    // The Front's measure stays at 100%.
+    expect(measure().style.zoom).toBe("0.64");
+    // Moving on, the transform scales from where it was laid out.
+    fireEvent.click(zoomIn());
+    expect(parse(layer().style.transform).zoom).toBeCloseTo(1.25);
+    expect(drawn().style.zoom).toBe("1.5625");
+    // At 100% and below, the transform alone scales it again.
+    fireEvent.click(zoomReadout());
+    fireEvent.click(zoomOut());
+    await settle();
+    expect(drawn().style.zoom).toBe("");
+    expect(measure().style.zoom).toBe("");
+    expect(layer().style.transform).toBe("translate(80px, 60px) scale(0.8)");
+    vi.unstubAllGlobals();
   });
 
   test("the corners stay the same size on screen as the view zooms, with no style worked out again below the layer", async () => {

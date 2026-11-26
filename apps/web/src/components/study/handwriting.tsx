@@ -41,6 +41,7 @@ import {
   panBy,
   penSamples,
   pinch,
+  restZoom,
   strokeOutline,
   strokePath,
   union,
@@ -68,7 +69,9 @@ import { cn } from "@/lib/utils";
 // Drawing follows ADR-0036: the Stroke being written goes on a viewport-sized
 // <canvas>, drawn in the frame its samples arrive in, with no React render;
 // when the pen lifts it becomes an SVG path in the layer that holds the
-// Front, and panning or zooming changes only that layer's transform. The
+// Front, and panning or zooming changes only that layer's transform. Once the
+// view rests zoomed in, the layer is laid out at its zoom (CSS `zoom`), so the
+// browser draws it crisp rather than enlarging what it drew at 100%. The
 // pointers' state lives in a ref, never in React state.
 //
 // The tools and Check wait for BAN-47 and BAN-106.
@@ -106,6 +109,7 @@ export function HandwritingShell({
   const [selected, setSelected] = useState(false);
   const [nav] = useState(() => new Navigator());
   const world = useRef<HTMLDivElement>(null);
+  const drawn = useRef<HTMLDivElement>(null);
   const grid = useRef<HTMLCanvasElement>(null);
   const live = useRef<HTMLCanvasElement>(null);
   const ink = useRef<SVGSVGElement>(null);
@@ -121,6 +125,7 @@ export function HandwritingShell({
     nav.attach({
       viewport,
       world: world.current,
+      drawn: drawn.current,
       grid: grid.current,
       live: live.current,
       ink: ink.current,
@@ -175,17 +180,20 @@ export function HandwritingShell({
         />
       </div>
       <div ref={world} data-canvas-layer className="absolute top-0 left-0 origin-top-left">
-        <FrontOnPaper
-          front={front}
-          canvas={canvas}
-          kept={kept}
-          onKeep={onKeep}
-          selected={selected}
-          onSelect={setSelected}
-          nav={nav}
-          onBox={(box) => void (frontBox.current = box)}
-        />
-        <Ink ref={ink} strokes={strokes} />
+        {/* Laid out at the zoom the view last rested at, which the layer's transform scales from. */}
+        <div ref={drawn} data-canvas-zoom className="absolute top-0 left-0">
+          <FrontOnPaper
+            front={front}
+            canvas={canvas}
+            kept={kept}
+            onKeep={onKeep}
+            selected={selected}
+            onSelect={setSelected}
+            nav={nav}
+            onBox={(box) => void (frontBox.current = box)}
+          />
+          <Ink ref={ink} strokes={strokes} />
+        </div>
       </div>
       <canvas
         ref={live}
@@ -245,6 +253,7 @@ const InkPath = memo(function InkPath({ stroke }: { stroke: Stroke }) {
 type Elements = {
   viewport: HTMLDivElement | null;
   world: HTMLDivElement | null;
+  drawn: HTMLDivElement | null;
   grid: HTMLCanvasElement | null;
   live: HTMLCanvasElement | null;
   ink: SVGSVGElement | null;
@@ -255,6 +264,16 @@ type Elements = {
 type Gesture =
   | { kind: "pan"; id: number; start: Point; last: Point; moved: boolean; onFront: boolean }
   | { kind: "pinch"; ids: [number, number]; from: [Point, Point]; view: View };
+
+/** Whether the browser lays an element out at its CSS `zoom`. */
+function cssZoom(): boolean {
+  return typeof CSS !== "undefined" && CSS.supports("zoom", "2");
+}
+
+/** The Front's measure stays at 100%, whatever the layer is laid out at. */
+function measureZoom(drawnAt: number): string {
+  return drawnAt === 1 ? "" : String(1 / drawnAt);
+}
 
 /** Whether a pen's pointer event writes: its tip, with neither its eraser end nor its barrel button. */
 function writes(event: PointerEvent): boolean {
@@ -274,6 +293,8 @@ function onChrome(event: PointerEvent): boolean {
  */
 class Navigator {
   view: View = START_VIEW;
+  /** The zoom the layer is laid out at (its CSS `zoom`): the one the view last rested at, zoomed in. */
+  drawnAt = 1;
   private el: Elements | null = null;
   private size = { w: 0, h: 0 };
   /** Every touch and mouse pointer that is down, where it is on screen, and whether on the controls. */
@@ -369,6 +390,7 @@ class Navigator {
     return () => this.listeners.delete(listener);
   };
   zoom = () => this.view.zoom;
+  drawnZoom = () => this.drawnAt;
 
   /**
    * Whether a pointer is a palm, or a finger a pinch has taken: the Front's
@@ -401,7 +423,7 @@ class Navigator {
     this.view = view;
     const world = this.el?.world;
     if (world != null) {
-      world.style.transform = viewTransform(view);
+      world.style.transform = viewTransform(view, this.drawnAt);
       // The corners stay the same size on screen at every zoom.
       for (const corner of world.querySelectorAll<HTMLElement>("[data-corner]")) {
         corner.style.scale = String(1 / view.zoom);
@@ -421,8 +443,30 @@ class Navigator {
     if (this.settle !== null) clearTimeout(this.settle);
     this.settle = setTimeout(() => {
       this.settle = null;
+      this.rest(world);
       world.style.willChange = "";
     }, SETTLE_MS);
+  }
+
+  /**
+   * Lays the layer out at the zoom the view rests at, zoomed in, with its
+   * transform scaling by what is left. A browser that composites the layer
+   * draws it at its laid-out size and enlarges that picture by the transform:
+   * on the iPad, Ink scaled up by the transform alone showed pixelated.
+   */
+  private rest(world: HTMLDivElement) {
+    const drawn = this.el?.drawn;
+    if (drawn == null || !cssZoom()) return;
+    const at = restZoom(this.view.zoom);
+    if (at === this.drawnAt) return;
+    this.drawnAt = at;
+    // In one go, so no frame shows the new layout under the old transform.
+    drawn.style.zoom = at === 1 ? "" : String(at);
+    for (const measure of drawn.querySelectorAll<HTMLElement>("[data-front-measure]")) {
+      measure.style.zoom = measureZoom(at);
+    }
+    world.style.transform = viewTransform(this.view, at);
+    for (const listener of this.listeners) listener();
   }
 
   /** The grid, drawn again where the view puts it: whole device pixels, so its lines never shimmer or jump. */
@@ -715,6 +759,7 @@ function FrontOnPaper({
   onBox: (box: Rect) => void;
 }) {
   const [measureEl, setMeasureEl] = useState<HTMLDivElement | null>(null);
+  const drawnAt = useSyncExternalStore(nav.subscribe, nav.drawnZoom, nav.drawnZoom);
   const measured = useSize(measureEl);
   const [at, setAt] = useState<{ x: number; y: number }>(FRONT_AT);
   // Its own scale once the User scales it; until then it starts as `startScale` says.
@@ -832,7 +877,7 @@ function FrontOnPaper({
         ref={setMeasureEl}
         data-front-measure
         aria-hidden
-        style={{ width: base }}
+        style={{ width: base, zoom: measureZoom(drawnAt) }}
         className={cn("pointer-events-none invisible absolute top-0 left-0 -z-10", FRONT_BOX)}
       >
         <CardText text={front} className={FRONT_TEXT} />

@@ -16,6 +16,7 @@ import {
   penSamples,
   pinch,
   pressureless,
+  restZoom,
   smoothPressure,
   strokeBounds,
   strokeOutline,
@@ -58,6 +59,21 @@ describe("the view", () => {
     expect(toCanvas(view, { x: 140, y: 80 })).toEqual({ x: 50, y: 50 });
     expect(toScreen(view, { x: 50, y: 50 })).toEqual({ x: 140, y: 80 });
     expect(viewTransform(view)).toBe("translate(40px, -20px) scale(2)");
+  });
+
+  test("zoomed in, the resting layer is laid out at its zoom, and the transform scales by 1", () => {
+    expect(restZoom(3)).toBe(3);
+    expect(viewTransform({ x: 40, y: -20, zoom: 3 }, restZoom(3))).toBe(
+      "translate(40px, -20px) scale(1)",
+    );
+    // Moving on from a rest at 2, the transform scales by what the zoom has added since.
+    expect(viewTransform({ x: 0, y: 0, zoom: 3 }, 2)).toBe("translate(0px, 0px) scale(1.5)");
+    // At 100% and below, the transform alone scales it.
+    expect(restZoom(1)).toBe(1);
+    expect(restZoom(0.5)).toBe(1);
+    expect(viewTransform({ x: 0, y: 0, zoom: 0.5 }, restZoom(0.5))).toBe(
+      "translate(0px, 0px) scale(0.5)",
+    );
   });
 
   test("pans by screen px, in every direction, with no edges", () => {
